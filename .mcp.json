@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "bash",
+      "args": [
+        ".claude/scripts/postgres-mcp.sh"
+      ]
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--viewport-size=1280x720"
+      ]
+    }
+  }
+}

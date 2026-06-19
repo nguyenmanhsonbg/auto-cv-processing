@@ -1,0 +1,65 @@
+- name: BACKEND_MUST
+  displayName: "Backend (Must)"
+  orderIndex: 0
+  positions:
+    - "Backend Developer"
+    - "Fullstack Developer"
+  subs:
+    - name: "Ngôn ngữ lập trình"
+      competencyType: "KNOWLEDGE"
+    - name: "OOP + Design Pattern"
+      competencyType: "KNOWLEDGE"
+    - name: "Thuật toán + Cấu trúc dữ liệu"
+      competencyType: "KNOWLEDGE"
+    - name: "Cơ sở dữ liệu"
+      competencyType: "KNOWLEDGE"
+    - name: "Đa luồng"
+      competencyType: "KNOWLEDGE"
+    - name: "Tech stack"
+      competencyType: "KNOWLEDGE"
+    - name: "Docker"
+      competencyType: "KNOWLEDGE"
+    - name: "Git/SVN"
+      competencyType: "KNOWLEDGE"
+    - name: "Microservices"
+      competencyType: "KNOWLEDGE"
+    - name: "Lập trình an toàn"
+      competencyType: "KNOWLEDGE"
+
+- name: BACKEND_SHOULD
+  displayName: "Backend (Should)"
+  orderIndex: 1
+  positions:
+    - "Backend Developer"
+    - "Fullstack Developer"
+  subs:
+    - name: "Agile/Scrum"
+      competencyType: "KNOWLEDGE"
+    - name: "Unit test"
+      competencyType: "KNOWLEDGE"
+    - name: "Mạng máy tính"
+      competencyType: "KNOWLEDGE"
+    - name: "DevOps"
+      competencyType: "KNOWLEDGE"
+
+- name: SOFT_SKILL
+  displayName: "Soft Skills"
+  orderIndex: 2
+  subs:
+    - name: "Giao tiếp"
+      competencyType: "SKILL"
+    - name: "Thuyết trình"
+      competencyType: "SKILL"
+    - name: "Báo cáo"
+      competencyType: "SKILL"
+    - name: "Thuyết phục"
+      competencyType: "SKILL"
+
+- name: PERSONALITY
+  displayName: "Personality"
+  orderIndex: 3
+  subs:
+    - name: "Phẩm chất"
+      competencyType: "PERSONALITY"
+    - name: "Động lực"
+      competencyType: "PERSONALITY"

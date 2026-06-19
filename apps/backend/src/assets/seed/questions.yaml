@@ -1,0 +1,4645 @@
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — Ngôn ngữ lập trình
+# ─────────────────────────────────────────────────────────
+
+- code: "Q001"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Biên dịch (compiled) và thông dịch (interpreted) khác nhau thế nào? Cho ví dụ mỗi loại.
+  expectedAnswer: |-
+    Compiled: mã nguồn → binary trước khi chạy (C, Go, Java bytecode).
+    Interpreted: thông dịch từng dòng lúc runtime (Python, JS).
+    Trade-off: compiled nhanh hơn khi chạy, interpreted linh hoạt hơn khi phát triển.
+  scoringGuide: &scoringBase |-
+    1: Không trả lời được hoặc hiểu sai.
+    2: Giải thích được lý thuyết, chưa có kinh nghiệm thực tế.
+    3: Đã áp dụng trong dự án thực tế, có ví dụ cụ thể.
+    4: Hiểu sâu, tối ưu được, mentor được người khác.
+
+- code: "Q002"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Garbage Collection là gì? Mô tả cơ chế GC trong ngôn ngữ bạn đang dùng.
+  expectedAnswer: |-
+    GC tự động thu hồi bộ nhớ heap không còn tham chiếu.
+    JVM: Mark-and-Sweep, Generational GC (Young/Old gen).
+    Go: tri-color mark-sweep concurrent.
+    GC pause time ảnh hưởng latency — cần hiểu để tune.
+  scoringGuide: *scoringBase
+
+- code: "Q003"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Interface và abstract class khác nhau thế nào? Khi nào dùng cái nào?
+  expectedAnswer: |-
+    Interface: contract thuần túy, không có state/implementation (Java 8+ có default method).
+    Abstract class: có thể có state và partial implementation.
+    Dùng interface khi định nghĩa behavior contract cho nhiều loại khác nhau; abstract class khi muốn share code và state.
+  scoringGuide: *scoringBase
+
+- code: "Q004"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Stack memory và heap memory khác nhau thế nào? Biến local và object lưu ở đâu?
+  expectedAnswer: |-
+    Stack: LIFO, tự động deallocate khi function return, lưu local variables và call frames.
+    Heap: dynamic allocation, GC quản lý, lưu objects.
+    Stack nhanh hơn nhưng giới hạn size.
+    Biến local primitive → stack; reference variable → stack nhưng trỏ tới object trên heap.
+  scoringGuide: *scoringBase
+
+- code: "Q005"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn viết hàm đọc file lớn 1GB. Nếu đọc toàn bộ vào memory thì sao? Bạn xử lý thế nào bằng stream/buffer?
+  expectedAnswer: |-
+    Đọc toàn bộ 1GB → OOM error.
+    Giải pháp: dùng stream đọc từng chunk (ví dụ 64KB).
+    Java: BufferedReader; Go: bufio.Scanner; Node: fs.createReadStream.
+    Xử lý từng line/chunk, không giữ toàn bộ data trong memory.
+  scoringGuide: *scoringBase
+
+- code: "Q006"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần viết utility function dùng được với cả int[], String[] và float[] — không duplicate code. Bạn dùng generic thế nào?
+  expectedAnswer: |-
+    Dùng Generic type parameter: `<T> void process(T[] arr)` (Java) hoặc `func process[T any](arr []T)` (Go).
+    Type bounds khi cần constraint: `<T extends Comparable<T>>`.
+    Giúp type-safe tại compile time, tránh casting, không duplicate logic.
+  scoringGuide: *scoringBase
+
+- code: "Q007"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Module A throw RuntimeException, module B throw checked IOException — khi cần xử lý cả 2 ở 1 chỗ, bạn viết code thế nào?
+  expectedAnswer: |-
+    Dùng multi-catch: `catch (RuntimeException | IOException e)`.
+    Hoặc wrap IOException thành unchecked custom exception.
+    Best practice: định nghĩa custom exception hierarchy rõ ràng (AppException → DatabaseException, IoException) để caller xử lý nhất quán.
+  scoringGuide: *scoringBase
+
+- code: "Q008"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Đoạn code dùng biến đếm trong closure bị sai kết quả trong vòng lặp. Giải thích tại sao và fix thế nào.
+  expectedAnswer: |-
+    Classic closure-over-loop-variable bug: tất cả closure capture cùng 1 reference đến biến i.
+    Fix: (1) tạo local copy bên trong loop `let j = i`, (2) dùng IIFE, (3) dùng block scope `let` thay `var` (JS).
+    Trong Go: pass loop var làm argument, không capture.
+  scoringGuide: *scoringBase
+
+- code: "Q009"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Team cần xây dựng internal SDK cho 5 team khác nhau dùng với use case khác nhau. Bạn thiết kế API và versioning strategy thế nào để đảm bảo backward compatibility?
+  expectedAnswer: |-
+    Thiết kế: stable public API surface, deprecation policy trước khi remove.
+    Versioning: semantic versioning, major = breaking change.
+    Backward compat: không remove/rename public method, chỉ add.
+    Release notes + migration guide.
+    Feature flags cho opt-in breaking changes.
+    Tránh leak internal types ra public API.
+  scoringGuide: *scoringBase
+
+- code: "Q010"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hệ thống đang dùng Java 8, cần migrate lên Java 21 với zero-downtime. Bạn lên kế hoạch và risk mitigation thế nào?
+  expectedAnswer: |-
+    Bước: (1) Audit dependencies compatibility, (2) Enable warnings on deprecated APIs, (3) Fix compilation errors (module system, removed APIs), (4) Update test suite, (5) Canary deployment.
+    Risk: module encapsulation (--add-opens), GC behavior change, removed APIs.
+    Rollback plan: blue-green deployment.
+  scoringGuide: *scoringBase
+
+- code: "Q011"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho đoạn code xử lý business logic 500 dòng không có test. Bạn refactor từng bước thế nào mà không break behavior?
+  expectedAnswer: |-
+    Bước: (1) Characterization tests — viết test mô tả behavior hiện tại dù chưa hiểu ý nghĩa, (2) Extract method nhỏ, (3) Identify seams để inject dependencies, (4) Thêm unit test cho từng extracted method, (5) Refactor business logic.
+    Không thay đổi behavior trước khi có test cover.
+  scoringGuide: *scoringBase
+
+- code: "Q012"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn phát hiện hot path trong app bị gọi 1 triệu lần/ngày dùng reflection, gây chậm. Bạn profile và optimize thế nào?
+  expectedAnswer: |-
+    Profile: async-profiler/JProfiler xác nhận reflection là bottleneck.
+    Optimize: (1) Cache Method objects sau lần đầu lookup, (2) Generate code với ByteBuddy/cglib thay reflection, (3) Chuyển sang direct method call nếu có thể.
+    Measure: benchmark trước/sau với JMH.
+    Reflection 10-100x chậm hơn direct call.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — OOP + Design Pattern
+# ─────────────────────────────────────────────────────────
+
+- code: "Q013"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    4 tính chất của OOP là gì? Giải thích từng tính chất kèm ví dụ thực tế.
+  expectedAnswer: |-
+    Encapsulation: ẩn nội bộ, expose qua interface (private field + getter/setter).
+    Inheritance: tái dùng code qua extends.
+    Polymorphism: cùng interface, behavior khác nhau tùy subtype.
+    Abstraction: ẩn complexity, chỉ expose cái cần thiết.
+  scoringGuide: *scoringBase
+
+- code: "Q014"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Singleton pattern là gì? Viết ví dụ. Thread-safe Singleton implement thế nào?
+  expectedAnswer: |-
+    Singleton: đảm bảo chỉ có 1 instance.
+    Thread-safe: double-checked locking (volatile + synchronized), hoặc dùng static inner class (Bill Pugh), hoặc enum singleton (Java).
+    Eager initialization nếu init cost thấp.
+  scoringGuide: *scoringBase
+
+- code: "Q015"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Dependency Injection là gì? Cho ví dụ không dùng DI và có dùng DI — sự khác biệt?
+  expectedAnswer: |-
+    DI: inject dependencies từ bên ngoài thay vì tự tạo.
+    Không DI: `new EmailService()` bên trong constructor → tight coupling, khó test.
+    Có DI: nhận EmailService qua constructor → loose coupling, dễ mock trong test.
+    Framework: Spring, NestJS tự động wire dependencies.
+  scoringGuide: *scoringBase
+
+- code: "Q016"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Factory Method và Abstract Factory khác nhau thế nào? Khi nào dùng cái nào?
+  expectedAnswer: |-
+    Factory Method: 1 method tạo 1 loại object, subclass override để chọn loại cụ thể.
+    Abstract Factory: tạo một family of related objects (ví dụ: MacButton + MacDialog vs WindowsButton + WindowsDialog).
+    Dùng Factory Method khi cần defer instantiation; Abstract Factory khi cần đảm bảo product family consistent.
+  scoringGuide: *scoringBase
+
+- code: "Q017"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần tạo database connection — chỉ cho phép 1 instance duy nhất trong toàn app. Bạn implement Singleton thế nào trong ngôn ngữ của bạn?
+  expectedAnswer: |-
+    Java: static inner class hoặc enum.
+    Go: sync.Once.
+    TypeScript/Node: module-level export (module cache đảm bảo 1 instance).
+    Key: lazy initialization + thread safety.
+    Trong context DI framework (Spring/NestJS): scope = singleton là default — không cần implement thủ công.
+  scoringGuide: *scoringBase
+
+- code: "Q018"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn nhận task tích hợp với VNPay SDK. Sau này có thể đổi sang MoMo mà không sửa business code. Bạn viết Adapter/interface thế nào?
+  expectedAnswer: |-
+    Định nghĩa interface `PaymentGateway` với các method: `createPayment(order)`, `verifyCallback(params)`.
+    VNPayAdapter và MoMoAdapter implement interface đó.
+    Business code chỉ phụ thuộc vào interface, không biết implementation cụ thể.
+    Inject qua constructor/DI.
+  scoringGuide: *scoringBase
+
+- code: "Q019"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    UserService cần gửi email sau khi user register. Bạn implement bằng Observer pattern thế nào để UserService không phụ thuộc trực tiếp vào EmailService?
+  expectedAnswer: |-
+    EventEmitter: UserService emit "user.registered" event.
+    EmailService subscribe và handle.
+    Hoặc dùng message broker (Kafka/RabbitMQ).
+    Lợi ích: UserService không import EmailService.
+    Thêm handler mới (analytics, notification) không sửa UserService.
+    Nhược: harder to trace flow.
+  scoringGuide: *scoringBase
+
+- code: "Q020"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho đoạn code: class UserManager vừa validate input, vừa save DB, vừa send email. Bạn refactor thế nào cho đúng Single Responsibility?
+  expectedAnswer: |-
+    Tách thành: UserValidator (validate input), UserRepository (save DB), EmailService (send email), UserService (orchestrate).
+    Mỗi class có 1 lý do để thay đổi.
+    UserService gọi các service khác theo flow, không có logic riêng.
+    Kết quả: dễ test riêng từng phần.
+  scoringGuide: *scoringBase
+
+- code: "Q021"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Thiết kế plugin system: các team khác có thể tự thêm feature vào platform mà không sửa core code. Bạn định nghĩa interface, loading mechanism và isolation thế nào?
+  expectedAnswer: |-
+    Plugin interface với lifecycle hooks: `register()`, `init()`, `destroy()`.
+    Plugin manifest (name, version, dependencies).
+    Dynamic loading: Java ServiceLoader hoặc class loading, Go: build tags hoặc hashicorp/go-plugin.
+    Isolation: separate classloader hoặc process.
+    Versioning API để backward compat.
+    Registry để discover và wire plugins.
+  scoringGuide: *scoringBase
+
+- code: "Q022"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Codebase 200k dòng, không test, business logic lẫn infrastructure. Bạn lên kế hoạch refactor về Clean Architecture theo từng giai đoạn thế nào?
+  expectedAnswer: |-
+    Phase 1: identify bounded contexts, vẽ dependency diagram.
+    Phase 2: tách domain entities khỏi framework (xóa annotations DB khỏi domain).
+    Phase 3: introduce use cases/interactors.
+    Phase 4: invert dependencies (domain không depend infrastructure).
+    Mỗi phase có characterization test trước để giữ behavior.
+    Strangler fig pattern — không rewrite toàn bộ.
+  scoringGuide: *scoringBase
+
+- code: "Q023"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hệ thống dùng Singleton database connection, nhưng trong unit test không thể mock được. Bạn refactor thế nào để testable?
+  expectedAnswer: |-
+    Extract interface `DatabaseConnection`.
+    Singleton implement interface đó.
+    Inject interface qua constructor (DI) thay vì gọi static method.
+    Test dùng mock implementation.
+    Nếu legacy code dùng static method: introduce seam bằng wrapper class.
+  scoringGuide: *scoringBase
+
+- code: "Q024"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần thiết kế event system: khi user đăng ký, trigger 5 handler khác nhau (email, analytics, notifications...). Bạn thiết kế thế nào để dễ thêm handler mới mà không sửa registration flow?
+  expectedAnswer: |-
+    EventBus/EventEmitter pattern: registration code publish "UserRegistered" domain event.
+    Handlers subscribe và react.
+    Implementations: in-process synchronous (simple), in-process async queue, message broker (Kafka) cho distributed.
+    Key: registration code không biết có bao nhiêu handler.
+    Thêm handler = thêm subscriber, không sửa publisher.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — Thuật toán + Cấu trúc dữ liệu
+# ─────────────────────────────────────────────────────────
+
+- code: "Q025"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Mô tả QuickSort: cách hoạt động và độ phức tạp best/average/worst case là bao nhiêu?
+  expectedAnswer: |-
+    QuickSort: chọn pivot, partition array (< pivot trái, > pivot phải), đệ quy hai phần.
+    Best/Average: O(n log n).
+    Worst: O(n²) khi pivot là min/max (đã sorted array).
+    Fix worst case: random pivot, median-of-3.
+    In-place, space O(log n) cho call stack.
+  scoringGuide: *scoringBase
+
+- code: "Q026"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Binary Search Tree là gì? Mô tả thao tác insert và search.
+  expectedAnswer: |-
+    BST: node trái < node hiện tại < node phải.
+    Search O(log n) balanced, O(n) worst case (degenerate).
+    Insert: traverse theo quy tắc BST, thêm vào leaf.
+    Balanced BST: AVL, Red-Black tree để đảm bảo O(log n) luôn.
+  scoringGuide: *scoringBase
+
+- code: "Q027"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    HashMap hoạt động thế nào nội bộ? Khi hai key có cùng hash thì xử lý thế nào?
+  expectedAnswer: |-
+    HashMap: hash(key) → bucket index → lưu entry.
+    Collision: separate chaining (LinkedList/TreeNode tại mỗi bucket) hoặc open addressing (linear/quadratic probing).
+    Java HashMap: dùng linked list, khi chain dài > 8 → convert sang TreeNode O(log n).
+    Load factor 0.75 để balance memory và performance.
+  scoringGuide: *scoringBase
+
+- code: "Q028"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Stack và Queue khác nhau thế nào? Cho ví dụ ứng dụng thực tế mỗi loại.
+  expectedAnswer: |-
+    Stack: LIFO — function call stack, undo/redo, parsing expressions (brackets check), DFS.
+    Queue: FIFO — message queue, BFS, task scheduling, print queue.
+    Deque: double-ended, có thể dùng như cả hai.
+  scoringGuide: *scoringBase
+
+- code: "Q029"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho mảng [3,1,4,1,5,9,2,6] — viết hàm tìm 2 số có tổng = 10. Bạn giải thế nào? Độ phức tạp?
+  expectedAnswer: |-
+    Brute force O(n²): 2 vòng lặp lồng nhau.
+    Optimal O(n): dùng HashSet, với mỗi phần tử x check xem (10-x) có trong set không.
+    O(n) time, O(n) space.
+    Nếu array đã sorted: two-pointer O(n) time O(1) space.
+  scoringGuide: *scoringBase
+
+- code: "Q030"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần cache kết quả của 100 API call gần nhất. Khi cache đầy, phần tử cũ nhất bị xóa. Bạn dùng cấu trúc dữ liệu gì?
+  expectedAnswer: |-
+    LRU Cache: HashMap + DoublyLinkedList.
+    HashMap: O(1) lookup, LinkedList maintain insertion order.
+    Khi đầy xóa tail (oldest).
+    Khi access: move to head.
+    Java: LinkedHashMap với accessOrder=true.
+    Redis: key với TTL hoặc volatile-lru eviction policy.
+  scoringGuide: *scoringBase
+
+- code: "Q031"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hàm lấy user từ DB đang được gọi 1,000 lần/giây với cùng userId. Bạn tối ưu thế nào?
+  expectedAnswer: |-
+    In-memory cache với TTL.
+    Nếu multi-instance: Redis cache.
+    Cache-aside pattern: check cache → hit? return; miss → query DB → store in cache → return.
+    Invalidation: khi user update.
+    Thundering herd: mutex/semaphore cho đợt cache miss đầu tiên.
+    Cache stampede protection: probabilistic early expiration.
+  scoringGuide: *scoringBase
+
+- code: "Q032"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho danh sách sản phẩm cần sort theo: giá tăng dần, nếu giá bằng nhau thì sort theo tên. Bạn implement thế nào?
+  expectedAnswer: |-
+    Comparator chained: `Comparator.comparingDouble(Product::getPrice).thenComparing(Product::getName)` (Java).
+    Python: `sorted(products, key=lambda p: (p.price, p.name))`.
+    Go: `sort.Slice` với multi-key comparison.
+    Stable sort đảm bảo thứ tự relative khi keys bằng nhau.
+  scoringGuide: *scoringBase
+
+- code: "Q033"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Rate limit: 1 user tối đa 100 request/phút, distributed trên 10 server, không có shared memory. Bạn thiết kế thuật toán (Sliding Window, Token Bucket, Leaky Bucket) và data structure thế nào?
+  expectedAnswer: |-
+    Token Bucket: tokens refill theo rate, consume per request.
+    Sliding Window Counter: Redis ZSET với timestamp members, count members trong window.
+    Distributed: Redis atomic Lua script cho consistency.
+    Token Bucket ở Redis: incr + expire.
+    Trade-off: Fixed window (simple, thundering at edge) vs Sliding Window (smooth, more memory).
+    Race condition: Lua script hoặc Redis transaction.
+  scoringGuide: *scoringBase
+
+- code: "Q034"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Real-time leaderboard cho 100 triệu users cập nhật liên tục, query top 100 dưới 50ms. Bạn thiết kế toàn bộ architecture thế nào?
+  expectedAnswer: |-
+    Redis Sorted Set: O(log n) update, O(log n + k) range query.
+    Sharding by user_id mod N.
+    Write: ZADD user:{id} score.
+    Read top 100: ZREVRANGE leaderboard 0 99.
+    Full rank cho 1 user: ZREVRANK.
+    Persistence: DB cho durability, Redis cho speed.
+    Near real-time vs eventual consistency trade-off.
+  scoringGuide: *scoringBase
+
+- code: "Q035"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho bài toán: tìm tất cả path từ node A đến node B trong đồ thị có hướng có thể có chu trình. Bạn giải thế nào và xử lý chu trình thế nào?
+  expectedAnswer: |-
+    DFS với visited set để phát hiện cycle.
+    Khi đến B: record current path.
+    Backtrack: remove current node khỏi visited khi backtrack.
+    Space O(V+E) cho adjacency list.
+    Time: worst O(2^V) vì tất cả paths.
+    Với cycle: track "in current path" (gray) vs "fully explored" (black).
+    Tránh re-visit node đang trong current path.
+  scoringGuide: *scoringBase
+
+- code: "Q036"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Tìm kiếm pattern trong chuỗi văn bản 1GB. Bạn chọn thuật toán nào (KMP, Rabin-Karp, Boyer-Moore) và tại sao?
+  expectedAnswer: |-
+    Boyer-Moore: O(n/m) best case khi pattern không match thường xuyên (best for large texts).
+    KMP: O(n+m) worst case, good for small alphabets.
+    Rabin-Karp: O(n+m) average, good for multiple pattern search simultaneously.
+    Cho 1GB: stream processing + Boyer-Moore.
+    Nếu nhiều pattern: Aho-Corasick (O(n + m + matches)).
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — Cơ sở dữ liệu
+# ─────────────────────────────────────────────────────────
+
+- code: "Q037"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Database index hoạt động thế nào? Tại sao index tăng tốc đọc nhưng làm chậm ghi?
+  expectedAnswer: |-
+    Index: cấu trúc dữ liệu phụ (B-tree, Hash) lưu con trỏ đến rows.
+    Read nhanh hơn vì không cần full scan.
+    Ghi chậm hơn vì mỗi INSERT/UPDATE/DELETE phải cập nhật index.
+    Index trên nhiều cột tốn thêm storage.
+    Trade-off: index phù hợp cho read-heavy columns.
+  scoringGuide: *scoringBase
+
+- code: "Q038"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho bảng users(id, name, email) và orders(id, user_id, total). Viết SQL lấy danh sách user và tổng tiền đặt hàng của từng user, chỉ lấy user có tổng > 1,000,000.
+  expectedAnswer: |-
+    SELECT u.id, u.name, SUM(o.total) as total_amount FROM users u LEFT JOIN orders o ON u.id = o.user_id GROUP BY u.id, u.name HAVING SUM(o.total) > 1000000.
+    HAVING dùng sau GROUP BY (không dùng WHERE cho aggregate).
+    LEFT JOIN để lấy cả user chưa có order.
+  scoringGuide: *scoringBase
+
+- code: "Q039"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    ACID trong transaction là gì? Giải thích từng tính chất bằng ví dụ cụ thể.
+  expectedAnswer: |-
+    Atomicity: tất cả hoặc không gì (chuyển tiền: trừ A + cộng B).
+    Consistency: dữ liệu luôn valid (balance >= 0).
+    Isolation: transaction song song không thấy dữ liệu trung gian của nhau.
+    Durability: đã commit thì persist dù server crash (WAL log).
+    Isolation levels: READ_UNCOMMITTED → SERIALIZABLE.
+  scoringGuide: *scoringBase
+
+- code: "Q040"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    MongoDB và PostgreSQL — khi nào bạn chọn cái nào? Cho ví dụ bài toán phù hợp mỗi loại.
+  expectedAnswer: |-
+    PostgreSQL: schema cố định, cần ACID, relational data, complex queries (banking, e-commerce).
+    MongoDB: schema linh hoạt, document-oriented, nested data, horizontal scale đơn giản (CMS, catalog, events).
+    Không nên chọn MongoDB chỉ vì "NoSQL nhanh hơn" — depends on use case và query patterns.
+  scoringGuide: *scoringBase
+
+- code: "Q041"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bảng users có 10 triệu bản ghi. Query "SELECT * FROM users WHERE email = ?" mất 2 giây. Bạn thêm index thế nào và verify hiệu quả bằng EXPLAIN?
+  expectedAnswer: |-
+    CREATE INDEX idx_users_email ON users(email).
+    EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'test@example.com'.
+    Trước: Seq Scan, cost cao.
+    Sau: Index Scan, cost giảm mạnh.
+    Verify: actual time giảm từ 2s xuống ms.
+    Unique index nếu email unique.
+    Partial index nếu chỉ query subset.
+  scoringGuide: *scoringBase
+
+- code: "Q042"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần lấy danh sách đơn hàng kèm thông tin user tương ứng. Viết câu SQL JOIN đúng và giải thích tại sao dùng LEFT JOIN hay INNER JOIN.
+  expectedAnswer: |-
+    INNER JOIN: chỉ lấy orders có user tương ứng.
+    LEFT JOIN: lấy tất cả orders kể cả khi user bị xóa (orphaned records).
+    Thực tế: với foreign key constraint thì INNER JOIN đủ.
+    Không dùng SELECT * trong production — specify columns cần thiết để tránh overfetch.
+  scoringGuide: *scoringBase
+
+- code: "Q043"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho collection orders trong MongoDB có 500k bản ghi. Viết aggregation pipeline thống kê tổng doanh thu theo ngày trong tuần vừa qua.
+  expectedAnswer: |-
+    [$match: {createdAt: {$gte: lastWeek}}, $group: {_id: {$dateToString: {format: "%Y-%m-%d", date: "$createdAt"}}, total: {$sum: "$amount"}}, $sort: {_id: 1}].
+    Đảm bảo index trên createdAt cho $match hiệu quả.
+    Dùng $dateToString để group theo ngày.
+  scoringGuide: *scoringBase
+
+- code: "Q044"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đang implement tính năng chuyển tiền: trừ tiền tài khoản A và cộng vào tài khoản B phải xảy ra cùng nhau hoặc không gì cả. Viết code dùng transaction thế nào?
+  expectedAnswer: |-
+    BEGIN TRANSACTION; UPDATE accounts SET balance = balance - 100 WHERE id = A AND balance >= 100; UPDATE accounts SET balance = balance + 100 WHERE id = B; COMMIT (hoặc ROLLBACK nếu lỗi).
+    Trong ORM: EntityManager.transaction().
+    Lock: SELECT FOR UPDATE để tránh race condition.
+    Check affected rows sau mỗi UPDATE.
+  scoringGuide: *scoringBase
+
+- code: "Q045"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bảng orders 50 triệu bản ghi, query "WHERE user_id = ? AND status = 'PENDING' ORDER BY created_at DESC" mất 5 giây dù đã có index. Bạn phân tích execution plan và đề xuất strategy tối ưu thế nào?
+  expectedAnswer: |-
+    EXPLAIN ANALYZE: check index usage, rows estimated vs actual, index selectivity.
+    Composite index (user_id, status, created_at DESC) covering index.
+    Partial index: WHERE status = 'PENDING'.
+    Check statistics: ANALYZE table.
+    Index bloat: REINDEX.
+    Nếu vẫn chậm: partitioning theo user_id hoặc created_at, hoặc denormalize.
+  scoringGuide: *scoringBase
+
+- code: "Q046"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hệ thống banking có 2 tỷ bản ghi transactions, query báo cáo tháng timeout 120 giây. Đề xuất partitioning strategy, archiving approach và reporting architecture.
+  expectedAnswer: |-
+    Partition by created_at (range partition theo tháng/quý).
+    Archive old partitions to cold storage (S3/Azure Blob).
+    Reporting: read replica, pre-aggregate với summary tables (daily/monthly rollup).
+    OLAP: materialized views hoặc separate data warehouse (BigQuery, Redshift).
+    Streaming: event-driven pipeline để update summary tables real-time.
+  scoringGuide: *scoringBase
+
+- code: "Q047"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần migrate 500 triệu bản ghi từ MySQL sang PostgreSQL trong khi production vẫn đang chạy. Lên kế hoạch migration không downtime thế nào?
+  expectedAnswer: |-
+    Phase 1: dual-write — app ghi vào cả 2 DB, đọc từ MySQL.
+    Phase 2: backfill — migrate historical data với batching (100k rows/batch), verify checksums.
+    Phase 3: flip read sang PostgreSQL.
+    Phase 4: stop write to MySQL.
+    Rollback: giữ MySQL sync cho đến khi confident.
+    Schema differences: test transformation carefully.
+  scoringGuide: *scoringBase
+
+- code: "Q048"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hệ thống đặt vé concert (1,000 vé, 100,000 user cùng lúc): bạn thiết kế locking strategy thế nào để đảm bảo không oversell mà vẫn performant?
+  expectedAnswer: |-
+    Optimistic locking: version column, UPDATE SET remaining = remaining - 1, version = version + 1 WHERE version = ? AND remaining > 0.
+    Retry on conflict.
+    Redis atomic: DECR nếu > 0.
+    Queue-based: serialize requests qua queue, 1 worker xử lý.
+    Database pessimistic: SELECT FOR UPDATE.
+    Optimistic + Redis sẽ tốt nhất cho read-heavy, burst traffic.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — Đa luồng
+# ─────────────────────────────────────────────────────────
+
+- code: "Q049"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Mutex là gì? Mô tả cơ chế hoạt động và cho ví dụ khi cần dùng.
+  expectedAnswer: |-
+    Mutex (Mutual Exclusion): lock cho phép chỉ 1 goroutine/thread truy cập critical section.
+    Lock trước khi vào, Unlock sau khi ra.
+    Ví dụ: increment shared counter, update shared map.
+    Dùng defer unlock để đảm bảo luôn unlock.
+    Mutex không thể lock lại (deadlock nếu cùng goroutine lock 2 lần).
+  scoringGuide: *scoringBase
+
+- code: "Q050"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Race condition là gì? Cho đoạn code bị race condition và cách fix.
+  expectedAnswer: |-
+    Race condition: 2 goroutine/thread đọc-modify-write biến chung → kết quả không deterministic.
+    Code bị lỗi: `count++` từ nhiều goroutine.
+    Fix: sync.Mutex, atomic operations (sync/atomic), channel.
+    Detect: Go race detector `go test -race`.
+    Java: synchronized, AtomicInteger.
+  scoringGuide: *scoringBase
+
+- code: "Q051"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    WaitGroup/CountDownLatch dùng để làm gì? Cho ví dụ tình huống thực tế.
+  expectedAnswer: |-
+    WaitGroup (Go): Add(n) → launch n goroutines, mỗi goroutine Done() khi xong, main goroutine Wait() đến khi tất cả Done.
+    Ví dụ: gọi 5 external API song song, chờ tất cả xong.
+    CountDownLatch (Java): tương tự — countdown từ n về 0, await() block cho đến 0.
+  scoringGuide: *scoringBase
+
+- code: "Q052"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Thread và process khác nhau thế nào? Goroutine (Go) / coroutine khác thread OS ở điểm gì?
+  expectedAnswer: |-
+    Process: isolated memory space.
+    Thread: share memory space với các thread khác trong cùng process.
+    Goroutine: lightweight (2KB stack), managed by Go runtime, M:N scheduling (nhiều goroutine trên ít OS thread).
+    Tạo 1 triệu goroutine OK; 1 triệu OS thread → OOM.
+    Context switch goroutine nhanh hơn OS thread.
+  scoringGuide: *scoringBase
+
+- code: "Q053"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần gọi 10 external API đồng thời và chờ tất cả xong. Bạn viết code thế nào dùng goroutine/thread?
+  expectedAnswer: |-
+    Go: WaitGroup + goroutine fan-out.
+    Channel để collect results.
+    Error handling: errgroup package.
+    Java: CompletableFuture.allOf().
+    Python: asyncio.gather().
+    Key: set timeout context để không chờ mãi.
+    Handle partial failure: nếu 1 fail có rollback không?
+  scoringGuide: *scoringBase
+
+- code: "Q054"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hàm incrementCounter() bị race condition khi nhiều goroutine/thread gọi cùng lúc. Bạn fix thế nào?
+  expectedAnswer: |-
+    Go: sync/atomic.AddInt64, hoặc sync.Mutex.
+    Java: AtomicInteger.incrementAndGet().
+    Channel-based counter (idiomatic Go).
+    Benchmark: atomic nhanh nhất cho simple counter, mutex phù hợp khi cần critical section phức tạp hơn.
+  scoringGuide: *scoringBase
+
+- code: "Q055"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service đang mở quá nhiều database connection, bị lỗi "too many connections". Bạn cấu hình connection pool thế nào?
+  expectedAnswer: |-
+    MaxOpenConns = server_max_connections / num_app_instances (vd: 100/5 = 20).
+    MaxIdleConns ~ MaxOpenConns/2.
+    ConnMaxLifetime ~ 5 phút (tránh stale connections).
+    Monitor: pool wait time, idle connections.
+    Database side: pg_stat_activity để xem active connections.
+    Leak detection: ensure Close() trong defer.
+  scoringGuide: *scoringBase
+
+- code: "Q056"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Semaphore và Mutex khác nhau thế nào? Cho ví dụ bài toán cần dùng Semaphore (không dùng Mutex được).
+  expectedAnswer: |-
+    Mutex: binary (0/1), chỉ owner mới unlock.
+    Semaphore: counting (N), N goroutine có thể vào cùng lúc.
+    Use case Semaphore: giới hạn 5 concurrent DB connection, giới hạn concurrent HTTP call ra ngoài.
+    Go: `make(chan struct{}, N)` implement semaphore.
+    Mutex không phù hợp vì cần cho phép N concurrent.
+  scoringGuide: *scoringBase
+
+- code: "Q057"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service crawl 1,000 URL, mỗi URL mất 1-5 giây. Bạn thiết kế worker pool với concurrency limit, timeout per URL và error handling thế nào?
+  expectedAnswer: |-
+    Worker pool: channel làm work queue, N goroutines đọc từ queue.
+    Semaphore limit concurrency.
+    Context với timeout per URL (3s).
+    Results channel để collect.
+    Error: retry queue cho failures, dead letter sau 3 retries.
+    Graceful shutdown: signal handling + WaitGroup.
+    Rate limiting nếu cần tránh hammer target.
+  scoringGuide: *scoringBase
+
+- code: "Q058"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Thiết kế job queue gửi 1 triệu email/ngày: at-least-once delivery, retry on failure, không duplicate send. Bạn thiết kế worker pool, retry policy và idempotency thế nào?
+  expectedAnswer: |-
+    Message broker (Kafka/RabbitMQ): persistent queue.
+    Workers: fan-out, ack sau khi send thành công.
+    Retry: exponential backoff (1s, 2s, 4s, 8s), max 3 retries → dead letter queue.
+    Idempotency key: hash(userId + template + date) → Redis check trước khi send.
+    At-least-once: accept duplicate send, idempotency key phòng duplicate.
+  scoringGuide: *scoringBase
+
+- code: "Q059"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Read-write lock là gì? Cho bài toán phù hợp để dùng read-write lock thay vì mutex thường. Trade-off là gì?
+  expectedAnswer: |-
+    RWMutex: multiple readers OR 1 writer.
+    Không block readers với nhau.
+    Bài toán phù hợp: in-memory config cache được đọc nhiều, cập nhật ít (vd: mỗi 5 phút).
+    Trade-off: RWMutex overhead hơn Mutex khi write contention cao.
+    Write starvation nếu liên tục có reader.
+    Go: sync.RWMutex, Java: ReentrantReadWriteLock.
+  scoringGuide: *scoringBase
+
+- code: "Q060"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn có shared config object được đọc nhiều và ghi ít. Bạn thiết kế thread-safe access thế nào mà không làm chậm read operations?
+  expectedAnswer: |-
+    Pattern 1: sync.RWMutex (RLock cho đọc, Lock cho ghi).
+    Pattern 2: copy-on-write — atomic pointer, writer tạo new copy, atomic swap pointer.
+    Pattern 3: sync.Map nếu key-value.
+    Pattern 4: immutable config + channel để broadcast new config.
+    Copy-on-write ưu việt nhất khi reads >> writes vì reads zero-lock.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — Tech stack
+# ─────────────────────────────────────────────────────────
+
+- code: "Q061"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Elasticsearch dùng để làm gì? Inverted index là gì và tại sao giúp full-text search nhanh hơn SQL LIKE?
+  expectedAnswer: |-
+    ES: distributed search & analytics engine.
+    Inverted index: map từ term → list of documents chứa term (ngược với forward index).
+    SQL LIKE '%keyword%': full table scan O(n).
+    ES inverted index: lookup term → document list O(1) lookup.
+    Analyzer: tokenization, normalization, stemming.
+  scoringGuide: *scoringBase
+
+- code: "Q062"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kafka và RabbitMQ khác nhau thế nào? Khi nào dùng Kafka, khi nào dùng RabbitMQ?
+  expectedAnswer: |-
+    Kafka: log-based, consumer giữ offset, message persist, replay được, throughput cao, partitioned.
+    RabbitMQ: broker-based, message bị xóa sau khi consume, flexible routing (exchanges), message ordering per queue.
+    Dùng Kafka: event streaming, audit log, replay, high throughput.
+    Dùng RabbitMQ: task queues, routing phức tạp, low latency.
+  scoringGuide: *scoringBase
+
+- code: "Q063"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Redis có thể dùng để làm gì? Liệt kê 3 data structure và use case mỗi loại.
+  expectedAnswer: |-
+    String: cache key-value, counter (INCR).
+    Hash: user session (HSET user:{id} field value).
+    Sorted Set: leaderboard (ZADD), rate limiting.
+    List: message queue (LPUSH/RPOP), recent activity.
+    Set: unique visitors, tags.
+    Pub/Sub: real-time notifications.
+  scoringGuide: *scoringBase
+
+- code: "Q064"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cache-aside pattern: describe flow khi cache miss và cache hit.
+  expectedAnswer: |-
+    Cache hit: check cache → found → return.
+    Cache miss: check cache → not found → query DB → store in cache với TTL → return.
+    Application quản lý cache (không phải cache tự load).
+    Eviction: TTL expiry hoặc LRU.
+    Thundering herd: nếu cache expire cùng lúc nhiều request, dùng mutex hoặc jitter TTL.
+  scoringGuide: *scoringBase
+
+- code: "Q065"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cần implement full-text search cho bảng products (10k records) theo tên và mô tả. Bạn integrate Elasticsearch thế nào? Index 1 document trông như thế nào?
+  expectedAnswer: |-
+    Index mapping: {name: {type: text, analyzer: standard}, description: {type: text}, price: {type: float}}.
+    Sync: CDC từ DB hoặc application-level dual write.
+    Search: multi_match query trên name + description với boost.
+    Suggest: completion suggester cho autocomplete.
+    10k records: PostgreSQL full-text search cũng OK, ES cho 1M+.
+  scoringGuide: *scoringBase
+
+- code: "Q066"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service A xử lý đơn hàng xong cần notify Service B gửi email. Bạn connect Kafka producer trong Service A thế nào để publish event?
+  expectedAnswer: |-
+    KafkaProducer với bootstrap servers, serializer (JSON/Avro).
+    ProducerRecord với topic "order.completed", key = orderId (partition routing). producer.send(record, callback).
+    Async với callback để handle errors.
+    Idempotent producer: enable.idempotence=true tránh duplicate.
+    At-least-once vs exactly-once semantics.
+  scoringGuide: *scoringBase
+
+- code: "Q067"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần cache kết quả của getUserById(id) trong Redis với TTL 5 phút. Viết code cache-aside pattern thế nào?
+  expectedAnswer: |-
+    Check Redis: GET user:{id}.
+    Miss: query DB, serialize to JSON, SET user:{id} value EX 300.
+    Hit: deserialize JSON → return.
+    Invalidation: khi user update, DEL user:{id}.
+    Error handling: nếu Redis down → fallback to DB, không throw error.
+    Connection pool qua client library.
+  scoringGuide: *scoringBase
+
+- code: "Q068"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cần lưu session data cho 10,000 user đang online. Bạn chọn Redis data structure nào (String, Hash, Set) và tại sao?
+  expectedAnswer: |-
+    Hash: HSET session:{sessionId} userId 123 role "admin" expiresAt "...".
+    HGET để lấy field cụ thể, HGETALL để lấy toàn bộ. Ưu điểm: partial update không cần serialize/deserialize toàn bộ.
+    TTL ở key level.
+    String + JSON: đơn giản hơn nhưng phải serialize toàn bộ khi update 1 field.
+  scoringGuide: *scoringBase
+
+- code: "Q069"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Tính năng search sản phẩm full-text + filter trên 10 triệu SKU, dưới 200ms. Bạn thiết kế Elasticsearch index mapping, sharding strategy và sync từ DB thế nào?
+  expectedAnswer: |-
+    Mapping: text fields với custom analyzer (Vietnamese tokenizer), keyword cho filter, numeric cho range.
+    Sharding: 5 shards × 2 replicas.
+    Sync: CDC với Debezium → Kafka → ES consumer.
+    Rollover index cho hot/warm tiers.
+    Query: bool query (must: match, filter: term/range) — filter không tính score → faster.
+    Caching: search cache cho popular queries.
+  scoringGuide: *scoringBase
+
+- code: "Q070"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service thanh toán nhận 10,000 request/giây nhưng chỉ xử lý 1,000/giây. Bạn thiết kế buffer với message queue thế nào? Xử lý back-pressure và consumer lag thế nào?
+  expectedAnswer: |-
+    Kafka: producer ghi 10k/s, consumer xử lý 1k/s.
+    Consumer lag tăng dần.
+    Back-pressure: slow consumer strategy (pause/resume consumer).
+    Scale: thêm consumers đến max = số partitions.
+    Auto-scaling consumers based on lag.
+    Dead letter queue cho failed messages.
+    Ordering: cùng userId → cùng partition.
+  scoringGuide: *scoringBase
+
+- code: "Q071"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hệ thống cần invalidate cache trên 10 node khi data thay đổi. Bạn thiết kế cache invalidation strategy thế nào?
+  expectedAnswer: |-
+    Strategies: (1) TTL-based: accept stale data, simple.
+    (2) Write-through: update cache và DB đồng thời.
+    (3) Event-driven: Pub/Sub khi data thay đổi, all nodes invalidate.
+    Redis Pub/Sub cho broadcast.
+    (4) Consistent hashing: 1 node own cache key, invalidate 1 node.
+    Cân nhắc: eventual consistency vs strong consistency, cost of invalidation.
+  scoringGuide: *scoringBase
+
+- code: "Q072"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần chọn giữa Redis Cluster và Redis Sentinel cho production. Phân tích trade-off và đề xuất cho use case cụ thể.
+  expectedAnswer: |-
+    Sentinel: HA cho single master-replica, automatic failover, không scale writes.
+    Dùng khi: cần HA, data fit trên 1 node, không cần horizontal scale.
+    Cluster: partitioned, multiple masters, scale writes/memory, cross-slot ops không hỗ trợ.
+    Dùng khi: data > 1 node hoặc write throughput cao.
+    Cluster phức tạp hơn — evaluate nhu cầu thực trước khi chọn.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — Docker
+# ─────────────────────────────────────────────────────────
+
+- code: "Q073"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Docker image, container và registry khác nhau thế nào? Mô tả flow từ Dockerfile đến chạy container.
+  expectedAnswer: |-
+    Image: read-only template (Dockerfile → build → image).
+    Container: running instance của image (writable layer on top).
+    Registry: kho lưu images (Docker Hub, ECR, GCR).
+    Flow: write Dockerfile → docker build → image → docker push → registry → docker pull → docker run → container.
+  scoringGuide: *scoringBase
+
+- code: "Q074"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Các instruction trong Dockerfile: FROM, RUN, COPY, CMD, ENTRYPOINT — giải thích từng cái.
+  expectedAnswer: |-
+    FROM: base image.
+    RUN: execute command tại build time, tạo layer mới.
+    COPY: copy files từ host vào image.
+    CMD: default command khi run container, có thể override.
+    ENTRYPOINT: command không override được, CMD là arguments.
+    ENV: set environment variables.
+    ARG: build-time variables.
+  scoringGuide: *scoringBase
+
+- code: "Q075"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    EXPOSE trong Dockerfile và -p flag khi chạy container khác nhau thế nào?
+  expectedAnswer: |-
+    EXPOSE: documentation chỉ port container lắng nghe, không tự publish. -p 8080:3000: map host port 8080 → container port 3000, thực sự publish ra host. --expose: tương tự EXPOSE chỉ là metadata.
+    Trong docker-compose: ports là publish (-p), expose chỉ internal network.
+  scoringGuide: *scoringBase
+
+- code: "Q076"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cần truyền DATABASE_PASSWORD vào container mà không hardcode trong Dockerfile. Bạn làm thế nào?
+  expectedAnswer: |-
+    Options: (1) `-e DATABASE_PASSWORD=xxx` khi run (không recommended cho production), (2) `--env-file .env`, (3) Docker secrets (Swarm), (4) Kubernetes secrets mounted as volume, (5) AWS Secrets Manager / HashiCorp Vault → init container fetch secret.
+    Không bao giờ COPY .env vào image.
+  scoringGuide: *scoringBase
+
+- code: "Q077"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn viết Dockerfile cho Node.js app. Lần đầu build mất 5 phút, lần 2 vẫn mất 5 phút dù chỉ sửa code. Nguyên nhân và cách tối ưu layer caching?
+  expectedAnswer: |-
+    Vấn đề: COPY . . trước npm install → mỗi code change invalidate cache của npm install.
+    Fix: COPY package*.json . → RUN npm install → COPY . . .
+    Kết quả: npm install cached khi chỉ sửa code.
+    Rule: ít thay đổi nhất → trên cùng; hay thay đổi nhất → dưới cùng.
+  scoringGuide: *scoringBase
+
+- code: "Q078"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    PostgreSQL container bị xóa, toàn bộ data mất. Bạn cấu hình named volume thế nào để data persist?
+  expectedAnswer: |-
+    docker-compose: volumes: db_data:; service: volumes: [db_data:/var/lib/postgresql/data].
+    Named volume persist dù container bị xóa.
+    Backup: docker run --rm -v db_data:/data busybox tar czf /backup/backup.tar.gz /data.
+    Bind mount thay thế: - ./pgdata:/var/lib/postgresql/data (dev only).
+  scoringGuide: *scoringBase
+
+- code: "Q079"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    App container cần gọi database container bằng hostname "db" mà không expose port 5432 ra máy host. Bạn setup docker-compose network thế nào?
+  expectedAnswer: |-
+    docker-compose tự tạo default network, containers communicate bằng service name.
+    Không cần thêm gì.
+    Explicit: networks: backend_net:; services: app: networks: [backend_net]; db: networks: [backend_net].
+    Không dùng ports: "5432:5432" → port không expose ra host nhưng containers trong cùng network vẫn gọi được qua db:5432.
+  scoringGuide: *scoringBase
+
+- code: "Q080"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Viết multi-stage Dockerfile cho Go app: stage 1 build binary, stage 2 chỉ chứa binary trong alpine image.
+  expectedAnswer: |-
+    FROM golang:1.21 AS builder; WORKDIR /app; COPY . .; RUN CGO_ENABLED=0 go build -o main .; FROM alpine:3.19; COPY --from=builder /app/main /main; ENTRYPOINT ["/main"].
+    Kết quả: image từ 800MB xuống ~10MB.
+    CGO_ENABLED=0 để static binary, không phụ thuộc libc.
+  scoringGuide: *scoringBase
+
+- code: "Q081"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Deploy rolling update cho 20 instance trên 5 server với zero-downtime và rollback tự động khi health check fail. Bạn thiết kế orchestration strategy thế nào?
+  expectedAnswer: |-
+    Kubernetes: Deployment với rollingUpdate (maxSurge: 1, maxUnavailable: 0).
+    Readiness probe trước khi traffic route đến pod mới.
+    Liveness probe cho auto-restart.
+    Rollback: kubectl rollout undo.
+    Load balancer chỉ route đến ready pods.
+    Canary: 10% traffic trước, monitor, rồi 100%.
+    GitOps với ArgoCD để automated rollback.
+  scoringGuide: *scoringBase
+
+- code: "Q082"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Thiết kế Docker security cho production: non-root user, image scanning CI, secret không dùng env var, network isolation cho 50 microservices.
+  expectedAnswer: |-
+    Non-root: USER appuser trong Dockerfile.
+    Read-only filesystem: --read-only.
+    Image scanning: Trivy trong CI pipeline, fail nếu critical CVE.
+    Secrets: Vault/AWS Secrets Manager, mount as tmpfs.
+    Network: NetworkPolicy (K8s) cho micro-segmentation, deny-all default.
+    Distroless base images.
+    Runtime security: Falco cho anomaly detection.
+  scoringGuide: *scoringBase
+
+- code: "Q083"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    App cần scale từ 1 lên 20 container instance trong 2 phút khi tải tăng đột ngột. Bạn cấu hình auto-scaling policy và health check thế nào?
+  expectedAnswer: |-
+    HPA (Kubernetes): targetCPUUtilization 70%, minReplicas 1, maxReplicas 20.
+    Custom metrics: request queue depth từ Prometheus.
+    Startup probe: cho apps khởi động chậm.
+    Readiness probe: port check + DB connection.
+    Scale-up fast (2 min): pod pre-warming, fast init.
+    PodDisruptionBudget: ít nhất 1 instance luôn available khi scale down.
+  scoringGuide: *scoringBase
+
+- code: "Q084"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần giảm Docker image size từ 800MB xuống dưới 100MB cho Go app. Phân tích từng bước: base image, layer, binary stripping.
+  expectedAnswer: |-
+    Step 1: multi-stage build (build trong golang:x, copy binary sang alpine/distroless).
+    Step 2: CGO_ENABLED=0 static binary.
+    Step 3: ldflags -s -w để strip debug symbols (giảm binary ~30%).
+    Step 4: alpine (5MB) hoặc scratch (0MB nếu fully static).
+    Step 5: .dockerignore để không COPY unneded files.
+    Kết quả: từ 800MB xuống 5-15MB.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — Git/SVN
+# ─────────────────────────────────────────────────────────
+
+- code: "Q085"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    GitFlow là gì? Các loại branch (main, develop, feature, release, hotfix) dùng để làm gì?
+  expectedAnswer: |-
+    GitFlow: branching model. main: production code. develop: integration branch. feature/xxx: new features từ develop, merge back vào develop. release/x.y: stabilize before release, merge vào main + develop. hotfix/xxx: fix production bugs từ main, merge vào main + develop.
+    Tag main sau release.
+  scoringGuide: *scoringBase
+
+- code: "Q086"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    git revert và git reset khác nhau thế nào? Rủi ro khi dùng git reset --hard là gì?
+  expectedAnswer: |-
+    git revert: tạo commit mới undo changes (safe, preserves history, good for shared branches). git reset: di chuyển HEAD pointer (--soft: giữ staged, --mixed: giữ unstaged, --hard: xóa hết changes).
+    Rủi ro reset --hard: mất uncommitted/untracked work vĩnh viễn. reset trên shared branch → rewrite history → problems khi người khác pull.
+  scoringGuide: *scoringBase
+
+- code: "Q087"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    git merge và git rebase khác nhau thế nào? Khi nào nên dùng rebase?
+  expectedAnswer: |-
+    Merge: tạo merge commit, preserves branch topology, non-destructive.
+    Rebase: replay commits on top of target branch, linear history, rewrites commit hashes.
+    Dùng rebase: local feature branch trước khi merge (clean history).
+    Không rebase: shared/public branches.
+    Golden rule: không rebase commits đã push.
+  scoringGuide: *scoringBase
+
+- code: "Q088"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    git stash dùng để làm gì? Khi nào bạn cần dùng?
+  expectedAnswer: |-
+    git stash: tạm lưu working directory changes (không commit), về clean state.
+    Pop lại sau.
+    Use cases: cần switch branch gấp giữa chừng, pull latest code khi có local changes. git stash list, git stash pop (hoặc apply để giữ stash).
+    Tên stash: git stash push -m "wip: feature X".
+  scoringGuide: *scoringBase
+
+- code: "Q089"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đang làm feature/login, cần pull code mới nhất từ main vào branch của mình mà không tạo merge commit thừa. Bạn dùng lệnh gì?
+  expectedAnswer: |-
+    git fetch origin && git rebase origin/main.
+    Kết quả: commits của feature/login được replay trên top của main mới nhất.
+    Linear history.
+    Nếu conflict: fix, git add, git rebase --continue.
+    Abort: git rebase --abort.
+    Pull --rebase: git pull --rebase origin main.
+  scoringGuide: *scoringBase
+
+- code: "Q090"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn commit nhầm file .env chứa password vào git. Bạn fix thế nào để xóa khỏi lịch sử?
+  expectedAnswer: |-
+    git filter-branch hoặc git-filter-repo (khuyến nghị) để xóa file khỏi toàn bộ history.
+    Force push sau đó.
+    Quan trọng: ROTATE all credentials ngay lập tức (assume compromised).
+    Thêm .env vào .gitignore.
+    Inform team để họ re-clone.
+    BFG Repo Cleaner là tool nhanh hơn filter-branch.
+  scoringGuide: *scoringBase
+
+- code: "Q091"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cần kiểm tra tự động: không được commit file .env và commit message phải bắt đầu bằng "[JIRA-xxx]". Bạn viết pre-commit hook thế nào?
+  expectedAnswer: |-
+    .git/hooks/pre-commit: kiểm tra staged files không có .env. commit-msg hook: check message format.
+    Chia sẻ trong team: dùng Husky (JS) hoặc lefthook để commit hooks vào repo.
+    Không thể skip (vì không control --no-verify ở CI).
+    Server-side hook mạnh hơn vì không bypass được.
+  scoringGuide: *scoringBase
+
+- code: "Q092"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cần rollback 1 commit cụ thể đã push lên main (không phải commit mới nhất). Bạn dùng lệnh gì?
+  expectedAnswer: |-
+    git revert <commit-hash>: tạo commit mới undo changes của commit đó, safe với shared branch.
+    Nếu muốn revert nhiều commits: git revert A^..B.
+    Không dùng git reset --hard trên main (rewrites shared history → conflicts khi team pull).
+    Commit message revert nên giải thích lý do.
+  scoringGuide: *scoringBase
+
+- code: "Q093"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Team 10 người có 3 feature song song, hotfix process và weekly release. Bạn thiết kế branching strategy, PR workflow và merge policy thế nào?
+  expectedAnswer: |-
+    GitFlow hoặc Trunk-based với feature flags.
+    Trunk-based: short-lived branches (<2 ngày), merge vào main thường xuyên, feature flags cho incomplete features.
+    PR: require 2 approvals, CI pass, no merge conflicts.
+    Hotfix: from main, fast-track review, merge to main + next release.
+    Weekly release: tag + changelog.
+  scoringGuide: *scoringBase
+
+- code: "Q094"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Monorepo 30 microservices, CI build toàn bộ mỗi commit mất 1 giờ. Bạn đề xuất giải pháp: affected module detection, caching strategy.
+  expectedAnswer: |-
+    Affected detection: git diff --name-only từ last successful build, map files → services.
+    Chỉ build/test services bị affect.
+    Tools: Nx, Turborepo, Bazel (cho fine-grained dep graph).
+    Cache: remote build cache (S3/GCS), Docker layer cache.
+    Parallel: build độc lập services song song.
+    Kết quả: từ 1 giờ xuống 5-10 phút.
+  scoringGuide: *scoringBase
+
+- code: "Q095"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cần introduce feature flags vào git workflow để cho phép deploy code mà chưa enable tính năng. Bạn thiết kế thế nào?
+  expectedAnswer: |-
+    Feature flag service: DB/config store với key-value pairs.
+    Code: if (featureFlags.isEnabled("new-checkout")) { ... }.
+    Deploy: merge code, flag OFF.
+    Enable: flip flag (no deployment needed).
+    User-targeting: enable cho % users hay specific users.
+    Tools: LaunchDarkly, Unleash (self-hosted).
+    Cleanup: remove flags sau khi fully deployed.
+  scoringGuide: *scoringBase
+
+- code: "Q096"
+  category: BACKEND_MUST
+  subcategory: "Git/SVN"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Team hay xảy ra "works on my machine" — code pass CI nhưng fail trên staging. Bạn setup git/CI workflow thế nào để phát hiện sớm hơn?
+  expectedAnswer: |-
+    Root causes: env differences, missing env vars, different OS.
+    Solutions: (1) Docker trong CI với same image as production, (2) docker-compose cho integration tests với real DB/Redis, (3) Staging env identical to prod (Terraform), (4) Contract testing giữa services, (5) Smoke tests post-deploy.
+    Dev containers (devcontainer.json) để standardize local env.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — Microservices
+# ─────────────────────────────────────────────────────────
+
+- code: "Q097"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    API Gateway là gì? Kể tên ít nhất 5 chức năng của API Gateway trong kiến trúc microservices.
+  expectedAnswer: |-
+    API Gateway: single entry point cho clients.
+    Chức năng: (1) Routing, (2) Authentication/Authorization, (3) Rate limiting, (4) Load balancing, (5) SSL termination, (6) Request/response transformation, (7) Caching, (8) Logging/monitoring, (9) Circuit breaking.
+    Tools: Kong, AWS API Gateway, Nginx.
+  scoringGuide: *scoringBase
+
+- code: "Q098"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    gRPC và RESTful API khác nhau thế nào? Cho ví dụ bài toán phù hợp với gRPC hơn REST.
+  expectedAnswer: |-
+    REST: HTTP/1.1, JSON, human-readable, request/response. gRPC: HTTP/2, Protocol Buffers (binary), streaming, strong-typed contract. gRPC phù hợp: inter-service communication (low latency, high throughput), bidirectional streaming (real-time), polyglot services với code gen.
+    REST phù hợp: public API, browser clients, simplicity.
+  scoringGuide: *scoringBase
+
+- code: "Q099"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Stateful và stateless service khác nhau thế nào? Tại sao stateless dễ scale horizontal hơn?
+  expectedAnswer: |-
+    Stateful: lưu session/state trong memory của instance — request phải đến đúng instance.
+    Stateless: không lưu state — mọi request có đủ thông tin để xử lý, bất kỳ instance nào cũng handle được.
+    Scale horizontal: stateless → add instance → done.
+    Stateful → sticky session hoặc cần state sync.
+    Best practice: externalize state (Redis, DB).
+  scoringGuide: *scoringBase
+
+- code: "Q100"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service discovery là gì? Client-side vs server-side discovery khác nhau thế nào?
+  expectedAnswer: |-
+    Service discovery: cơ chế tìm địa chỉ service khi scale dynamically.
+    Client-side: client query service registry (Consul, Eureka), tự chọn instance, client cần discovery logic.
+    Server-side: client gọi load balancer, LB query registry, transparent với client.
+    Tools: Kubernetes service (server-side), Eureka (client-side).
+  scoringGuide: *scoringBase
+
+- code: "Q101"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service A cần gọi Service B qua HTTP. Service B đôi khi bị chậm. Bạn thêm timeout 3s và retry 2 lần thế nào trong HTTP client?
+  expectedAnswer: |-
+    HTTP client config: timeout: 3s.
+    Retry: 2 lần với exponential backoff (100ms, 200ms).
+    Retry chỉ cho idempotent requests (GET, PUT) — không retry POST không idempotent.
+    Circuit breaker đi kèm.
+    Libraries: resilience4j, go-retryablehttp.
+    Jitter để tránh thundering herd khi retry đồng loạt.
+  scoringGuide: *scoringBase
+
+- code: "Q102"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    API Gateway cần xác thực JWT trước khi forward request đến service phía sau. Bạn implement middleware thế nào?
+  expectedAnswer: |-
+    Middleware: extract Bearer token từ Authorization header, verify signature và expiry, decode payload, inject user context vào request headers (X-User-Id, X-User-Role).
+    Services nhận headers mà không cần verify JWT lại.
+    Centralized auth logic.
+    Public paths: skip JWT check (health check, login endpoint).
+  scoringGuide: *scoringBase
+
+- code: "Q103"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    OrderService cần publish event "order.created" lên Kafka sau khi tạo đơn hàng thành công. Bạn viết producer code thế nào?
+  expectedAnswer: |-
+    Sau khi DB save thành công: Kafka producer.send({topic: "order.created", key: orderId, value: JSON.stringify(orderPayload)}).
+    Transactional outbox pattern để tránh lost events: save event vào DB trong cùng transaction, separate process publish lên Kafka.
+    Đảm bảo at-least-once delivery.
+  scoringGuide: *scoringBase
+
+- code: "Q104"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho đoạn code: OrderService gọi trực tiếp new EmailService().send(). Bạn refactor thế nào để 2 service loosely coupled?
+  expectedAnswer: |-
+    Options: (1) Message broker — OrderService publish "order.placed", EmailService subscribe.
+    (2) Interface + DI — inject INotificationService, EmailService là 1 implementation.
+    (3) Webhook/callback.
+    Lợi ích message broker: OrderService không biết EmailService tồn tại, dễ thêm service khác subscribe, EmailService down không affect OrderService.
+  scoringGuide: *scoringBase
+
+- code: "Q105"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service Order gọi Inventory để trừ stock. Nếu Inventory down, Order bị block toàn bộ. Bạn thiết kế circuit breaker + fallback strategy thế nào?
+  expectedAnswer: |-
+    Circuit Breaker (Hystrix/resilience4j): CLOSED → OPEN khi failure rate > threshold → HALF-OPEN để test recovery.
+    Fallback: (1) cached last response, (2) default response, (3) queue request for later processing.
+    Timeout: 2s để fail fast.
+    Bulkhead: isolate Inventory failures không drain OrderService thread pool.
+  scoringGuide: *scoringBase
+
+- code: "Q106"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Quy trình đặt hàng span 3 service: trừ stock, tạo đơn, gửi email — cả 3 phải thành công hoặc rollback. Bạn thiết kế Saga pattern (choreography vs orchestration) thế nào?
+  expectedAnswer: |-
+    Choreography: mỗi service publish event, service tiếp theo subscribe.
+    Compensating transactions khi fail (ReservationFailed → RestoreStock event).
+    Orchestration: SagaOrchestrator gọi từng service, biết toàn bộ flow, dễ debug.
+    Choreography: decoupled nhưng khó trace.
+    Orchestration: centralized nhưng single point of logic.
+    Outbox pattern cho reliable event publishing.
+  scoringGuide: *scoringBase
+
+- code: "Q107"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    3 service cùng cần đọc user profile. Bạn share database giữa các service hay duplicate data? Phân tích trade-off.
+  expectedAnswer: |-
+    Shared DB: coupling — schema change của UserService break các service khác.
+    Phù hợp nếu services cùng team.
+    Separate DB + API call: loose coupling, latency, UserService SLA ảnh hưởng tất cả.
+    Separate DB + event-driven replication: eventual consistency, services có local copy.
+    Best cho microservices: database per service, replicate chỉ data cần thiết (projection).
+  scoringGuide: *scoringBase
+
+- code: "Q108"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    API Gateway đang là single point of failure. Bạn thiết kế high-availability cho API Gateway thế nào?
+  expectedAnswer: |-
+    Multiple Gateway instances behind load balancer.
+    Stateless: session state bên ngoài (Redis).
+    Health checks: LB chỉ route đến healthy instances.
+    Multi-AZ deployment.
+    DNS failover.
+    Rate limit state: shared via Redis.
+    Config: push updates mà không restart (hot reload).
+    Monitoring: latency, error rate, throughput.
+    Canary releases cho gateway updates.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_MUST — Lập trình an toàn
+# ─────────────────────────────────────────────────────────
+
+- code: "Q109"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    JWT hoạt động thế nào? Header, payload, signature — mỗi phần chứa gì và encode thế nào?
+  expectedAnswer: |-
+    JWT = base64url(header) + "." + base64url(payload) + "." + signature.
+    Header: {alg: "HS256", typ: "JWT"}.
+    Payload: claims (sub, iat, exp, role).
+    Signature: HMAC-SHA256(header.payload, secret) hoặc RS256 với private key.
+    Ai cũng đọc được payload (chỉ base64).
+    Signature đảm bảo không bị tamper.
+    Lưu token ở httpOnly cookie hoặc localStorage (risk XSS).
+  scoringGuide: *scoringBase
+
+- code: "Q110"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    SQL injection là gì? Cho ví dụ code dễ bị tấn công và cách fix bằng prepared statement.
+  expectedAnswer: |-
+    SQLi: inject SQL code qua user input để manipulate query.
+    Vulnerable: "SELECT * FROM users WHERE email = '" + email + "'"; input ' OR 1=1 -- → dump all users.
+    Fix: prepared statement "WHERE email = ?" với parameterized query.
+    ORM tự handle.
+    Never concatenate user input vào SQL.
+  scoringGuide: *scoringBase
+
+- code: "Q111"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    XSS (Stored, Reflected, DOM-based) và CSRF là 2 loại tấn công khác nhau thế nào? Cách phòng chống?
+  expectedAnswer: |-
+    XSS: inject script vào trang web, thực thi trong browser victim.
+    Stored: lưu vào DB.
+    Reflected: trong URL.
+    DOM-based: client-side JS.
+    Phòng: encode output, CSP header, httpOnly cookie.
+    CSRF: trigger action trên behalf của authenticated user từ domain khác.
+    Phòng: CSRF token, SameSite cookie, check Origin/Referer header.
+  scoringGuide: *scoringBase
+
+- code: "Q112"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    DoS và DDoS khác nhau thế nào? Hệ thống bị DDoS thì triệu chứng là gì?
+  expectedAnswer: |-
+    DoS: 1 nguồn tấn công.
+    DDoS: nhiều nguồn phân tán (botnet).
+    Triệu chứng: CPU/memory spike, response time tăng, connection timeout, bandwidth exhaustion, error rate tăng.
+    Phòng chống: rate limiting, WAF, CDN (absorb traffic), IP block, CAPTCHA, cloud provider DDoS protection (AWS Shield).
+  scoringGuide: *scoringBase
+
+- code: "Q113"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Code review thấy: `query = "SELECT * FROM users WHERE email = '" + email + "'"`. Giải thích nguy cơ và viết lại an toàn.
+  expectedAnswer: |-
+    Nguy cơ: SQL injection — input `admin'--` bỏ qua password check.
+    Fix: prepared statement `SELECT * FROM users WHERE email = $1` với params [email].
+    ORM equivalent: `userRepo.findOne({where: {email}})`.
+    Cũng nên: validate email format trước, log attempt, rate limit login endpoint.
+  scoringGuide: *scoringBase
+
+- code: "Q114"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    API endpoint /login trả về lỗi "Email không tồn tại" vs "Mật khẩu sai" — điều này có vấn đề gì về security không? Sửa thế nào?
+  expectedAnswer: |-
+    User enumeration attack: attacker biết email nào tồn tại trong system.
+    Fix: luôn trả về cùng generic message "Email hoặc mật khẩu không đúng".
+    Đồng thời: timing attack — nếu user không tồn tại thì response nhanh hơn, phải ensure constant time response.
+    Rate limiting để prevent brute force.
+  scoringGuide: *scoringBase
+
+- code: "Q115"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    JWT token của bạn lưu user_id và role trong payload. Ai cũng có thể đọc được payload — điều này có an toàn không? Giải thích.
+  expectedAnswer: |-
+    An toàn nếu: (1) không lưu sensitive data trong payload (password, PII), (2) signature đảm bảo payload không bị tamper.
+    Không an toàn nếu: dùng "alg: none" attack.
+    Best practice: verify alg trong header, chỉ accept HS256 hoặc RS256.
+    Role trong token: ok nhưng cần verify có match DB không nếu role có thể thay đổi.
+  scoringGuide: *scoringBase
+
+- code: "Q116"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cần lưu ANTHROPIC_API_KEY trong ứng dụng. Bạn lưu ở đâu và truyền vào app thế nào mà không hardcode trong code?
+  expectedAnswer: |-
+    Environment variable: không hardcode trong source code, không commit vào git.
+    Prod: Kubernetes secrets, AWS Secrets Manager, HashiCorp Vault → inject as env var. .env file: local dev only, thêm vào .gitignore.
+    CI/CD: store trong CI secrets (GitHub Actions secrets).
+    Rotate keys thường xuyên.
+    Audit access log.
+  scoringGuide: *scoringBase
+
+- code: "Q117"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    User logout nhưng JWT còn hiệu lực 1 giờ. Bạn implement token invalidation thế nào? Phân tích trade-off của blacklist vs short-lived token vs refresh token rotation.
+  expectedAnswer: |-
+    Blacklist: store revoked tokens trong Redis (jti claim), check every request.
+    Overhead per request.
+    Short-lived (5 min): không cần blacklist, chấp nhận 5-min window.
+    Refresh token rotation: access token ngắn (5 min), refresh token dài (7 ngày), rotate refresh token mỗi lần dùng.
+    Detect token theft: rotation violation → revoke tất cả.
+    Best: short-lived + refresh rotation.
+  scoringGuide: *scoringBase
+
+- code: "Q118"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    API bị tấn công rate: 1 IP gửi 10,000 req/phút trên 10 server. Bạn implement distributed rate limiting thế nào mà không cần shared state real-time?
+  expectedAnswer: |-
+    Redis centralized: atomic Lua script INCR counter với TTL per IP.
+    Eventual consistency: local counter per node, sync mỗi giây — accept slight over-limit.
+    Token bucket tại Redis.
+    Consistent hashing để route cùng IP đến cùng node (sticky).
+    WAF/CDN: rate limit tại edge trước khi vào server.
+    IP reputation block list.
+  scoringGuide: *scoringBase
+
+- code: "Q119"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hệ thống cần lưu credit card number. Bạn thiết kế encryption at rest thế nào? Key management ra sao?
+  expectedAnswer: |-
+    PCI DSS compliance: tokenization (replace với token, lưu mapping ở vault).
+    Encryption: AES-256-GCM.
+    Key management: AWS KMS/HashiCorp Vault.
+    Key hierarchy: master key → data encryption key (DEK), DEK encrypted bởi master key (envelope encryption).
+    Key rotation không cần re-encrypt data (rotate DEK, re-encrypt DEK với new master).
+    Never store full PAN — PCI DSS yêu cầu tokenization.
+  scoringGuide: *scoringBase
+
+- code: "Q120"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Thiết kế RBAC (Role-Based Access Control) cho hệ thống có 5 role khác nhau với permission hierarchy. Bạn model permission thế nào trong database?
+  expectedAnswer: |-
+    Tables: roles (id, name), permissions (id, resource, action), role_permissions (role_id, permission_id), user_roles (user_id, role_id).
+    Check: user → roles → permissions.
+    Permission format: "orders:read", "orders:write", "admin:*".
+    Hierarchy: ADMIN inherits MANAGER inherits USER.
+    Cache user permissions để tránh query mỗi request.
+    ABAC extension: thêm context (owner check).
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_SHOULD — Agile/Scrum
+# ─────────────────────────────────────────────────────────
+
+- code: "Q121"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Scrum có những ceremony gì? Timeboxing của mỗi ceremony trong Sprint 2 tuần là bao nhiêu?
+  expectedAnswer: |-
+    Sprint Planning: 4h.
+    Daily Scrum: 15 phút/ngày.
+    Sprint Review: 2h.
+    Sprint Retrospective: 1.5h.
+    Refinement: không phải ceremony chính thức nhưng khuyến nghị.
+    Timebox là max — kết thúc sớm nếu đã đủ.
+  scoringGuide: *scoringBase
+
+- code: "Q122"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Definition of Done và Acceptance Criteria khác nhau thế nào? Ai responsible?
+  expectedAnswer: |-
+    DoD: checklist team-level cho mọi story (code reviewed, tests passed, deployed to staging).
+    Consistent cho tất cả stories.
+    Acceptance Criteria: điều kiện cụ thể cho từng user story (Given-When-Then).
+    Product Owner viết/validate AC.
+    Team define và maintain DoD.
+    Story "Done" = pass AC + pass DoD.
+  scoringGuide: *scoringBase
+
+- code: "Q123"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Product Backlog và Sprint Backlog: sự khác biệt và ai manage từng loại?
+  expectedAnswer: |-
+    Product Backlog: toàn bộ work của product, ordered by value, managed by Product Owner.
+    Sprint Backlog: subset PB cho sprint hiện tại + Sprint Goal + plan.
+    Owned by Development Team.
+    Team không nhận thêm work giữa sprint trừ khi tự chọn.
+  scoringGuide: *scoringBase
+
+- code: "Q124"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Agile manifesto: 4 giá trị và 12 nguyên tắc — kể tên 4 giá trị.
+  expectedAnswer: |-
+    (1) Individuals and interactions over processes and tools.
+    (2) Working software over comprehensive documentation.
+    (3) Customer collaboration over contract negotiation.
+    (4) Responding to change over following a plan.
+    Vế bên phải vẫn có giá trị — chỉ là ưu tiên vế trái hơn.
+  scoringGuide: *scoringBase
+
+- code: "Q125"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Giữa sprint, stakeholder yêu cầu thêm task gấp. Team đang chạy sprint 2 tuần, đã commit 60 story point. Bạn xử lý thế nào theo đúng Scrum?
+  expectedAnswer: |-
+    Scrum: Sprint Goal phải được bảo vệ.
+    Không add giữa sprint mà không tradeoff.
+    Options: (1) Thêm vào Product Backlog cho sprint sau, (2) Nếu urgent thực sự: negotiate với PO để drop task tương đương story point, (3) Nếu cực kỳ critical: Sprint Cancellation.
+    Scrum Master protect team từ scope creep.
+  scoringGuide: *scoringBase
+
+- code: "Q126"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Daily standup của team kéo dài 30 phút mỗi ngày. Bạn identify vấn đề và cải thiện thế nào?
+  expectedAnswer: |-
+    Vấn đề: problem-solving trong standup, status report thay vì sync.
+    Fix: 3 câu hỏi nghiêm túc (hôm qua làm gì, hôm nay làm gì, blocker).
+    Discussions "take it offline".
+    Timebox: 15 phút max.
+    Đứng (không ngồi) để giữ ngắn.
+    Parking lot cho topics cần discuss sau.
+    Facilitator nhắc nhở khi off-topic.
+  scoringGuide: *scoringBase
+
+- code: "Q127"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Sprint Review: demo xong stakeholder nói "không phải thứ tôi muốn". Nguyên nhân là gì và action item cho sprint sau?
+  expectedAnswer: |-
+    Root cause: Acceptance Criteria không rõ ràng, hoặc không có mid-sprint check-in.
+    Actions: (1) Refinement kỹ hơn — AC cụ thể hơn với examples/mockups, (2) Mid-sprint demo sau 3-4 ngày để catch sớm, (3) Involve stakeholder viết AC, (4) Use Given-When-Then format.
+    Đây là Agile failure bình thường — inspect and adapt.
+  scoringGuide: *scoringBase
+
+- code: "Q128"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Team support (bug fix, on-call) khó dùng Scrum vì interrupt liên tục. Bạn đề xuất framework nào phù hợp hơn?
+  expectedAnswer: |-
+    Kanban: pull-based, WIP limits, continuous flow, no sprints.
+    Phù hợp cho support team vì không commit sprint goal.
+    Scrumban: hybrid — sprint planning nhưng Kanban board.
+    Buffer capacity: reserve 20-30% capacity cho unplanned work.
+    SLA tracking thay vì velocity.
+  scoringGuide: *scoringBase
+
+- code: "Q129"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    3 Scrum team song song cùng product, dependency giữa các team. Bạn tổ chức dependency tracking và sprint planning thế nào để không block nhau?
+  expectedAnswer: |-
+    Scaled Agile: SAFe (Program Increment planning, ART), LeSS, Nexus.
+    Practical: cross-team Scrum of Scrums (daily/weekly).
+    Dependency mapping trước sprint planning.
+    API contracts: agree on interface trước khi implement.
+    Component teams vs feature teams.
+    Stagger sprints 1 week để team A deliver trước team B cần.
+  scoringGuide: *scoringBase
+
+- code: "Q130"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Retrospective đều đặn nhưng cùng vấn đề tái diễn 5 sprint. Bạn thay đổi format thế nào để tạo ra cải tiến thực sự?
+  expectedAnswer: |-
+    Root cause: action items không được track, không có owner, không measure.
+    Fix: (1) Limit to 1-2 action items per retro, (2) Assign owner + due date, (3) Review previous retro actions trước khi bắt đầu, (4) Format thay đổi: 4Ls, DAKI, Sailboat.
+    (5) Blameless retrospective.
+    Measure improvement với metrics.
+  scoringGuide: *scoringBase
+
+- code: "Q131"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Technical debt accumulate nhiều sprint. Bạn introduce "tech debt sprint" hay xen kẽ vào sprint bình thường? Trade-off?
+  expectedAnswer: |-
+    "Tech debt sprint" (nhược): features bị block, business pressure để skip, debt accumulate đến mức "emergency only".
+    Xen kẽ (ưu): 20% capacity per sprint cho tech debt, sustainable, không disrupt flow.
+    Recommendation: make debt visible (tech debt backlog), prioritize như features, giải thích business risk của từng debt item.
+    Boy Scout Rule: leave code better than you found it.
+  scoringGuide: *scoringBase
+
+- code: "Q132"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn là scrum master cho team mới: 3 developer senior, 2 junior. Bạn setup quy trình Scrum thế nào cho tháng đầu?
+  expectedAnswer: |-
+    Week 1: working agreement, tools setup (Jira/Linear), DoD draft.
+    Sprint 1 ngắn (1 tuần): team learn rhythm, không pressure.
+    Estimation: Planning Poker với cả team.
+    Pair programming: senior-junior.
+    Retro sau mỗi sprint: adjust process.
+    Focus: team forming trước process perfecting.
+    Protect juniors: không overload, give safe space to fail.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_SHOULD — Unit test
+# ─────────────────────────────────────────────────────────
+
+- code: "Q133"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Unit test là gì? Tại sao cần viết? Cho ví dụ lợi ích cụ thể đã giúp bạn trong dự án.
+  expectedAnswer: |-
+    Unit test: test isolated unit (function/class) với external dependencies mocked.
+    Lợi ích: catch bugs sớm, refactor confidence, documentation sống, regression prevention.
+    Ví dụ cụ thể: catch edge case khi price = 0 trước khi deploy.
+  scoringGuide: *scoringBase
+
+- code: "Q134"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Arrange-Act-Assert pattern là gì? Viết test cho hàm tính discount: nếu tổng > 1 triệu thì giảm 10%.
+  expectedAnswer: |-
+    Arrange: setup data (price = 1_100_000).
+    Act: result = calculateDiscount(price).
+    Assert: expect(result).toBe(1_000_000).
+    Test case 2: price = 500_000 → 500_000 (no discount).
+    Boundary: price = 1_000_000 (edge case).
+    Mỗi test 1 assertion focus.
+  scoringGuide: *scoringBase
+
+- code: "Q135"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Test coverage 100% có nghĩa là code không có bug không? Tại sao?
+  expectedAnswer: |-
+    Không.
+    Coverage chỉ đo code lines được execute, không đo quality of assertions.
+    Ví dụ: test không có assert vẫn tăng coverage.
+    Mutation testing đo kỹ hơn.
+    100% coverage không cover: logic errors, concurrency bugs, integration issues.
+    Better metric: meaningful test cases covering important behaviors.
+  scoringGuide: *scoringBase
+
+- code: "Q136"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Viết unit test cho hàm calculateDiscount(price, couponCode): giảm 10% nếu coupon = "VIP10". Test case nào cần có?
+  expectedAnswer: |-
+    Test cases: (1) Valid coupon "VIP10" → 10% off, (2) Invalid coupon → no discount, (3) Empty/null coupon → no discount, (4) Price = 0 → remain 0, (5) Case sensitivity: "vip10" → tùy business rule.
+    Boundary: giảm tối đa.
+    Mỗi test case isolate 1 behavior.
+  scoringGuide: *scoringBase
+
+- code: "Q137"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Viết unit test cho UserService.register() — cần mock UserRepository và EmailService. Viết ít nhất 3 test case: success, email duplicate, invalid email.
+  expectedAnswer: |-
+    Test 1 (success): mock repo.findByEmail → null, mock repo.save → user, mock emailService.send → void.
+    Assert user returned.
+    Test 2 (duplicate): mock findByEmail → existing user.
+    Assert throws DuplicateEmailError.
+    Test 3 (invalid): pass invalid email.
+    Assert throws ValidationError.
+    Verify: emailService.send called once on success.
+  scoringGuide: *scoringBase
+
+- code: "Q138"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hàm processPayment() gọi external payment API. Bạn test thế nào mà không gọi API thật?
+  expectedAnswer: |-
+    Mock/stub payment client: inject interface IPaymentClient, test inject mock.
+    Mock success scenario: mock returns {status: "SUCCESS", transactionId: "tx123"}.
+    Mock failure: returns {status: "FAILED"}.
+    Mock timeout: throws TimeoutError.
+    Verify: correct fields sent, correct state transitions.
+    Never call real API in unit test.
+  scoringGuide: *scoringBase
+
+- code: "Q139"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Mock và stub khác nhau thế nào? Cho ví dụ cụ thể khi nào dùng mock, khi nào dùng stub.
+  expectedAnswer: |-
+    Stub: return giá trị cố định, không verify interactions (emailService.send → void).
+    Mock: verify interactions (assert emailService.send called exactly once với đúng args).
+    Spy: real implementation nhưng track calls.
+    Dùng stub khi cần fake external response.
+    Dùng mock khi cần verify side effects (email được gửi).
+  scoringGuide: *scoringBase
+
+- code: "Q140"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hàm async fetchUserData() trả về Promise. Bạn viết unit test thế nào?
+  expectedAnswer: |-
+    Jest: async/await: `it("should return user", async () => { const user = await fetchUserData("1"); expect(user.id).toBe("1"); })`.
+    Test error case: `await expect(fetchUserData("invalid")).rejects.toThrow("User not found")`.
+    Mock: jest.mock cho HTTP client.
+    Không dùng done callback (outdated), prefer async/await.
+  scoringGuide: *scoringBase
+
+- code: "Q141"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Test suite 5,000 test chạy 20 phút. Bạn phân tích bottleneck và tối ưu thế nào xuống dưới 5 phút?
+  expectedAnswer: |-
+    Profiling: jest --verbose để tìm slow tests.
+    Bottlenecks: I/O (real DB/Redis), sleeps, no parallelism.
+    Fix: (1) jest --maxWorkers=auto parallel execution, (2) mock external I/O, (3) jest --testPathPattern để chạy subset, (4) shared test DB với transaction rollback, (5) identify và fix flaky tests.
+    Target: unit tests < 1s each.
+  scoringGuide: *scoringBase
+
+- code: "Q142"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Codebase cũ 50k dòng không có test. Bạn lên strategy: bắt đầu từ đâu, ưu tiên gì, target coverage thế nào?
+  expectedAnswer: |-
+    Prioritize: critical business logic (payment, auth, data integrity).
+    Characterization tests trước (describe current behavior).
+    Seam injection để test legacy code.
+    Coverage: không đặt target % — đặt target theo risk.
+    Không test: generated code, framework code, simple getters.
+    Boy Scout: mỗi PR thêm test cho code được touch.
+    Ratchet: coverage không được giảm.
+  scoringGuide: *scoringBase
+
+- code: "Q143"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Integration test vs unit test vs E2E test — bạn phân bổ tỷ lệ thế nào cho một dự án backend API? Tại sao?
+  expectedAnswer: |-
+    Testing pyramid: 70% unit, 20% integration, 10% E2E.
+    Unit: fast, isolated, cheap.
+    Integration: test DB/Redis/external service interactions (với test containers).
+    E2E: smoke test critical paths.
+    Inverted pyramid (many E2E): slow, flaky, expensive.
+    Balance: đủ confidence mà không quá chậm.
+    Backend API: integration tests quan trọng vì DB interaction là core.
+  scoringGuide: *scoringBase
+
+- code: "Q144"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Team mới không ai muốn viết test vì "mất thời gian". Bạn là senior — bạn thuyết phục và introduce test culture thế nào?
+  expectedAnswer: |-
+    Đừng mandate coverage % ngay.
+    Lead by example: pair programming với test.
+    Show value: kể bug đã được catch bởi test trong team khác.
+    Tooling: easy test setup, fast feedback (watch mode).
+    TDD workshop nhẹ.
+    Start small: critical paths.
+    Measure: track bugs escaped to production, correlate với test coverage.
+    Management buy-in: ROI của test vs cost of bugs.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_SHOULD — Mạng máy tính
+# ─────────────────────────────────────────────────────────
+
+- code: "Q145"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    TCP và UDP khác nhau thế nào? Khi nào dùng UDP thay TCP?
+  expectedAnswer: |-
+    TCP: connection-oriented, reliable (retransmit), ordered, flow control.
+    UDP: connectionless, no guarantee, faster, no overhead.
+    Dùng UDP: real-time (gaming, video streaming, VoIP) khi latency quan trọng hơn reliability, DNS queries, QUIC (HTTP/3 built on UDP).
+  scoringGuide: *scoringBase
+
+- code: "Q146"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Mô hình OSI 7 tầng: kể tên từng tầng và vai trò chính.
+  expectedAnswer: |-
+    7-Physical (bits, cable), 6-Presentation (encoding, SSL), 5-Session (session mgmt), 4-Transport (TCP/UDP, port), 3-Network (IP routing), 2-Data Link (MAC, switch), 1-Physical.
+    TCP/IP model: 4 tầng (Application, Transport, Internet, Network Access).
+    Real-world: Layer 4 (TCP), Layer 7 (HTTP) load balancing.
+  scoringGuide: *scoringBase
+
+- code: "Q147"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Khi bạn gõ "google.com" vào browser và nhấn Enter, những gì xảy ra từng bước?
+  expectedAnswer: |-
+    1.
+    DNS lookup (cache → resolver → root → TLD → authoritative).
+    2.
+    TCP 3-way handshake.
+    3.
+    TLS handshake (HTTPS).
+    4.
+    HTTP GET request.
+    5.
+    Server processes → response.
+    6.
+    Browser renders HTML (parse → DOM → CSSOM → render tree → layout → paint).
+    7.
+    Subsequent requests cho JS/CSS/images.
+  scoringGuide: *scoringBase
+
+- code: "Q148"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    IP public và IP private khác nhau thế nào? Tại sao cần NAT?
+  expectedAnswer: |-
+    Private IP: 10.x.x.x, 172.16-31.x.x, 192.168.x.x — không routable trên internet.
+    Public IP: globally routable.
+    NAT: router translate private IP → public IP khi packet ra internet.
+    Cho phép nhiều devices share 1 public IP.
+    IPv4 exhaustion là lý do NAT phổ biến.
+    IPv6 giải quyết bằng address space lớn hơn.
+  scoringGuide: *scoringBase
+
+- code: "Q149"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    App bạn deploy lên server bị lỗi "SSL certificate expired". Bạn xử lý thế nào và tránh tái diễn?
+  expectedAnswer: |-
+    Immediate: renew cert (Let's Encrypt: certbot renew).
+    Verify: openssl s_client -connect domain:443.
+    Prevent: auto-renewal cron (certbot --renew).
+    Monitoring: alert 30/14/7 ngày trước expiry (Datadog, AWS Certificate Manager, UptimeRobot).
+    Document: certificate inventory, ownership.
+    Wildcard cert cho multiple subdomains.
+  scoringGuide: *scoringBase
+
+- code: "Q150"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    API gọi đến third-party thỉnh thoảng bị timeout. Bạn dùng curl/Postman/tcpdump để kiểm tra và xác định nguyên nhân thế nào?
+  expectedAnswer: |-
+    curl -v --max-time 10 https://api.third-party.com. tcpdump -i eth0 host api.third-party.com để xem packets.
+    Kiểm tra: DNS resolution time, TCP connect time, TLS handshake time, TTFB.
+    Wireshark cho deep analysis.
+    Logging: add timing middleware.
+    Pattern: timeout chỉ vào giờ cao điểm → rate limit bên họ.
+  scoringGuide: *scoringBase
+
+- code: "Q151"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    App cần giao tiếp với service nội bộ — bạn dùng HTTP/1.1 hay HTTP/2? Khi nào cần upgrade lên HTTP/2?
+  expectedAnswer: |-
+    HTTP/2: multiplexing (nhiều request trên 1 connection), header compression (HPACK), server push, binary protocol.
+    Internal services: HTTP/2 hoặc gRPC (built on HTTP/2).
+    Upgrade khi: nhiều parallel requests, high latency network, HOL blocking là vấn đề.
+    HTTP/1.1 vẫn ok cho simple request/response. gRPC tốt hơn cho inter-service.
+  scoringGuide: *scoringBase
+
+- code: "Q152"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần setup load balancer cho 3 server backend. Với user session-sticky (cùng user luôn đến cùng server), bạn dùng thuật toán nào?
+  expectedAnswer: |-
+    Sticky sessions: IP Hash (hash source IP → same server, nhưng vấn đề nếu user dùng mobile/NAT).
+    Cookie-based sticky: LB set cookie với server ID, subsequent requests route đến same server.
+    Better: externalize session (Redis) → stateless → không cần sticky.
+    Round Robin cho stateless services.
+  scoringGuide: *scoringBase
+
+- code: "Q153"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    App latency tăng đột ngột từ 50ms lên 500ms. Bạn phân tích từng layer (app, DB, network) để isolate bottleneck thế nào?
+  expectedAnswer: |-
+    Approach: (1) Check application metrics — CPU, memory, GC pauses.
+    (2) Distributed tracing (Jaeger) để xem slow spans.
+    (3) DB slow query log — long-running queries.
+    (4) Network: ping, traceroute, netstat.
+    (5) Infrastructure: disk I/O, network packet loss.
+    Correlate với deploy history, traffic spike.
+    Narrow down đến 1 component.
+  scoringGuide: *scoringBase
+
+- code: "Q154"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hệ thống 10 triệu user cần multi-region failover, RTO < 1 phút khi 1 region down. Bạn thiết kế network và DNS strategy thế nào?
+  expectedAnswer: |-
+    Active-active multi-region.
+    DNS: health checks + failover routing (Route53 latency routing + health checks).
+    Global Accelerator cho consistent IP.
+    DB: multi-master replication hoặc CockroachDB.
+    RTO < 1 phút: health check interval 10s + DNS TTL 30s + warm standby.
+    CDN cho static content.
+    Chaos engineering: regular failover drills.
+  scoringGuide: *scoringBase
+
+- code: "Q155"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service của bạn cần expose API ra internet và internal network với security khác nhau. Bạn thiết kế network segmentation thế nào?
+  expectedAnswer: |-
+    DMZ architecture: Public subnet (API Gateway, WAF), Private subnet (application servers), Isolated subnet (DB).
+    Security Groups/NACLs: public API → LB; LB → app; app → DB (specific ports).
+    Internal APIs: expose qua VPC private endpoint.
+    Zero trust: mTLS giữa services.
+    VPN cho admin access.
+    Avoid flat network.
+  scoringGuide: *scoringBase
+
+- code: "Q156"
+  category: BACKEND_SHOULD
+  subcategory: "Mạng máy tính"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần setup VPN giữa on-premise server và cloud. Giải thích các approach: site-to-site VPN, Direct Connect, peering.
+  expectedAnswer: |-
+    Site-to-site VPN: IPSec tunnel qua internet, encrypt traffic, cost thấp, bandwidth giới hạn bởi internet.
+    AWS Direct Connect: dedicated private line, low latency, high bandwidth, expensive, not encrypted by default.
+    VPC Peering: connect 2 VPCs, no internet, same region (hoặc cross-region).
+    Chọn: VPN cho non-critical, Direct Connect cho production high-throughput.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# BACKEND_SHOULD — DevOps
+# ─────────────────────────────────────────────────────────
+
+- code: "Q157"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    CI/CD là gì? Mô tả các stage trong 1 pipeline CI/CD điển hình.
+  expectedAnswer: |-
+    CI: merge code thường xuyên, auto build + test.
+    CD: auto deploy đến staging/production.
+    Pipeline stages: (1) Lint/format, (2) Build, (3) Unit tests, (4) Integration tests, (5) Security scan, (6) Build Docker image, (7) Push to registry, (8) Deploy to staging, (9) E2E/smoke tests, (10) Deploy to production.
+  scoringGuide: *scoringBase
+
+- code: "Q158"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Logging, Monitoring, Tracing — 3 pillars of observability — khác nhau thế nào?
+  expectedAnswer: |-
+    Logging: discrete events (ERROR: DB connection failed at 10:30).
+    Monitoring/Metrics: aggregated numbers over time (request rate, error rate, latency).
+    Tracing: track single request across multiple services (trace ID).
+    Logs: What happened.
+    Metrics: How system is performing.
+    Traces: Where time is spent.
+    Tools: ELK (logs), Prometheus+Grafana (metrics), Jaeger/Zipkin (traces).
+  scoringGuide: *scoringBase
+
+- code: "Q159"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Thêm bước chạy unit test vào CI pipeline (GitHub Actions). Nếu test fail thì pipeline fail. Bạn viết YAML config thế nào?
+  expectedAnswer: |-
+    jobs: test: runs-on: ubuntu-latest; steps: [checkout, setup-node@v3, npm ci, npm test].
+    Jobs downstream (build, deploy) depend-on: test — nếu test fail thì không run.
+    Cache node_modules với actions/cache.
+    Matrix: test trên nhiều Node versions.
+    Upload test results với actions/upload-artifact.
+  scoringGuide: *scoringBase
+
+- code: "Q160"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service đang chạy trên Docker bị lỗi. Bạn dùng lệnh gì để xem log real-time và filter theo keyword "ERROR"?
+  expectedAnswer: |-
+    docker logs -f container_name 2>&1 | grep ERROR.
+    Docker compose: docker-compose logs -f service_name.
+    Kubectl (K8s): kubectl logs -f pod_name -c container_name | grep ERROR.
+    Centralized logging: ship logs đến ELK, search với Kibana.
+    Log structured JSON để dễ filter: {level: "ERROR", message: "...", timestamp: "..."}.
+  scoringGuide: *scoringBase
+
+- code: "Q161"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Blue/Green deployment là gì? Mô tả quy trình switch traffic và cách rollback khi phát hiện lỗi.
+  expectedAnswer: |-
+    Maintain 2 identical environments: Blue (current), Green (new).
+    Deploy new version lên Green.
+    Run smoke tests.
+    Switch LB/DNS từ Blue → Green.
+    Rollback: switch ngược lại (seconds).
+    Kết hợp feature flags.
+    AWS: Route53 weighted routing 100% Blue → 100% Green.
+    Kubernetes: Service selector change.
+    Cost: double infrastructure khi deploying.
+  scoringGuide: *scoringBase
+
+- code: "Q162"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Thêm structured JSON logging vào service. Field nào phải có trong mỗi log entry để dễ search sau này?
+  expectedAnswer: |-
+    Required fields: timestamp (ISO 8601), level (ERROR/WARN/INFO), message, service (service name), traceId (correlation), requestId, userId (nếu có).
+    Optional: duration, statusCode, method, path, error stack.
+    Avoid: PII trong logs.
+    JSON format: Elasticsearch/Loki/Splunk index tự động.
+    Log sampling cho high-volume DEBUG logs.
+  scoringGuide: *scoringBase
+
+- code: "Q163"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần alert khi HTTP 5xx error rate > 5% trong 5 phút liên tiếp. Viết Prometheus alerting rule thế nào?
+  expectedAnswer: |-
+    alert: HighErrorRate; expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05; for: 5m; labels: {severity: critical}; annotations: {summary: "5xx rate > 5%"}.
+    Alert routing: PagerDuty cho critical.
+    Recording rule để tối ưu query phức tạp.
+  scoringGuide: *scoringBase
+
+- code: "Q164"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Service A gọi B gọi C, request bị chậm. Bạn truyền trace ID qua header thế nào để trace request xuyên suốt?
+  expectedAnswer: |-
+    Distributed tracing: generate traceId tại API Gateway (UUID), inject vào X-Trace-Id header.
+    Mỗi service đọc header, pass forward khi gọi downstream.
+    Log với traceId.
+    OpenTelemetry: tự động propagate context qua W3C Trace Context header.
+    Jaeger/Zipkin: collector nhận spans, visualize waterfall.
+    Correlation ID để join logs.
+  scoringGuide: *scoringBase
+
+- code: "Q165"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Pipeline CI fail 30% do flaky test không stable. Bạn identify và quarantine flaky test thế nào? Strategy dài hạn?
+  expectedAnswer: |-
+    Identify: track test pass/fail history, flag tests với inconsistent results.
+    Quarantine: @flaky annotation, run separately, không block merge.
+    Fix: root cause (race condition, shared state, time dependency, external API).
+    Long-term: strict no-new-flaky policy, fix budget (20% capacity), flakiness as technical debt.
+    Measure: flaky rate as KPI.
+  scoringGuide: *scoringBase
+
+- code: "Q166"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Thiết kế observability strategy cho 50 microservices: centralized logging, metrics aggregation, end-to-end tracing, alert routing. Tool stack và cost optimization thế nào?
+  expectedAnswer: |-
+    Logs: Fluentbit → Loki (cost effective) hoặc Elasticsearch.
+    Metrics: Prometheus + Grafana.
+    Traces: OpenTelemetry → Jaeger (self-hosted) hoặc Tempo.
+    Alerts: AlertManager → PagerDuty.
+    Cost: log sampling cho debug, metrics retention tiers (hot 7d, warm 30d, cold 1y).
+    Cardinality control.
+    Shared observability platform team cho 50 services.
+  scoringGuide: *scoringBase
+
+- code: "Q167"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần implement GitOps: mọi thay đổi infrastructure đều qua git PR, tự động sync vào cluster. Bạn thiết kế workflow thế nào?
+  expectedAnswer: |-
+    GitOps: Git là source of truth cho infrastructure state.
+    Tools: ArgoCD hoặc Flux.
+    Flow: developer PR infrastructure change → review → merge → ArgoCD detect drift → auto sync đến cluster.
+    No manual kubectl apply.
+    Secrets: sealed-secrets hoặc external secrets operator.
+    Rollback: git revert PR → auto sync back.
+    Audit trail trong git history.
+  scoringGuide: *scoringBase
+
+- code: "Q168"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Team có 10 microservices, mỗi service có Dockerfile và deployment script riêng. Bạn standardize thế nào để mọi service có cùng CI/CD pattern?
+  expectedAnswer: |-
+    Shared CI template: reusable workflow (GitHub Actions reusable workflow, GitLab CI includes).
+    Standard Makefile với targets: build, test, push, deploy.
+    Service manifest: deploy.yaml với standardized fields.
+    Service template/scaffold: cookie-cutter để tạo service mới với CI config sẵn.
+    Platform team owned pipeline: services configure via convention, not custom scripts.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# SOFT_SKILL — Giao tiếp
+# ─────────────────────────────────────────────────────────
+
+- code: "Q169"
+  category: SOFT_SKILL
+  subcategory: "Giao tiếp"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Mô tả tình huống bạn phải giải thích database sharding cho Product Manager không có background kỹ thuật. Bạn làm thế nào?
+  expectedAnswer: |-
+    Dùng analogy: chia nhiều ngăn tủ thay 1 ngăn.
+    Tránh jargon.
+    Giải thích impact: nhanh hơn, scale được.
+    Không đi sâu implementation.
+    Check understanding bằng câu hỏi.
+  scoringGuide: *scoringBase
+
+- code: "Q170"
+  category: SOFT_SKILL
+  subcategory: "Giao tiếp"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn và teammate bất đồng về việc dùng microservices hay monolith cho project mới. Bạn xử lý thế nào?
+  expectedAnswer: |-
+    Lắng nghe quan điểm của teammate trước.
+    Đặt câu hỏi để hiểu concern.
+    Trình bày data/evidence.
+    Disagree but commit khi đã quyết định.
+    Escalate nếu cần.
+  scoringGuide: *scoringBase
+
+- code: "Q171"
+  category: SOFT_SKILL
+  subcategory: "Giao tiếp"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho ví dụ lần bạn proactively báo cáo rủi ro kỹ thuật trước khi nó trở thành vấn đề.
+  expectedAnswer: |-
+    Identify risk sớm qua code review, architecture discussion.
+    Communicate rõ ràng: severity, likelihood, impact, mitigation options.
+    Không chỉ báo vấn đề mà kèm giải pháp đề xuất.
+  scoringGuide: *scoringBase
+
+- code: "Q172"
+  category: SOFT_SKILL
+  subcategory: "Giao tiếp"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn làm việc với teammate ở timezone khác 7 giờ. Bạn tổ chức communication thế nào?
+  expectedAnswer: |-
+    Async-first: document decisions, lý do.
+    Overlap window: tìm 1-2h overlap cho sync calls.
+    Handoff doc: end-of-day summary để người tiếp theo biết state.
+    Over-communicate: document trạng thái work, blockers.
+  scoringGuide: *scoringBase
+
+- code: "Q173"
+  category: SOFT_SKILL
+  subcategory: "Giao tiếp"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể về lần bạn hiểu lầm requirement, gây ra bug trên production. Bạn xử lý thế nào?
+  expectedAnswer: |-
+    Nhận trách nhiệm, không đổ lỗi.
+    Immediate fix/rollback.
+    Post-mortem: root cause (requirement không rõ, không clarify).
+    Prevention: template AC, confirm trước khi implement, mid-sprint check.
+  scoringGuide: *scoringBase
+
+- code: "Q174"
+  category: SOFT_SKILL
+  subcategory: "Giao tiếp"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn nhận feedback "code của bạn quá khó đọc" từ senior. Phản ứng của bạn thế nào?
+  expectedAnswer: |-
+    Không defensive.
+    Hỏi cụ thể: đoạn nào, khó đọc ở điểm gì.
+    Cảm ơn feedback.
+    Học và apply: naming, comments, simplify.
+    Follow-up sau 1-2 sprint để show improvement.
+  scoringGuide: *scoringBase
+
+- code: "Q175"
+  category: SOFT_SKILL
+  subcategory: "Giao tiếp"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cần align 3 team (Backend, Frontend, DevOps) về một thay đổi breaking API. Bạn coordinate thế nào?
+  expectedAnswer: |-
+    RFC document: mô tả change, impact, migration path, timeline.
+    Review với tất cả stakeholders trước khi implement.
+    Deprecation period: support cả 2 versions.
+    Versioned API endpoint.
+    Communication channel: dedicated Slack thread.
+    Track migration progress.
+  scoringGuide: *scoringBase
+
+- code: "Q176"
+  category: SOFT_SKILL
+  subcategory: "Giao tiếp"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể về lần bạn phải communicate bad news (project delay, critical bug) lên management.
+  expectedAnswer: |-
+    Báo sớm, không chờ đến deadline.
+    Bản cáo: tình trạng, root cause, impact, plan.
+    Đừng chỉ báo vấn đề — kèm options và recommendation.
+    Own the problem, không blame.
+    Follow-up với progress update.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# SOFT_SKILL — Thuyết trình
+# ─────────────────────────────────────────────────────────
+
+- code: "Q177"
+  category: SOFT_SKILL
+  subcategory: "Thuyết trình"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Mô tả buổi bạn present technical solution cho ban lãnh đạo. Bạn chuẩn bị và present thế nào?
+  expectedAnswer: |-
+    Know your audience: không deep technical detail với execs.
+    Focus: business impact, cost, risk.
+    Storytelling: vấn đề → solution → result.
+    Backup slides cho technical questions.
+    Practice beforehand.
+  scoringGuide: *scoringBase
+
+- code: "Q178"
+  category: SOFT_SKILL
+  subcategory: "Thuyết trình"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn cần giới thiệu kiến trúc microservices mới cho cả team kỹ thuật lẫn team business. Bạn structure bài present thế nào cho 2 đối tượng?
+  expectedAnswer: |-
+    Layered presentation: bắt đầu với business value (cho tất cả), sau đó technical deep dive (cho engineers).
+    Diagram: high-level cho business, detailed cho tech.
+    Q&A session riêng.
+    Hoặc 2 presentations riêng.
+  scoringGuide: *scoringBase
+
+- code: "Q179"
+  category: SOFT_SKILL
+  subcategory: "Thuyết trình"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Đang present thì stakeholder hỏi câu hỏi khó mà bạn không biết ngay câu trả lời. Bạn xử lý thế nào?
+  expectedAnswer: |-
+    Không fabricate.
+    Acknowledge: "Câu hỏi hay, tôi cần check lại để đảm bảo chính xác".
+    Park: ghi lại, follow-up sau.
+    Nếu biết partial: share what you know.
+    Confidence không phải biết tất cả — mà là honest về limitations.
+  scoringGuide: *scoringBase
+
+- code: "Q180"
+  category: SOFT_SKILL
+  subcategory: "Thuyết trình"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn ưa demo live code/system hay slide? Khi nào bạn chọn mỗi loại?
+  expectedAnswer: |-
+    Live demo: powerful khi system đã stable, audience technical, muốn show real behavior.
+    Slide: khi audience non-technical, concept complex, risk of demo failure cao.
+    Hybrid: slides cho structure + demo cho highlight moments.
+    Always have backup screenshots/video.
+  scoringGuide: *scoringBase
+
+- code: "Q181"
+  category: SOFT_SKILL
+  subcategory: "Thuyết trình"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể lần bạn present và nhận phản ứng tiêu cực (phản đối, ngắt lời). Bạn xử lý thế nào?
+  expectedAnswer: |-
+    Không defensive.
+    Lắng nghe concern.
+    Validate: "Tôi hiểu lo ngại của bạn về X".
+    Address specifically với data.
+    Nếu valid objection: acknowledge và adapt.
+    Không escalate to argument.
+    Agree to disagree và follow-up offline.
+  scoringGuide: *scoringBase
+
+- code: "Q182"
+  category: SOFT_SKILL
+  subcategory: "Thuyết trình"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn chuẩn bị cho buổi thuyết trình quan trọng trong 1 ngày thế nào?
+  expectedAnswer: |-
+    Morning: review content 1 lần nữa, chuẩn bị backup.
+    Practice: talk through key points.
+    Tech check: projector, slides, demo environment.
+    Anticipate questions: prepare answers.
+    Mental: confidence, không cần perfect.
+    Buffer time: arrive early.
+  scoringGuide: *scoringBase
+
+- code: "Q183"
+  category: SOFT_SKILL
+  subcategory: "Thuyết trình"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn dùng architecture diagram khi nào và tool gì?
+  expectedAnswer: |-
+    When: explain complex system to new team members, design review, documentation.
+    Tools: draw.io (free), Lucidchart, Mermaid (code-as-diagram, version controlled), C4 model.
+    Keep updated: stale diagram worse than no diagram.
+    Right level of abstraction cho audience.
+  scoringGuide: *scoringBase
+
+- code: "Q184"
+  category: SOFT_SKILL
+  subcategory: "Thuyết trình"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể lần demo bị lỗi kỹ thuật bất ngờ trong lúc present. Bạn xử lý thế nào?
+  expectedAnswer: |-
+    Calm, không panic.
+    Acknowledge: "Let me switch to slides while we sort this out".
+    Backup: screenshots/recording.
+    Explain what demo would have shown.
+    Resume demo nếu fix nhanh.
+    Humor giúp diffuse tension.
+    Post-demo: setup staging environment riêng cho demo, không dùng production.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# SOFT_SKILL — Báo cáo
+# ─────────────────────────────────────────────────────────
+
+- code: "Q185"
+  category: SOFT_SKILL
+  subcategory: "Báo cáo"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn viết weekly progress report như thế nào? Nội dung gồm những gì?
+  expectedAnswer: |-
+    Sections: Done this week, In progress, Next week, Blockers.
+    Metrics: story points, bugs fixed, PR merged.
+    Concise: bullet points, không essay.
+    Audience-appropriate: technical detail cho lead, business impact cho manager.
+  scoringGuide: *scoringBase
+
+- code: "Q186"
+  category: SOFT_SKILL
+  subcategory: "Báo cáo"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Sprint bị delay 1 tuần so với kế hoạch. Bạn báo cáo lên manager thế nào?
+  expectedAnswer: |-
+    Sớm, không chờ đến deadline.
+    Content: what is delayed, root cause, impact, plan to recover.
+    No surprises principle.
+    Options: scope cut, extend, add resource.
+    Recommendation.
+    Không sugarcoat, không alarmist.
+  scoringGuide: *scoringBase
+
+- code: "Q187"
+  category: SOFT_SKILL
+  subcategory: "Báo cáo"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Hệ thống bị incident 2 giờ. Bạn viết post-mortem thế nào để team học được từ đó?
+  expectedAnswer: |-
+    Blameless post-mortem: timeline, root cause (5 whys), contributing factors, impact, action items với owner+due date.
+    Không blame cá nhân.
+    Share với toàn team.
+    Follow up: close action items, measure improvement.
+    Culture of learning.
+  scoringGuide: *scoringBase
+
+- code: "Q188"
+  category: SOFT_SKILL
+  subcategory: "Báo cáo"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn document một quyết định kỹ thuật quan trọng (ví dụ chọn database) bằng ADR thế nào?
+  expectedAnswer: |-
+    ADR (Architecture Decision Record): title, status (proposed/accepted/deprecated), context (why decision needed), decision (what chosen), consequences (pros/cons).
+    Version controlled trong repo.
+    Template: Michael Nygard ADR format.
+    Index file để navigate.
+    Update khi superseded.
+  scoringGuide: *scoringBase
+
+- code: "Q189"
+  category: SOFT_SKILL
+  subcategory: "Báo cáo"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Khi nào bạn dùng dashboard (Grafana, Datadog) và khi nào viết narrative report?
+  expectedAnswer: |-
+    Dashboard: ongoing monitoring, real-time data, recurring review meetings.
+    Narrative report: one-time analysis, stakeholder communication, explain "why" behind numbers, executive summary.
+    Combine: dashboard + brief narrative với key insights và recommendations.
+  scoringGuide: *scoringBase
+
+- code: "Q190"
+  category: SOFT_SKILL
+  subcategory: "Báo cáo"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Report tiến độ cho technical lead vs cho business stakeholder — bạn điều chỉnh nội dung thế nào?
+  expectedAnswer: |-
+    Tech lead: technical details, code quality metrics, architecture decisions, blockers.
+    Business stakeholder: % complete, business impact, risks, timeline, budget.
+    Common: status, risks, next steps.
+    Remove jargon cho business audience.
+    Lead với headline, details below.
+  scoringGuide: *scoringBase
+
+- code: "Q191"
+  category: SOFT_SKILL
+  subcategory: "Báo cáo"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn track và communicate technical debt lên management để được allocate time thế nào?
+  expectedAnswer: |-
+    Quantify: risk (production incidents caused), cost (developer time wasted, slow velocity).
+    Technical debt register: list items, severity, estimated fix time.
+    Business language: "This debt costs us 2 days/sprint in maintenance".
+    Priority: critical (security, stability) first.
+    Propose: 20% capacity for tech debt per sprint.
+  scoringGuide: *scoringBase
+
+- code: "Q192"
+  category: SOFT_SKILL
+  subcategory: "Báo cáo"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể lần bạn phải báo cáo critical production incident lên CTO. Bạn chuẩn bị gì?
+  expectedAnswer: |-
+    Prepare: timeline, impact (users affected, revenue loss, duration), root cause, fix applied, prevention.
+    Executive summary: 3-4 sentences.
+    Honest, no spin.
+    Own the incident.
+    Present plan to prevent recurrence.
+    CTO không cần technical details — cần: resolved? customers impacted? prevention?
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# SOFT_SKILL — Thuyết phục
+# ─────────────────────────────────────────────────────────
+
+- code: "Q193"
+  category: SOFT_SKILL
+  subcategory: "Thuyết phục"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho ví dụ lần bạn thuyết phục team adopt một technology/practice mới (ví dụ: viết unit test, dùng TypeScript). Bạn thuyết phục thế nào?
+  expectedAnswer: |-
+    Lead with value, không với enthusiasm.
+    Proof of concept: show it working.
+    Metrics: before/after comparison.
+    Pilot: 1 sprint thử nghiệm, evaluate.
+    Address concerns: learning curve, timeline.
+    Don't mandate — invite.
+  scoringGuide: *scoringBase
+
+- code: "Q194"
+  category: SOFT_SKILL
+  subcategory: "Thuyết phục"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Codebase có technical debt nghiêm trọng. Bạn build business case như thế nào để management cho time refactor?
+  expectedAnswer: |-
+    Translate to business: "This debt causes X incidents/quarter, costs Y hours to maintain, slows new feature delivery by Z%".
+    Show risk if not addressed.
+    Propose: specific scope, timeline, expected outcomes.
+    Frame as investment, not cleanup.
+  scoringGuide: *scoringBase
+
+- code: "Q195"
+  category: SOFT_SKILL
+  subcategory: "Thuyết phục"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Đề xuất của bạn bị từ chối vì "không có budget". Bạn phản ứng thế nào và có tiếp tục pursue không?
+  expectedAnswer: |-
+    Understand real objection: budget constraint hay not convinced of value? Address root cause.
+    Break down into smaller phases.
+    Find cheaper alternative.
+    Revisit at next planning cycle.
+    Know when to drop: sometimes timing is wrong.
+  scoringGuide: *scoringBase
+
+- code: "Q196"
+  category: SOFT_SKILL
+  subcategory: "Thuyết phục"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn propose breaking change API sẽ ảnh hưởng 5 team khác. Bạn thuyết phục các team chấp nhận thế nào?
+  expectedAnswer: |-
+    Involve early: RFC draft trước khi finalize.
+    Address each team's concern.
+    Migration path: step-by-step, tools, support.
+    Timeline: give adequate migration time.
+    Incentive: show how new API is better for them.
+    Support: dedicate migration support resources.
+  scoringGuide: *scoringBase
+
+- code: "Q197"
+  category: SOFT_SKILL
+  subcategory: "Thuyết phục"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    2 senior engineer bất đồng về technical approach, bạn là người trung gian. Bạn facilitate decision thế nào?
+  expectedAnswer: |-
+    Không pick sides early.
+    Reframe: cả 2 muốn best outcome, disagree on how.
+    List tradeoffs objectively.
+    Criteria: define decision criteria (performance, cost, simplicity, team expertise).
+    Timebox discussion.
+    Consent vs consensus: proceed if no strong objection.
+  scoringGuide: *scoringBase
+
+- code: "Q198"
+  category: SOFT_SKILL
+  subcategory: "Thuyết phục"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn muốn adopt new framework nhưng team lead không đồng ý. Bạn influence thế nào mà không gây friction?
+  expectedAnswer: |-
+    Understand objection: risk averse, familiarity, timeline.
+    Build credibility: show you've evaluated alternatives.
+    Suggest small pilot: low-risk area, bounded scope.
+    Document learnings.
+    Let results speak.
+    Be OK if answer is still no — trust builds over time.
+  scoringGuide: *scoringBase
+
+- code: "Q199"
+  category: SOFT_SKILL
+  subcategory: "Thuyết phục"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể lần bạn thay đổi quyết định của một người khác bằng dữ liệu/metrics.
+  expectedAnswer: |-
+    Collect relevant data trước.
+    Present objectively, không manipulative.
+    Let data tell story.
+    Give time to digest.
+    Don't force: "This is what data shows, what do you think?" Acknowledge uncertainty in data.
+    Combine data với narrative/context.
+  scoringGuide: *scoringBase
+
+- code: "Q200"
+  category: SOFT_SKILL
+  subcategory: "Thuyết phục"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể lần bạn bị thuyết phục thay đổi technical opinion của mình. Điều gì khiến bạn thay đổi?
+  expectedAnswer: |-
+    Show intellectual humility.
+    Examples: evidence-based argument, new information, practical demonstration.
+    Điều thuyết phục: data tốt hơn gut feeling, demo working solution, identify flaw trong own reasoning.
+    Growth mindset: changing mind = learning, không phải weakness.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# PERSONALITY — Phẩm chất
+# ─────────────────────────────────────────────────────────
+
+- code: "Q201"
+  category: PERSONALITY
+  subcategory: "Phẩm chất"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể về lỗi kỹ thuật nghiêm trọng nhất bạn từng gây ra. Bạn xử lý thế nào và học được gì?
+  expectedAnswer: |-
+    Own the mistake, không defensive.
+    Immediate: fix, communicate impact.
+    Reflect: root cause.
+    Learn: process change to prevent recurrence.
+    Share: blameless post-mortem với team.
+    Growth: turned failure into improvement.
+  scoringGuide: *scoringBase
+
+- code: "Q202"
+  category: PERSONALITY
+  subcategory: "Phẩm chất"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn được assign task hoàn toàn ngoài expertise của mình (ví dụ Backend dev phải làm ML). Bạn tiếp cận thế nào?
+  expectedAnswer: |-
+    Growth mindset: opportunity to learn.
+    Break down: học concepts cần thiết trước.
+    Ask for help: pair với expert nếu có.
+    Time box learning.
+    Deliver incrementally.
+    Communicate uncertainty: set realistic expectations về timeline.
+  scoringGuide: *scoringBase
+
+- code: "Q203"
+  category: PERSONALITY
+  subcategory: "Phẩm chất"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cho ví dụ lần bạn chủ động fix vấn đề kỹ thuật không phải trách nhiệm của mình.
+  expectedAnswer: |-
+    Ownership mentality: see problem → fix it, don't wait for assignment.
+    Communicate: let relevant team know what you found and fixed.
+    Document: leave code better.
+    Balance: không ignore own priorities, assess priority before diving in.
+  scoringGuide: *scoringBase
+
+- code: "Q204"
+  category: PERSONALITY
+  subcategory: "Phẩm chất"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Deadline cực gấp, phải chọn: ship nhanh nhưng code xấu, hay delay để làm đúng. Bạn chọn thế nào và communicate ra sao?
+  expectedAnswer: |-
+    Context matters: critical deadline (launch, compliance) → ship with documented tech debt + immediate plan to fix.
+    Non-critical → negotiate timeline.
+    Communicate trade-offs clearly to stakeholder.
+    Never ship silently poor quality.
+    Document: "This was intentional shortcut, tracked in issue #X".
+  scoringGuide: *scoringBase
+
+- code: "Q205"
+  category: PERSONALITY
+  subcategory: "Phẩm chất"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Manager ra quyết định kỹ thuật bạn thấy sai. Bạn phản ứng thế nào?
+  expectedAnswer: |-
+    Speak up respectfully: share concern với data/reasoning.
+    Choose right channel: 1-on-1, không call out in public.
+    Disagree and commit sau khi đã nói: nếu decision final, execute fully.
+    Escalate nếu ethical/safety issue.
+    Document concern: cover yourself.
+  scoringGuide: *scoringBase
+
+- code: "Q206"
+  category: PERSONALITY
+  subcategory: "Phẩm chất"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Nhận performance review: "cần cải thiện kỹ năng communication". Bạn phản ứng và action plan thế nào?
+  expectedAnswer: |-
+    Receive feedback openly.
+    Ask for specifics: what situations, what behavior.
+    Thank for honesty.
+    Create action plan: book, course, practice.
+    Pair with someone good at it.
+    Request follow-up check-in in 3 months.
+    Show improvement visibly.
+  scoringGuide: *scoringBase
+
+- code: "Q207"
+  category: PERSONALITY
+  subcategory: "Phẩm chất"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể lần làm việc trong môi trường requirement cực kỳ ambiguous, không có document. Bạn xử lý thế nào?
+  expectedAnswer: |-
+    Embrace ambiguity as normal.
+    Ask targeted questions: narrow down uncertainty quickly.
+    State assumptions explicitly in code/PR.
+    Build incrementally: get feedback early.
+    Document as you go.
+    Validate with stakeholder before building wrong thing.
+  scoringGuide: *scoringBase
+
+- code: "Q208"
+  category: PERSONALITY
+  subcategory: "Phẩm chất"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể về conflict với teammate về code approach. Diễn ra thế nào và kết quả?
+  expectedAnswer: |-
+    Separate person from idea: critique approach, not person.
+    Seek to understand their reasoning first.
+    Find common ground: shared goal.
+    Data-driven resolution: prototype/benchmark.
+    Escalate nếu blocking progress.
+    Relationship preservation: disagree professionally, move forward as team.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# PERSONALITY — Động lực
+# ─────────────────────────────────────────────────────────
+
+- code: "Q209"
+  category: PERSONALITY
+  subcategory: "Động lực"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Điều gì thúc đẩy bạn learn thêm kỹ năng kỹ thuật mới ngoài giờ làm?
+  expectedAnswer: |-
+    Intrinsic motivation: curiosity, impact, growth.
+    Specific: project challenges, following industry trends, community (blogs, conferences).
+    Sustainable: learning that connects to real problems, not just chasing hype.
+  scoringGuide: *scoringBase
+
+- code: "Q210"
+  category: PERSONALITY
+  subcategory: "Động lực"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn muốn phát triển theo hướng technical expert (individual contributor) hay management trong 3–5 năm?
+  expectedAnswer: |-
+    Honest self-assessment: what energizes you — deep technical work hay leading people? Both are valid career paths.
+    Technical: Staff/Principal engineer.
+    Management: Team lead, EM.
+    Many companies have dual ladder.
+    Okay to be undecided — explore both.
+  scoringGuide: *scoringBase
+
+- code: "Q211"
+  category: PERSONALITY
+  subcategory: "Động lực"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Loại technical problem nào khiến bạn hứng thú nhất?
+  expectedAnswer: |-
+    Specific và genuine: performance optimization, distributed systems, elegant API design.
+    Connect to past experience.
+    Not generic ("I love all problems").
+    Show depth: explain what makes that problem domain interesting.
+  scoringGuide: *scoringBase
+
+- code: "Q212"
+  category: PERSONALITY
+  subcategory: "Động lực"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn maintain legacy system 10 năm tuổi, không có documentation. Bạn giữ động lực thế nào?
+  expectedAnswer: |-
+    Reframe: legacy system = real-world complexity, learn from it.
+    Small wins: each improvement documented, each module understood.
+    Leave it better: boy scout rule.
+    Understand importance: production systems matter.
+    Find allies: others who care about quality.
+  scoringGuide: *scoringBase
+
+- code: "Q213"
+  category: PERSONALITY
+  subcategory: "Động lực"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Tại sao bạn apply vào vị trí này / công ty này?
+  expectedAnswer: |-
+    Specific reasons, không generic.
+    Research company: product mission, tech stack, culture, team.
+    Connect to own growth goals.
+    Authentic: what genuinely attracts you.
+    Avoid: "for the money" only, generic "great opportunity".
+  scoringGuide: *scoringBase
+
+- code: "Q214"
+  category: PERSONALITY
+  subcategory: "Động lực"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Mô tả một ngày làm việc bạn thấy thực sự productive và có ý nghĩa.
+  expectedAnswer: |-
+    Specific: deep work time (flow state), unblocked, clear goal, shipped something meaningful.
+    Environment: few interruptions, good tooling.
+    Team: productive collaboration.
+    Meaning: seeing impact of work.
+  scoringGuide: *scoringBase
+
+- code: "Q215"
+  category: PERSONALITY
+  subcategory: "Động lực"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã trải qua giai đoạn burnout chưa? Bạn nhận ra và handle thế nào?
+  expectedAnswer: |-
+    Honest: burnout is real and common.
+    Recognize signs: fatigue, cynicism, reduced efficacy.
+    Action: communicate to manager, take PTO, reduce scope, set boundaries.
+    Prevention: sustainable pace, say no to overcommitment, regular recovery.
+  scoringGuide: *scoringBase
+
+- code: "Q216"
+  category: PERSONALITY
+  subcategory: "Động lực"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Điều gì khiến bạn quyết định rời công ty trước? (nếu applicable)
+  expectedAnswer: |-
+    Honest but professional.
+    Common valid reasons: growth ceiling, culture mismatch, new challenge, location.
+    Avoid: badmouth previous employer.
+    Frame positively: "I was looking for X opportunity which I found here".
+    Growth orientation: left to grow, not running away.
+  scoringGuide: *scoringBase
+
+# ─────────────────────────────────────────────────────────
+# ARCHITECTURE — SENIOR/SPECIALIST (difficulty: 3)
+# ─────────────────────────────────────────────────────────
+
+- code: "Q217"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Vẽ kiến trúc high-level cho hệ thống e-commerce: Client → API Gateway → các service (Order, Product, User, Payment) → Message Queue → Database. Thêm luồng khi user đặt hàng và khi thanh toán thành công.
+  expectedAnswer: |-
+    Client → API Gateway → Auth → OrderService/ProductService/UserService/PaymentService.
+    OrderService gọi Inventory, publish event "order.created" lên Kafka.
+    PaymentService consume event, process payment, publish "payment.success".
+    NotificationService subscribe events.
+    Mỗi service có DB riêng.
+    Circuit breaker giữa services.
+  scoringGuide: |-
+    1: Không vẽ được diagram có nghĩa.
+    2: Vẽ được flow cơ bản nhưng thiếu message queue và async flow.
+    3: Vẽ đầy đủ với async event flow, service isolation.
+    4: Thêm resilience patterns (circuit breaker, retry), data consistency (saga), monitoring layer.
+  architectureTemplate:
+    name: "E-commerce Order Flow"
+    nodes:
+      - {id: client, label: Client, x: 50, y: 200, type: client}
+      - {id: gateway, label: API Gateway, x: 250, y: 200, type: service}
+    connections:
+      - {from: client, to: gateway, label: HTTPS, lineType: forward}
+
+- code: "Q218"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Thiết kế database architecture cho mạng xã hội có 100 triệu user: users, posts, likes, follows, comments. Read-heavy 99%. Vẽ diagram gồm: primary DB, read replicas, cache layer, search index.
+  expectedAnswer: |-
+    PostgreSQL primary cho writes.
+    3+ read replicas cho reads.
+    Redis cache cho hot data (user profile, popular posts).
+    Elasticsearch cho full-text search.
+    CDN cho media.
+    Timeline: fan-out on write vs fan-out on read.
+    Sharding strategy cho follows/timeline tables.
+  scoringGuide: |-
+    1: Chỉ vẽ 1 database.
+    2: Vẽ được primary + replica.
+    3: Đầy đủ với cache, search index, phân tích read/write path.
+    4: Thêm sharding strategy, CDN, data model cho scale 100M users.
+  architectureTemplate:
+    name: "Social Media Database Architecture"
+    nodes: []
+    connections: []
+
+- code: "Q219"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Vẽ sơ đồ CI/CD pipeline đầy đủ từ developer push code đến production: source control → build → test → security scan → artifact registry → deploy staging → deploy prod → monitoring/alert.
+  expectedAnswer: |-
+    Developer push → Git PR → CI trigger (build + lint + unit test + integration test + security scan SAST/DAST) → Docker build → push to registry → deploy staging → smoke tests → deploy prod (blue/green) → monitoring alert.
+    Gate: manual approval trước production.
+    Rollback plan.
+  scoringGuide: |-
+    1: Chỉ biết CI/CD cơ bản.
+    2: Vẽ được các stage chính.
+    3: Đầy đủ với security gates, staging environment, approval gates.
+    4: Thêm GitOps, canary deployment, observability integration.
+  architectureTemplate:
+    name: "CI/CD Pipeline"
+    nodes:
+      - {id: dev, label: Developer, x: 50, y: 200, type: client}
+      - {id: git, label: "Git / SCM", x: 250, y: 200, type: service}
+    connections:
+      - {from: dev, to: git, label: git push, lineType: forward}
+
+- code: "Q220"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Vẽ kiến trúc cho hệ thống xử lý đơn hàng có tải cao: Load Balancer → API servers → Cache (Redis) → Message Queue (Kafka) → Worker services → Database (primary + replica). Thêm monitoring và logging.
+  expectedAnswer: |-
+    Client → LB → API Server pool → Redis (check stock, session) → Kafka (order events) → OrderWorker/NotificationWorker/InvoiceWorker → PostgreSQL primary.
+    DB read replica cho reporting.
+    Prometheus + Grafana cho metrics.
+    ELK cho logs.
+    Health checks tại LB.
+  scoringGuide: |-
+    1: Thiếu async layer, chỉ sync flow.
+    2: Có Kafka nhưng chưa rõ worker pattern.
+    3: Đầy đủ với monitoring, replica, worker pattern.
+    4: Thêm auto-scaling, circuit breakers, DLQ, cost optimization.
+  architectureTemplate:
+    name: "High-Load Order Processing"
+    nodes:
+      - {id: client, label: Client, x: 50, y: 200, type: client}
+      - {id: lb, label: Load Balancer, x: 250, y: 200, type: service}
+    connections:
+      - {from: client, to: lb, label: "", lineType: forward}
+
+- code: "Q221"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Vẽ security architecture cho hệ thống banking: từ client request đến API Gateway (WAF, rate limit) → Auth service (JWT/MFA) → Business services → Database (encrypted). Thêm audit log và secret management.
+  expectedAnswer: |-
+    Internet → CDN/WAF (DDoS protection, OWASP rules) → API Gateway (rate limit, JWT verify) → Auth service (MFA, token rotation) → Business services (mTLS) → DB (encrypted at rest, TDE).
+    Vault cho secrets.
+    Audit log service (every action).
+    SOC/SIEM for security monitoring.
+  scoringGuide: |-
+    1: Chỉ vẽ được basic auth flow.
+    2: Có WAF và JWT nhưng thiếu depth.
+    3: Đầy đủ layers với audit log, secret management.
+    4: Thêm zero trust model, threat modeling considerations, compliance layers.
+  architectureTemplate:
+    name: "Banking Security Architecture"
+    nodes:
+      - {id: client, label: Client, x: 50, y: 200, type: client}
+      - {id: waf, label: "WAF / API Gateway", x: 300, y: 200, type: service}
+    connections:
+      - {from: client, to: waf, label: HTTPS, lineType: forward}
+
+- code: "Q222"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Hệ thống có 10 microservices giao tiếp với nhau. Vẽ kiến trúc gồm: service mesh (sidecar proxy), service discovery, distributed tracing, centralized logging và metrics collection.
+  expectedAnswer: |-
+    Services với Envoy sidecar proxies.
+    Control plane (Istio/Linkerd) quản lý service mesh.
+    Service discovery: Consul hoặc K8s DNS.
+    OpenTelemetry collector → Jaeger (traces).
+    Fluent Bit → Loki (logs).
+    Prometheus → Grafana (metrics). mTLS between services via mesh.
+  scoringGuide: |-
+    1: Không biết service mesh là gì.
+    2: Vẽ được services communicate nhưng không có mesh/observability.
+    3: Hiểu service mesh với sidecar pattern, basic observability.
+    4: Thêm traffic management (canary, retries), security policies, performance trade-offs.
+  architectureTemplate:
+    name: "Service Mesh & Observability"
+    nodes: []
+    connections: []
+
+- code: "Q223"
+  category: BACKEND_MUST
+  subcategory: "Docker"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Vẽ sơ đồ deployment cho ứng dụng web 3 tier trên Docker/Kubernetes: Frontend, Backend API, Database, Redis Cache. Bao gồm: ingress, service, pod và persistent volume.
+  expectedAnswer: |-
+    Internet → Ingress Controller (nginx/traefik) → Frontend Service → Frontend Pods.
+    Ingress → Backend Service → Backend Pods (HPA).
+    Backend → Redis Service → Redis Pod.
+    Backend → PostgreSQL Service → PostgreSQL Pod + PersistentVolumeClaim.
+    Secrets via K8s Secrets.
+    ConfigMap cho config.
+  scoringGuide: |-
+    1: Chỉ biết docker run.
+    2: Vẽ được docker-compose level.
+    3: Kubernetes với ingress, services, PVC đúng.
+    4: Thêm HPA, resource limits, NetworkPolicy, health probes, rolling update strategy.
+  architectureTemplate:
+    name: "K8s 3-Tier Deployment"
+    nodes:
+      - {id: ingress, label: Ingress Controller, x: 300, y: 50, type: service}
+    connections: []
+
+- code: "Q224"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 3
+  targetLevels: [SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Thiết kế kiến trúc xử lý background jobs: API nhận request → Job Queue → Worker Pool → Result Store. Bao gồm: retry queue, dead letter queue, monitoring. Vẽ diagram và giải thích data flow.
+  expectedAnswer: |-
+    API → enqueue to Job Queue (Redis/Kafka).
+    Worker Pool (N workers, semaphore-controlled) pull from queue.
+    On success: store result, ack.
+    On failure: retry queue (exponential backoff × 3).
+    After max retries: DLQ.
+    Monitoring: queue depth, worker utilization, DLQ size alerts.
+    Result Store: Redis với TTL.
+  scoringGuide: |-
+    1: Chỉ biết queue cơ bản.
+    2: Vẽ được worker pool nhưng không có DLQ, retry.
+    3: Đầy đủ với retry, DLQ, monitoring.
+    4: Thêm job priority, graceful shutdown, idempotency, horizontal worker scaling.
+  architectureTemplate:
+    name: "Background Job Processing"
+    nodes:
+      - {id: api, label: API Server, x: 50, y: 200, type: service}
+      - {id: queue, label: Job Queue, x: 300, y: 200, type: queue}
+    connections:
+      - {from: api, to: queue, label: enqueue, lineType: forward}
+
+# ─────────────────────────────────────────────────────────
+# ARCHITECTURE — EXPERIENCED (difficulty: 2)
+# ─────────────────────────────────────────────────────────
+
+- code: "Q225"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Vẽ sơ đồ luồng dữ liệu đơn giản cho REST API: Client → API Server → Service Layer → Repository → Database. Thêm Cache layer cho GET requests.
+  expectedAnswer: |-
+    GET: Client → API → Service → Cache check → hit: return; miss: Repository → DB → store cache → return.
+    POST/PUT/DELETE: API → Service → Repository → DB, invalidate cache.
+    Đây là basic layered architecture với cache-aside.
+  scoringGuide: |-
+    1: Không hiểu layered architecture.
+    2: Vẽ được flow nhưng không có cache layer.
+    3: Vẽ đúng với cache hit/miss flow.
+    4: Thêm cache invalidation strategy, error handling flow, transactions.
+  architectureTemplate:
+    name: "REST API Data Flow"
+    nodes:
+      - {id: client, label: Client, x: 50, y: 200, type: client}
+      - {id: api, label: API Server, x: 250, y: 200, type: service}
+    connections:
+      - {from: client, to: api, label: HTTP, lineType: forward}
+
+- code: "Q226"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Hệ thống hiện tại là monolith với 3 module: User, Order, Notification. Vẽ diagram sau khi tách thành 3 microservices: service boundaries, communication (sync/async), shared database hay separate?
+  expectedAnswer: |-
+    UserService (DB riêng) ↔ API Gateway (sync).
+    OrderService (DB riêng) gọi UserService qua HTTP (sync), publish event "order.placed" (async).
+    NotificationService subscribe Kafka events.
+    Không shared database.
+    API Gateway route requests.
+    Consider: strangler fig migration pattern.
+  scoringGuide: |-
+    1: Không biết service boundary là gì.
+    2: Tách được services nhưng vẫn dùng shared DB.
+    3: Tách đúng với separate DBs, sync/async communication.
+    4: Thêm migration strategy, eventual consistency handling, API versioning.
+  architectureTemplate:
+    name: "Monolith to Microservices"
+    nodes:
+      - {id: monolith, label: "Monolith App\n(User + Order + Notification)", x: 300, y: 200, type: service}
+    connections: []
+
+- code: "Q227"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: ARCHITECTURE
+  isActive: true
+  text: |-
+    Vẽ sơ đồ 3 môi trường: Dev, Staging, Production. Mỗi môi trường gồm những gì? Code đi từ dev đến prod theo luồng nào?
+  expectedAnswer: |-
+    Dev: local/shared, lightweight stack, hot reload.
+    Staging: production-like, seeded with test data, where QA tests.
+    Production: HA setup, monitoring full.
+    Flow: feature branch → dev test → PR merge → CI → staging deploy → QA approval → prod deploy.
+    Separate DB, configs per env.
+  scoringGuide: |-
+    1: Chỉ biết local vs production.
+    2: Vẽ được 3 envs nhưng không rõ flow.
+    3: Đúng với promotion flow, env differences.
+    4: Thêm data masking (prod data to staging), environment parity, chaos engineering in staging.
+  architectureTemplate:
+    name: "3-Environment Deployment"
+    nodes:
+      - {id: dev, label: Developer, x: 50, y: 200, type: client}
+    connections: []
+
+# ─────────────────────────────────────────────────────────
+# CODING — 5 challenges
+# ─────────────────────────────────────────────────────────
+
+- code: "Q228"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 2
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR]
+  type: CODING
+  isActive: true
+  text: "Reverse Strings in Parentheses"
+  expectedAnswer: |-
+    # Reverse Strings in Parentheses
+
+    Write a function that reverses the strings contained within each pair of matching parentheses, starting from the innermost pair. The result should not contain any parentheses.
+
+    ## Examples
+
+    - Input: `"(abcd)"` -> Output: `"dcba"`
+    - Input: `"(u(love)i)"` -> Output: `"iloveu"`
+    - Input: `"(ed(et(oc))el)"` -> Output: `"leetcode"`
+    - Input: `"a(bcdefghijkl(mno)p)q"` -> Output: `"apmnolkjihgfedcbq"`
+
+    ## Constraints
+
+    - 1 <= s.length <= 2000
+    - s only contains lowercase English letters and parentheses
+    - All parentheses are balanced
+  scoringGuide: *scoringBase
+  testCases:
+    - {input: "(abcd)", expectedOutput: dcba, description: Simple reversal}
+    - {input: "(u(love)i)", expectedOutput: iloveu, description: Nested parentheses}
+    - {input: "(ed(et(oc))el)", expectedOutput: leetcode, description: Multiple nesting}
+    - {input: "a(bcdefghijkl(mno)p)q", expectedOutput: apmnolkjihgfedcbq, description: Mixed text}
+  hiddenTestCases:
+    - {input: abc, expectedOutput: abc, description: No parentheses}
+    - {input: "((abc))", expectedOutput: abc, description: Double nested}
+  timeLimit: 30
+  memoryLimit: 256
+  starterCode:
+    - language: javascript
+      code: |-
+        function reverseInParentheses(s) {
+          // Your code here
+        }
+    - language: python
+      code: |-
+        def reverse_in_parentheses(s: str) -> str:
+            # Your code here
+            pass
+    - language: java
+      code: |-
+        public class Solution {
+            public String reverseInParentheses(String s) {
+                // Your code here
+                return "";
+            }
+        }
+
+- code: "Q229"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED]
+  type: CODING
+  isActive: true
+  text: "Remove Stars and Adjacent Characters"
+  expectedAnswer: |-
+    # Remove Stars and Adjacent Characters
+
+    Given a string s containing letters and asterisks (*), in one operation you can:
+    - Choose an asterisk in s
+    - Remove the closest non-asterisk character to its left, as well as the asterisk itself
+
+    Return the string after all asterisks have been removed.
+
+    ## Examples
+
+    - Input: `"leet**cod*e"` -> Output: `"lecoe"`
+    - Input: `"erase*****"` -> Output: `""`
+
+    ## Constraints
+
+    - 1 <= s.length <= 10^5
+    - s consists of lowercase English letters and asterisks *
+    - The operation is always possible
+  scoringGuide: *scoringBase
+  testCases:
+    - {input: "leet**cod*e", expectedOutput: lecoe, description: Mixed stars}
+    - {input: "erase*****", expectedOutput: "", description: All removed}
+  hiddenTestCases:
+    - {input: abc, expectedOutput: abc, description: No stars}
+    - {input: "a*b*c*", expectedOutput: "", description: Alternating}
+    - {input: "abcdef***", expectedOutput: abc, description: Stars at end}
+  timeLimit: 30
+  memoryLimit: 256
+  starterCode:
+    - language: javascript
+      code: |-
+        function removeStars(s) {
+          // Your code here
+        }
+    - language: python
+      code: |-
+        def remove_stars(s: str) -> str:
+            # Your code here
+            pass
+    - language: java
+      code: |-
+        public class Solution {
+            public String removeStars(String s) {
+                // Your code here
+                return "";
+            }
+        }
+
+- code: "Q230"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY]
+  type: CODING
+  isActive: true
+  text: "Two Sum"
+  expectedAnswer: |-
+    # Two Sum
+
+    Given an array of integers `nums` and an integer `target`, return indices of the two numbers such that they add up to target.
+
+    ## Examples
+
+    - Input: nums = [2,7,11,15], target = 9 -> Output: [0,1]
+    - Input: nums = [3,2,4], target = 6 -> Output: [1,2]
+    - Input: nums = [3,3], target = 6 -> Output: [0,1]
+
+    ## Constraints
+
+    - 2 <= nums.length <= 10^4
+    - Only one valid answer exists
+  scoringGuide: *scoringBase
+  testCases:
+    - {input: "[2,7,11,15]\n9", expectedOutput: "[0,1]", description: Basic case}
+    - {input: "[3,2,4]\n6", expectedOutput: "[1,2]", description: Non-consecutive}
+    - {input: "[3,3]\n6", expectedOutput: "[0,1]", description: Duplicate values}
+  hiddenTestCases:
+    - {input: "[1,2,3,4,5]\n9", expectedOutput: "[3,4]", description: End of array}
+  timeLimit: 30
+  memoryLimit: 256
+  starterCode:
+    - language: javascript
+      code: |-
+        function twoSum(nums, target) {
+          // Your code here
+        }
+    - language: python
+      code: |-
+        def two_sum(nums: list[int], target: int) -> list[int]:
+            # Your code here
+            pass
+    - language: java
+      code: |-
+        public class Solution {
+            public int[] twoSum(int[] nums, int target) {
+                // Your code here
+                return new int[]{};
+            }
+        }
+
+- code: "Q231"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 1
+  targetLevels: [ENTRY]
+  type: CODING
+  isActive: true
+  text: "Valid Parentheses"
+  expectedAnswer: |-
+    # Valid Parentheses
+
+    Given a string s containing just the characters '(', ')', '{', '}', '[' and ']', determine if the input string is valid.
+
+    An input string is valid if:
+    1. Open brackets must be closed by the same type of brackets.
+    2. Open brackets must be closed in the correct order.
+    3. Every close bracket has a corresponding open bracket of the same type.
+
+    ## Examples
+
+    - Input: s = "()" -> Output: true
+    - Input: s = "()[]{}" -> Output: true
+    - Input: s = "(]" -> Output: false
+    - Input: s = "([)]" -> Output: false
+  scoringGuide: *scoringBase
+  testCases:
+    - {input: "()", expectedOutput: "true", description: Simple valid}
+    - {input: "()[]{}", expectedOutput: "true", description: Multiple types}
+    - {input: "(]", expectedOutput: "false", description: Wrong close}
+    - {input: "([)]", expectedOutput: "false", description: Wrong order}
+  hiddenTestCases:
+    - {input: "{[]}", expectedOutput: "true", description: Nested}
+    - {input: "]", expectedOutput: "false", description: Single close}
+  timeLimit: 30
+  memoryLimit: 256
+  starterCode:
+    - language: javascript
+      code: |-
+        function isValid(s) {
+          // Your code here
+        }
+    - language: python
+      code: |-
+        def is_valid(s: str) -> bool:
+            # Your code here
+            pass
+    - language: java
+      code: |-
+        public class Solution {
+            public boolean isValid(String s) {
+                // Your code here
+                return false;
+            }
+        }
+
+- code: "Q232"
+  category: BACKEND_MUST
+  subcategory: "Thuật toán + Cấu trúc dữ liệu"
+  difficulty: 2
+  targetLevels: [ENTRY, EXPERIENCED]
+  type: CODING
+  isActive: true
+  text: "Longest Substring Without Repeating Characters"
+  expectedAnswer: |-
+    # Longest Substring Without Repeating Characters
+
+    Given a string s, find the length of the longest substring without repeating characters.
+
+    ## Examples
+
+    - Input: s = "abcabcbb" -> Output: 3 (substring "abc")
+    - Input: s = "bbbbb" -> Output: 1 (substring "b")
+    - Input: s = "pwwkew" -> Output: 3 (substring "wke")
+
+    ## Constraints
+
+    - 0 <= s.length <= 5 * 10^4
+    - s consists of English letters, digits, symbols and spaces
+  scoringGuide: *scoringBase
+  testCases:
+    - {input: abcabcbb, expectedOutput: "3", description: Repeating characters}
+    - {input: bbbbb, expectedOutput: "1", description: All same}
+    - {input: pwwkew, expectedOutput: "3", description: Mixed}
+  hiddenTestCases:
+    - {input: "", expectedOutput: "0", description: Empty string}
+    - {input: " ", expectedOutput: "1", description: Space}
+    - {input: dvdf, expectedOutput: "3", description: Sliding window needed}
+  timeLimit: 30
+  memoryLimit: 256
+  starterCode:
+    - language: javascript
+      code: |-
+        function lengthOfLongestSubstring(s) {
+          // Your code here
+        }
+    - language: python
+      code: |-
+        def length_of_longest_substring(s: str) -> int:
+            # Your code here
+            pass
+    - language: java
+      code: |-
+        public class Solution {
+            public int lengthOfLongestSubstring(String s) {
+                // Your code here
+                return 0;
+            }
+        }
+
+# ─── Experience questions (Q233–Q239) ───────────────────────────────────────
+# These probe real-world experience, not just knowledge.
+# Target: EXPERIENCED / SENIOR / SPECIALIST candidates.
+
+- code: "Q233"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Cơ sở dữ liệu lớn nhất bạn từng làm việc có quy mô thế nào (số bản ghi, dung lượng, số request/s)? Bạn đã gặp vấn đề gì và xử lý ra sao?
+  expectedAnswer: |-
+    Điểm cần có: nêu được con số cụ thể (VD: 500M records, 200GB, 10k RPM), DB engine (PostgreSQL/MySQL/Oracle/MongoDB).
+    Vấn đề thường gặp: query chậm → thêm index / rewrite query; table lock → partition / archiving; storage tăng → tiered storage / data archiving.
+    Senior+: sharding strategy, read replica, caching layer (Redis), connection pooling (PgBouncer).
+    Specialist: thiết kế schema cho time-series hoặc append-only workload, cost optimization.
+  scoringGuide: *scoringBase
+
+- code: "Q234"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể về một câu query chậm trên production bạn đã tối ưu. Bạn phân tích nguyên nhân và fix thế nào? Kết quả cải thiện bao nhiêu?
+  expectedAnswer: |-
+    Quy trình: dùng EXPLAIN / EXPLAIN ANALYZE xem execution plan; xác định Seq Scan, bad join order, missing index.
+    Fix phổ biến: thêm index đúng cột (WHERE / JOIN / ORDER BY), rewrite subquery thành JOIN, tránh SELECT *, thêm phân trang.
+    Senior+: covering index, partial index, query hint, materialized view, denormalization có chủ đích.
+    Kết quả phải có số đo: từ X giây → Y ms, tải DB giảm Z%.
+  scoringGuide: *scoringBase
+
+- code: "Q235"
+  category: BACKEND_MUST
+  subcategory: "Cơ sở dữ liệu"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng migrate schema hoặc dữ liệu trên database đang chạy production chưa? Bạn đảm bảo không mất dữ liệu và downtime tối thiểu bằng cách nào?
+  expectedAnswer: |-
+    Kỹ thuật cơ bản: chạy migration trong maintenance window, backup trước khi chạy, kiểm tra rollback script.
+    Experienced+: expand-contract pattern (thêm cột mới → backfill → chuyển code → xóa cột cũ), batched backfill tránh lock toàn bảng, feature flag.
+    Senior+: online DDL (pt-online-schema-change, gh-ost cho MySQL; pg_repack cho PostgreSQL), dual-write + shadow table.
+    Specialist: zero-downtime migration với blue-green deploy, kiểm chứng bằng canary traffic.
+  scoringGuide: *scoringBase
+
+- code: "Q236"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng thiết kế hoặc tham gia xây dựng hệ thống microservices chưa? Mô tả kiến trúc tổng thể và các quyết định kỹ thuật quan trọng nhất bạn đã đưa ra.
+  expectedAnswer: |-
+    Mô tả được: số services, cách chia bounded context (domain-driven), giao tiếp sync (REST/gRPC) vs async (message queue: Kafka/RabbitMQ).
+    Quyết định quan trọng: API gateway, service discovery (Consul/k8s DNS), centralized logging/tracing (ELK, Jaeger/Zipkin), auth propagation (JWT).
+    Senior+: saga pattern, event sourcing, deployment strategy (Kubernetes, Helm), health check / circuit breaker (Resilience4j/Hystrix).
+    Điểm cộng: nêu được bài học rút ra, trade-off so với monolith (network latency, distributed transaction, operational complexity).
+  scoringGuide: *scoringBase
+
+- code: "Q237"
+  category: BACKEND_MUST
+  subcategory: "Microservices"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng xử lý vấn đề data consistency giữa các microservices chưa? Mô tả tình huống cụ thể và giải pháp bạn áp dụng.
+  expectedAnswer: |-
+    Tình huống điển hình: đặt hàng thành công nhưng payment / inventory service fail; duplicate event do retry; partial failure giữa các bước.
+    Giải pháp: Saga pattern (choreography dùng event, orchestration dùng orchestrator), outbox pattern (đảm bảo at-least-once delivery), idempotency key tránh double-process.
+    Senior+: compensating transaction, two-phase commit (và lý do tránh dùng), eventual consistency — phân tích khi nào chấp nhận được.
+    Specialist: CQRS + event sourcing, conflict-free replicated data types (CRDT) cho use-case cụ thể.
+  scoringGuide: *scoringBase
+
+- code: "Q238"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Mô tả sự cố production nghiêm trọng nhất bạn từng tham gia xử lý. Nguyên nhân gốc rễ là gì, bạn debug ra sao và đã làm gì để phòng tránh lần sau?
+  expectedAnswer: |-
+    Kể được timeline rõ ràng: phát hiện (alert / user report) → triage (severity, impact) → isolate (rollback / feature flag / scale) → fix → postmortem.
+    Công cụ: monitoring (Prometheus/Grafana), log aggregation (ELK/Loki), distributed tracing (Jaeger).
+    Root cause analysis: 5 Whys hoặc fishbone diagram.
+    Prevention: thêm alert rule, circuit breaker, chaos testing, runbook / on-call playbook.
+    Senior+: chủ động dẫn dắt incident, giao tiếp với stakeholder (status page, war-room update), blameless postmortem.
+  scoringGuide: *scoringBase
+
+- code: "Q239"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng điều tra và xử lý vấn đề hiệu năng hệ thống trên production chưa? Quy trình của bạn là gì và kết quả đạt được?
+  expectedAnswer: |-
+    Quy trình: đo baseline (latency P95/P99, throughput RPS, error rate, resource utilization) → tái hiện → profiling → xác định bottleneck → fix → đo lại.
+    Bottleneck thường gặp: DB N+1 query, thiếu cache, thread/connection pool exhaustion, GC pressure (JVM), blocking I/O, payload quá lớn.
+    Công cụ: APM (Datadog/New Relic/SkyWalking), async-profiler / py-spy, jstack, Flame Graph.
+    Kết quả cần có số cụ thể: latency từ X ms → Y ms, throughput tăng Z%, CPU giảm W%.
+    Senior+: capacity planning dựa trên load test (Gatling/k6/JMeter), SLA/SLO definition.
+  scoringGuide: *scoringBase
+
+- code: "Q240"
+  category: BACKEND_MUST
+  subcategory: "Đa luồng"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng gặp race condition hoặc deadlock trên môi trường production chưa? Bạn phát hiện vấn đề đó thế nào và xử lý ra sao?
+  expectedAnswer: |-
+    Race condition: nhiều thread/process cùng đọc-sửa-ghi một resource mà không có đồng bộ hóa → kết quả không xác định.
+    Phát hiện: log bất thường (giá trị sai, duplicate entry), tái hiện bằng load test, thread dump / heapdump phân tích.
+    Fix race condition: synchronized block, ReentrantLock, atomic operations (AtomicInteger, compareAndSwap), immutable object, actor model.
+    Deadlock: hai thread chờ nhau giải phóng lock → hệ thống treo.
+    Fix deadlock: lock ordering nhất quán, tryLock với timeout, giảm scope lock, dùng concurrent collection thay manual sync.
+    Senior+: lock-free data structures, optimistic locking (DB version field), transaction isolation level tuning.
+  scoringGuide: *scoringBase
+
+- code: "Q241"
+  category: BACKEND_MUST
+  subcategory: "Lập trình an toàn"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng phát hiện hoặc vá một lỗ hổng bảo mật trong hệ thống thực tế chưa? Mô tả tình huống, cách phát hiện và cách khắc phục.
+  expectedAnswer: |-
+    Loại lỗ hổng phổ biến: SQL Injection, XSS, IDOR (Insecure Direct Object Reference), broken authentication, secrets lộ trong log/env/git.
+    Phát hiện: code review, penetration test, SAST/DAST tool (SonarQube, OWASP ZAP, Burp Suite), bug bounty report, security audit.
+    Fix SQL Injection: parameterized query / prepared statement, ORM, validate input.
+    Fix XSS: escape output, Content-Security-Policy header, sanitize input.
+    Fix IDOR: authorization check mọi resource access, không dùng sequential ID.
+    Senior+: threat modeling, defense-in-depth, security regression test, CVSS scoring để ưu tiên fix.
+    Điểm cộng: nêu được bài học về secure-by-default và shift-left security.
+  scoringGuide: *scoringBase
+
+- code: "Q242"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể về một lần bạn đánh giá và lựa chọn technology hoặc thư viện cho dự án. Tiêu chí bạn dùng là gì và kết quả thế nào?
+  expectedAnswer: |-
+    Tiêu chí đánh giá: performance benchmark, community & ecosystem (GitHub stars, issue activity, release cadence), learning curve, license, vendor lock-in, security track record, team familiarity.
+    Quy trình: PoC / spike để đo thực tế, so sánh ít nhất 2–3 lựa chọn, ghi lại ADR (Architecture Decision Record).
+    Kết quả: nêu được công nghệ đã chọn, lý do cụ thể, và điều gì đã diễn ra đúng/sai kỳ vọng sau khi deploy.
+    Senior+: xem xét cả total cost of ownership (migration cost, training, long-term maintenance), tác động đến delivery timeline.
+  scoringGuide: *scoringBase
+
+- code: "Q243"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng refactor hoặc migrate một hệ thống legacy chưa? Cách tiếp cận, những thách thức gặp phải và kết quả đạt được?
+  expectedAnswer: |-
+    Thách thức điển hình: thiếu test coverage, tài liệu lỗi thời, business logic ẩn trong code cũ, không thể dừng hệ thống.
+    Cách tiếp cận: viết characterization test (golden master) trước khi refactor, strangler fig pattern (thay dần từng module), feature flag để chuyển traffic dần.
+    Quản lý rủi ro: rollback plan, shadow mode (chạy song song cả old và new, so sánh output), canary release.
+    Kết quả đo được: giảm technical debt, cải thiện test coverage, deployment frequency tăng.
+    Senior+: dẫn dắt team trong quá trình migration, quản lý expectation với stakeholder về timeline và rủi ro.
+  scoringGuide: *scoringBase
+
+- code: "Q244"
+  category: BACKEND_MUST
+  subcategory: "OOP + Design Pattern"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể về một lần bạn áp dụng design pattern để giải quyết bài toán thực tế. Pattern đó giúp ích như thế nào và có trade-off gì không?
+  expectedAnswer: |-
+    Mô tả rõ bài toán trước khi áp dụng pattern: code lặp, khó mở rộng, tight coupling, khó test.
+    Pattern phổ biến và use case: Strategy (thay đổi thuật toán runtime), Observer/Event (decoupling notification), Factory/Builder (tạo object phức tạp), Repository (tách data access), Decorator (thêm behavior không sửa class gốc), Circuit Breaker (fault tolerance).
+    Trade-off trung thực: thêm abstraction layer → khó đọc hơn nếu dùng quá mức (over-engineering), thêm boilerplate code.
+    Kết quả: code dễ test hơn (mock), dễ mở rộng, giảm bug khi thêm feature mới.
+    Senior+: biết khi nào KHÔNG nên dùng pattern — YAGNI principle.
+  scoringGuide: *scoringBase
+
+- code: "Q245"
+  category: BACKEND_SHOULD
+  subcategory: "Agile/Scrum"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã làm việc trong môi trường Agile/Scrum chưa? Kể về một sprint hoặc release khó khăn nhất bạn từng trải qua — team đã xử lý thế nào?
+  expectedAnswer: |-
+    Tình huống khó: scope creep giữa sprint, dependency bị block, team member nghỉ đột ngột, technical debt cản trở velocity, stakeholder thay đổi priority liên tục.
+    Cách xử lý: re-prioritize backlog với Product Owner, break task nhỏ hơn để unblock, swap item ra khỏi sprint, tăng cường daily standup để phát hiện blocker sớm.
+    Retrospective: identify root cause, action item cụ thể cho sprint tiếp theo, không blame cá nhân.
+    Senior+: chủ động escalate risk sớm, negotiate scope thay vì overtime, bảo vệ team khỏi áp lực ngoài.
+    Điểm cộng: nêu được bài học áp dụng vào sprint sau và kết quả cải thiện.
+  scoringGuide: *scoringBase
+
+- code: "Q246"
+  category: BACKEND_SHOULD
+  subcategory: "Unit test"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng viết test cho một module phức tạp hoặc cải thiện test coverage cho một codebase thiếu test chưa? Chiến lược và kết quả thế nào?
+  expectedAnswer: |-
+    Chiến lược tăng coverage: ưu tiên test các module business logic cốt lõi và bug-prone trước, không nhắm 100% coverage một cách mù quáng.
+    Kỹ thuật: test pyramid (unit nhiều nhất, integration ít hơn, E2E ít nhất), test doubles (mock/stub/spy) để isolate, parameterized test cho nhiều case.
+    Module phức tạp: dùng characterization test để pin behavior hiện tại trước khi refactor, test behavior không test implementation.
+    CI integration: chạy test trên mọi PR, fail build nếu coverage giảm dưới ngưỡng, mutation testing (PIT/Stryker) để đo test quality.
+    Senior+: test strategy document, balance giữa test effort và business value, dạy team viết testable code (dependency injection, small functions).
+  scoringGuide: *scoringBase
+
+- code: "Q247"
+  category: BACKEND_SHOULD
+  subcategory: "DevOps"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng xây dựng hoặc cải thiện CI/CD pipeline cho team chưa? Bạn thay đổi gì và pipeline đó giúp ích như thế nào?
+  expectedAnswer: |-
+    Trước khi cải thiện: build thủ công, deploy không nhất quán, hotfix mất nhiều giờ, không có automated test gate.
+    Các bước pipeline điển hình: lint → unit test → build → integration test → security scan (SAST/SCA) → Docker build → push registry → deploy staging → smoke test → promote production.
+    Kết quả đo được: deployment frequency tăng, lead time giảm, mean time to recovery (MTTR) cải thiện, số lỗi production do deploy giảm.
+    Công cụ: GitLab CI, GitHub Actions, Jenkins, ArgoCD (GitOps), Helm.
+    Senior+: environment promotion strategy, rollback automation, deployment metrics (DORA metrics), self-service deployment cho dev team.
+  scoringGuide: *scoringBase
+
+- code: "Q248"
+  category: BACKEND_MUST
+  subcategory: "Ngôn ngữ lập trình"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng chuyển đổi từ ngôn ngữ lập trình này sang ngôn ngữ khác trong dự án thực tế chưa? Những khó khăn bạn gặp và cách bạn vượt qua?
+  expectedAnswer: |-
+    Tình huống điển hình: migrate từ PHP/Python sang Go/Java vì hiệu năng; từ Java sang Kotlin vì productivity; từ JavaScript sang TypeScript vì type safety.
+    Khó khăn: paradigm shift (OOP → functional, dynamic → static typing), ecosystem khác nhau (package manager, testing framework, IDE), team cần upskill đồng thời vẫn deliver.
+    Cách vượt qua: học qua dự án thực tế nhỏ trước, pair programming, code review kỹ hơn giai đoạn đầu, tận dụng pattern đã biết rồi học idiom mới của ngôn ngữ.
+    Senior+: xây dựng internal guidelines / style guide cho ngôn ngữ mới, knowledge sharing session, nhận diện anti-pattern mang từ ngôn ngữ cũ sang.
+    Điểm cộng: nêu được sự khác biệt tư duy giữa hai ngôn ngữ, không chỉ syntax.
+  scoringGuide: *scoringBase
+
+- code: "Q249"
+  category: PERSONALITY
+  subcategory: "Phẩm chất"
+  difficulty: 1
+  targetLevels: [ENTRY, EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Kể về dự án hoặc tính năng kỹ thuật bạn tự hào nhất trong sự nghiệp. Bạn đóng góp gì, đối mặt với thách thức gì và học được gì từ đó?
+  expectedAnswer: |-
+    Mô tả rõ context: quy mô dự án, vai trò của ứng viên, business impact.
+    Thách thức kỹ thuật cụ thể: deadline gấp, requirement mơ hồ, technical uncertainty, teamwork khó khăn.
+    Đóng góp cá nhân: không chỉ nói "team làm" — phân biệt được contribution của bản thân.
+    Bài học: kỹ thuật (pattern mới, tool, architecture) lẫn soft skill (communication, estimation, decision under pressure).
+    Chỉ số thành công: nêu được kết quả đo được — user adoption, performance improvement, business outcome.
+    Senior+: mentoring người khác trong dự án, ra quyết định kỹ thuật dưới áp lực, xây dựng culture tốt trong team.
+  scoringGuide: *scoringBase
+
+- code: "Q250"
+  category: BACKEND_MUST
+  subcategory: "Tech stack"
+  difficulty: 2
+  targetLevels: [EXPERIENCED, SENIOR, SPECIALIST]
+  type: OPEN_ENDED
+  isActive: true
+  text: |-
+    Bạn đã từng thiết kế hoặc tham gia xây dựng hệ thống chịu tải cao (high-traffic)? Kiến trúc, chiến lược scaling và những bottleneck bạn đã xử lý là gì?
+  expectedAnswer: |-
+    Quy mô cần nêu: concurrent users, RPS/TPS, peak traffic so với average, SLA (uptime, latency).
+    Horizontal scaling: stateless service + load balancer, auto-scaling (k8s HPA, AWS ASG).
+    Caching strategy: CDN (static asset), application cache (Redis), DB query cache, cache invalidation strategy (TTL, event-driven).
+    Database scaling: read replica cho read-heavy, connection pool, query optimization, eventual sharding.
+    Async processing: queue (Kafka/RabbitMQ/SQS) cho non-critical path, background worker, rate limiting.
+    Senior+: capacity planning (load test → identify saturation point → provision headroom), chaos engineering để verify resilience.
+    Specialist: global distribution (multi-region), consistent hashing, CQRS + event sourcing cho write-heavy workload.
+  scoringGuide: *scoringBase

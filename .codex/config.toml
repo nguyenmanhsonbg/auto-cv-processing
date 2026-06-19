@@ -1,0 +1,11 @@
+[mcp_servers.playwright]
+command = "npx"
+args = [
+    "-y",
+    "@playwright/mcp@latest",
+    "--viewport-size=1280x720",
+]
+
+[mcp_servers.postgres]
+command = "bash"
+args = [".claude/scripts/postgres-mcp.sh"]

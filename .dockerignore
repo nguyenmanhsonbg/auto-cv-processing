@@ -1,0 +1,68 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+dist
+.next
+build
+.turbo
+
+# Logs
+*.log
+dev.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Testing
+coverage
+.nyc_output
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+apps/backend/.env
+apps/frontend/.env.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+docs
+*.md
+!README.md
+
+# CI/CD
+.github
+.gitlab-ci.yml
+
+# Database files
+apps/backend/data/*.sqlite
+apps/backend/data/*.sqlite-journal
+
+# Misc
+.claude
+.mcp.json
+scripts

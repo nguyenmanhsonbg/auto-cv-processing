@@ -1,0 +1,15 @@
+- name: ENTRY
+  displayName: "Entry Level"
+  orderIndex: 0
+
+- name: EXPERIENCED
+  displayName: "Experienced"
+  orderIndex: 1
+
+- name: SENIOR
+  displayName: "Senior"
+  orderIndex: 2
+
+- name: SPECIALIST
+  displayName: "Specialist / Expert"
+  orderIndex: 3
