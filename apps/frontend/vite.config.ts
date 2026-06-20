@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@interview-assistant/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
   optimizeDeps: {
@@ -14,6 +15,9 @@ export default defineConfig({
   },
   server: {
     port: 4000,
+    fs: {
+      allow: [path.resolve(__dirname, '../..')],
+    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3002',
