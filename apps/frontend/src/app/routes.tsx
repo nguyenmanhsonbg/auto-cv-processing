@@ -24,6 +24,16 @@ import {
   SettingsModelsPage,
 } from '@/pages/interviewer/settings/ManagementPage';
 import { CandidateSessionPage } from '@/pages/candidate/CandidateSessionPage';
+import { RecruitmentRouteGuard } from '@/components/recruitment/RecruitmentRouteGuard';
+import { PublicJobDetailPage } from '@/pages/public/PublicJobDetailPage';
+import { PublicJobApplyPage } from '@/pages/public/PublicJobApplyPage';
+import { PublicApplyResultPage } from '@/pages/public/PublicApplyResultPage';
+import { JobDescriptionListPage } from '@/pages/recruitment/job-descriptions/JobDescriptionListPage';
+import { JobDescriptionDetailPage } from '@/pages/recruitment/job-descriptions/JobDescriptionDetailPage';
+import { JobPostingListPage } from '@/pages/recruitment/job-postings/JobPostingListPage';
+import { JobPostingDetailPage } from '@/pages/recruitment/job-postings/JobPostingDetailPage';
+import { ApplicationListPage } from '@/pages/recruitment/applications/ApplicationListPage';
+import { ApplicationDetailPage } from '@/pages/recruitment/applications/ApplicationDetailPage';
 import { Toaster } from '@/components/ui/toaster';
 
 export function AppRoutes() {
@@ -32,6 +42,10 @@ export function AppRoutes() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
+        <Route path="/jobs/:slug" element={<PublicJobDetailPage />} />
+        <Route path="/jobs/:slug/apply" element={<PublicJobApplyPage />} />
+        {/* Optional route. Public status API/policy needs confirmation before production use. */}
+        <Route path="/apply/:applicationId/status" element={<PublicApplyResultPage />} />
         <Route path="/" element={<InterviewerLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
@@ -52,6 +66,15 @@ export function AppRoutes() {
           <Route path="settings/users" element={<SettingsUsersPage />} />
           <Route path="settings/prompts" element={<SettingsPromptsPage />} />
           <Route path="settings/models" element={<SettingsModelsPage />} />
+          <Route path="recruitment" element={<RecruitmentRouteGuard />}>
+            <Route index element={<Navigate to="/recruitment/applications" replace />} />
+            <Route path="job-descriptions" element={<JobDescriptionListPage />} />
+            <Route path="job-descriptions/:id" element={<JobDescriptionDetailPage />} />
+            <Route path="job-postings" element={<JobPostingListPage />} />
+            <Route path="job-postings/:id" element={<JobPostingDetailPage />} />
+            <Route path="applications" element={<ApplicationListPage />} />
+            <Route path="applications/:applicationId" element={<ApplicationDetailPage />} />
+          </Route>
         </Route>
         <Route path="/session/:token" element={<CandidateLayout />}>
           <Route index element={<CandidateSessionPage />} />

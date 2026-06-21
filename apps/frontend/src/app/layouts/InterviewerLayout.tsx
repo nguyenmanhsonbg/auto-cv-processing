@@ -37,6 +37,12 @@ const adminNavItems = [
   { label: 'Questions', href: '/questions', icon: FileText },
 ];
 
+const recruitmentNavItems = [
+  { label: 'Job Descriptions', href: '/recruitment/job-descriptions', icon: FileText },
+  { label: 'Job Postings', href: '/recruitment/job-postings', icon: Briefcase },
+  { label: 'Applications', href: '/recruitment/applications', icon: Users },
+];
+
 function SidebarContent() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -50,6 +56,9 @@ function SidebarContent() {
   );
   const [settingsExpanded, setSettingsExpanded] = useState<boolean>(
     () => localStorage.getItem('settings-expanded') === 'true',
+  );
+  const [recruitmentExpanded, setRecruitmentExpanded] = useState<boolean>(
+    () => localStorage.getItem('recruitment-expanded') === 'true',
   );
 
   useEffect(() => {
@@ -82,6 +91,7 @@ function SidebarContent() {
   };
 
   const isAdmin = user?.role === UserRole.ADMIN;
+  const isRecruitmentUser = user?.role === UserRole.ADMIN || user?.role === UserRole.HR;
 
   return (
     <aside
@@ -151,6 +161,57 @@ function SidebarContent() {
             </Link>
           );
         })}
+
+        {isRecruitmentUser && (
+          <>
+            <Separator className="my-1" />
+            <button
+              title={collapsed ? 'Recruitment' : undefined}
+              onClick={() => {
+                const next = !recruitmentExpanded;
+                setRecruitmentExpanded(next);
+                localStorage.setItem('recruitment-expanded', String(next));
+              }}
+              className={cn(
+                'w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                collapsed && 'justify-center px-2',
+                location.pathname.startsWith('/recruitment')
+                  ? 'text-primary font-medium'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
+            >
+              <Briefcase className="h-4 w-4 shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="flex-1 text-left">Recruitment</span>
+                  {recruitmentExpanded
+                    ? <ChevronDown className="h-3.5 w-3.5" />
+                    : <ChevronRight className="h-3.5 w-3.5" />}
+                </>
+              )}
+            </button>
+
+            {!collapsed && recruitmentExpanded && (
+              <div className="ml-4 space-y-1">
+                {recruitmentNavItems.map(({ label, href, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    to={href}
+                    className={cn(
+                      'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
+                      location.pathname.startsWith(href)
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    {label}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
         {/* Settings sub-menu — admin only */}
         {isAdmin && (
