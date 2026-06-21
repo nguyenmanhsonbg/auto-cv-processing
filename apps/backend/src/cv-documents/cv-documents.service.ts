@@ -332,7 +332,7 @@ export class CvDocumentsService {
         documentType: CvDocumentType.ORIGINAL,
         versionNo,
         originalFileName: validatedFile.originalFileName,
-        mimeType: input.file.mimetype,
+        mimeType: validatedFile.mimeType,
         fileSize: String(input.file.size),
         originalFileHash: validatedFile.originalFileHash,
         cleanFileHash: null,
@@ -420,10 +420,6 @@ export class CvDocumentsService {
       throw new BadRequestException('Unsupported CV file type');
     }
 
-    if (file.mimetype !== rule.mimeType) {
-      throw new BadRequestException('CV MIME type does not match file extension');
-    }
-
     if (!Number.isFinite(file.size) || file.size <= 0) {
       throw new BadRequestException('CV file is empty');
     }
@@ -440,6 +436,7 @@ export class CvDocumentsService {
       originalFileName: this.normalizeOriginalFileName(originalFileName),
       originalFileHash,
       quarantineFilePath,
+      mimeType: rule.mimeType,
       storagePath: toCvQuarantineStorageKey(quarantineFilePath),
     };
   }
@@ -736,10 +733,13 @@ export class CvDocumentsService {
   }
 
   private async assertFileSignature(filePath: string, signature: CvFileSignature) {
-    const magicBytes = await this.readMagicBytes(filePath, 8);
+    const magicBytes = await this.readMagicBytes(filePath, signature === 'pdf' ? 1024 : 8);
 
-    if (signature === 'pdf' && magicBytes.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
-      return;
+    if (signature === 'pdf') {
+      const header = Buffer.from('%PDF-');
+      if (magicBytes.indexOf(header) >= 0) {
+        return;
+      }
     }
 
     if (signature === 'zip') {

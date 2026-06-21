@@ -17,11 +17,7 @@ import {
   ensureCvQuarantineRoot,
 } from './storage/cv-quarantine-storage';
 
-const allowedMimeByExtension: Record<string, string> = {
-  '.pdf': 'application/pdf',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-};
+const allowedCvUploadExtensions = new Set(['.pdf', '.docx', '.xlsx']);
 
 @Module({
   imports: [
@@ -49,9 +45,8 @@ const allowedMimeByExtension: Record<string, string> = {
       }),
       fileFilter: (_req, file, cb) => {
         const extension = extname(file.originalname).toLowerCase();
-        const expectedMime = allowedMimeByExtension[extension];
 
-        if (!expectedMime || file.mimetype !== expectedMime) {
+        if (!allowedCvUploadExtensions.has(extension)) {
           cb(new BadRequestException('Unsupported CV file type'), false);
           return;
         }

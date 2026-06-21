@@ -21,12 +21,14 @@ import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
+  ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { Response } from 'express';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
 import { CvParsingService } from '../cv-parsing/cv-parsing.service';
 import { CvSanitizationService } from '../cv-sanitization/cv-sanitization.service';
 import { CvDocumentType, CvSanitizeStatus, StorageZone } from '../recruitment-common';
@@ -69,6 +71,7 @@ interface CvVersionResponse {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN, UserRole.HR)
 @Controller('applications/:applicationId/cv')
+@ApiErrorResponses([400, 401, 403, 404, 409, 422, 500, 503])
 export class CvDocumentsController {
   constructor(
     private readonly cvDocumentsService: CvDocumentsService,
@@ -160,6 +163,18 @@ export class CvDocumentsController {
 
   @Get(':cvDocumentId/clean-file')
   @ApiOperation({ summary: 'Preview or download a sanitized clean CV file' })
+  @ApiResponse({
+    status: 200,
+    description: 'Sanitized clean CV binary stream. Success is not wrapped in an envelope.',
+    content: {
+      'application/pdf': {
+        schema: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
   async getCleanCvFile(
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
     @Param('cvDocumentId', ParseUUIDPipe) cvDocumentId: string,
@@ -192,8 +207,15 @@ export class CvDocumentsController {
         res.removeHeader('Content-Length');
         res.removeHeader('Content-Disposition');
         res.status(503).json({
-          code: 'CLEAN_CV_FILE_UNAVAILABLE',
-          message: 'Clean CV file is not available.',
+          success: false,
+          error: {
+            code: 'CLEAN_CV_FILE_UNAVAILABLE',
+            message: 'Clean CV file is not available.',
+            details: [],
+          },
+          meta: {
+            timestamp: new Date().toISOString(),
+          },
         });
         return;
       }

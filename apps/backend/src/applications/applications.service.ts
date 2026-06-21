@@ -3,12 +3,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { CandidateLevel, PaginatedResponse } from '@interview-assistant/shared';
 import slugify from 'slugify';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { CandidateEntity } from '../candidates/entities/candidate.entity';
+import { ParsedProfileEntity } from '../cv-documents/entities/parsed-profile.entity';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
 import {
   ApplicationSourceType,
   ApplicationStatus,
+  CvDocumentType,
   JobDescriptionStatus,
   JobDescriptionVersionStatus,
   JobPostingStatus,
@@ -65,6 +68,13 @@ export interface ListApplicationsParams {
   sortOrder?: 'ASC' | 'DESC';
 }
 
+export interface ListApplicationAuditLogsParams {
+  page?: number;
+  limit?: number;
+  action?: string;
+  sortOrder?: 'ASC' | 'DESC';
+}
+
 export interface OverrideApplicationStatusInput {
   status: ApplicationStatus;
   reason: string;
@@ -85,6 +95,10 @@ export class ApplicationsService {
     private readonly dataSource: DataSource,
     @InjectRepository(ApplicationEntity)
     private readonly applicationsRepo: Repository<ApplicationEntity>,
+    @InjectRepository(ParsedProfileEntity)
+    private readonly parsedProfilesRepo: Repository<ParsedProfileEntity>,
+    @InjectRepository(AuditLogEntity)
+    private readonly auditLogsRepo: Repository<AuditLogEntity>,
     private readonly applicationSourcesService: ApplicationSourcesService,
     private readonly workflowStateService: WorkflowStateService,
   ) {}
@@ -180,6 +194,55 @@ export class ApplicationsService {
       'aiScreeningResults',
       'sources',
     ]);
+  }
+
+  async findParsedProfileByApplicationId(applicationId: string) {
+    const normalizedApplicationId = this.requireText(applicationId, 'Application id');
+    await this.assertApplicationExists(normalizedApplicationId);
+
+    return this.parsedProfilesRepo
+      .createQueryBuilder('parsedProfile')
+      .innerJoinAndSelect('parsedProfile.cvDocument', 'cvDocument')
+      .where('parsedProfile.applicationId = :applicationId', {
+        applicationId: normalizedApplicationId,
+      })
+      .andWhere('cvDocument.documentType = :documentType', {
+        documentType: CvDocumentType.CLEAN,
+      })
+      .andWhere('cvDocument.isCurrent = :isCurrent', { isCurrent: true })
+      .orderBy('parsedProfile.createdAt', 'DESC')
+      .addOrderBy('parsedProfile.id', 'DESC')
+      .getOne();
+  }
+
+  async findAuditLogsByApplicationId(
+    applicationId: string,
+    params: ListApplicationAuditLogsParams = {},
+  ): Promise<PaginatedResponse<AuditLogEntity>> {
+    const normalizedApplicationId = this.requireText(applicationId, 'Application id');
+    await this.assertApplicationExists(normalizedApplicationId);
+
+    const page = Math.max(1, params.page ?? 1);
+    const limit = Math.min(100, Math.max(1, params.limit ?? 20));
+    const sortOrder = params.sortOrder === 'ASC' ? 'ASC' : 'DESC';
+    const action = this.optionalText(params.action);
+
+    const qb = this.auditLogsRepo
+      .createQueryBuilder('auditLog')
+      .where('auditLog.applicationId = :applicationId', {
+        applicationId: normalizedApplicationId,
+      })
+      .orderBy('auditLog.createdAt', sortOrder)
+      .addOrderBy('auditLog.id', sortOrder)
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (action) {
+      qb.andWhere('auditLog.action = :action', { action });
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async overrideStatus(
@@ -397,6 +460,13 @@ export class ApplicationsService {
     });
     if (!application) throw new BadRequestException('Application not found');
     return application;
+  }
+
+  private async assertApplicationExists(applicationId: string) {
+    const exists = await this.applicationsRepo.exist({
+      where: { id: applicationId },
+    });
+    if (!exists) throw new BadRequestException('Application not found');
   }
 
   private async findJobPostingForApplication(

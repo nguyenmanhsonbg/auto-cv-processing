@@ -9,7 +9,7 @@ import { createHash } from 'crypto';
 import { createReadStream } from 'fs';
 import { open, stat } from 'fs/promises';
 import * as path from 'path';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, FindOptionsWhere } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
@@ -431,14 +431,19 @@ export class CvSanitizationService {
   }
 
   private findExistingCleanCv(manager: EntityManager, originalCvDocument: CvDocumentEntity) {
+    const where: FindOptionsWhere<CvDocumentEntity> = {
+      applicationId: originalCvDocument.applicationId,
+      documentType: CvDocumentType.CLEAN,
+      versionNo: originalCvDocument.versionNo,
+      sanitizeStatus: CvSanitizeStatus.SANITIZED,
+    };
+    const originalFileHash = this.optionalText(originalCvDocument.originalFileHash);
+    if (originalFileHash) {
+      where.originalFileHash = originalFileHash;
+    }
+
     return manager.getRepository(CvDocumentEntity).findOne({
-      where: {
-        applicationId: originalCvDocument.applicationId,
-        documentType: CvDocumentType.CLEAN,
-        versionNo: originalCvDocument.versionNo,
-        originalFileHash: originalCvDocument.originalFileHash,
-        sanitizeStatus: CvSanitizeStatus.SANITIZED,
-      },
+      where,
       order: {
         createdAt: 'DESC',
       },

@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiScreeningResultEntity } from '../ai-screening/entities/ai-screening-result.entity';
+import { ApplicationsModule } from '../applications/applications.module';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { CandidateEntity } from '../candidates/entities/candidate.entity';
+import { CvDocumentsModule } from '../cv-documents/cv-documents.module';
 import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
 import { ParsedProfileEntity } from '../cv-documents/entities/parsed-profile.entity';
 import { FormAnswerEntity } from '../form-sessions/entities/form-answer.entity';
@@ -17,11 +19,14 @@ import { MappingResultEntity } from '../mapping/entities/mapping-result.entity';
 import { PositionEntity } from '../positions/entities/position.entity';
 import { WorkflowEventEntity } from '../workflow-state/entities/workflow-event.entity';
 import { JobPostingEntity } from './entities/job-posting.entity';
+import { JobPostingsController } from './job-postings.controller';
 import { JobPostingsService } from './job-postings.service';
 import { PublicJobPostingsController } from './public-job-postings.controller';
 
 @Module({
   imports: [
+    ApplicationsModule,
+    CvDocumentsModule,
     TypeOrmModule.forFeature([
       AiScreeningResultEntity,
       ApplicationEntity,
@@ -42,7 +47,7 @@ import { PublicJobPostingsController } from './public-job-postings.controller';
       WorkflowEventEntity,
     ]),
   ],
-  controllers: [PublicJobPostingsController],
+  controllers: [JobPostingsController, PublicJobPostingsController],
   providers: [JobPostingsService],
   exports: [JobPostingsService],
 })

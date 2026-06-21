@@ -5,6 +5,7 @@ import helmet from 'helmet';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const session = require('express-session');
 import { AppModule } from './app.module';
+import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 
 async function bootstrap() {
   const jwtSecret = process.env.JWT_SECRET;
@@ -34,6 +35,7 @@ async function bootstrap() {
     origin: process.env.FRONTEND_URL || 'http://localhost:4000',
     credentials: true,
   });
+  app.useGlobalFilters(new ApiExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
