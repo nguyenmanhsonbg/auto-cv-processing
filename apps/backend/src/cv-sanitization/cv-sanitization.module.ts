@@ -1,0 +1,40 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ApplicationEntity } from '../applications/entities/application.entity';
+import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
+import { CvParsingModule } from '../cv-parsing/cv-parsing.module';
+import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
+import { WorkflowStateModule } from '../workflow-state/workflow-state.module';
+import { CvSanitizationService } from './cv-sanitization.service';
+import { CLEAN_CV_SANITIZER } from './sanitizer/clean-cv-sanitizer.interface';
+import { GhostscriptDockerPdfSanitizer } from './sanitizer/ghostscript-docker-pdf-sanitizer';
+import { CV_MALWARE_SCANNER } from './scanner/cv-malware-scanner.interface';
+import { StubCvMalwareScanner } from './scanner/stub-cv-malware-scanner';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([
+      ApplicationEntity,
+      AuditLogEntity,
+      CvDocumentEntity,
+    ]),
+    CvParsingModule,
+    WorkflowStateModule,
+  ],
+  providers: [
+    CvSanitizationService,
+    {
+      provide: CV_MALWARE_SCANNER,
+      useClass: StubCvMalwareScanner,
+    },
+    {
+      provide: CLEAN_CV_SANITIZER,
+      useClass: GhostscriptDockerPdfSanitizer,
+    },
+  ],
+  exports: [
+    CV_MALWARE_SCANNER,
+    CvSanitizationService,
+  ],
+})
+export class CvSanitizationModule {}
