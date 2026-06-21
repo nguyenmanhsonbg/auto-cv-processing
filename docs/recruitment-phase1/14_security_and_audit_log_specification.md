@@ -91,12 +91,15 @@ Public endpoint response rule:
 | CV gốc / quarantine | CV gốc lưu ở quarantine storage; chỉ dùng cho scan/sanitize; không dùng cho parse/mapping/AI/HR Review; không expose qua public API; không expose qua HR Review UI; Admin/security access nếu có phải audit. |
 | Clean CV | Clean CV lưu ở safe storage; là file được phép dùng cho parse/mapping/AI/HR Review; HR/Admin xem theo permission application/candidate; không trả storage path trực tiếp nếu không có access control; có thể dùng signed URL ngắn hạn hoặc API streaming có permission check. |
 | File validation | Check MIME, extension, size, magic bytes nếu có thể; reject mismatch MIME/extension; reject dangerous extension; reject path traversal; generate server-side filename/storage key; không dùng client filename làm path; không log full file path nội bộ. |
+| Malware scan | Public/manual/channel CV upload API phải chạy malware scan đồng bộ trong request; malware detected trả `422 MALWARE_DETECTED`; scan failed/timeout là lỗi kỹ thuật riêng, không sanitize/parse khi chưa pass. |
+| Ghostscript sanitizer | Ghostscript là sanitizer/converter tạo clean PDF sau scan pass, không phải malware scanner. Nếu dùng Docker, container phải harden: no network, non-root, read-only input, drop capabilities, no-new-privileges, CPU/memory/PID limit, timeout, output mount riêng và cleanup temp/container. |
 | Existing upload risk | Existing `/api/uploads/:filename` hiện role-gated nhưng chưa check ownership theo application/candidate; Phase 1 clean CV access nên có API riêng theo `applicationId`/`cvDocumentId`; không dùng existing upload route để phục vụ raw CV. |
 
 Ghi chú triển khai:
 
 - Quarantine storage và safe storage là boundary logic bắt buộc. Implementation có thể là bucket riêng, prefix riêng hoặc service storage riêng, nhưng access control phải tách rõ.
 - File URL từ channel webhook không được tự động tin cậy. Nếu cần download, phải safe fetch, validate, quarantine và scan.
+- Parser, mapping, AI Screening và HR Review không đọc original/quarantine CV; chỉ dùng clean CV hoặc parsed profile từ clean CV.
 
 ## 6. Rate limit
 
@@ -133,11 +136,13 @@ Baseline hiện tại có global throttler cao. Phase 1 public endpoints cần o
 | CV | `CV_SCAN_REQUESTED` | Yêu cầu malware scan | `applicationId`, `cvDocumentId` |
 | CV | `CV_SCAN_PASSED` | Scanner xác nhận an toàn | `applicationId`, `cvDocumentId` |
 | CV | `CV_MALWARE_DETECTED` | Phát hiện malware | `applicationId`, `cvDocumentId`, `errorCode` |
+| CV | `CV_SCAN_FAILED` | Scanner lỗi/timeout kỹ thuật | `applicationId`, `cvDocumentId`, `errorCode`, redacted `errorMessage`, attempt |
 | CV | `CV_SANITIZE_STARTED` | Bắt đầu sanitize/create clean CV | `applicationId`, `cvDocumentId` |
 | CV | `CV_SANITIZED` | Clean CV đã tạo | `applicationId`, `cvDocumentId` |
 | CV | `CV_SANITIZE_FAILED` | Sanitize thất bại | `applicationId`, `cvDocumentId`, `errorCode`, `errorMessage` |
 | CV | `CV_PARSED` | Clean CV đã parse | `applicationId`, `cvDocumentId` |
 | CV | `CV_PARSE_FAILED` | Parse clean CV thất bại | `applicationId`, `cvDocumentId`, `errorCode`, `errorMessage` |
+| CV | `CV_FAILURE_NOTIFICATION_SENT` | Gửi email yêu cầu ứng viên upload lại hoặc thông báo lỗi CV theo policy | `applicationId`, `candidateId`, `cvDocumentId`, notification template, reason code |
 | CV | `CLEAN_CV_VIEWED` | HR/Admin xem clean CV | `applicationId`, `candidateId`, `cvDocumentId`, `actorId` |
 | CV | `CLEAN_CV_DOWNLOADED` | HR/Admin download clean CV | `applicationId`, `candidateId`, `cvDocumentId`, `actorId` |
 | CV | `RAW_CV_ACCESS_ATTEMPTED` | Có attempt truy cập raw/quarantine CV | `applicationId`, `candidateId`, `cvDocumentId`, `actorId`, `errorCode` |
@@ -317,12 +322,17 @@ Error response rule:
 | Forbidden | `403 FORBIDDEN` | Actor id, object type/id, permission denied reason |
 | File validation failed | `400 FILE_VALIDATION_FAILED` hoặc `UNSUPPORTED_FILE_TYPE` | MIME/extension/size summary, không log full path |
 | Malware detected | `422 MALWARE_DETECTED` | `cvDocumentId`, scanner code, no file content |
+| Scan failed/timeout | `500/503 CV_SCAN_FAILED` hoặc generic retry message | Scanner/provider code redacted, request id, no raw scanner log |
+| Sanitize failed | Không trả qua upload API; nếu query/rerun thì `CV_SANITIZE_FAILED` an toàn | Ghostscript/container error redacted, no command/path/file content |
+| Parse failed | Không trả qua upload API; nếu query/rerun thì `CV_PARSE_FAILED` an toàn | Parser code redacted, no stack trace/raw CV content |
 | Token invalid/expired | `401/410 FORM_TOKEN_INVALID/FORM_TOKEN_EXPIRED` | token hash lookup result, IP, request id; không log raw token |
 | Webhook invalid signature | `401 WEBHOOK_SIGNATURE_INVALID` | channel, request id, source IP; không log expected/actual secret |
 | AI provider failed | `502/503 AI_PROVIDER_FAILED` hoặc `AI_SCREENING_FAILED` | provider code, timeout, request id; không log full prompt |
 | Mapping failed | `500/422 MAPPING_FAILED` | mapping input ids, error code, request id |
 | Storage error | `500 STORAGE_ERROR` | storage operation, object key redacted/masked, request id |
 | DB error | `500 INTERNAL_ERROR` | internal DB error with request id in server log only |
+
+Candidate-facing email hoặc public response không được chứa Ghostscript error, parser stack trace, scanner raw log, container timeout detail, storage path hoặc tên malware cụ thể nếu không cần thiết.
 
 Ví dụ error response an toàn:
 

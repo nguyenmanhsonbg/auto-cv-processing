@@ -16,7 +16,7 @@ Tài liệu làm nền cho implementation sau này của các nhóm module:
 
 Tài liệu này không tạo code, không tạo controller/service/module/entity thật và không tạo migration.
 
-Mục tiêu chính là đảm bảo mọi CV đến từ public apply, manual HR upload hoặc channel ingestion đều được xử lý an toàn trước khi đi vào các bước nghiệp vụ. CV gốc không được dùng trực tiếp cho parse, mapping, AI Screening hoặc HR Review. Mọi kết quả xử lý CV phải gắn với `application_id`, có versioning, idempotency và audit log.
+Mục tiêu chính là đảm bảo mọi CV đến từ public apply, manual HR upload hoặc channel ingestion đều được xử lý an toàn trước khi đi vào các bước nghiệp vụ. CV gốc không được dùng trực tiếp cho parse, mapping, AI Screening hoặc HR Review. Upload API phải validate, lưu quarantine, tính hash và chạy malware scan đồng bộ trong request; nếu scan pass thì trả accepted/processing, còn sanitize/parse chạy async. Mọi kết quả xử lý CV phải gắn với `application_id`, có versioning, idempotency và audit log.
 
 ## 2. Nguyên tắc xử lý CV
 
@@ -34,24 +34,41 @@ Mục tiêu chính là đảm bảo mọi CV đến từ public apply, manual HR
 | 10 | Không expose raw CV | Raw/original CV không được expose qua public API hoặc UI HR thông thường. |
 | 11 | Clean CV có phân quyền | Chỉ HR/Admin có quyền theo `applicationId`/`candidateId` mới được xem hoặc download clean CV. |
 | 12 | Audit bắt buộc | Mọi action upload, sanitize, parse, retry, download và failure quan trọng phải ghi `WorkflowEvent` và/hoặc `AuditLog`. |
+| 13 | Upload chỉ chờ scan | Public/manual/channel upload API chỉ chờ đến hết malware scan, không chờ sanitize/parse/mapping. |
+| 14 | Sanitize/parse async | Sanitize và parse chạy async sau khi scan pass; failure sau đó xử lý bằng retry/manual review/notification, không trả qua response upload đã kết thúc. |
 
 ## 3. CV flow tổng thể
 
 Flow bắt buộc:
 
 ```text
-Upload CV
-→ Validate file
-→ Create Application/CvDocument context
+Ứng viên/HR/channel upload CV
+→ API validate file cơ bản
+→ Create/link Application + CvDocument
 → Store original CV to quarantine
-→ Calculate SHA-256 hash
-→ Malware scan
-→ If safe: create clean CV
-→ Store clean CV to safe storage
-→ Parse clean CV
-→ Save parsed profile
-→ Duplicate profile check
-→ Ready for Mapping CV-JD
+→ Calculate original_file_hash
+→ Malware scan đồng bộ trong request API
+→ Nếu malware detected:
+    - cập nhật CvDocument/Application sang CV_REJECTED_MALWARE
+    - ghi WorkflowEvent/AuditLog
+    - trả lỗi trực tiếp: 422 MALWARE_DETECTED
+    - không sanitize, không parse, không mapping
+→ Nếu scan failed/timeout kỹ thuật:
+    - cập nhật CV_SCAN_FAILED hoặc scan_status FAILED
+    - ghi WorkflowEvent/AuditLog/internal alert
+    - không sanitize, không parse
+    - trả lỗi an toàn hoặc accepted theo policy retry nội bộ, nhưng không được coi là malware
+→ Nếu scan pass:
+    - trả API thành công / accepted processing
+    - enqueue async sanitize worker/container
+→ Sanitize async:
+    - với PDF có thể dùng Ghostscript ephemeral Docker container để tạo clean PDF
+    - lưu clean CV vào safe storage
+    - validate output MIME/magic bytes
+    - calculate clean_file_hash
+→ Parse clean CV async
+→ Nếu parse thành công: CV_PARSED, ready for Mapping CV-JD
+→ Nếu sanitize/parse fail: retry theo policy, sau đó email ứng viên upload lại hoặc manual review tùy nguyên nhân
 ```
 
 Mermaid flow:
@@ -66,18 +83,19 @@ flowchart TD
     E --> F["Calculate SHA-256 original_file_hash"]
     F --> G{"Duplicate file detected?"}
     G -- "Retry same request" --> G1["Return existing CvDocument by idempotency rule"]
-    G -- "New version allowed" --> H["Malware scan"]
+    G -- "New version allowed" --> H["Synchronous malware scan"]
     G -- "Duplicate not allowed" --> G2["Flag duplicate / reject by application rule"]
     H --> I{"Scan result"}
-    I -- "Malware" --> I1["CV_REJECTED_MALWARE"]
-    I -- "Failed / Timeout" --> I2["Scan failed - retry or manual review"]
-    I -- "Clean" --> J["Create clean CV"]
+    I -- "Malware" --> I1["422 MALWARE_DETECTED\nCV_REJECTED_MALWARE"]
+    I -- "Failed / Timeout" --> I2["CV_SCAN_FAILED\nretry/manual review\nno sanitize/parse"]
+    I -- "Passed" --> I3["Return accepted/processing to caller"]
+    I3 --> J["Async sanitize worker"]
     J --> K{"Sanitize success?"}
-    K -- "No" --> K1["CV_SANITIZE_FAILED"]
-    K -- "Yes" --> L["Store clean CV to safe storage"]
-    L --> M["Parse clean CV"]
+    K -- "No" --> K1["CV_SANITIZE_FAILED\nretry then email/manual review"]
+    K -- "Yes" --> L["Store clean CV to safe storage\nvalidate output + clean_file_hash"]
+    L --> M["Async parse clean CV"]
     M --> N{"Parse result"}
-    N -- "Failed / Empty text" --> N1["CV_PARSE_FAILED - manual review or block mapping"]
+    N -- "Failed / Empty text" --> N1["CV_PARSE_FAILED\nretry then email/manual review\nblock mapping"]
     N -- "Success" --> O["Save ParsedProfile"]
     O --> P["Duplicate profile check"]
     P --> Q["CV_PARSED"]
@@ -90,10 +108,10 @@ Các nhánh lỗi bắt buộc:
 | --- | --- |
 | File invalid | Reject, không tạo CV version nghiệp vụ hoàn chỉnh. |
 | Duplicate file detected | Xử lý theo idempotency/version rule. |
-| Malware detected | Chuyển `CV_REJECTED_MALWARE`, không parse. |
-| Scan failed | Retry hoặc manual review, không parse khi chưa pass. |
+| Malware detected | Chuyển `CV_REJECTED_MALWARE`, trả `422 MALWARE_DETECTED` trực tiếp qua upload API, không sanitize/parse/mapping. |
+| Scan failed | Chuyển `CV_SCAN_FAILED` hoặc `scan_status = FAILED`, retry hoặc manual review, không sanitize/parse khi chưa pass; không đánh đồng với malware. |
 | Sanitize failed | Chuyển `CV_SANITIZE_FAILED`, có thể retry nếu lỗi kỹ thuật. |
-| Parse failed | Ghi parse error/manual review; không cho mapping nếu thiếu parsed profile bắt buộc. |
+| Parse failed | Chuyển `CV_PARSE_FAILED` hoặc `parse_status = FAILED`; retry/manual review/email upload lại theo nguyên nhân; không cho mapping nếu thiếu parsed profile bắt buộc. |
 | Parse success | Chuyển `CV_PARSED`, sẵn sàng duplicate profile check và mapping. |
 
 ## 4. File validation
@@ -175,7 +193,20 @@ Ghi chú triển khai:
 
 ## 7. Malware scan
 
-Malware scan là bước bắt buộc trong workflow CV. Dù MVP dùng stub, state machine vẫn phải có scan status đầy đủ để implementation sau có thể thay scanner thật mà không đổi workflow.
+Malware scan là bước bắt buộc trong workflow CV. Public apply, manual upload và channel CV upload API phải chạy synchronous malware scan trong request upload. API chỉ chờ đến hết bước scan, không chờ sanitize/parse/mapping. Dù MVP dùng stub, state machine vẫn phải có scan status đầy đủ để implementation sau có thể thay scanner thật mà không đổi workflow.
+
+Nếu scanner phát hiện malware, API phải trả lỗi trực tiếp cho caller:
+
+- HTTP `422 Unprocessable Entity`.
+- Error code `MALWARE_DETECTED`.
+- Response public không leak scanner log, storage path, internal path, stack trace, container command hoặc raw threat detail nếu không cần thiết.
+
+Nếu scanner failed/timeout do lỗi kỹ thuật, hệ thống phải phân biệt với malware detected:
+
+- Cập nhật `CV_SCAN_FAILED` hoặc `cv_documents.scan_status = FAILED`.
+- Không sanitize, không parse, không mapping khi scan chưa pass.
+- Có thể retry theo policy, chuyển manual review hoặc internal alert.
+- Public response không trả thông tin kỹ thuật nội bộ.
 
 Scanner mode đề xuất:
 
@@ -197,16 +228,17 @@ Xử lý scan result:
 
 | Scan result | State tiếp theo | Hành động |
 | ----------- | --------------- | --------- |
-| Clean | `CV_SCAN_PASSED` | Cho phép sanitize |
+| Clean | `CV_SCAN_PASSED` | Trả accepted/processing cho upload API, enqueue async sanitize |
 | Malware | `CV_REJECTED_MALWARE` | Reject CV/application version, không parse |
-| Scan failed | Scan error state hoặc retry | Ghi audit, cho retry/manual |
-| Timeout | Retry/manual | Không cho parse khi chưa pass |
+| Scan failed | `CV_SCAN_FAILED` hoặc `scan_status = FAILED` | Ghi audit, retry/manual/internal alert; không sanitize/parse |
+| Timeout | `CV_SCAN_FAILED` hoặc retry pending theo policy | Không cho sanitize/parse khi chưa pass |
 
 Ghi chú triển khai:
 
 - `STUB` chỉ phục vụ local/dev hoặc demo có kiểm soát. Khi bật public upload thật, ít nhất nên có `CLAMAV` hoặc scanner tương đương.
 - Malware detected thường là terminal cho CV version hiện tại, không retry tự động bằng cùng file.
 - Scan result phải lưu được trong `cv_documents.scan_status` và audit event.
+- Ghostscript không phải malware scanner và không được dùng thay thế scanner chính.
 
 ## 8. Clean CV
 
@@ -214,12 +246,23 @@ Clean CV là bản an toàn được tạo từ original CV sau khi malware scan
 
 Clean CV lưu ở safe storage và là bản duy nhất được dùng cho parse, mapping, AI Screening và HR Review.
 
+Sanitize chạy async sau khi scan pass. Upload API không bắt candidate/HR chờ Ghostscript, parser hoặc mapping. Nếu sanitize fail sau khi upload API đã trả accepted/processing, lỗi được xử lý qua retry/manual review/notification, không trả ngược qua response upload.
+
 | File type | Clean strategy đề xuất | Ghi chú |
 | --------- | ---------------------- | ------- |
-| PDF | Re-render/normalize PDF hoặc extract text rồi generate safe PDF/text artifact | Tùy thư viện triển khai sau |
+| PDF | Re-render/normalize PDF bằng Ghostscript Docker sanitizer hoặc extract text rồi generate safe PDF/text artifact | Ghostscript chỉ là sanitizer/converter, không thay malware scanner |
 | DOCX | Extract text/content an toàn rồi generate safe DOCX/PDF/text artifact | Không giữ macro/embedded object |
 | XLSX | Extract sheet content an toàn rồi generate safe XLSX/PDF/text artifact | Không giữ formula nguy hiểm nếu không cần |
 | Unsupported | Reject hoặc manual review | Không parse |
+
+Ghostscript sanitizer rule cho PDF:
+
+- Chỉ chạy sau khi `scan_status = PASSED`.
+- Source input là original CV trong quarantine.
+- Output PDF chỉ được coi là clean CV nếu Ghostscript chạy thành công, output được validate MIME/magic bytes, lưu vào safe storage, có `clean_file_hash`, metadata version, WorkflowEvent và AuditLog.
+- Nên chạy bằng ephemeral Docker container hoặc worker có idle timeout/scale-to-zero.
+- Container hardening ở mức specification: không network, non-root user, read-only filesystem nếu có thể, drop capabilities, `no-new-privileges`, CPU/memory/PID limit, timeout, input mount read-only, output mount tách biệt, xóa temp container/temp files sau xử lý.
+- Không ghi rằng Ghostscript thay thế ClamAV/scanner.
 
 Metadata clean CV bắt buộc:
 
@@ -241,7 +284,7 @@ Ghi chú triển khai:
 
 ## 9. Parse CV
 
-Parser chỉ chạy trên clean CV. Phase 1 có thể reuse `FileParserService` hiện tại cho PDF/DOCX/XLSX, nhưng nên gọi qua wrapper domain `cv-parsing` để đảm bảo không parse file quarantine và để lưu status/result theo `Application`.
+Parser chỉ chạy trên clean CV và chạy async sau khi sanitize success. Phase 1 có thể reuse `FileParserService` hiện tại cho PDF/DOCX/XLSX, nhưng nên gọi qua wrapper domain `cv-parsing` để đảm bảo không parse file quarantine và để lưu status/result theo `Application`.
 
 Parser output cần lưu thành `ParsedProfile`. Parsed result nên có `parserVersion`, `parsedData`, `rawText`, `normalizedText`, `normalizedTextHash`, `parseConfidence` nếu có, cùng error/warning nếu thiếu dữ liệu.
 
@@ -272,6 +315,9 @@ Failure rule:
 - Parse fail cần ghi `parseStatus`.
 - Không chạy mapping nếu thiếu clean CV hoặc parsed profile bắt buộc.
 - Có thể cho HR manual review nếu workflow cho phép, nhưng mapping tự động vẫn phải chờ input hợp lệ.
+- Parse failed/empty text cần retry theo policy nếu nghi lỗi kỹ thuật. Sau retry nếu nguyên nhân là file không xử lý được, hệ thống có thể gửi email yêu cầu ứng viên upload lại; nếu nghi lỗi hệ thống, notify HR/Admin/internal alert và không đổ lỗi cho candidate ngay.
+- Email cho ứng viên phải dùng ngôn ngữ nghiệp vụ, ví dụ CV chưa thể xử lý tự động và cần upload lại file hợp lệ, không đặt mật khẩu, không lỗi định dạng, nội dung rõ ràng.
+- Email không được chứa Ghostscript error, parser stack trace, container timeout detail, storage path, scanner raw log hoặc tên malware cụ thể nếu không cần.
 
 Ghi chú triển khai:
 
@@ -316,19 +362,21 @@ Assumption:
 | Quarantine store failed | `CV_STORE_FAILED` hoặc technical error | Yes | Retry cùng idempotency key; ghi audit nếu đã có application context. |
 | Hash failed | Technical error | Yes | Retry sau khi đảm bảo file quarantine còn nguyên. |
 | Malware detected | `CV_REJECTED_MALWARE` | No auto retry | Terminal cho CV version hiện tại; không parse. |
-| Scan failed/timeout | Scan failed state | Yes | Retry/manual review; không cho sanitize/parse khi chưa pass. |
-| Sanitize failed | `CV_SANITIZE_FAILED` | Yes | Retry nếu lỗi kỹ thuật; ghi attempt. |
+| Scan failed/timeout | `CV_SCAN_FAILED` hoặc `scanStatus = FAILED` | Yes | Retry/manual review/internal alert; không cho sanitize/parse khi chưa pass; không đánh đồng với malware. |
+| Sanitize failed | `CV_SANITIZE_FAILED` | Yes | Retry nếu lỗi kỹ thuật; ghi attempt; sau retry nếu do file thì email upload lại, nếu do hệ thống thì internal alert/manual review. |
 | Clean CV store failed | Technical error | Yes | Retry store clean artifact; không parse nếu chưa lưu safe. |
-| Parse failed | `CV_PARSE_FAILED` hoặc `parseStatus = FAILED` | Có điều kiện | Retry nếu lỗi kỹ thuật hoặc chuyển manual review. |
-| Empty extracted text | `CV_PARSE_FAILED` | Có điều kiện | Manual review hoặc yêu cầu CV khác. |
+| Parse failed | `CV_PARSE_FAILED` hoặc `parseStatus = FAILED` | Có điều kiện | Retry nếu lỗi kỹ thuật; manual review/email upload lại nếu file không xử lý được. |
+| Empty extracted text | `CV_PARSE_FAILED` | Có điều kiện | Retry/manual review; sau retry có thể yêu cầu CV khác. |
 | Duplicate file | Duplicate handling/idempotency | Có điều kiện | Retry trả existing document; duplicate thật thì flag/reject theo application rule. |
 | Unauthorized clean CV access | `FORBIDDEN` | No | Không trả file; ghi audit nếu cần. |
 
 Quy tắc chung:
 
 - Malware detected thường là terminal cho CV version hiện tại.
+- Scan failed/timeout là lỗi kỹ thuật, không phải malware detected và không phải sanitize failed.
 - Sanitize failed có thể retry nếu lỗi kỹ thuật.
 - Parse failed có thể retry hoặc manual review.
+- Sanitize/parse fail không trả qua upload API vì request upload đã kết thúc sau scan pass.
 - Failure nào cũng cần ghi `WorkflowEvent` và/hoặc `AuditLog`.
 - Không bước lỗi nào được phép làm mất file, metadata hoặc audit của version đã tạo.
 
@@ -345,6 +393,7 @@ Quy tắc chung:
 | Server-side filename | Storage key/filename phải generate bởi server. |
 | Public token không truy cập file | Token form/apply không được cho truy cập file trực tiếp. |
 | Log không chứa file content | Log/audit không ghi full file content. |
+| Không leak lỗi nội bộ | Response public không chứa scanner log, raw threat detail, storage path, stack trace, container command, Ghostscript error hoặc parser stack trace. |
 | PII trong raw payload | Raw payload/channel CV có thể chứa PII, cần kiểm soát log và retention. |
 | Hạn chế PII response | Response chỉ trả dữ liệu cần thiết theo vai trò và use case. |
 | AI direct file analysis | Nếu dùng, chỉ được đọc file trong vùng safe/kiểm soát quyền chặt. Không gửi CV gốc sang AI. |
@@ -409,6 +458,8 @@ Ghi chú:
 - HR/Admin manual upload phải check quyền theo `applicationId`/`candidateId`.
 - Clean file API chỉ trả clean CV.
 - Không tạo API download raw CV thông thường.
+- Upload API chạy malware scan đồng bộ. Nếu malware detected thì trả `422 MALWARE_DETECTED`; nếu scan pass thì trả accepted/processing và `nextStep` là sanitize/parse pending.
+- Sanitize/parse async không nằm trong response upload và không được yêu cầu caller chờ.
 - Nếu cần Admin/security raw access later, phải là API riêng, role riêng, reason bắt buộc và audit bắt buộc.
 - Existing `/api/uploads/:filename` không nên dùng làm endpoint clean CV chính của Phase 1 vì chưa đủ application ownership check.
 
@@ -495,6 +546,8 @@ Ghi chú triển khai:
 | ------ | -------------- | ---------- |
 | Có support `.xls` trong Phase 1 hay không | `backend-specification.md`, `00_source_baseline_analysis.md` | Conflict rõ: upload hiện tại accept `.xls` MIME nhưng parser chưa support `.xls`. Spec này đánh dấu `.xls` là unsupported cho đến khi có parser/conversion riêng. |
 | Malware scan MVP dùng stub, ClamAV hay external service | Architecture/business flow chỉ chốt phải scan, chưa chốt scanner cụ thể | Assumption: dev/local có thể dùng `STUB`; môi trường có public upload nên dùng `CLAMAV`; external service để later. |
+| Ghostscript có phải scanner không | Một số flow cũ gom scan/sanitize thành một bước | Ghostscript không phải scanner. Ghostscript chỉ là sanitizer/converter chạy sau khi malware scan pass. |
+| Upload API chờ đến đâu | Business flow cần trả lỗi malware trực tiếp nhưng không muốn candidate chờ toàn bộ xử lý | Upload API chờ malware scan đồng bộ; sanitize/parse/mapping chạy async sau scan pass. |
 | Clean CV format là PDF, text artifact hay giữ format gốc đã sanitize | Business flow chốt cần CV sạch, migration/API chưa chốt format | Assumption: domain chỉ yêu cầu clean artifact đủ an toàn và đủ nội dung. Format cụ thể chốt khi implement sanitizer. |
 | `CvDocument` lưu original/clean cùng record hay tách record | `04_domain_model_and_relationships.md`, `06_database_migration_plan.md` | Cả hai cách đều hợp lệ nếu domain tách rõ `ORIGINAL/QUARANTINE` và `CLEAN/SAFE`. |
 | Parse failed có block mapping hoàn toàn hay cho manual review | Business flow cho HR xử lý ngoại lệ, state machine yêu cầu input hợp lệ cho mapping | Rule: mapping tự động bị block nếu thiếu clean CV hoặc parsed profile bắt buộc. Manual review có thể là ngoại lệ có audit. |
@@ -506,4 +559,4 @@ Không phát hiện conflict ảnh hưởng trực tiếp đến CV processing s
 
 ## 19. Kết luận
 
-CV processing Phase 1 phải đi theo pipeline an toàn: upload, validate, quarantine, hash, malware scan, tạo CV sạch, parse CV sạch và lưu parsed profile. CV gốc không được dùng trực tiếp cho nghiệp vụ sau. Mọi kết quả xử lý CV phải gắn với `application_id`, có versioning, idempotency và audit log đầy đủ.
+CV processing Phase 1 phải đi theo pipeline an toàn: upload, validate, quarantine, hash, synchronous malware scan, async sanitize tạo CV sạch, async parse CV sạch và lưu parsed profile. CV gốc không được dùng trực tiếp cho nghiệp vụ sau. Malware detected trả lỗi trực tiếp qua API; scan failed, sanitize failed và parse failed phải tách trạng thái để retry/manual review/notification đúng. Mọi kết quả xử lý CV phải gắn với `application_id`, có versioning, idempotency và audit log đầy đủ.

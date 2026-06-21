@@ -40,7 +40,7 @@ Phase 1 bao gồm 15 bước chính sau:
 | 5 | Core validate hồ sơ | Hồ sơ được kiểm tra định dạng, dữ liệu bắt buộc và rule cơ bản. |
 | 6 | Check trùng application | Phát hiện ứng viên apply trùng vào cùng JD hoặc cùng posting. |
 | 7 | Lưu CV gốc vào quarantine | CV gốc được lưu riêng, không dùng trực tiếp cho xử lý nghiệp vụ tiếp theo. |
-| 8 | Scan mã độc + tạo CV sạch | Chỉ CV an toàn và đã sanitize mới được đi tiếp. |
+| 8 | Scan mã độc đồng bộ + sanitize async | Upload API scan malware đồng bộ; nếu scan pass thì sanitize/parse chạy async. Chỉ CV an toàn và đã sanitize mới được đi tiếp. |
 | 9 | Parse CV sạch + check trùng hồ sơ | Trích xuất profile từ CV sạch và phát hiện hồ sơ trùng ở mức candidate profile. |
 | 10 | Mapping CV-JD nội bộ | Module NestJS nội bộ đánh giá mức phù hợp giữa CV và JD. |
 | 11 | Quyết định đạt/không đạt mapping | Hồ sơ bị loại, đưa talent pool hoặc đủ điều kiện nhận form. |
@@ -115,10 +115,12 @@ flowchart TD
     F2 -- Không --> F3[Reject do rate limit]
     F2 -- Có --> F4[Overwrite hoặc tạo CV version mới]
     F4 --> G
-    G --> H[8. Scan mã độc + tạo CV sạch]
+    G --> H[8a. Scan mã độc đồng bộ]
     H --> H1{CV an toàn?}
-    H1 -- Không --> H2[Reject CV]
-    H1 -- Có --> I[9. Parse CV sạch + check trùng hồ sơ]
+    H1 -- Malware --> H2[Reject CV - MALWARE_DETECTED]
+    H1 -- Scan failed --> H3[CV_SCAN_FAILED - retry/manual review]
+    H1 -- Có --> H4[8b. Sanitize async tạo CV sạch]
+    H4 --> I[9. Parse CV sạch async + check trùng hồ sơ]
     I --> I1{Trùng hồ sơ cần review?}
     I1 -- Có --> I2[Gắn cờ duplicate profile]
     I1 -- Không --> J[10. Mapping CV-JD nội bộ]
@@ -162,7 +164,7 @@ flowchart TD
 | Nhóm | Trạng thái |
 | --- | --- |
 | Application | `APPLICATION_CREATED`, `APPLICATION_VALIDATING`, `APPLICATION_REJECTED_INVALID`, `APPLICATION_DUPLICATE_CHECKING`, `APPLICATION_DUPLICATE_FOUND`, `APPLICATION_OVERWRITTEN`, `APPLICATION_REJECTED_RATE_LIMIT` |
-| CV | `CV_UPLOADED`, `CV_STORED_QUARANTINE`, `CV_SCAN_REQUESTED`, `CV_SCAN_PASSED`, `CV_REJECTED_MALWARE`, `CV_SANITIZING`, `CV_SANITIZED`, `CV_SANITIZE_FAILED`, `CV_PARSED` |
+| CV | `CV_UPLOADED`, `CV_STORED_QUARANTINE`, `CV_SCAN_REQUESTED`, `CV_SCAN_PASSED`, `CV_SCAN_FAILED`, `CV_REJECTED_MALWARE`, `CV_SANITIZING`, `CV_SANITIZED`, `CV_SANITIZE_FAILED`, `CV_PARSED`, `CV_PARSE_FAILED` |
 | Duplicate/Profile | `PROFILE_DUPLICATE_CHECKED`, `PROFILE_DUPLICATE_NEEDS_REVIEW` |
 | Mapping | `MAPPING_REQUESTED`, `MAPPING_DONE`, `MAPPING_FAILED`, `MAPPING_REJECTED`, `ELIGIBLE_FOR_FORM` |
 | Form | `FORM_SESSION_CREATED`, `FORM_SENT`, `FORM_OPENED`, `FORM_SUBMITTED`, `FORM_EXPIRED` |

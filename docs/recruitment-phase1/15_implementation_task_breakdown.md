@@ -37,7 +37,7 @@ Mục tiêu là giảm rủi ro phá source hiện tại bằng cách:
 | ----- | --------- | -------- | ------------ |
 | Phase A | Foundation & Migration | Chuẩn hóa migration strategy; thêm enum/entity/migration nền tảng; thêm `Application`, JD, Job Posting, CV Document, Audit/Workflow. | Entity/migration nền, shared enum/status, config migration được kiểm soát. |
 | Phase B | JD / Job Posting / Application Core | CRUD JD; JD version; job posting; application intake core; timeline/status cơ bản. | Module `job-descriptions`, `job-postings`, `applications`, status/timeline. |
-| Phase C | CV Processing | Upload CV theo `application_id`; validate file; quarantine; hash; scan stub/ClamAV adapter; clean CV; parse CV sạch; CV versioning. | Module `cv-documents`, `cv-sanitization`, parser wrapper, clean CV access. |
+| Phase C | CV Processing | Upload CV theo `application_id`; validate file; lưu original vào quarantine; tính hash; scan malware đồng bộ trong request upload; nếu scan pass thì trả accepted/processing và chạy sanitize/parse async; Ghostscript Docker sanitizer là adapter tạo clean CV, không phải scanner; CV versioning. | Module `cv-documents`, `cv-sanitization`, scanner boundary, Ghostscript sanitizer adapter, parser wrapper, clean CV access. |
 | Phase D | Mapping CV-JD | Internal mapping module; input contract; run/get/rerun; save `MappingResult`; update workflow state. | Module `mapping`, `mapping-results`, idempotent mapping API. |
 | Phase E | Form Pre-screening | Question set; form session token; public access; submit answer; notification gửi link form. | Module `question-sets`, `form-sessions`, `form-answers`, public form token flow. |
 | Phase F | AI Screening | AI Screening sau `FORM_SUBMITTED`; reuse AI service/prompt config; JSON schema validation; save `AiScreeningResult`. | Module `ai-screening`, prompt key, result persistence. |
@@ -95,15 +95,15 @@ Mục tiêu là giảm rủi ro phá source hiện tại bằng cách:
 | `P1-B06` | B | Application source | Tạo handling `ApplicationSource`/source channel metadata. | `apps/backend/src/applications` hoặc `apps/backend/src/application-sources` | `P1-B05` | Medium |
 | `P1-B07` | B | Application timeline | Tạo service `WorkflowEvent`/timeline đọc theo `applicationId`. | `apps/backend/src/workflow-state` | `P1-A10`, `P1-B05` | Medium |
 | `P1-B08` | B | Application API | DTO/controller list/detail/status/timeline cơ bản. | `apps/backend/src/applications` | `P1-B05`, `P1-B07` | Medium |
-| `P1-C01` | C | CV upload API | Tạo application-centric CV upload API, không dùng `/api/uploads/:filename` cho raw CV. | `apps/backend/src/cv-documents` | `P1-B05` | High |
-| `P1-C02` | C | File validation | Validate MIME/extension/size/magic bytes/path traversal/server filename. | `apps/backend/src/cv-documents`, `apps/backend/src/cv-sanitization` | `P1-C01` | High |
-| `P1-C03` | C | Quarantine storage | Lưu original CV vào quarantine storage boundary. | `apps/backend/src/cv-documents`, storage config | `P1-C02` | High |
-| `P1-C04` | C | SHA-256 hash | Tính original/clean hash, hỗ trợ idempotency. | `apps/backend/src/cv-documents` | `P1-C03` | Medium |
-| `P1-C05` | C | Scanner interface | Tạo scanner interface + stub implementation; later ClamAV adapter. | `apps/backend/src/cv-sanitization` | `P1-C03` | High |
-| `P1-C06` | C | Clean CV service | Tạo clean/safe CV service, không dùng original cho nghiệp vụ. | `apps/backend/src/cv-sanitization` | `P1-C05` | High |
-| `P1-C07` | C | Parser wrapper | Reuse `file-parser` nhưng chỉ parse clean CV. | `apps/backend/src/cv-parsing` hoặc `apps/backend/src/cv-documents` | `P1-C06` | Medium |
-| `P1-C08` | C | CV versioning | Lưu version mới khi upload lại, không ghi mất bản cũ. | `apps/backend/src/cv-documents` | `P1-C04` | Medium |
-| `P1-C09` | C | Clean CV access API | API xem/download clean CV theo `applicationId`/`cvDocumentId` có ownership check. | `apps/backend/src/cv-documents` | `P1-C06`, `P1-I04` | High |
+| `P1-C01` | C | CV upload API | Tạo application-centric CV upload API; validate/quarantine/hash; chạy malware scan đồng bộ trong request; nếu malware thì trả lỗi trực tiếp; nếu scan pass thì trả accepted/processing, không chờ sanitize/parse/mapping; không dùng `/api/uploads/:filename` cho raw CV. | `apps/backend/src/cv-documents` | `P1-B05` | High |
+| `P1-C02` | C | File validation | Validate MIME/extension/size/magic bytes/path traversal/server filename; reject trước quarantine nếu invalid; `.xls` unsupported Phase 1. | `apps/backend/src/cv-documents`, `apps/backend/src/cv-sanitization` | `P1-C01` | High |
+| `P1-C03` | C | Quarantine storage | Lưu original CV vào quarantine storage boundary; không expose raw CV; scanner/sanitizer chỉ đọc từ quarantine. | `apps/backend/src/cv-documents`, storage config | `P1-C02` | High |
+| `P1-C04` | C | SHA-256 hash | Tính `original_file_hash`; tính `clean_file_hash` sau sanitize; retry không tạo duplicate nếu cùng idempotency key/hash. | `apps/backend/src/cv-documents` | `P1-C03` | Medium |
+| `P1-C05` | C | Scanner interface | Tạo scanner interface + stub implementation; later ClamAV adapter; hỗ trợ synchronous scan cho upload API; states `SCANNING/PASSED/REJECTED_MALWARE/SCAN_FAILED`; malware trả API trực tiếp; scan failed/timeout không cho sanitize/parse. | `apps/backend/src/cv-sanitization` | `P1-C03` | High |
+| `P1-C06` | C | Clean CV sanitizer | Tạo clean/safe CV service; Ghostscript Docker sanitizer adapter cho PDF; ephemeral container/idle timeout worker; container hardening; validate output, tính hash, lưu safe storage, ghi audit; sanitize async sau scan pass. | `apps/backend/src/cv-sanitization` | `P1-C05` | High |
+| `P1-C07` | C | Parser wrapper | Reuse `file-parser` nhưng chỉ parse clean CV; chạy async sau sanitize success; parse failed/empty text retry/manual review; sau retry nếu lỗi do file thì email ứng viên upload lại; block mapping nếu thiếu parsed profile hợp lệ. | `apps/backend/src/cv-parsing` hoặc `apps/backend/src/cv-documents` | `P1-C06` | Medium |
+| `P1-C08` | C | CV versioning | Upload lại tạo version mới, không ghi mất bản cũ; mỗi version trace original/clean/hash/status. | `apps/backend/src/cv-documents` | `P1-C04` | Medium |
+| `P1-C09` | C | Clean CV access API | API xem/download/preview clean CV theo `applicationId`/`cvDocumentId` có ownership/role check; no raw/original CV access; audit download/access. | `apps/backend/src/cv-documents` | `P1-C06`, `P1-I04` | High |
 | `P1-D01` | D | `mapping` module | Tạo module/service mapping nội bộ. | `apps/backend/src/mapping` | `P1-C07`, `P1-B02` | Medium |
 | `P1-D02` | D | Mapping input builder | Build input từ `Application`, JD version, clean CV/parsed profile. | `apps/backend/src/mapping` | `P1-D01` | Medium |
 | `P1-D03` | D | Scoring mode contract | Implement scoring/rule contract, có thể hỗ trợ deterministic MVP hoặc AI-assisted mode. | `apps/backend/src/mapping` | `P1-D02` | Medium |
@@ -159,7 +159,7 @@ Mục tiêu là giảm rủi ro phá source hiện tại bằng cách:
 | Batch 0 | Source verification | `P1-A01`, `P1-A02` | Không sửa code nếu chỉ analysis. | Ghi note về scripts, folder convention, migration config. |
 | Batch 1 | Migration/entity foundation | `P1-A03`-`P1-A12` | Không tạo controller API. Không drop/rename dữ liệu cũ. | Backend build/typecheck, migration compile, review migration `up/down`. |
 | Batch 2 | Application/JD/JobPosting core | `P1-B01`-`P1-B08` | Không động đến CV/mapping/form. | Build/test module core, review auth/DTO/workflow. |
-| Batch 3 | CV processing MVP | `P1-C01`-`P1-C09` | Không mapping. Không expose raw CV. | Build/test CV, file validation, clean CV permission review. |
+| Batch 3 | CV processing MVP | `P1-C01`-`P1-C09` | Không mapping. Không form/AI/HR Review. Không external channel API thật. Không raw CV download. | Scope: upload API, validation, quarantine, hash, synchronous malware scan, async Ghostscript sanitize, async parse clean CV, failure email/manual review rule. Checkpoint: malware detected trả API trực tiếp; scan pass trả accepted/processing; sanitize fail không parse; parse fail không mapping; clean CV access có permission; audit/workflow event đúng; không expose raw CV. |
 | Batch 4 | Mapping MVP | `P1-D01`-`P1-D07` | Không form/AI Screening. Không dùng original CV. | Build/test mapping, idempotency and audit review. |
 | Batch 5 | Form pre-screening | `P1-E01`-`P1-E07` | Không AI. Không dùng `interview_sessions.accessToken`. | Public token tests, rate limit, token hash review. |
 | Batch 6 | AI Screening | `P1-F01`-`P1-F06` | Không HR decision. Không log prompt đầy đủ. | Schema validation tests, AI failure fallback review. |
@@ -183,7 +183,7 @@ Các command đã xác nhận từ scripts hiện tại:
 | Migration/entity | Sau Batch 1 | `pnpm --filter @interview-assistant/backend build` | Compile Nest + migration TS config. |
 | Migration run/revert | Sau Batch 1 và trước final | `pnpm --filter @interview-assistant/backend migration:run`; `pnpm --filter @interview-assistant/backend migration:revert` | Kiểm tra migration chạy và rollback được. |
 | Core API | Sau Batch 2 | `pnpm --filter @interview-assistant/backend test`; `pnpm --filter @interview-assistant/backend typecheck` | Kiểm tra service/controller JD/Application. |
-| CV processing | Sau Batch 3 | `pnpm --filter @interview-assistant/backend test`; `pnpm --filter @interview-assistant/backend build` | Kiểm tra upload/validation/storage/parser compile. |
+| CV processing | Sau Batch 3 | `pnpm --filter @interview-assistant/backend test`; `pnpm --filter @interview-assistant/backend build` | Kiểm tra upload/validation/storage/scanner/sanitizer/parser compile; malware detected trả `MALWARE_DETECTED`; scan pass trả accepted/processing; async sanitize/parse không expose raw CV. |
 | Mapping | Sau Batch 4 | `pnpm --filter @interview-assistant/backend test` | Kiểm tra mapping idempotency và result persistence. |
 | Form | Sau Batch 5 | `pnpm --filter @interview-assistant/backend test` | Kiểm tra token hash/expiry/submit once/public errors. |
 | AI Screening | Sau Batch 6 | `pnpm --filter @interview-assistant/backend test`; `pnpm --filter @interview-assistant/backend typecheck` | Kiểm tra schema validation và failure states. |
@@ -210,7 +210,7 @@ Checklist mỗi checkpoint:
 | Security review | Public endpoint, token, webhook, file access. | Rate limit, idempotency, no stack/path/secret leak. |
 | Workflow review | State transition hợp lệ. | Không nhảy state tùy ý; retry idempotent. |
 | Audit review | Event đầy đủ, metadata đủ, không log PII quá mức. | Có `applicationId` khi có context; không raw CV/token/prompt. |
-| CV review | Raw/clean separation. | Original chỉ quarantine/scanner/sanitizer; clean CV mới cho HR/mapping/AI. |
+| CV review | Raw/clean separation, sync scan và async sanitize/parse. | Original chỉ quarantine/scanner/sanitizer; Ghostscript là sanitizer không phải scanner; malware scan trong upload request chỉ chờ scan; clean CV mới cho HR/mapping/AI; failure notification không leak kỹ thuật; audit/workflow đầy đủ. |
 | AI review | Prompt contract, schema validation, raw result handling. | Không gửi original CV; không expose raw result cho candidate. |
 | HR review | Terminal decision, invalid transition. | HR Review là điểm cuối Phase 1; không tự tạo offer/interview nếu chưa chốt. |
 | Channel review | Không claim API chưa xác minh, fallback đúng. | External channel không là source of truth. |
@@ -245,8 +245,10 @@ Có thể thêm integration/reference nếu cần, nhưng không rewrite module 
 | `P1-A05`-`P1-A11` | High | Migration nhiều bảng/FK/index dễ lỗi rollback hoặc FK order. | Additive-first, không drop/rename, migration có `up/down`, review DB plan. |
 | `P1-B05` | High | Application core chạm `Candidate` và duplicate rule. | Không alter sâu `candidates`; link additive; test duplicate. |
 | `P1-C01` | High | Reuse upload route cũ có nguy cơ expose raw CV. | Tạo API application-owned mới; không dùng `/api/uploads/:filename` cho raw CV. |
-| `P1-C03`-`P1-C06` | High | File storage/quarantine/safe split ảnh hưởng security và path handling. | Storage boundary rõ, server-side key, no raw public access. |
-| `P1-C07` | Medium | CV parser `.xls` mismatch từ baseline. | Không support `.xls` nếu parser chưa có; validate allowlist `.pdf`, `.docx`, `.xlsx`. |
+| `P1-C03`-`P1-C06` | High | File storage/quarantine/safe split, scanner timeout/failure và Ghostscript sanitizer container đều ảnh hưởng security, path handling và resource isolation. | Storage boundary rõ, server-side key, no raw public access, scanner timeout policy, Ghostscript container hardening: no network, non-root, read-only input, limits, timeout, cleanup. |
+| `P1-C07` | Medium | CV parser `.xls` mismatch từ baseline; parse fail/empty text có thể block mapping hoặc gửi nhầm notification cho ứng viên. | Không support `.xls` nếu parser chưa có; validate allowlist `.pdf`, `.docx`, `.xlsx`; retry trước, phân biệt lỗi file và lỗi hệ thống, email ứng viên chỉ sau rule/manual phù hợp. |
+| `P1-C05` | High | Leak scanner raw log, threat detail hoặc scan failed bị hiểu nhầm là malware. | Public response dùng code an toàn (`MALWARE_DETECTED` hoặc scan failed generic); audit/log nội bộ có redaction; `CV_SCAN_FAILED` tách khỏi `CV_REJECTED_MALWARE` và `CV_SANITIZE_FAILED`. |
+| `P1-C06` | High | Ghostscript exploit hoặc sanitizer output bị coi nhầm là scan result. | Ghostscript chỉ chạy sau scan pass; validate output MIME/magic bytes/hash; không coi Ghostscript là malware scanner; container hardening bắt buộc. |
 | `P1-F03` | High | AI JSON schema validation sai có thể lưu output lỗi. | Schema/version chặt, safe fallback, test invalid JSON. |
 | `P1-B04`, `P1-C01`, `P1-E04` | High | Public endpoint dễ abuse/leak. | DTO validation, rate limit, idempotency, safe error response. |
 | `P1-E03`-`P1-E06` | High | Form token leak/brute-force/submit duplicate. | Store `tokenHash`, expiry, submit once, lock/idempotency, rate limit. |

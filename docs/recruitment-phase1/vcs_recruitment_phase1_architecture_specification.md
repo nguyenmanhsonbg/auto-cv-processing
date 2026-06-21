@@ -14,8 +14,11 @@ HR tạo/chỉnh JD
 → Core validate hồ sơ
 → Check trùng application
 → Lưu CV gốc vào quarantine
-→ Scan mã độc + tạo CV sạch
-→ Parse CV sạch + check trùng hồ sơ
+→ Scan mã độc đồng bộ trong upload request
+→ Nếu malware: trả MALWARE_DETECTED và dừng CV version hiện tại
+→ Nếu scan pass: trả accepted/processing
+→ Sanitize async tạo CV sạch
+→ Parse CV sạch async + check trùng hồ sơ
 → Mapping CV-JD nội bộ
 → Quyết định đạt/không đạt mapping
 → Nếu đạt mapping: gửi form pre-screening
@@ -567,11 +570,13 @@ CV_UPLOADED
 CV_STORED_QUARANTINE
 CV_SCAN_REQUESTED
 CV_SCAN_PASSED
+CV_SCAN_FAILED
 CV_REJECTED_MALWARE
 CV_SANITIZING
 CV_SANITIZED
 CV_SANITIZE_FAILED
 CV_PARSED
+CV_PARSE_FAILED
 PROFILE_DUPLICATE_CHECKED
 PROFILE_DUPLICATE_NEEDS_REVIEW
 

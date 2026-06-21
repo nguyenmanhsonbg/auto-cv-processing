@@ -28,7 +28,7 @@ Tài liệu làm nền cho API contract, `workflow-state` module, `audit-logs` m
 | Nhóm state | Mục đích | State chính |
 | --- | --- | --- |
 | `Application` | Tiếp nhận application, validate và duplicate application. | `APPLICATION_CREATED`, `APPLICATION_VALIDATING`, `APPLICATION_REJECTED_INVALID`, `APPLICATION_DUPLICATE_CHECKING`, `APPLICATION_DUPLICATE_FOUND`, `APPLICATION_OVERWRITTEN`, `APPLICATION_REJECTED_RATE_LIMIT` |
-| `CV` | Upload, quarantine, scan, sanitize và parse CV. | `CV_UPLOADED`, `CV_STORED_QUARANTINE`, `CV_SCAN_REQUESTED`, `CV_SCAN_PASSED`, `CV_REJECTED_MALWARE`, `CV_SANITIZING`, `CV_SANITIZED`, `CV_SANITIZE_FAILED`, `CV_PARSED` |
+| `CV` | Upload, quarantine, scan, sanitize và parse CV. | `CV_UPLOADED`, `CV_STORED_QUARANTINE`, `CV_SCAN_REQUESTED`, `CV_SCAN_PASSED`, `CV_SCAN_FAILED`, `CV_REJECTED_MALWARE`, `CV_SANITIZING`, `CV_SANITIZED`, `CV_SANITIZE_FAILED`, `CV_PARSED`, `CV_PARSE_FAILED` |
 | `Duplicate / Profile` | Check trùng hồ sơ sau parse. | `PROFILE_DUPLICATE_CHECKED`, `PROFILE_DUPLICATE_NEEDS_REVIEW` |
 | `Mapping` | Mapping CV-JD nội bộ và quyết định đủ điều kiện form. | `MAPPING_REQUESTED`, `MAPPING_DONE`, `MAPPING_FAILED`, `MAPPING_REJECTED`, `ELIGIBLE_FOR_FORM` |
 | `Form` | Tạo/gửi/mở/submit/expire pre-screening form. | `FORM_SESSION_CREATED`, `FORM_SENT`, `FORM_OPENED`, `FORM_SUBMITTED`, `FORM_EXPIRED` |
@@ -51,11 +51,13 @@ Tài liệu làm nền cho API contract, `workflow-state` module, `audit-logs` m
 | `CV_STORED_QUARANTINE` | `CV` | CV gốc đã lưu vào quarantine. | Không |
 | `CV_SCAN_REQUESTED` | `CV` | Đã yêu cầu scan malware. | Không |
 | `CV_SCAN_PASSED` | `CV` | CV gốc qua scan an toàn. | Không |
+| `CV_SCAN_FAILED` | `CV` | Scan malware lỗi/timeout kỹ thuật, chưa xác nhận CV an toàn. | Không |
 | `CV_REJECTED_MALWARE` | `CV` | CV bị từ chối vì phát hiện malware. | Có |
 | `CV_SANITIZING` | `CV` | Đang sanitize/tạo CV sạch. | Không |
 | `CV_SANITIZED` | `CV` | CV sạch đã được tạo và lưu ở safe storage. | Không |
 | `CV_SANITIZE_FAILED` | `CV` | Sanitize thất bại. | Không |
 | `CV_PARSED` | `CV` | CV sạch đã parse thành parsed profile. | Không |
+| `CV_PARSE_FAILED` | `CV` | Parse clean CV thất bại hoặc text rỗng sau khi đã sanitize. | Không |
 | `PROFILE_DUPLICATE_CHECKED` | `Duplicate / Profile` | Đã check trùng hồ sơ sau parse. | Không |
 | `PROFILE_DUPLICATE_NEEDS_REVIEW` | `Duplicate / Profile` | Trùng hồ sơ nghiêm trọng hoặc cần HR xử lý duplicate. | Không |
 | `MAPPING_REQUESTED` | `Mapping` | Đã yêu cầu mapping CV-JD. | Không |
@@ -98,13 +100,16 @@ flowchart TD
     D --> E["CV_STORED_QUARANTINE"]
     E --> F["CV_SCAN_REQUESTED"]
     F --> F1{"CV an toàn?"}
-    F1 -- "Không" --> F2["CV_REJECTED_MALWARE"]
+    F1 -- "Malware" --> F2["CV_REJECTED_MALWARE"]
+    F1 -- "Scan failed/timeout" --> F3["CV_SCAN_FAILED"]
     F1 -- "Có" --> G["CV_SCAN_PASSED"]
     G --> H["CV_SANITIZING"]
     H --> H1{"Sanitize thành công?"}
     H1 -- "Không" --> H2["CV_SANITIZE_FAILED"]
     H1 -- "Có" --> I["CV_SANITIZED"]
-    I --> J["CV_PARSED"]
+    I --> J1{"Parse clean CV thành công?"}
+    J1 -- "Không" --> J2["CV_PARSE_FAILED"]
+    J1 -- "Có" --> J["CV_PARSED"]
     J --> K["PROFILE_DUPLICATE_CHECKED"]
     K --> K1{"Trùng hồ sơ nghiêm trọng?"}
     K1 -- "Có" --> K2["PROFILE_DUPLICATE_NEEDS_REVIEW"]
@@ -158,14 +163,15 @@ flowchart TD
 | `APPLICATION_DUPLICATE_CHECKING` | `DUPLICATE_NOT_FOUND` | `CV_UPLOADED` | System | Không trùng hoặc duplicate chấp nhận được. | Nếu CV đã có trong payload. |
 | `APPLICATION_OVERWRITTEN` | `CV_VERSION_CREATED` | `CV_UPLOADED` | System | CV version mới được tạo. | Tiếp tục CV processing. |
 | `CV_UPLOADED` | `CV_STORED_TO_QUARANTINE` | `CV_STORED_QUARANTINE` | System | File gốc đã lưu quarantine. | Không dùng CV gốc cho parse/mapping. |
-| `CV_STORED_QUARANTINE` | `CV_SCAN_REQUESTED` | `CV_SCAN_REQUESTED` | System / Worker | Có quarantine path và metadata. | Scan có thể async. |
+| `CV_STORED_QUARANTINE` | `CV_SCAN_REQUESTED` | `CV_SCAN_REQUESTED` | System / Scanner | Có quarantine path và metadata. | Với upload API, scan chạy đồng bộ trong request; worker/internal retry vẫn phải idempotent. |
 | `CV_SCAN_REQUESTED` | `CV_MALWARE_DETECTED` | `CV_REJECTED_MALWARE` | System / Scanner | Scanner phát hiện malware. | Terminal cho CV version hiện tại. |
-| `CV_SCAN_REQUESTED` | `CV_SCAN_FAILED` | `CV_SANITIZE_FAILED` | System / Scanner | Lỗi kỹ thuật không xác nhận an toàn. | Có thể retry scan/sanitize theo policy. |
+| `CV_SCAN_REQUESTED` | `CV_SCAN_FAILED` | `CV_SCAN_FAILED` | System / Scanner | Lỗi kỹ thuật/timeout, chưa xác nhận an toàn. | Có thể retry scan hoặc manual review; không sanitize/parse. |
 | `CV_SCAN_REQUESTED` | `CV_SCAN_PASSED` | `CV_SCAN_PASSED` | System / Scanner | Scanner xác nhận an toàn. | Cho phép sanitize. |
 | `CV_SCAN_PASSED` | `CV_SANITIZE_STARTED` | `CV_SANITIZING` | System / Worker | Có CV gốc đã scan passed. | Tạo clean CV. |
 | `CV_SANITIZING` | `CV_SANITIZE_FAILED` | `CV_SANITIZE_FAILED` | System / Worker | Lỗi sanitize. | Retry nếu lỗi kỹ thuật. |
 | `CV_SANITIZING` | `CV_SANITIZE_DONE` | `CV_SANITIZED` | System / Worker | Clean CV đã tạo. | Lưu safe storage. |
 | `CV_SANITIZED` | `CV_PARSE_DONE` | `CV_PARSED` | System / Worker | Parse clean CV thành parsed profile. | Chỉ parse CV sạch. |
+| `CV_SANITIZED` | `CV_PARSE_FAILED` | `CV_PARSE_FAILED` | System / Worker | Parse clean CV lỗi hoặc text rỗng. | Retry/manual review/email upload lại theo nguyên nhân. |
 | `CV_PARSED` | `PROFILE_DUPLICATE_CHECK_DONE` | `PROFILE_DUPLICATE_CHECKED` | System | Check parsed profile hoàn tất. | Nếu không nghiêm trọng thì đi mapping. |
 | `PROFILE_DUPLICATE_CHECKED` | `PROFILE_DUPLICATE_REQUIRES_REVIEW` | `PROFILE_DUPLICATE_NEEDS_REVIEW` | System / HR | Trùng hồ sơ cần HR xử lý. | Có thể block hoặc cho đi song song tùy policy. |
 | `PROFILE_DUPLICATE_CHECKED` | `MAPPING_REQUESTED` | `MAPPING_REQUESTED` | System | Không trùng nghiêm trọng hoặc duplicate chấp nhận được. | Mapping internal. |
@@ -214,6 +220,7 @@ flowchart TD
 | Invalid transition | Lý do không hợp lệ | Cách xử lý |
 | --- | --- | --- |
 | `APPLICATION_CREATED` -> `MAPPING_REQUESTED` | Chưa validate, duplicate check, CV processing và parse. | Reject transition, ghi audit nếu request bất thường. |
+| Sanitize khi chưa có `CV_SCAN_PASSED` | Scan chưa pass hoặc đang `CV_SCAN_FAILED`/`CV_REJECTED_MALWARE`. | Không enqueue sanitize, retry scan/manual review theo policy. |
 | Parse CV khi chưa có `CV_SANITIZED` | Chưa có CV sạch. | Trả lỗi workflow precondition. |
 | Mapping khi chưa có CV sạch/parsed profile | Mapping cần clean CV và parsed profile. | Không enqueue mapping, giữ state trước đó. |
 | Tạo form khi mapping chưa đạt threshold | Form chỉ gửi sau `ELIGIBLE_FOR_FORM` hoặc ngoại lệ HR có audit. | Trả lỗi precondition hoặc yêu cầu HR override. |
@@ -247,10 +254,14 @@ flowchart TD
 | Duplicate found | `DUPLICATE_FOUND`, to `APPLICATION_DUPLICATE_FOUND` | Có | `applicationId`, `candidateId`, `jobPostingId`, matched application/profile IDs |
 | Upload limit exceeded | `UPLOAD_LIMIT_EXCEEDED`, to `APPLICATION_REJECTED_RATE_LIMIT` | Có | `applicationId`, `candidateId`, `requestId`, rate limit metadata |
 | CV stored quarantine | `CV_STORED_TO_QUARANTINE`, to `CV_STORED_QUARANTINE` | Có | `applicationId`, `candidateId`, `cvDocumentId`, storage zone/path, hash |
+| CV scan requested | `CV_SCAN_REQUESTED`, to `CV_SCAN_REQUESTED` | Có | `applicationId`, `candidateId`, `cvDocumentId`, scanner, requestId |
+| CV scan passed | `CV_SCAN_PASSED`, to `CV_SCAN_PASSED` | Có | `applicationId`, `candidateId`, `cvDocumentId`, scanner, duration |
 | CV malware detected | `CV_MALWARE_DETECTED`, to `CV_REJECTED_MALWARE` | Có | `applicationId`, `candidateId`, `cvDocumentId`, scanner, `errorCode`, `errorMessage` |
+| CV scan failed | `CV_SCAN_FAILED`, to `CV_SCAN_FAILED` | Có | `applicationId`, `candidateId`, `cvDocumentId`, scanner, attempt, `errorCode`, redacted `errorMessage` |
 | CV sanitized | `CV_SANITIZE_DONE`, to `CV_SANITIZED` | Có | `applicationId`, `candidateId`, `cvDocumentId`, clean CV ID/path/hash |
 | CV sanitize failed | `CV_SANITIZE_FAILED`, to `CV_SANITIZE_FAILED` | Có | `applicationId`, `candidateId`, `cvDocumentId`, attempt, `errorCode`, `errorMessage` |
 | CV parsed | `CV_PARSE_DONE`, to `CV_PARSED` | Có | `applicationId`, `candidateId`, `cvDocumentId`, parsedProfileId, parserVersion |
+| CV parse failed | `CV_PARSE_FAILED`, to `CV_PARSE_FAILED` | Có | `applicationId`, `candidateId`, `cvDocumentId`, attempt, parserVersion, `errorCode`, redacted `errorMessage` |
 | Profile duplicate found | `PROFILE_DUPLICATE_REQUIRES_REVIEW`, to `PROFILE_DUPLICATE_NEEDS_REVIEW` | Có | `applicationId`, `candidateId`, matched entity, score, details |
 | Mapping requested | `MAPPING_REQUESTED`, to `MAPPING_REQUESTED` | Có | `applicationId`, `jobDescriptionVersionId`, `cvDocumentId`, requestId |
 | Mapping done | `MAPPING_SUCCEEDED`, to `MAPPING_DONE` | Có | `applicationId`, `mappingResultId`, score, recommendation |
@@ -278,7 +289,9 @@ Metadata chung nên có khi phù hợp: `applicationId`, `candidateId`, `jobPost
 | `APPLICATION_REJECTED_INVALID` | Payload thiếu/sai, file type không hợp lệ, source không hợp lệ. | Không, trừ submit mới | `applications` / `validation-rate-limit` | Trả lỗi rõ, ghi audit, candidate có thể apply lại bằng request hợp lệ. |
 | `APPLICATION_REJECTED_RATE_LIMIT` | Vượt giới hạn upload/submit hoặc duplicate abuse. | Không ngay | `validation-rate-limit` | Chặn request, có thể mở lại theo policy/time window. |
 | `CV_REJECTED_MALWARE` | Scanner phát hiện malware. | Không cho CV version hiện tại | `cv-sanitization` | Terminal cho CV version; candidate có thể upload file khác nếu policy cho phép. |
-| `CV_SANITIZE_FAILED` | Lỗi sanitize kỹ thuật, storage lỗi, parser tiền xử lý lỗi. | Có | `cv-sanitization` | Retry có attempt limit; nếu vẫn lỗi thì HR/system xử lý thủ công. |
+| `CV_SCAN_FAILED` | Scanner lỗi/timeout kỹ thuật, chưa xác nhận an toàn. | Có | `cv-sanitization` | Retry scan/manual review/internal alert; không sanitize/parse cho đến khi scan pass. |
+| `CV_SANITIZE_FAILED` | Lỗi sanitize kỹ thuật hoặc storage clean artifact lỗi. | Có | `cv-sanitization` | Retry có attempt limit; nếu vẫn lỗi thì email upload lại hoặc HR/system xử lý thủ công tùy nguyên nhân. |
+| `CV_PARSE_FAILED` | Clean CV parse lỗi, text rỗng hoặc structure không hỗ trợ. | Có điều kiện | `cv-parsing` | Retry nếu lỗi kỹ thuật; nếu do file thì email ứng viên upload lại hoặc manual review; không mapping tự động. |
 | `MAPPING_FAILED` | Lỗi kỹ thuật khi mapping, timeout, dữ liệu input lỗi. | Có | `mapping` / `mapping-results` | Retry idempotent; không tạo duplicate result. |
 | `MAPPING_REJECTED` | Kết quả nghiệp vụ dưới threshold. | Không theo retry kỹ thuật | `mapping` | Terminal nghiệp vụ; HR có thể đưa `TALENT_POOL` hoặc ngoại lệ nếu spec sau cho phép. |
 | `FORM_EXPIRED` | Candidate không submit đúng hạn. | Có thể tạo session mới | `form-sessions` | Tạo form session mới hoặc HR xử lý, phải audit. |
@@ -314,4 +327,4 @@ Không phát hiện conflict ảnh hưởng trực tiếp đến workflow state 
 
 ## 14. Kết luận
 
-Workflow Phase 1 cần được quản lý bằng state machine xoay quanh `Application.status`. Mỗi bước tự động hoặc thủ công phải có transition hợp lệ, idempotency rule và audit event tương ứng. Các error state như `CV_SANITIZE_FAILED`, `MAPPING_FAILED`, `AI_SCREENING_FAILED` cần phân biệt rõ lỗi kỹ thuật có thể retry và kết quả nghiệp vụ không đạt.
+Workflow Phase 1 cần được quản lý bằng state machine xoay quanh `Application.status`. Mỗi bước tự động hoặc thủ công phải có transition hợp lệ, idempotency rule và audit event tương ứng. Các error state như `CV_SCAN_FAILED`, `CV_SANITIZE_FAILED`, `CV_PARSE_FAILED`, `MAPPING_FAILED`, `AI_SCREENING_FAILED` cần phân biệt rõ lỗi kỹ thuật có thể retry, malware detected terminal cho CV version và kết quả nghiệp vụ không đạt.

@@ -58,7 +58,7 @@ Quy ước trạng thái nghiệp vụ chính:
 | JD | `JD_DRAFT`, `JD_READY`, `JD_ARCHIVED` |
 | Job Posting | `DRAFT`, `PUBLISHED`, `CLOSED`, `ARCHIVED` |
 | Channel publish | `PENDING`, `PUBLISHED`, `FAILED`, `MANUAL_REQUIRED`, `CLOSED` |
-| Application | `APPLIED`, `CV_RECEIVED`, `CV_SANITIZED`, `CV_PARSED`, `MAPPING_PENDING`, `MAPPING_DONE`, `MAPPING_REJECTED`, `FORM_SENT`, `FORM_OPENED`, `FORM_SUBMITTED`, `AI_SCREENING_PENDING`, `AI_SCREENING_DONE`, `WAITING_HR_REVIEW`, `HR_APPROVED`, `HR_REJECTED`, `TALENT_POOL` |
+| Application | `APPLICATION_CREATED`, `CV_UPLOADED`, `CV_STORED_QUARANTINE`, `CV_SCAN_REQUESTED`, `CV_SCAN_PASSED`, `CV_SCAN_FAILED`, `CV_REJECTED_MALWARE`, `CV_SANITIZING`, `CV_SANITIZED`, `CV_SANITIZE_FAILED`, `CV_PARSED`, `CV_PARSE_FAILED`, `MAPPING_REQUESTED`, `MAPPING_DONE`, `MAPPING_REJECTED`, `FORM_SENT`, `FORM_OPENED`, `FORM_SUBMITTED`, `AI_SCREENING_REQUESTED`, `AI_SCREENING_DONE`, `WAITING_HR_REVIEW`, `HR_APPROVED`, `HR_REJECTED`, `TALENT_POOL` |
 | Form session | `CREATED`, `SENT`, `OPENED`, `SUBMITTED`, `EXPIRED`, `CANCELLED` |
 | HR decision | `APPROVE`, `REJECT`, `REQUEST_MORE_INFO`, `MOVE_TO_TALENT_POOL` |
 
@@ -182,7 +182,9 @@ Common error codes:
 | `UNSUPPORTED_FILE_TYPE` | `400` | File CV không đúng định dạng |
 | `FILE_TOO_LARGE` | `400` hoặc `413` | File vượt dung lượng cho phép |
 | `MALWARE_DETECTED` | `422` | File bị phát hiện rủi ro bảo mật |
+| `CV_SCAN_FAILED` | `500` hoặc `503` | Scanner lỗi/timeout kỹ thuật, chưa xác nhận CV an toàn |
 | `CV_SANITIZE_FAILED` | `500` hoặc `422` | Không sanitize được CV |
+| `CV_PARSE_FAILED` | `500` hoặc `422` | Không parse được clean CV hoặc text rỗng |
 | `MAPPING_FAILED` | `500` hoặc `422` | Mapping CV-JD lỗi kỹ thuật hoặc input không đủ |
 | `MAPPING_REJECTED` | `422` hoặc `200` với business status | Mapping chạy thành công nhưng ứng viên dưới ngưỡng |
 | `FORM_TOKEN_INVALID` | `401` hoặc `404` | Token form không hợp lệ |
@@ -653,9 +655,11 @@ Response thành công:
     "applicationId": "app_01JZ9FGHY8DWB6A4H1K8E5Q9TT",
     "candidateId": "cand_01JZ9FGHTR2PKQWE75BM3N0R8D",
     "jobPostingId": "jp_01JZ9FD6Y1EHCB9N5AE2T5P6DD",
-    "status": "CV_RECEIVED",
+    "status": "CV_SCAN_PASSED",
+    "processingStatus": "ACCEPTED",
     "cvDocumentId": "cv_01JZ9FJ0BEVW3V3Q57BXP4XM6N",
-    "nextStep": "CV_SANITIZE_PENDING"
+    "nextStep": "CV_SANITIZE_PENDING",
+    "message": "CV upload accepted. Sanitization and parsing will continue asynchronously."
   },
   "meta": {
     "requestId": "req_20260618_040001",
@@ -673,7 +677,7 @@ Response duplicate nhưng cùng idempotency key:
   "data": {
     "applicationId": "app_01JZ9FGHY8DWB6A4H1K8E5Q9TT",
     "duplicate": true,
-    "status": "CV_RECEIVED",
+    "status": "CV_SCAN_PASSED",
     "message": "Application already exists for this job posting."
   },
   "meta": {
@@ -716,7 +720,15 @@ Lỗi chính:
 | File không được hỗ trợ | `UNSUPPORTED_FILE_TYPE` |
 | Upload vượt rate limit | `UPLOAD_RATE_LIMIT_EXCEEDED` |
 | File có dấu hiệu malware | `MALWARE_DETECTED` |
+| Scan lỗi/timeout kỹ thuật | `CV_SCAN_FAILED` |
 | Ứng viên apply trùng | `DUPLICATE_APPLICATION` |
+
+Ghi chú CV processing của public apply:
+
+- API validate file, lưu original CV vào quarantine, tính `original_file_hash` và chạy malware scan đồng bộ trước khi trả response.
+- Nếu malware detected, API trả `422 MALWARE_DETECTED` trực tiếp và không enqueue sanitize/parse/mapping.
+- Nếu scan pass, API trả accepted/processing như response thành công ở trên; sanitize/parse chạy async và không nằm trong response upload.
+- Response public không trả scanner log, storage path, internal path, stack trace, container command, Ghostscript error hoặc parser detail.
 
 ## 11. Application APIs
 
@@ -905,8 +917,10 @@ Idempotency-Key: cv_upload_app_01JZ9FGH_hash_001
     "fileName": "nguyen-van-a-cv.pdf",
     "fileType": "application/pdf",
     "fileSize": 845120,
-    "status": "UPLOADED",
-    "nextStep": "CV_SANITIZE_PENDING"
+    "status": "CV_SCAN_PASSED",
+    "processingStatus": "ACCEPTED",
+    "nextStep": "CV_SANITIZE_PENDING",
+    "message": "CV upload accepted. Sanitization and parsing will continue asynchronously."
   },
   "meta": {
     "requestId": "req_20260618_060001",
@@ -990,9 +1004,17 @@ Lỗi chính:
 | Upload file quá lớn | `FILE_TOO_LARGE` |
 | File không đúng định dạng | `UNSUPPORTED_FILE_TYPE` |
 | Malware detected | `MALWARE_DETECTED` |
+| Scan lỗi/timeout kỹ thuật | `CV_SCAN_FAILED` |
 | Sanitize thất bại | `CV_SANITIZE_FAILED` |
+| Parse thất bại | `CV_PARSE_FAILED` |
 | Parse khi chưa có clean CV | `INVALID_STATE_TRANSITION` |
 | Application không tồn tại | `NOT_FOUND` |
+
+Ghi chú:
+
+- Manual upload API cũng chạy malware scan đồng bộ trong request.
+- Nếu scan pass, sanitize/parse chạy async; endpoint upload không chờ Ghostscript/parse/mapping.
+- `POST /sanitize` và `POST /parse` là internal/admin/worker trigger hoặc rerun API có guard/state check, không phải bước public caller phải chờ ngay trong upload.
 
 ## 13. Mapping APIs
 
@@ -1711,7 +1733,7 @@ Authorization: Bearer <jwt>
   "data": [
     {
       "eventType": "APPLICATION_CREATED",
-      "status": "CV_RECEIVED",
+      "status": "CV_UPLOADED",
       "actorType": "PUBLIC",
       "message": "Candidate applied from VCS_PORTAL.",
       "createdAt": "2026-06-18T09:40:00.000Z"
@@ -1794,8 +1816,10 @@ Ghi chú:
 | Job posting closed | Apply | `409` | `INVALID_STATE_TRANSITION` | Không cho apply vào posting đã đóng |
 | Unsupported file type | Apply/CV upload | `400` | `UNSUPPORTED_FILE_TYPE` | Chỉ nhận định dạng whitelist |
 | File too large | Apply/CV upload | `400` hoặc `413` | `FILE_TOO_LARGE` | Theo limit cấu hình |
-| Malware detected | CV scan/sanitize | `422` | `MALWARE_DETECTED` | Không tiếp tục parse/mapping |
-| CV sanitize failed | CV sanitize | `500` hoặc `422` | `CV_SANITIZE_FAILED` | Có thể retry nếu lỗi kỹ thuật |
+| Malware detected | CV upload/scan | `422` | `MALWARE_DETECTED` | Trả trực tiếp trong upload request; không tiếp tục sanitize/parse/mapping |
+| CV scan failed/timeout | CV upload/scan | `500` hoặc `503` | `CV_SCAN_FAILED` | Lỗi kỹ thuật, có thể retry/manual review; không coi là malware |
+| CV sanitize failed | CV sanitize async | `500` hoặc `422` | `CV_SANITIZE_FAILED` | Có thể retry nếu lỗi kỹ thuật; không parse nếu chưa có clean CV |
+| CV parse failed | CV parse async | `500` hoặc `422` | `CV_PARSE_FAILED` | Retry/manual review/email upload lại theo nguyên nhân; không mapping tự động |
 | Mapping failed | Mapping run/rerun | `500` hoặc `422` | `MAPPING_FAILED` | Ghi audit và không chuyển sang form |
 | Mapping rejected below threshold | Mapping run | `200` hoặc `422` | `MAPPING_REJECTED` | Ưu tiên `200` với business status `REJECTED` nếu thuật toán chạy thành công |
 | Form token invalid | Form public access | `401` hoặc `404` | `FORM_TOKEN_INVALID` | Không leak application tồn tại hay không |

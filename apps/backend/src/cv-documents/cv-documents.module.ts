@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { BadRequestException, Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
@@ -13,6 +13,12 @@ import { CvDocumentEntity } from './entities/cv-document.entity';
 import { ParsedProfileEntity } from './entities/parsed-profile.entity';
 
 const quarantineDir = () => resolve(process.env.CV_QUARANTINE_DIR || './storage/cv-quarantine');
+
+const allowedMimeByExtension: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
 
 @Module({
   imports: [
@@ -33,6 +39,17 @@ const quarantineDir = () => resolve(process.env.CV_QUARANTINE_DIR || './storage/
           cb(null, `${Date.now()}-${randomUUID()}${extname(file.originalname).toLowerCase()}`);
         },
       }),
+      fileFilter: (_req, file, cb) => {
+        const extension = extname(file.originalname).toLowerCase();
+        const expectedMime = allowedMimeByExtension[extension];
+
+        if (!expectedMime || file.mimetype !== expectedMime) {
+          cb(new BadRequestException('Unsupported CV file type'), false);
+          return;
+        }
+
+        cb(null, true);
+      },
       limits: { fileSize: 20 * 1024 * 1024 },
     }),
   ],

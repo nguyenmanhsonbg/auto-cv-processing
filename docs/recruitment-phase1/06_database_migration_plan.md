@@ -536,7 +536,7 @@ Ghi chú triển khai: nếu check trùng application theo email/SĐT + JD thay 
 
 | Enum | Giá trị đề xuất | Dùng ở bảng/cột |
 | --- | --- | --- |
-| `ApplicationStatus` | `APPLICATION_CREATED`, `APPLICATION_VALIDATING`, `APPLICATION_REJECTED_INVALID`, `APPLICATION_DUPLICATE_CHECKING`, `APPLICATION_DUPLICATE_FOUND`, `APPLICATION_OVERWRITTEN`, `APPLICATION_REJECTED_RATE_LIMIT`, `CV_UPLOADED`, `CV_STORED_QUARANTINE`, `CV_SCAN_REQUESTED`, `CV_SCAN_PASSED`, `CV_REJECTED_MALWARE`, `CV_SANITIZING`, `CV_SANITIZED`, `CV_SANITIZE_FAILED`, `CV_PARSED`, `PROFILE_DUPLICATE_CHECKED`, `PROFILE_DUPLICATE_NEEDS_REVIEW`, `MAPPING_REQUESTED`, `MAPPING_DONE`, `MAPPING_FAILED`, `MAPPING_REJECTED`, `ELIGIBLE_FOR_FORM`, `FORM_SESSION_CREATED`, `FORM_SENT`, `FORM_OPENED`, `FORM_SUBMITTED`, `FORM_EXPIRED`, `AI_SCREENING_REQUESTED`, `AI_SCREENING_DONE`, `AI_SCREENING_FAILED`, `WAITING_HR_REVIEW`, `HR_APPROVED`, `HR_REJECTED`, `HR_REQUESTED_MORE_INFO`, `TALENT_POOL` | `applications.status`, `workflow_events.from_status`, `workflow_events.to_status` |
+| `ApplicationStatus` | `APPLICATION_CREATED`, `APPLICATION_VALIDATING`, `APPLICATION_REJECTED_INVALID`, `APPLICATION_DUPLICATE_CHECKING`, `APPLICATION_DUPLICATE_FOUND`, `APPLICATION_OVERWRITTEN`, `APPLICATION_REJECTED_RATE_LIMIT`, `CV_UPLOADED`, `CV_STORED_QUARANTINE`, `CV_SCAN_REQUESTED`, `CV_SCAN_PASSED`, `CV_SCAN_FAILED`, `CV_REJECTED_MALWARE`, `CV_SANITIZING`, `CV_SANITIZED`, `CV_SANITIZE_FAILED`, `CV_PARSED`, `CV_PARSE_FAILED`, `PROFILE_DUPLICATE_CHECKED`, `PROFILE_DUPLICATE_NEEDS_REVIEW`, `MAPPING_REQUESTED`, `MAPPING_DONE`, `MAPPING_FAILED`, `MAPPING_REJECTED`, `ELIGIBLE_FOR_FORM`, `FORM_SESSION_CREATED`, `FORM_SENT`, `FORM_OPENED`, `FORM_SUBMITTED`, `FORM_EXPIRED`, `AI_SCREENING_REQUESTED`, `AI_SCREENING_DONE`, `AI_SCREENING_FAILED`, `WAITING_HR_REVIEW`, `HR_APPROVED`, `HR_REJECTED`, `HR_REQUESTED_MORE_INFO`, `TALENT_POOL` | `applications.status`, `workflow_events.from_status`, `workflow_events.to_status` |
 | `JobPostingStatus` | `DRAFT`, `PUBLISHING`, `PUBLISHED`, `PUBLISH_FAILED`, `MANUAL_REQUIRED`, `CLOSED` | `job_postings.status`, possibly `channel_postings.status` |
 | `Channel` | `VCS_PORTAL`, `FACEBOOK`, `LINKEDIN`, `TOPCV`, `VIETNAMWORKS`, `MANUAL`, `OTHER` | `channel_postings.channel`, `application_sources.channel`, `channel_accounts.channel`, `channel_conversations.channel` |
 | `ChannelPostingStatus` | `DRAFT`, `PUBLISHING`, `PUBLISHED`, `PUBLISH_FAILED`, `MANUAL_REQUIRED`, `CLOSED` | `channel_postings.status` |
@@ -554,6 +554,12 @@ Ghi chú triển khai: nếu check trùng application theo email/SĐT + JD thay 
 | `FormSessionStatus` | `CREATED`, `SENT`, `OPENED`, `SUBMITTED`, `EXPIRED`, `CANCELLED` | `form_sessions.status`, `applications.form_status` |
 | `AiScreeningStatus` | `REQUESTED`, `DONE`, `FAILED` | `ai_screening_results.status`, `applications.ai_screening_status` |
 | `HrReviewDecisionType` | `APPROVE`, `REJECT`, `REQUEST_MORE_INFO`, `TALENT_POOL` | `hr_reviews.decision`, `applications.hr_review_status` |
+
+Ghi chú CV status:
+
+- `CV_SCAN_FAILED` là lỗi kỹ thuật/timeout của scanner và phải tách khỏi `CV_REJECTED_MALWARE` cũng như `CV_SANITIZE_FAILED`.
+- `cv_documents.scan_status = FAILED` map lên workflow state `CV_SCAN_FAILED`.
+- `CV_PARSE_FAILED` biểu diễn clean CV parse lỗi/text rỗng và block mapping tự động cho đến khi có parsed profile hợp lệ.
 | `ConversationStatus` | `OPEN`, `CLOSED`, `HANDOFF`, `ARCHIVED` | `channel_conversations.status` |
 | `MessageDirection` | `INBOUND`, `OUTBOUND` | `channel_messages.direction` |
 | `BotKnowledgeStatus` | `DRAFT`, `ACTIVE`, `INACTIVE`, `ARCHIVED` | `bot_knowledge_sources.status` |

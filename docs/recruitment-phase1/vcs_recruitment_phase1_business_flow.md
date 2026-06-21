@@ -23,8 +23,8 @@ Phạm vi Phase 1 dừng tại bước **HR Review**. Các bước sau như hộ
 | 5 | Core validate hồ sơ | Validate thông tin apply, file CV, JD, dữ liệu bắt buộc. |
 | 6 | Check trùng application | Kiểm tra ứng viên đã apply cùng JD trước đó chưa. |
 | 7 | Lưu CV gốc vào quarantine | CV gốc không dùng trực tiếp cho các bước nghiệp vụ sau. |
-| 8 | Scan mã độc + tạo CV sạch | Tạo bản CV an toàn để parse/mapping/AI/HR review. |
-| 9 | Parse CV sạch + check trùng hồ sơ | Trích xuất dữ liệu ứng viên và kiểm tra trùng hồ sơ. |
+| 8 | Scan mã độc đồng bộ | Trả `MALWARE_DETECTED` nếu phát hiện malware; scan pass thì accepted/processing. |
+| 9 | Sanitize/parse CV sạch async | Tạo bản CV an toàn để parse/mapping/AI/HR review, sau đó trích xuất dữ liệu ứng viên và kiểm tra trùng hồ sơ. |
 | 10 | Mapping CV-JD nội bộ | Mapping chạy trong Core, theo `application_id`. |
 | 11 | Quyết định đạt/không đạt mapping | Dựa trên threshold theo JD/vị trí/level. |
 | 12 | Nếu đạt mapping: gửi form pre-screening | Tạo form session và gửi link/token cho ứng viên. |
@@ -96,8 +96,11 @@ HR tạo/chỉnh JD
 → Core validate hồ sơ
 → Check trùng application
 → Lưu CV gốc vào quarantine
-→ Scan mã độc + tạo CV sạch
-→ Parse CV sạch + check trùng hồ sơ
+→ Scan mã độc đồng bộ trong request upload
+→ Nếu malware: trả MALWARE_DETECTED và dừng CV version hiện tại
+→ Nếu scan pass: trả accepted/processing
+→ Sanitize async tạo CV sạch
+→ Parse CV sạch async + check trùng hồ sơ
 → Mapping CV-JD nội bộ
 → Quyết định đạt/không đạt mapping
 → Nếu đạt mapping: gửi form pre-screening
@@ -221,15 +224,18 @@ Nếu hồ sơ không hợp lệ:
 | Bước | Tên bước | Tác nhân chính | Mô tả | Output |
 |---:|---|---|---|---|
 | 7 | Lưu CV gốc vào quarantine | Recruitment Core / CV Document Module | CV gốc được lưu vào vùng cách ly để audit, không dùng trực tiếp cho parse/mapping/AI/HR review. | CV gốc lưu quarantine |
-| 8 | Scan mã độc + tạo CV sạch | CV Sanitization Module | Hệ thống scan mã độc, extract nội dung an toàn và render lại thành CV sạch theo format chuẩn. | CV sạch |
-| 9 | Parse CV sạch + check trùng hồ sơ | Recruitment Core | Parse CV sạch để trích xuất thông tin ứng viên, sau đó check trùng hồ sơ theo dữ liệu đã parse. | Parsed profile + duplicate result |
+| 8 | Scan mã độc đồng bộ | CV Sanitization Module / Scanner | Upload API chạy scan malware trước khi trả response. Nếu phát hiện malware, cập nhật `CV_REJECTED_MALWARE`, ghi audit và trả `MALWARE_DETECTED`. Nếu scan failed/timeout, chuyển `CV_SCAN_FAILED`, không sanitize/parse. | Scan result |
+| 9 | Sanitize async tạo CV sạch | CV Sanitization Module / Worker | Sau khi scan pass, hệ thống trả accepted/processing rồi worker tạo clean CV. Với PDF có thể dùng Ghostscript Docker sanitizer, nhưng Ghostscript không phải malware scanner. | CV sạch |
+| 10 | Parse CV sạch + check trùng hồ sơ | Recruitment Core | Parse CV sạch async để trích xuất thông tin ứng viên, sau đó check trùng hồ sơ theo dữ liệu đã parse. Parse fail sau retry có thể email ứng viên upload lại hoặc manual review. | Parsed profile + duplicate result |
 
 ### 6.3.1. Nguyên tắc CV sạch
 
 ```text
 - CV gốc chỉ lưu trong quarantine.
 - CV gốc không được dùng trực tiếp cho parse, mapping, AI hoặc HR review.
-- CV sạch là file được tạo lại sau khi scan và extract nội dung an toàn.
+- Malware scan chạy trước sanitizer; scan failed không được coi là malware và không được đi sanitize/parse.
+- CV sạch là file được tạo lại sau khi scan pass và extract/render nội dung an toàn.
+- Ghostscript có thể tạo clean PDF sau scan pass, nhưng không thay thế scanner.
 - HR Review chỉ hiển thị CV sạch.
 ```
 
@@ -402,12 +408,14 @@ flowchart TD
     G1 --> H[Lưu CV gốc vào quarantine]
     G2 --> H
 
-    H --> I[Scan mã độc]
+    H --> I[Scan mã độc đồng bộ]
     I --> I1{CV an toàn?}
-    I1 -- Không --> I2[Reject CV]
-    I1 -- Có --> J[Tạo CV sạch]
+    I1 -- Malware --> I2[Reject CV - MALWARE_DETECTED]
+    I1 -- Scan failed --> I3[CV_SCAN_FAILED / retry / manual review]
+    I1 -- Có --> I4[Trả accepted/processing]
+    I4 --> J[Sanitize async tạo CV sạch]
 
-    J --> K[Parse CV sạch]
+    J --> K[Parse CV sạch async]
     K --> L[Check trùng hồ sơ]
     L --> M[Mapping CV-JD nội bộ]
     M --> N{Đạt mapping?}
@@ -435,7 +443,7 @@ flowchart TD
 | 2 | Publish đa kênh thành công? | Kênh trả về trạng thái published/success | Ghi `PUBLISH_FAILED`, cho phép retry hoặc xử lý thủ công |
 | 3 | Hồ sơ hợp lệ? | Có đủ thông tin apply và CV hợp lệ | Reject / yêu cầu bổ sung |
 | 4 | Trùng application? | Không trùng hoặc còn lượt upload lại | Reject nếu vượt giới hạn upload |
-| 5 | CV an toàn? | Không phát hiện mã độc/file nguy hiểm | Reject CV |
+| 5 | CV an toàn? | Scan malware pass | Malware thì trả `MALWARE_DETECTED`; scan failed thì retry/manual review, không sanitize/parse |
 | 6 | Trùng hồ sơ sau parse? | Không trùng hoặc HR chấp nhận xử lý tiếp | Gắn cờ duplicate, merge hoặc chuyển HR xử lý |
 | 7 | Đạt mapping? | Mapping score đạt threshold | Loại sơ bộ / Talent pool / HR review ngoại lệ |
 | 8 | Form submitted? | Ứng viên gửi form trong thời hạn | Form expired / gửi reminder / HR xử lý |
@@ -452,7 +460,7 @@ flowchart TD
 | Multi-channel Posting | `CHANNEL_PUBLISHING`, `CHANNEL_PUBLISHED`, `CHANNEL_PUBLISH_FAILED`, `CHANNEL_SYNCING_APPLICATIONS`, `CHANNEL_SYNC_FAILED` |
 | Bot / Conversation | `BOT_ACTIVE`, `BOT_ESCALATED_TO_HR`, `BOT_RESOLVED`, `BOT_FAILED` |
 | Application | `APPLICATION_CREATED`, `APPLICATION_VALIDATING`, `APPLICATION_DUPLICATE_CHECKING`, `APPLICATION_OVERWRITTEN`, `APPLICATION_REJECTED_RATE_LIMIT` |
-| CV | `CV_UPLOADED`, `CV_STORED_QUARANTINE`, `CV_SANITIZING`, `CV_REJECTED_MALWARE`, `CV_SANITIZED`, `CV_SANITIZE_FAILED`, `CV_PARSED` |
+| CV | `CV_UPLOADED`, `CV_STORED_QUARANTINE`, `CV_SCAN_REQUESTED`, `CV_SCAN_PASSED`, `CV_SCAN_FAILED`, `CV_REJECTED_MALWARE`, `CV_SANITIZING`, `CV_SANITIZED`, `CV_SANITIZE_FAILED`, `CV_PARSED`, `CV_PARSE_FAILED` |
 | Duplicate | `PROFILE_DUPLICATE_CHECKING`, `PROFILE_DUPLICATE_CHECKED`, `PROFILE_DUPLICATE_CONFIRMED` |
 | Mapping | `MAPPING_REQUESTED`, `MAPPING_DONE`, `MAPPING_FAILED`, `MAPPING_REJECTED`, `ELIGIBLE_FOR_FORM` |
 | Form | `FORM_SESSION_CREATED`, `FORM_SENT`, `FORM_OPENED`, `FORM_SUBMITTED`, `FORM_EXPIRED` |

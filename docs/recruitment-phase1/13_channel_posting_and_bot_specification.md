@@ -490,7 +490,7 @@ Data ownership:
 Workflow relation:
 
 - Channel ingestion thành công tạo workflow event `APPLICATION_CREATED`.
-- Nếu có CV, workflow tiếp tục qua `CV_UPLOADED` -> `CV_STORED_QUARANTINE` -> validate/sanitize/parse/mapping theo CV processing spec.
+- Nếu có CV, workflow tiếp tục qua CV processing spec: validate file, `CV_UPLOADED` -> `CV_STORED_QUARANTINE` -> synchronous malware scan; malware thì `MALWARE_DETECTED`/`CV_REJECTED_MALWARE`, scan failed thì `CV_SCAN_FAILED`, scan pass thì async sanitize/parse trước khi mapping.
 - `ChannelPostingStatus` không thay thế `JobPosting.status`; nó chỉ là trạng thái publish theo channel.
 - `ConversationStatus` không thay thế `Application.status`; conversation chỉ hỗ trợ giao tiếp và handoff.
 - Duplicate ingestion có thể tạo `DUPLICATE_DETECTED` và link về application hiện có thay vì tạo mới.

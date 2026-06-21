@@ -54,8 +54,8 @@ Tài liệu này không tạo code, không tạo migration, không sửa source 
 | `bot-knowledge` | Quản lý knowledge từ JD/posting/FAQ cho bot. | Có nếu triển khai bot/channel care | Có thể triển khai sau core intake. |
 | `validation-rate-limit` | Validate hồ sơ, duplicate và public rate limit. | Có | Có thể dùng Redis nếu cần lock/cache. |
 | `cv-documents` | Quản lý original/clean CV, version, hash, metadata, storage path. | Có | Là boundary chính cho CV lifecycle. |
-| `cv-sanitization` | Scan mã độc, sanitize và tạo CV sạch. | Có | CV sạch là input cho các bước sau. |
-| `cv-parsing` | Wrapper parse CV sạch quanh `file-parser`. | Có nếu cần tách orchestration | Assumption: nên tách để giữ `file-parser` là utility thuần. |
+| `cv-sanitization` | Scanner boundary, sanitize boundary và tạo CV sạch. | Có | Malware scan chạy trước sanitizer; Ghostscript Docker sanitizer có thể là adapter cho PDF sau scan pass; CV sạch là input cho các bước sau. |
+| `cv-parsing` | Wrapper parse CV sạch quanh `file-parser`. | Có nếu cần tách orchestration | Assumption: nên tách để giữ `file-parser` là utility thuần và đảm bảo chỉ parse clean CV. |
 | `mapping` | Chạy mapping CV-JD theo `application_id`. | Có | Internal NestJS module. |
 | `mapping-results` | Lưu score/evidence/recommendation/gaps. | Có | Không dùng `evaluations` cho kết quả này. |
 | `question-sets` | Cấu hình bộ câu hỏi theo JD/vị trí/level. | Có | Dựa trên `questions`, `categories`, `positions`, `levels`. |
@@ -82,8 +82,8 @@ Tài liệu này không tạo code, không tạo migration, không sửa source 
 | `bot-knowledge` | Quản lý tri thức bot từ JD/posting/FAQ/quy trình. | JD, posting, FAQ, config. | Knowledge entries cho bot trả lời. | Không tự quyết định tuyển dụng. |
 | `validation-rate-limit` | Validate hồ sơ, check trùng email/SĐT theo JD, rate limit upload lại. | Apply payload, candidate identifiers, JD/posting, request metadata. | Validation result, duplicate flag, rate-limit decision. | Không lưu workflow chính thay `applications`. |
 | `cv-documents` | Quản lý CV original/clean, version, hash, metadata, storage path. | Uploaded file, application, candidate. | CV document/version metadata. | Không parse hoặc scan trực tiếp trong module này nếu đã tách service riêng. |
-| `cv-sanitization` | Scan mã độc, extract nội dung an toàn, tạo CV sạch. | Quarantine CV document, storage path. | Safe CV document, scan/sanitize status. | CV gốc không dùng trực tiếp cho parse/mapping/AI/HR Review. |
-| `cv-parsing` | Parse CV sạch, normalize result, gọi hoặc wrap `file-parser`. | Safe CV document. | Parsed profile/structured CV data. | Wrapper domain-specific quanh `file-parser`. |
+| `cv-sanitization` | Scanner boundary, synchronous scan support cho upload API, async sanitize và tạo CV sạch. | Quarantine CV document, storage path. | Safe CV document, scan/sanitize status. | CV gốc không dùng trực tiếp cho parse/mapping/AI/HR Review; Ghostscript là sanitizer adapter, không phải scanner. |
+| `cv-parsing` | Parse CV sạch async, normalize result, gọi hoặc wrap `file-parser`. | Safe CV document. | Parsed profile/structured CV data. | Wrapper domain-specific quanh `file-parser`; không đọc quarantine CV. |
 | `mapping` | Chạy mapping CV-JD theo `application_id`. | Application, JD version, safe CV, parsed profile. | Mapping command/result handoff. | Internal module, không external service. |
 | `mapping-results` | Lưu score, strengths, gaps, recommendation, evidence. | Mapping output, application, JD version. | Persisted mapping result. | Không dùng `evaluations` cho mapping result. |
 | `question-sets` | Cấu hình bộ câu hỏi theo JD/vị trí/level. | JD version, position, level, question bank. | Question set/form schema. | Reuse `questions/categories`, không sửa semantics interview question. |
@@ -111,7 +111,7 @@ Repo hiện tại đặt module trực tiếp dưới `apps/backend/src/<module>
 | `bot-knowledge` | `apps/backend/src/bot-knowledge` | `apps/backend/src/<module>` | Bot knowledge/FAQ. |
 | `validation-rate-limit` | `apps/backend/src/validation-rate-limit` | `apps/backend/src/<module>` | Validation + rate limit policy. |
 | `cv-documents` | `apps/backend/src/cv-documents` | `apps/backend/src/<module>` | CV metadata/version. |
-| `cv-sanitization` | `apps/backend/src/cv-sanitization` | `apps/backend/src/<module>` | Scan/sanitize. |
+| `cv-sanitization` | `apps/backend/src/cv-sanitization` | `apps/backend/src/<module>` | Scanner boundary + sanitizer adapters, ví dụ Ghostscript Docker sanitizer cho PDF. |
 | `cv-parsing` | `apps/backend/src/cv-parsing` | `apps/backend/src/<module>` | Wrapper quanh `file-parser`. |
 | `mapping` | `apps/backend/src/mapping` | `apps/backend/src/<module>` | Orchestrate mapping. |
 | `mapping-results` | `apps/backend/src/mapping-results` | `apps/backend/src/<module>` | Persist mapping output. |
@@ -147,8 +147,8 @@ Controller -> Service -> Domain Module -> Repository/DB/Storage/External Adapter
 | `bot-knowledge` | `job-descriptions`, `job-postings`, FAQ/config | Bot conversations, config UI | Không phụ thuộc `applications` như source of truth workflow. |
 | `validation-rate-limit` | `applications`, `candidates`, `job-postings`, optional `Redis`, `audit-logs` | Apply flow, upload flow, webhook flow | Không lưu state chính thay `workflow-state`. |
 | `cv-documents` | `applications`, storage, `audit-logs` | Apply/upload flow, `cv-sanitization`, `hr-review` | Không parse CV gốc trực tiếp; không phụ thuộc `mapping-results`. |
-| `cv-sanitization` | `cv-documents`, storage, `workflow-state`, `audit-logs` | Apply/CV processing worker | Không gọi `mapping` khi CV chưa sạch. |
-| `cv-parsing` | `cv-documents`, `file-parser`, `candidates`, `applications` | CV processing workflow, `mapping` | Không đọc quarantine CV trực tiếp; không phụ thuộc external parser service. |
+| `cv-sanitization` | `cv-documents`, storage, `workflow-state`, `audit-logs` | Upload request sync scan, CV processing worker | Không gọi `mapping` khi CV chưa sạch; không dùng Ghostscript thay scanner. |
+| `cv-parsing` | `cv-documents`, `file-parser`, `candidates`, `applications` | CV processing workflow, `mapping` | Không đọc quarantine CV trực tiếp; không phụ thuộc external parser service; không parse khi chưa có clean CV. |
 | `mapping` | `applications`, `job-description-versions`, `cv-documents`, `cv-parsing`, `mapping-results`, `workflow-state` | Screening workflow | Không phụ thuộc external mapping service; không phụ thuộc `evaluations`. |
 | `mapping-results` | `applications`, `job-description-versions`, `audit-logs` | `mapping`, `ai-screening`, `hr-review` | Không gọi ngược `mapping` để chạy workflow. |
 | `question-sets` | `questions`, `categories`, `positions`, `levels`, `job-description-versions` | HR Workspace, `form-sessions` | Không phụ thuộc interview `session_questions`. |
