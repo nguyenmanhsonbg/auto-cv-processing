@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { FacebookPublishOptionsDto } from '../../facebook-publishing/dto/facebook-publish.dto';
 
 export class ListJobPostingsQueryDto {
   @ApiPropertyOptional({ default: 1 })
@@ -116,6 +118,12 @@ export class PublishJobPostingDto {
   @IsArray()
   @IsString({ each: true })
   publishChannels?: string[];
+
+  @ApiPropertyOptional({ type: FacebookPublishOptionsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FacebookPublishOptionsDto)
+  facebook?: FacebookPublishOptionsDto;
 
   @ApiPropertyOptional()
   @IsOptional()

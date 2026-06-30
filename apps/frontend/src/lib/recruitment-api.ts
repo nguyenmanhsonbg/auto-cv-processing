@@ -150,6 +150,19 @@ export interface ListJobPostingsParams {
 export interface PublishJobPostingPayload {
   publishChannels: string[];
   publishNote?: string;
+  facebook?: {
+    targets?: {
+      groups?: Array<{
+        groupName: string;
+        groupUrl: string;
+      }>;
+      fanpages?: Array<{
+        pageName: string;
+        pageId?: string;
+        pageUrl?: string;
+      }>;
+    };
+  };
 }
 
 export interface JobPostingChannelStatus {

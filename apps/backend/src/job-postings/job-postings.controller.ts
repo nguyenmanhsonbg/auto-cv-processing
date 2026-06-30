@@ -5,6 +5,11 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
+import { FacebookPublishingService } from '../facebook-publishing/facebook-publishing.service';
+import {
+  FacebookPublishResultStatus,
+  FacebookPublishSummary,
+} from '../facebook-publishing/facebook-publishing.types';
 import { ChannelPostingStatus, JobPostingStatus, RecruitmentChannel } from '../recruitment-common';
 import {
   CloseJobPostingDto,
@@ -23,7 +28,10 @@ import { JobPostingsService } from './job-postings.service';
 @Controller('job-postings')
 @ApiErrorResponses([400, 401, 403, 404, 409, 500])
 export class JobPostingsController {
-  constructor(private readonly jobPostingsService: JobPostingsService) {}
+  constructor(
+    private readonly jobPostingsService: JobPostingsService,
+    private readonly facebookPublishingService: FacebookPublishingService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List internal job postings' })
@@ -133,15 +141,41 @@ export class JobPostingsController {
       ? dto.publishChannels
       : [RecruitmentChannel.VCS_PORTAL];
     const canPublishPublicPortal = channels.includes(RecruitmentChannel.VCS_PORTAL);
-    const posting = canPublishPublicPortal
-      ? await this.jobPostingsService.markPublished(id)
-      : await this.jobPostingsService.markManualRequired(id);
+    const canPublishFacebook = channels.includes(RecruitmentChannel.FACEBOOK);
+
+    let posting = await this.jobPostingsService.findOne(id);
+    let facebookPublish: FacebookPublishSummary | undefined;
+
+    if (canPublishPublicPortal) {
+      posting = await this.jobPostingsService.markPublished(id);
+    }
+
+    if (canPublishFacebook) {
+      const publishReadyPosting = await this.jobPostingsService.ensurePublishReady(id);
+      facebookPublish = await this.facebookPublishingService.publishJobPosting(
+        publishReadyPosting,
+        dto.facebook,
+      );
+
+      if (!canPublishPublicPortal) {
+        posting = facebookPublish.successCount > 0
+          ? await this.jobPostingsService.markPublished(id)
+          : await this.jobPostingsService.markPublishFailed(id);
+      }
+    }
+
+    if (!canPublishPublicPortal && !canPublishFacebook) {
+      posting = await this.jobPostingsService.markManualRequired(id);
+    }
+
+    const reloadedPosting = await this.jobPostingsService.findOne(posting.id);
 
     return {
       success: true,
       data: {
-        ...this.toJobPostingResponse(await this.jobPostingsService.findOne(posting.id)),
-        channels: this.toChannelStatuses(posting, channels),
+        ...this.toJobPostingResponse(reloadedPosting),
+        channels: this.toChannelStatuses(reloadedPosting, channels, facebookPublish),
+        ...(facebookPublish ? { facebookPublish } : {}),
       },
       meta: this.meta(idempotencyKey),
     };
@@ -166,9 +200,16 @@ export class JobPostingsController {
   @ApiOperation({ summary: 'Get safe channel publish status placeholders' })
   async channels(@Param('id', ParseUUIDPipe) id: string) {
     const posting = await this.jobPostingsService.findOne(id);
+    const facebookPublish = await this.facebookPublishingService.getLatestJobPostingSummary(id);
+    const channels = facebookPublish
+      ? posting.status === JobPostingStatus.PUBLISHED
+        ? [RecruitmentChannel.VCS_PORTAL, RecruitmentChannel.FACEBOOK]
+        : [RecruitmentChannel.FACEBOOK]
+      : [RecruitmentChannel.VCS_PORTAL];
+
     return {
       success: true,
-      data: this.toChannelStatuses(posting),
+      data: this.toChannelStatuses(posting, channels, facebookPublish ?? undefined),
       meta: this.meta(),
     };
   }
@@ -235,6 +276,7 @@ export class JobPostingsController {
   private toChannelStatuses(
     posting: JobPostingEntity,
     requestedChannels: string[] = [RecruitmentChannel.VCS_PORTAL],
+    facebookPublish?: FacebookPublishSummary,
   ) {
     const normalizedChannels = requestedChannels.length
       ? requestedChannels
@@ -251,6 +293,27 @@ export class JobPostingsController {
           externalPostingId: null,
           manualInstruction: null,
           publishedAt: posting.status === JobPostingStatus.PUBLISHED
+            ? posting.updatedAt?.toISOString()
+            : null,
+          updatedAt: posting.updatedAt?.toISOString(),
+        };
+      }
+
+      if (channel === RecruitmentChannel.FACEBOOK && facebookPublish) {
+        const firstSuccess = facebookPublish.results.find((result) => result.externalPostId);
+        const firstProblem = facebookPublish.results.find(
+          (result) => result.status !== FacebookPublishResultStatus.SUCCESS,
+        );
+
+        return {
+          channel,
+          status: facebookPublish.status,
+          publishedUrl: null,
+          externalPostingId: firstSuccess?.externalPostId ?? null,
+          manualInstruction: facebookPublish.status === ChannelPostingStatus.PUBLISH_FAILED
+            ? facebookPublish.message ?? firstProblem?.message ?? 'Facebook publish failed.'
+            : null,
+          publishedAt: facebookPublish.successCount > 0
             ? posting.updatedAt?.toISOString()
             : null,
           updatedAt: posting.updatedAt?.toISOString(),
