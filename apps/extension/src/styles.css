@@ -1,0 +1,283 @@
+:root {
+  color: #172033;
+  background: #f7f8fb;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+a {
+  color: #0f766e;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.popup-shell {
+  display: grid;
+  gap: 14px;
+  width: 280px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.panel-shell {
+  display: grid;
+  gap: 18px;
+  min-height: 100vh;
+  padding: 18px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stack {
+  display: grid;
+  gap: 16px;
+}
+
+.eyebrow,
+.section-title {
+  margin: 0 0 4px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+  color: #0f172a;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button {
+  min-height: 36px;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-weight: 800;
+}
+
+.primary-button {
+  color: #ffffff;
+  background: #0f766e;
+}
+
+.secondary-button {
+  color: #123c69;
+  background: #dbeafe;
+}
+
+.ghost-button {
+  color: #334155;
+  background: #e2e8f0;
+}
+
+.auth-form,
+.preview,
+.result-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.auth-form input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #334155;
+  font-size: 13px;
+}
+
+.button-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.capture-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+dl div {
+  display: grid;
+  gap: 3px;
+}
+
+dt {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+dd {
+  margin: 0;
+  color: #172033;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.channel-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.channel-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid #d8dee9;
+  border-radius: 6px;
+  padding: 7px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.result-panel ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result-panel li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border-bottom: 1px solid #edf1f7;
+  color: #334155;
+  font-size: 12px;
+}
+
+.warning-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.diagnostic-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.diagnostic-list li {
+  display: grid;
+  gap: 2px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.diagnostic-list small {
+  overflow-wrap: anywhere;
+  color: #64748b;
+}
+
+.muted-text,
+.warning-text,
+.error-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.muted-text {
+  color: #64748b;
+}
+
+.warning-text {
+  color: #9a3412;
+}
+
+.error-text {
+  color: #b91c1c;
+}

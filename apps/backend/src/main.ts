@@ -32,7 +32,7 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:4000',
+    origin: buildCorsOriginResolver(),
     credentials: true,
   });
   app.useGlobalFilters(new ApiExceptionFilter());
@@ -59,3 +59,37 @@ async function bootstrap() {
   console.log(`Swagger docs at http://localhost:${port}/api/docs`);
 }
 bootstrap();
+
+function buildCorsOriginResolver() {
+  const allowedOrigins = new Set([
+    process.env.FRONTEND_URL || 'http://localhost:4000',
+    ...parseCommaSeparatedEnv(process.env.EXTENSION_ALLOWED_ORIGINS),
+  ]);
+
+  if (process.env.NODE_ENV === 'production') {
+    for (const origin of allowedOrigins) {
+      if (origin.includes('*')) {
+        throw new Error('Wildcard CORS origins are not allowed in production');
+      }
+    }
+  }
+
+  return (
+    origin: string | undefined,
+    callback: (error: Error | null, allow?: boolean) => void,
+  ) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('CORS origin is not allowed'), false);
+  };
+}
+
+function parseCommaSeparatedEnv(value: string | undefined) {
+  return (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}

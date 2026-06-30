@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "VCS Recruitment Posting",
+  "version": "0.1.0",
+  "description": "Sync confirmed AMIS job snapshots to VCS Recruitment Core.",
+  "action": {
+    "default_title": "VCS Posting",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "side-panel.html"
+  },
+  "permissions": ["activeTab", "debugger", "scripting", "sidePanel", "storage", "tabs"],
+  "host_permissions": [
+    "http://localhost:3002/*",
+    "https://amisapp.misa.vn/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://amisapp.misa.vn/*"],
+      "js": ["assets/amis-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

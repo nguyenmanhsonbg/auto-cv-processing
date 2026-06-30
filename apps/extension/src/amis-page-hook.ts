@@ -1,0 +1,363 @@
+const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
+const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
+const AMIS_SAVE_RECRUITMENT_PATH = '/RecruitmentAPI/api/recruitment/SaveRecruitment';
+const HOOK_INSTALLED_KEY = '__VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__';
+
+const hookWindow = window as Window & {
+  __VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__?: boolean;
+};
+
+if (!hookWindow[HOOK_INSTALLED_KEY]) {
+  hookWindow[HOOK_INSTALLED_KEY] = true;
+  installFetchHook();
+  publishDiagnostic('HOOK_READY');
+}
+
+function installFetchHook() {
+  const originalFetch = window.fetch;
+
+  window.fetch = async (...args) => {
+    const requestUrl = getFetchRequestUrl(args[0]);
+    const response = await Reflect.apply(originalFetch, window, args) as Response;
+
+    if (requestUrl && isAmisSaveRecruitmentUrl(requestUrl)) {
+      publishDiagnostic('SAVE_REQUEST_SEEN', {
+        requestUrl,
+        details: {
+          transport: 'fetch',
+          status: response.status,
+        },
+      });
+
+      void readFetchJson(response.clone())
+        .then((json) => {
+          if (json === null) {
+            publishDiagnostic('SAVE_RESPONSE_EMPTY', {
+              requestUrl,
+              details: { transport: 'fetch', status: response.status },
+            });
+          }
+
+          publishCapture(json, requestUrl);
+        })
+        .catch((error) => {
+          publishDiagnostic('SAVE_RESPONSE_READ_FAILED', {
+            requestUrl,
+            details: {
+              transport: 'fetch',
+              message: error instanceof Error ? error.message : 'Could not read JSON response.',
+            },
+          });
+        });
+    }
+
+    return response;
+  };
+}
+
+function publishCapture(responseJson: unknown, requestUrl: string) {
+  const capture = mapAmisSaveRecruitmentResponse(
+    responseJson,
+    new URL(requestUrl, window.location.origin).toString(),
+    window.location.href,
+  );
+
+  if (!capture) {
+    publishDiagnostic('SAVE_RESPONSE_UNMAPPED', {
+      requestUrl,
+      details: describePayloadShape(responseJson),
+    });
+    return;
+  }
+
+  window.postMessage({
+    source: 'vcs-recruitment-extension',
+    type: AMIS_CAPTURE_MESSAGE_TYPE,
+    payload: capture,
+  }, window.location.origin);
+
+  publishDiagnostic('CAPTURE_PUBLISHED', {
+    requestUrl,
+    details: {
+      confidence: capture.confidence,
+      missingFields: capture.missingFields,
+      hasSnapshot: Boolean(capture.snapshot),
+      hasAmisRecruitmentId: Boolean(capture.amisRecruitmentId),
+    },
+  });
+}
+
+function publishDiagnostic(
+  type:
+    | 'HOOK_READY'
+    | 'SAVE_REQUEST_SEEN'
+    | 'SAVE_RESPONSE_EMPTY'
+    | 'SAVE_RESPONSE_READ_FAILED'
+    | 'SAVE_RESPONSE_UNMAPPED'
+    | 'CAPTURE_PUBLISHED',
+  event: {
+    requestUrl?: string;
+    details?: Record<string, unknown>;
+  } = {},
+) {
+  window.setTimeout(() => {
+    window.postMessage({
+      source: 'vcs-recruitment-extension',
+      type: AMIS_DIAGNOSTIC_MESSAGE_TYPE,
+      payload: {
+        type,
+        pageUrl: window.location.href,
+        timestamp: new Date().toISOString(),
+        requestUrl: event.requestUrl,
+        details: event.details,
+      },
+    }, window.location.origin);
+  }, 0);
+}
+
+function getFetchRequestUrl(input: RequestInfo | URL) {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+async function readFetchJson(response: Response) {
+  const text = await response.text();
+  const cleaned = text.trim().replace(/^\uFEFF/, '').replace(/^\)\]\}',?\s*/, '');
+  if (!cleaned) return null;
+
+  return JSON.parse(cleaned) as unknown;
+}
+
+function isAmisSaveRecruitmentUrl(url: string) {
+  return url.toLowerCase().includes(AMIS_SAVE_RECRUITMENT_PATH.toLowerCase());
+}
+
+function mapAmisSaveRecruitmentResponse(
+  response: unknown,
+  requestUrl: string,
+  pageUrl: string,
+) {
+  if (!isObject(response)) return null;
+
+  const success = response.Success ?? response.success;
+  if (success === false) return null;
+
+  const data = findRecruitmentData(response);
+  if (!data) return null;
+
+  const recruitmentId = cleanText(readFirst(data, [
+    'RecruitmentID',
+    'RecruitmentId',
+    'recruitmentId',
+    'recruitmentID',
+    'ID',
+    'Id',
+    'id',
+  ]));
+  const descriptionText = htmlToText(readFirst(data, ['Description', 'description']))
+    || cleanText(readFirst(data, ['Summary', 'summary']));
+  const requirementText = htmlToText(readFirst(data, ['Requirement', 'Requirements', 'requirement', 'requirements']));
+  const benefitText = htmlToText(readFirst(data, ['Benifit', 'Benefit', 'Benefits', 'benifit', 'benefit', 'benefits']));
+  const location = extractLocation(data);
+  const deadline = cleanText(readFirst(data, [
+    'RegistrationExpiryDate',
+    'registrationExpiryDate',
+    'CloseDate',
+    'closeDate',
+    'ExpectedTime',
+    'expectedTime',
+  ])) || undefined;
+
+  const snapshot = {
+    title: cleanText(readFirst(data, ['TitleWebsite', 'titleWebsite']))
+      || cleanText(readFirst(data, ['Title', 'title']))
+      || cleanText(readFirst(data, ['JobPositionName', 'jobPositionName'])),
+    description: descriptionText,
+    requirements: {
+      rawText: requirementText,
+    },
+    ...(benefitText ? { benefits: { rawText: benefitText } } : {}),
+    ...(location ? { location } : {}),
+    ...(deadline ? { deadline } : {}),
+  };
+
+  const missingFields: string[] = [];
+  if (!recruitmentId) missingFields.push('AMIS recruitment id');
+  if (!snapshot.title) missingFields.push('title');
+  if (!snapshot.description) missingFields.push('description');
+  if (!snapshot.requirements.rawText) missingFields.push('requirements');
+
+  const fieldSources = {
+    ...(recruitmentId ? { amisRecruitmentId: 'SaveRecruitment.Data.RecruitmentID' } : {}),
+    ...(snapshot.title ? { title: 'SaveRecruitment.Data.TitleWebsite|Title|JobPositionName' } : {}),
+    ...(snapshot.description ? { description: 'SaveRecruitment.Data.Description|Summary' } : {}),
+    ...(snapshot.requirements.rawText ? { requirements: 'SaveRecruitment.Data.Requirement' } : {}),
+    ...(benefitText ? { benefits: 'SaveRecruitment.Data.Benifit' } : {}),
+    ...(location ? { location: 'SaveRecruitment.Data.RecruitmentWorkLocations' } : {}),
+    ...(deadline ? { deadline: 'SaveRecruitment.Data.RegistrationExpiryDate|CloseDate|ExpectedTime' } : {}),
+  };
+
+  return {
+    status: 'AMIS_PAGE_DETECTED',
+    detected: true,
+    source: 'AMIS_SAVE_RECRUITMENT_API',
+    confidence: missingFields.length === 0 ? 'HIGH' : 'LOW',
+    url: pageUrl,
+    ...(recruitmentId ? { amisRecruitmentId: recruitmentId } : {}),
+    snapshot,
+    missingFields,
+    warnings: buildWarnings(missingFields),
+    evidence: {
+      host: new URL(pageUrl).hostname,
+      title: document.title,
+      markers: [
+        'host:amisapp.misa.vn',
+        'api:SaveRecruitment',
+        `request:${new URL(requestUrl).pathname}`,
+        ...('TraceID' in response ? ['trace-id-present'] : []),
+        ...('ServerTime' in response ? ['server-time-present'] : []),
+        'response-payload-present',
+      ],
+      fieldSources,
+    },
+  };
+}
+
+function findRecruitmentData(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (depth > 4 || !isObject(value)) return null;
+
+  if (isRecruitmentDataLike(value)) return value;
+
+  const data = value.Data ?? value.data;
+  if (typeof data === 'string' || typeof data === 'number') {
+    return { RecruitmentID: data };
+  }
+
+  const dataResult = findRecruitmentData(data, depth + 1);
+  if (dataResult) return dataResult;
+
+  for (const key of [
+    'Recruitment',
+    'recruitment',
+    'RecruitmentInfo',
+    'recruitmentInfo',
+    'Model',
+    'model',
+    'Entity',
+    'entity',
+    'Payload',
+    'payload',
+  ]) {
+    const result = findRecruitmentData(value[key], depth + 1);
+    if (result) return result;
+  }
+
+  return null;
+}
+
+function isRecruitmentDataLike(value: Record<string, unknown>) {
+  return [
+    'RecruitmentID',
+    'RecruitmentId',
+    'recruitmentId',
+    'TitleWebsite',
+    'Title',
+    'title',
+    'Description',
+    'description',
+    'Requirement',
+    'requirements',
+  ].some((key) => key in value);
+}
+
+function extractLocation(data: Record<string, unknown>) {
+  const locations = readFirstValue(data, [
+    'RecruitmentWorkLocations',
+    'recruitmentWorkLocations',
+    'WorkLocations',
+    'workLocations',
+  ]);
+  if (!Array.isArray(locations)) return undefined;
+
+  const [firstLocation] = locations as Array<Record<string, unknown>>;
+  if (!firstLocation) return undefined;
+  if (Boolean(firstLocation.IsNationwide ?? firstLocation.isNationwide)) return 'Toan quoc';
+
+  return cleanText(readFirst(firstLocation, ['WorkLocationDisplayName', 'workLocationDisplayName']))
+    || cleanText(readFirst(firstLocation, ['WorkLocationName', 'workLocationName']))
+    || cleanText(readFirst(firstLocation, ['Province', 'province']))
+    || cleanText(readFirst(firstLocation, ['Address', 'address']))
+    || undefined;
+}
+
+function buildWarnings(missingFields: string[]) {
+  const warnings = [
+    'Snapshot was mapped from AMIS SaveRecruitment response.',
+  ];
+
+  if (missingFields.length > 0) {
+    warnings.unshift(`Missing required fields: ${missingFields.join(', ')}.`);
+  }
+
+  return warnings;
+}
+
+function htmlToText(value: unknown) {
+  const html = cleanText(value);
+  if (!html) return '';
+
+  const element = document.createElement('div');
+  element.innerHTML = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '</p>\n')
+    .replace(/<\/li>/gi, '</li>\n');
+
+  return cleanText(element.innerText || element.textContent || '');
+}
+
+function cleanText(value: unknown) {
+  return String(value ?? '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function readFirst(data: Record<string, unknown>, keys: string[]) {
+  const value = readFirstValue(data, keys);
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+
+  return '';
+}
+
+function readFirstValue(data: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = data[key];
+    if (value === undefined || value === null) continue;
+    return value;
+  }
+
+  return undefined;
+}
+
+function describePayloadShape(value: unknown) {
+  if (!isObject(value)) {
+    return { responseType: typeof value };
+  }
+
+  const data = value.Data ?? value.data;
+  const dataObject = isObject(data) ? data : null;
+
+  return {
+    topLevelKeys: Object.keys(value).slice(0, 20),
+    success: value.Success ?? value.success,
+    hasData: Boolean(data),
+    dataKeys: dataObject ? Object.keys(dataObject).slice(0, 30) : [],
+  };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}

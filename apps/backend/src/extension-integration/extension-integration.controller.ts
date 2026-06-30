@@ -4,8 +4,8 @@ import { ApiBearerAuth, ApiBody, ApiHeader, ApiOperation, ApiResponse, ApiTags }
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { ApiErrorResponses, apiErrorEnvelopeSchema } from '../common/swagger/api-envelope.schema';
-import { SyncAmisJobPostingDto } from './dto';
+import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
+import { ExtensionSyncResponseDto, SyncAmisJobPostingDto } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
 
 type HeaderValue = string | string[] | undefined;
@@ -46,12 +46,9 @@ export class ExtensionIntegrationController {
   })
   @ApiBody({ type: SyncAmisJobPostingDto })
   @ApiResponse({
-    status: 501,
-    description: 'EXTENSION_INTEGRATION_NOT_IMPLEMENTED error envelope',
-    schema: apiErrorEnvelopeSchema(
-      'EXTENSION_INTEGRATION_NOT_IMPLEMENTED',
-      'Extension integration sync-and-publish business flow is not implemented yet.',
-    ),
+    status: 201,
+    description: 'AMIS job posting sync-and-publish result.',
+    type: ExtensionSyncResponseDto,
   })
   async syncAndPublish(
     @Body() dto: SyncAmisJobPostingDto,
@@ -60,13 +57,25 @@ export class ExtensionIntegrationController {
     @Headers('x-request-id') requestId: HeaderValue,
     @Headers('x-extension-version') extensionVersion: HeaderValue,
   ) {
-    return this.extensionIntegrationService.syncAndPublishFromAmis(dto, {
+    const idempotencyKeyValue = this.requireIdempotencyKey(idempotencyKey);
+    const data = await this.extensionIntegrationService.syncAndPublishFromAmis(dto, {
       actorUserId: req.user.id,
       actorRole: req.user.role,
-      idempotencyKey: this.requireIdempotencyKey(idempotencyKey),
+      idempotencyKey: idempotencyKeyValue,
       requestId: this.optionalHeader(requestId),
       extensionVersion: this.optionalHeader(extensionVersion),
     });
+
+    return {
+      success: true,
+      data,
+      meta: {
+        timestamp: new Date().toISOString(),
+        requestId: this.optionalHeader(requestId) ?? null,
+        idempotencyKey: idempotencyKeyValue,
+        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+      },
+    };
   }
 
   private requireIdempotencyKey(value: HeaderValue) {

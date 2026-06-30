@@ -42,11 +42,11 @@ Quy ước blocker:
 | `DEC-BLOCKER-004` | BE API domain | API base URL cho local/dev/staging/prod | Env config / settings screen / build-time config | Build-time env config cho MVP | MVP dùng build-time env config cho `BE_API_BASE_URL`; local dev default `http://localhost:3002/api`; staging/prod được cung cấp bởi deployment environment sau | `CONFIRMED` | Staging/prod URL cụ thể là deployment value, không còn là blocker để tạo extension foundation; MVP không có Settings screen cho HR đổi API domain |
 | `DEC-BLOCKER-005` | CORS/extension origin | BE cho phép extension gọi trực tiếp thế nào | Allowed origins / extension origin / proxy strategy | Environment-based extension origin allowlist | BE sẽ allow Browser Extension origins qua env/config allowlist, ví dụ `EXTENSION_ALLOWED_ORIGINS=chrome-extension://<id1>,chrome-extension://<id2>`; production chỉ allow explicit `chrome-extension://<production-extension-id>` | `CONFIRMED` | Production extension ID cụ thể là deployment/release value; không wildcard production; không dùng proxy strategy trong MVP trừ khi CORS runtime test thất bại |
 | `DEC-BLOCKER-006` | AMIS domain allowlist | AMIS domain nào được extension chạy | Domain thật / tenant domains / wildcard có kiểm soát | Dùng explicit allowlist, không wildcard rộng production | Extension foundation có thể proceed mà chưa có real AMIS host permission; real AMIS detection/capture chỉ implement sau khi khảo sát domain; production phải dùng explicit AMIS domain allowlist và không dùng wildcard rộng | `CONFIRMED` | Không hardcode AMIS domain, URL pattern, selector, internal API hoặc field mapping trước khảo sát; domain/tenant thật chuyển sang Group C |
-| `DEC-BLOCKER-007` | AMIS recruitment URL pattern | URL pattern list/create/edit/detail/publish/close | URL thật từ AMIS | Không tự điền | TBD | `PENDING` | `BLOCKER`; `CẦN KHẢO SÁT AMIS` |
-| `DEC-BLOCKER-008` | `amisRecruitmentId` source | ID AMIS lấy từ đâu | URL / API response / page state / DOM / data attribute | Không tự điền | TBD | `PENDING` | `BLOCKER` cho idempotency |
-| `DEC-BLOCKER-009` | AMIS capture source | Extension capture snapshot từ nguồn nào | AMIS internal API / page state / DOM / manual confirmation / hybrid | Chưa chốt | TBD | `PENDING` | `BLOCKER`; không phụ thuộc internal API nếu chưa được phép |
-| `DEC-BLOCKER-010` | Required field mapping | Field AMIS nào map sang field bắt buộc BE | title / description / requirements và field khác nếu BE yêu cầu | Không tự điền | TBD | `PENDING` | `BLOCKER`; `CẦN KHẢO SÁT AMIS FIELD` |
-| `DEC-BLOCKER-011` | Rich text transform strategy | Description/requirements/benefits transform thế nào | Safe HTML / plain text / JSON schema | Chưa chốt | TBD | `PENDING` | `BLOCKER` cho payload hợp lệ |
+| `DEC-BLOCKER-007` | AMIS recruitment URL pattern | URL pattern list/create/edit/detail/publish/close | URL thật từ AMIS | Không tự điền | `https://amisapp.misa.vn/recruit/job*` with supplied list/create/edit/detail patterns | `CONFIRMED` | Real AMIS URL patterns supplied by user. |
+| `DEC-BLOCKER-008` | `amisRecruitmentId` source | ID AMIS lấy từ đâu | URL / API response / page state / DOM / data attribute | Không tự điền | `SaveRecruitment.Data.RecruitmentID` | `CONFIRMED` | Primary source for idempotency. |
+| `DEC-BLOCKER-009` | AMIS capture source | Extension capture snapshot từ nguồn nào | AMIS internal API / page state / DOM / manual confirmation / hybrid | Chưa chốt | Hook observed AMIS `SaveRecruitment` response; DOM heuristic only as fallback | `CONFIRMED` | Extension observes response in page, does not call AMIS API directly. |
+| `DEC-BLOCKER-010` | Required field mapping | Field AMIS nào map sang field bắt buộc BE | title / description / requirements và field khác nếu BE yêu cầu | Không tự điền | `TitleWebsite|Title|JobPositionName`, `Description|Summary`, `Requirement` | `CONFIRMED` | Required fields mapped from `SaveRecruitment.Data`. |
+| `DEC-BLOCKER-011` | Rich text transform strategy | Description/requirements/benefits transform thế nào | Safe HTML / plain text / JSON schema | Chưa chốt | Convert AMIS HTML fields to plain text before BE sync | `CONFIRMED` | No raw AMIS HTML stored/logged by extension. |
 | `DEC-BLOCKER-012` | Default `channels` | Channel nào được chọn mặc định | `VCS_PORTAL` only / nhiều channel / none | `VCS_PORTAL` mặc định | `VCS_PORTAL` mặc định | `CONFIRMED` | DTO field là `channels`; external channels có thể chọn nhưng phải warning `NOT_CONFIGURED` |
 | `DEC-BLOCKER-013` | MVP action scope | MVP chỉ support `PUBLISH` hay có `UPDATE`/`CLOSE` | PUBLISH only / PUBLISH+UPDATE / PUBLISH+UPDATE+CLOSE | PUBLISH only | PUBLISH only trong MVP; UPDATE/CLOSE để later | `CONFIRMED` | UPDATE/CLOSE để sau khi publish flow ổn và khảo sát AMIS đủ |
 
@@ -137,12 +137,12 @@ Deployment value, not foundation blocker:
 
 | Decision ID | Nội dung cần chốt | Options | Recommendation nếu có | Final decision | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| `DEC-AMIS-001` | AMIS domain allowlist | Domain thật / nhiều domain tenant / wildcard có kiểm soát | Dùng explicit allowlist, không wildcard rộng production | Policy đã chốt: extension chỉ chạy trên AMIS domain allowlist; production chỉ allow domain AMIS thật sau khảo sát; domain/tenant thật vẫn TBD | `PENDING` | Không còn là blocker của extension foundation; chuyển sang Group C - AMIS real detection/capture; vẫn `CẦN KHẢO SÁT AMIS DOMAIN`, tenant pattern và dev/test AMIS nếu có |
-| `DEC-AMIS-002` | Recruitment list URL pattern | URL pattern thật | Không tự điền | TBD | `PENDING` | Cần cho detection và optional badge/status |
-| `DEC-AMIS-003` | Recruitment create URL pattern | URL pattern thật | Không tự điền | TBD | `PENDING` | Cần nếu capture từ màn create |
-| `DEC-AMIS-004` | Recruitment edit URL pattern | URL pattern thật | Không tự điền | TBD | `PENDING` | Cần nếu capture từ màn edit |
-| `DEC-AMIS-005` | Recruitment detail URL pattern | URL pattern thật | Không tự điền | TBD | `PENDING` | Cần cho reopen/status flow |
-| `DEC-AMIS-006` | Publish action screen/popup | AMIS button / modal / API action / extension button | Không tự điền | TBD | `PENDING` | Cần khảo sát AMIS thật |
+| `DEC-AMIS-001` | AMIS domain allowlist | Domain thật / nhiều domain tenant / wildcard có kiểm soát | Dùng explicit allowlist, không wildcard rộng production | `https://amisapp.misa.vn/*` | `CONFIRMED` | User supplied current AMIS host. Extension manifest uses explicit host permission; no broad wildcard. |
+| `DEC-AMIS-002` | Recruitment list URL pattern | URL pattern thật | Không tự điền | `https://amisapp.misa.vn/recruit/job` | `CONFIRMED` | Supplied by user. |
+| `DEC-AMIS-003` | Recruitment create URL pattern | URL pattern thật | Không tự điền | `https://amisapp.misa.vn/recruit/job/initiation` | `CONFIRMED` | Supplied by user. |
+| `DEC-AMIS-004` | Recruitment edit URL pattern | URL pattern thật | Không tự điền | `https://amisapp.misa.vn/recruit/job/initiation/{RecruitmentID}?isDedail=true` | `CONFIRMED` | Supplied by user; keeps AMIS query spelling as observed. |
+| `DEC-AMIS-005` | Recruitment detail URL pattern | URL pattern thật | Không tự điền | `https://amisapp.misa.vn/recruit/job/detail/{RecruitmentID}?roundID={roundID}&recTabID=1` | `CONFIRMED` | Supplied by user. |
+| `DEC-AMIS-006` | Publish action screen/popup | AMIS button / modal / API action / extension button | Không tự điền | Hook AMIS `SaveRecruitment` response after "Lưu và đăng tin", then auto-sync to HRM backend and open Side Panel for status/result | `CONFIRMED` | URL changes after AMIS publish/save. Extension auto-calls backend when AMIS response has required JD fields and extension auth exists. |
 | `DEC-AMIS-007` | Close action screen/popup | AMIS button / modal / API action / không trong MVP | Không làm CLOSE trong MVP nếu chưa confirm | TBD | `PENDING` | Phụ thuộc MVP scope |
 | `DEC-AMIS-008` | Màn AMIS nào thuộc MVP bắt buộc | Detail only / Edit only / Create+Edit / List+Detail | Chưa chốt | TBD | `PENDING` | Giới hạn để tránh scrape quá rộng |
 | `DEC-AMIS-009` | Có nhiều AMIS tenant/domain không | Yes / No / Later | Nếu có nhiều tenant/domain thì phải liệt kê hoặc dùng pattern có kiểm soát sau khi confirm | CẦN CONFIRM: có một domain duy nhất hay nhiều tenant/domain; có môi trường dev/test AMIS riêng hay không | `PENDING` | Không còn là blocker của extension foundation; chuyển sang Group C - AMIS real detection/capture; ảnh hưởng manifest host permissions; không tự bịa AMIS domain hoặc tenant pattern |
@@ -151,24 +151,24 @@ Deployment value, not foundation blocker:
 
 | Decision ID | Nội dung cần chốt | Options | Recommendation nếu có | Final decision | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| `DEC-CAPTURE-001` | Có được dùng AMIS internal API không | Yes / No / Chỉ nếu security/legal approve | Chưa chốt | TBD | `PENDING` | Không phụ thuộc internal API nếu chưa được phép |
-| `DEC-CAPTURE-002` | Capture source ưu tiên | API / page state / DOM / manual confirmation / hybrid | Khảo sát trước, chọn nguồn ổn định nhất | TBD | `PENDING` | Không tự bịa API/selector/page state |
+| `DEC-CAPTURE-001` | Có được dùng AMIS internal API không | Yes / No / Chỉ nếu security/legal approve | Chưa chốt | Use observed AMIS `SaveRecruitment` response as capture source | `CONFIRMED` | Extension observes the response in the AMIS page; it does not call AMIS API directly or store AMIS tokens/cookies. |
+| `DEC-CAPTURE-002` | Capture source ưu tiên | API / page state / DOM / manual confirmation / hybrid | Khảo sát trước, chọn nguồn ổn định nhất | `SaveRecruitment.Data` response first; DOM heuristic only as manual fallback | `CONFIRMED` | API response contains `RecruitmentID`, title, description, requirement, benefit, deadline, work locations. |
 | `DEC-CAPTURE-003` | Có fallback DOM không | Yes / No / Later | Chỉ sau khi khảo sát selector ổn định | TBD | `PENDING` | DOM dễ vỡ nếu AMIS đổi UI |
 | `DEC-CAPTURE-004` | Có versioned adapter không | Yes / No / Later | Yes nếu AMIS có nhiều version/domain | TBD | `PENDING` | Giúp cô lập thay đổi AMIS |
-| `DEC-CAPTURE-005` | Trigger chính | Nút AMIS "Đăng tin" / nút extension / cả hai | Nút extension trước, hook AMIS sau khảo sát | MVP dùng nút extension làm trigger chính; chưa hook nút AMIS "Đăng tin" | `CONFIRMED` | Hook AMIS có thể làm sau khi khảo sát AMIS kỹ hơn |
+| `DEC-CAPTURE-005` | Trigger chính | Nút AMIS "Đăng tin" / nút extension / cả hai | Nút extension trước, hook AMIS sau khảo sát | Hook AMIS save/publish flow via `SaveRecruitment` response; backend sync runs automatically | `CONFIRMED` | User clarified no manual confirm after AMIS publish; Side Panel is for status/result. Manual extract button remains fallback only. |
 | `DEC-CAPTURE-006` | Có manual confirmation như fallback capture không | Yes / No / Later | Yes ở mức preview/confirm, không thay AMIS nhập liệu | TBD | `PENDING` | Manual field input riêng vẫn cần confirm |
 
 ## 9. AMIS Field Mapping decisions
 
 | Decision ID | Nội dung cần chốt | Options | Recommendation nếu có | Final decision | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| `DEC-FIELD-001` | `amisRecruitmentId` lấy từ đâu | URL / API response / page state / DOM / data attribute | Không tự điền | TBD | `PENDING` | Quan trọng cho idempotency |
-| `DEC-FIELD-002` | `title` lấy từ đâu | AMIS field/selector/API thật | Không tự điền | TBD | `PENDING` | Required theo BE contract |
-| `DEC-FIELD-003` | `description` lấy từ đâu | AMIS field/selector/API thật | Không tự điền | TBD | `PENDING` | Required theo BE contract hiện tại |
-| `DEC-FIELD-004` | `requirements` lấy từ đâu | AMIS field/selector/API thật | Không tự điền | TBD | `PENDING` | Required và cần JSON object transform |
-| `DEC-FIELD-005` | `benefits` lấy từ đâu | AMIS field/selector/API thật / không capture | Không tự điền | TBD | `PENDING` | Optional nhưng cần mapping nếu preview |
-| `DEC-FIELD-006` | `location` lấy từ đâu | AMIS field/selector/API thật / không capture | Không tự điền | TBD | `PENDING` | Optional theo mapping spec |
-| `DEC-FIELD-007` | `deadline` lấy từ đâu | AMIS field/selector/API thật / không capture | Không tự điền | TBD | `PENDING` | Cần date format strategy |
+| `DEC-FIELD-001` | `amisRecruitmentId` lấy từ đâu | URL / API response / page state / DOM / data attribute | Không tự điền | `SaveRecruitment.Data.RecruitmentID` | `CONFIRMED` | Fallback list API `data_paging.Data[].RecruitmentID` is available for list context. |
+| `DEC-FIELD-002` | `title` lấy từ đâu | AMIS field/selector/API thật | Không tự điền | `SaveRecruitment.Data.TitleWebsite` then `Title` then `JobPositionName` | `CONFIRMED` | Required theo BE contract. |
+| `DEC-FIELD-003` | `description` lấy từ đâu | AMIS field/selector/API thật | Không tự điền | Plain text from `SaveRecruitment.Data.Description`; fallback `Summary` | `CONFIRMED` | HTML is converted to text before sending to BE. |
+| `DEC-FIELD-004` | `requirements` lấy từ đâu | AMIS field/selector/API thật | Không tự điền | Plain text from `SaveRecruitment.Data.Requirement` into `snapshot.requirements.rawText` | `CONFIRMED` | Required and sent as BE requirements object. |
+| `DEC-FIELD-005` | `benefits` lấy từ đâu | AMIS field/selector/API thật / không capture | Không tự điền | Plain text from `SaveRecruitment.Data.Benifit` into `snapshot.benefits.rawText` | `CONFIRMED` | AMIS field spelling is `Benifit` in observed response. |
+| `DEC-FIELD-006` | `location` lấy từ đâu | AMIS field/selector/API thật / không capture | Không tự điền | `SaveRecruitment.Data.RecruitmentWorkLocations[0]` display/name/province/address | `CONFIRMED` | Optional raw location string. |
+| `DEC-FIELD-007` | `deadline` lấy từ đâu | AMIS field/selector/API thật / không capture | Không tự điền | `SaveRecruitment.Data.RegistrationExpiryDate`; fallback `CloseDate` or `ExpectedTime` | `CONFIRMED` | AMIS returns ISO-like string with timezone. |
 | `DEC-FIELD-008` | `salaryRange` có capture không | Capture parsed / capture raw / không capture MVP | Chưa chốt | TBD | `PENDING` | Có thể chứa format khó parse |
 | `DEC-FIELD-009` | `contactInfo` có capture không | Capture / không capture / mask only | Không capture trong MVP nếu chưa có policy | Không capture contactInfo/PII trong MVP nếu chưa có policy | `CONFIRMED` | PII/security decision |
 | `DEC-FIELD-010` | `questions` có nằm trong MVP không | Yes / No / Later | No trong MVP | TBD | `PENDING` | Tránh mở rộng sang screening flow |
@@ -178,10 +178,10 @@ Deployment value, not foundation blocker:
 
 | Decision ID | Nội dung cần chốt | Options | Recommendation nếu có | Final decision | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| `DEC-TX-001` | Description giữ safe HTML hay plain text | Safe HTML / plain text | Cần confirm sau khảo sát BE/UI | TBD | `PENDING` | Không log raw HTML |
+| `DEC-TX-001` | Description giữ safe HTML hay plain text | Safe HTML / plain text | Cần confirm sau khảo sát BE/UI | Plain text from AMIS HTML | `CONFIRMED` | Extension converts AMIS HTML to text; does not store/log raw HTML. |
 | `DEC-TX-002` | Requirements transform thành JSON object thế nào | Schema sections/items / raw object / BE schema mới | User đã chốt schema tối thiểu | Required `rawText`; optional `sections`, `mustHaveSkills`, `niceToHaveSkills`, `minExperienceYears`, `education`, `languages`, `certifications`, `notes` | `CONFIRMED` | Extension có thể gửi tối thiểu `{ rawText, sections: [] }`; AMIS source/mapping thật vẫn `CẦN KHẢO SÁT AMIS` |
-| `DEC-TX-003` | Benefits transform thế nào | JSON object / array / plain text / không capture | Cần confirm schema | TBD | `PENDING` | Optional nhưng UI preview cần rõ |
-| `DEC-TX-004` | Date format | ISO date / raw text / timezone-aware | ISO nếu AMIS dữ liệu đáng tin | TBD | `PENDING` | Không tự parse nếu format chưa khảo sát |
+| `DEC-TX-003` | Benefits transform thế nào | JSON object / array / plain text / không capture | Cần confirm schema | `{ rawText: string }` from AMIS `Benifit` HTML converted to text | `CONFIRMED` | Optional field; no raw HTML in extension storage. |
+| `DEC-TX-004` | Date format | ISO date / raw text / timezone-aware | ISO nếu AMIS dữ liệu đáng tin | Use AMIS ISO-like date string with timezone from `RegistrationExpiryDate` | `CONFIRMED` | Backend validates/parses date. |
 | `DEC-TX-005` | Salary parse hay giữ raw text | Parse structured / raw text / không capture | Raw text hoặc không capture cho MVP nếu chưa khảo sát | TBD | `PENDING` | Tránh sai salary |
 | `DEC-TX-006` | Location normalize hay giữ raw text | Normalize / raw text | Raw text trước nếu chưa có taxonomy | TBD | `PENDING` | Normalize cần rule riêng |
 | `DEC-TX-007` | Snapshot shape nested hay flatten theo BE hiện tại | Extension flatten / BE nhận nested tương lai | Flatten theo BE hiện tại nếu contract không đổi | TBD | `PENDING` | File 05 đánh dấu API contract cần confirm |
@@ -252,6 +252,11 @@ Các recommendation đã được user chốt có status `CONFIRMED`. Recommenda
 | `REC-MVP-006` | Trigger: nút extension trước, hook AMIS "Đăng tin" sau khảo sát | Tránh phụ thuộc DOM/event AMIS quá sớm | MVP dùng nút extension làm trigger chính; chưa hook nút AMIS "Đăng tin" | `CONFIRMED` | User đã confirm trigger MVP |
 | `REC-MVP-007` | Missing required field: block sync, yêu cầu HR sửa trên AMIS, chưa nhập tay trong extension | Giữ AMIS là nơi HR thao tác chính | Block sync nếu thiếu required fields; yêu cầu HR sửa trên AMIS; không nhập tay trong extension MVP | `CONFIRMED` | User đã confirm missing required field policy |
 | `REC-MVP-008` | Rich text: plain text hoặc safe HTML cần confirm sau khảo sát BE/UI | Chưa đủ dữ liệu về editor AMIS và render BE/UI | TBD | `PENDING` | Cần user confirm |
+
+### REC-MVP updates after AMIS survey
+
+- `REC-MVP-006` is superseded by `DEC-CAPTURE-005`: trigger now hooks the observed AMIS `SaveRecruitment` response, auto-syncs to backend, and opens Side Panel for status/result.
+- `REC-MVP-008` is superseded by `DEC-TX-001`, `DEC-TX-003`, and `DEC-TX-004`: AMIS HTML fields are converted to plain text, and AMIS ISO-like date strings are passed to backend validation.
 
 ## 16. Next action after decision log
 
