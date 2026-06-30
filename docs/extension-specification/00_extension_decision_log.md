@@ -37,11 +37,11 @@ Quy ước blocker:
 | Decision ID | Blocker | Nội dung cần chốt | Options | Recommendation nếu có | Final decision | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `DEC-BLOCKER-001` | UI mode | Extension dùng UI mode nào | Popup / Side Panel / Injected Panel / Hybrid | Side Panel chính + Popup launcher | Hybrid: Side Panel chính + Popup launcher | `CONFIRMED` | MVP dùng Side Panel chính, Popup làm launcher/trạng thái nhanh |
-| `DEC-BLOCKER-002` | Auth flow | Extension lấy JWT/token bằng flow nào | JWT login hiện tại / Google OAuth/SSO / reuse token web app / extension token riêng | JWT login hiện tại là option source-supported; chưa chốt flow extension | CẦN CONFIRM: dùng JWT login hiện tại, Google OAuth/SSO, reuse token web app hay extension token riêng | `PENDING` | `BLOCKER`; BE có auth API chung nhưng extension flow chưa chốt |
-| `DEC-BLOCKER-003` | Token storage | Token được lưu ở đâu và lifecycle thế nào | `chrome.storage.local` / `chrome.storage.session` / in-memory | Chưa chốt; ưu tiên storage ít persistence nếu UX cho phép | CẦN CONFIRM TOKEN STORAGE: `chrome.storage.session`, `chrome.storage.local` hay in-memory | `PENDING` | `BLOCKER`; source backend không quyết định storage phía extension |
-| `DEC-BLOCKER-004` | BE API domain | API base URL cho local/dev/staging/prod | Env config / settings screen / build-time config | Local current env là `http://localhost:3002/api`; source default khi không set `PORT` là `http://localhost:3000/api` | CẦN CONFIRM: dev/staging/prod domain và config strategy | `PENDING` | `BLOCKER`; không tự bịa domain ngoài source/env |
-| `DEC-BLOCKER-005` | CORS/extension origin | BE cho phép extension gọi trực tiếp thế nào | Allowed origins / extension origin / proxy strategy | BE hiện allow `FRONTEND_URL || http://localhost:4000` | CẦN CONFIRM: extension origin/ID và CORS policy cho `chrome-extension://...` | `PENDING` | `BLOCKER`; source chưa hỗ trợ multiple allowed origins/extension origin |
-| `DEC-BLOCKER-006` | AMIS domain allowlist | AMIS domain nào được extension chạy | Domain thật / tenant domains / wildcard có kiểm soát | Không tự điền | TBD | `PENDING` | `BLOCKER`; `CẦN KHẢO SÁT AMIS DOMAIN` |
+| `DEC-BLOCKER-002` | Auth flow | Extension lấy JWT/token bằng flow nào | JWT login hiện tại / Google OAuth/SSO / reuse token web app / extension token riêng | JWT login hiện tại | MVP dùng JWT login hiện tại của BE qua `POST /api/auth/login` và `GET /api/auth/me`; không dùng Google OAuth/SSO, không reuse token web app, không dùng extension token riêng trong MVP | `CONFIRMED` | Extension có login/config UI riêng cho HR đăng nhập bằng tài khoản BE |
+| `DEC-BLOCKER-003` | Token storage | Token được lưu ở đâu và lifecycle thế nào | `chrome.storage.local` / `chrome.storage.session` / in-memory | `chrome.storage.session` | MVP lưu access token trong `chrome.storage.session`; khi token hết hạn hoặc BE trả `401`, clear token/session auth state, chuyển UI về `AUTH_REQUIRED`, HR đăng nhập lại | `CONFIRMED` | MVP chưa làm refresh token, không dùng `chrome.storage.local`, không lưu token trong AMIS localStorage/DOM/page context |
+| `DEC-BLOCKER-004` | BE API domain | API base URL cho local/dev/staging/prod | Env config / settings screen / build-time config | Build-time env config cho MVP | MVP dùng build-time env config cho `BE_API_BASE_URL`; local dev default `http://localhost:3002/api`; staging/prod được cung cấp bởi deployment environment sau | `CONFIRMED` | Staging/prod URL cụ thể là deployment value, không còn là blocker để tạo extension foundation; MVP không có Settings screen cho HR đổi API domain |
+| `DEC-BLOCKER-005` | CORS/extension origin | BE cho phép extension gọi trực tiếp thế nào | Allowed origins / extension origin / proxy strategy | Environment-based extension origin allowlist | BE sẽ allow Browser Extension origins qua env/config allowlist, ví dụ `EXTENSION_ALLOWED_ORIGINS=chrome-extension://<id1>,chrome-extension://<id2>`; production chỉ allow explicit `chrome-extension://<production-extension-id>` | `CONFIRMED` | Production extension ID cụ thể là deployment/release value; không wildcard production; không dùng proxy strategy trong MVP trừ khi CORS runtime test thất bại |
+| `DEC-BLOCKER-006` | AMIS domain allowlist | AMIS domain nào được extension chạy | Domain thật / tenant domains / wildcard có kiểm soát | Dùng explicit allowlist, không wildcard rộng production | Extension foundation có thể proceed mà chưa có real AMIS host permission; real AMIS detection/capture chỉ implement sau khi khảo sát domain; production phải dùng explicit AMIS domain allowlist và không dùng wildcard rộng | `CONFIRMED` | Không hardcode AMIS domain, URL pattern, selector, internal API hoặc field mapping trước khảo sát; domain/tenant thật chuyển sang Group C |
 | `DEC-BLOCKER-007` | AMIS recruitment URL pattern | URL pattern list/create/edit/detail/publish/close | URL thật từ AMIS | Không tự điền | TBD | `PENDING` | `BLOCKER`; `CẦN KHẢO SÁT AMIS` |
 | `DEC-BLOCKER-008` | `amisRecruitmentId` source | ID AMIS lấy từ đâu | URL / API response / page state / DOM / data attribute | Không tự điền | TBD | `PENDING` | `BLOCKER` cho idempotency |
 | `DEC-BLOCKER-009` | AMIS capture source | Extension capture snapshot từ nguồn nào | AMIS internal API / page state / DOM / manual confirmation / hybrid | Chưa chốt | TBD | `PENDING` | `BLOCKER`; không phụ thuộc internal API nếu chưa được phép |
@@ -68,32 +68,32 @@ Quy ước blocker:
 
 | Decision ID | Nội dung cần chốt | Options | Recommendation nếu có | Final decision | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| `DEC-AUTH-001` | Auth flow extension | JWT login hiện tại / Google OAuth/SSO / reuse token web app / extension token riêng | JWT login hiện tại là option source-supported; chưa chốt | CẦN CONFIRM: extension dùng JWT login hiện tại, Google OAuth/SSO, reuse token web app hay flow riêng | `PENDING` | BE có `POST /api/auth/login`, `GET /api/auth/me` và Google OAuth endpoints |
-| `DEC-AUTH-002` | Token storage | `chrome.storage.local` / `chrome.storage.session` / in-memory | Ưu tiên `chrome.storage.session` nếu UX chấp nhận login lại; nếu cần persistence thì cân nhắc `chrome.storage.local` + logout/clear token | CẦN CONFIRM TOKEN STORAGE | `PENDING` | Không lưu token trong AMIS DOM/localStorage; không log token |
-| `DEC-AUTH-003` | Token refresh/logout | Không refresh, login lại / refresh token / OAuth refresh / revoke flow | Source hiện chỉ thấy access token; không thấy refresh/logout/revoke endpoint | CẦN CONFIRM: login lại khi token hết hạn hay bổ sung refresh/logout policy | `PENDING` | `JWT_REFRESH_EXPIRES_IN` có trong env nhưng chưa thấy flow dùng trong source |
-| `DEC-AUTH-004` | Debug mode | Off by default / Support-toggle / Build-only | Off by default | CẦN CONFIRM: có debug mode không; nếu có phải off by default và không log token/full snapshot/raw HTML | `PENDING` | Source chưa có extension debug mode |
-| `DEC-AUTH-005` | Security review trước dev thật | Required / Optional / Later | Required trước AMIS/API capture thật hoặc persistent token | CẦN CONFIRM SECURITY REVIEW | `PENDING` | Đặc biệt nếu dùng AMIS internal API hoặc persistent token |
-| `DEC-AUTH-006` | Role được gọi sync/publish API | ADMIN/HR only / mở thêm role khác | ADMIN/HR only nếu endpoint extension đúng theo BE contract | CẦN KIỂM TRA SOURCE/BRANCH: current source không tìm thấy `/api/extension/amis/job-postings/sync-and-publish`; protected job posting APIs hiện dùng `ADMIN`/`HR` | `PENDING` | Không source-confirm được guard/role của extension endpoint trong current source tree |
-| `DEC-AUTH-007` | Có reuse token từ web app không | Yes / No / Chỉ nếu security review approve | Không reuse token web app nếu chưa security review | CẦN CONFIRM: reuse web token hay không | `PENDING` | Có rủi ro boundary giữa web app và extension |
+| `DEC-AUTH-001` | Auth flow extension | JWT login hiện tại / Google OAuth/SSO / reuse token web app / extension token riêng | JWT login hiện tại | MVP dùng JWT login hiện tại của BE; extension có login/config UI riêng; gọi `POST /api/auth/login` để lấy `accessToken` và `GET /api/auth/me` để verify user/role | `CONFIRMED` | Không dùng Google OAuth/SSO, không reuse token web app, không dùng extension token riêng trong MVP |
+| `DEC-AUTH-002` | Token storage | `chrome.storage.local` / `chrome.storage.session` / in-memory | `chrome.storage.session` | MVP lưu access token trong `chrome.storage.session` | `CONFIRMED` | Không dùng `chrome.storage.local`; không lưu token trong AMIS DOM/localStorage/page context; không log token |
+| `DEC-AUTH-003` | Token refresh/logout | Không refresh, login lại / refresh token / OAuth refresh / revoke flow | Không refresh, login lại khi hết hạn | Khi token hết hạn hoặc BE trả `401`, extension clear token/session auth state, UI chuyển về `AUTH_REQUIRED`, HR đăng nhập lại | `CONFIRMED` | MVP chưa làm refresh token/logout/revoke flow mới |
+| `DEC-AUTH-004` | Debug mode | Off by default / Support-toggle / Build-only | Off by default | Debug mode off by default; chỉ bật trong dev build hoặc support mode nếu được cấu hình rõ | `CONFIRMED` | Không log token/JWT, AMIS cookie/session, full AMIS Job Snapshot, raw HTML, full JD content, PII/contact info nếu chưa có masking rule |
+| `DEC-AUTH-005` | Security review trước dev thật | Required / Optional / Later | Required | Security review bắt buộc trước khi implement capture AMIS thật | `CONFIRMED` | Đặc biệt quan trọng trước capture AMIS thật, dùng AMIS internal API, hoặc thay đổi token persistence |
+| `DEC-AUTH-006` | Role được gọi sync/publish API | ADMIN/HR only / mở thêm role khác | ADMIN/HR only | Only `ADMIN` and `HR` roles can call the extension sync/publish API; `INTERVIEWER` and other roles are not allowed unless BE contract changes later | `CONFIRMED` | Extension UI/API client handles `401` as `AUTH_REQUIRED`/login lại and `403` as `FORBIDDEN`/không đủ quyền; không mở thêm role riêng trong MVP |
+| `DEC-AUTH-007` | Có reuse token từ web app không | Yes / No / Chỉ nếu security review approve | No trong MVP | Không reuse token từ web app trong MVP | `CONFIRMED` | Extension dùng login riêng qua BE auth API để tránh rủi ro boundary giữa web app và extension |
 
 ## 6. BE API / Environment decisions
 
 | Decision ID | Nội dung cần chốt | Options | Recommendation nếu có | Final decision | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | `DEC-BE-001` | Main API endpoint extension gọi | `POST /api/extension/amis/job-postings/sync-and-publish` / endpoint khác | Dùng endpoint extension riêng | `POST /api/extension/amis/job-postings/sync-and-publish` | `CONFIRMED` | Endpoint path đã chốt cho implementation mới; current source chưa có module/route này |
-| `DEC-BE-002` | BE API base URL local/dev/staging/prod | Config theo env / settings / build-time | Local current env là `http://localhost:3002/api`; source default khi không set `PORT` là `http://localhost:3000/api` | CẦN CONFIRM: dev/staging/prod URL và build-time/settings strategy | `PENDING` | Không tự điền domain ngoài source/env |
-| `DEC-BE-003` | CORS/allowed origins cho extension | Allow extension origin / allow BE host permission / proxy | Source hiện `origin = FRONTEND_URL || http://localhost:4000`, `credentials: true` | CẦN CONFIRM: extension origin/ID, multiple allowed origins, và production CORS policy | `PENDING` | Chưa thấy support `chrome-extension://<extension-id>` trong source |
+| `DEC-BE-002` | BE API base URL local/dev/staging/prod | Config theo env / settings / build-time | Build-time env config cho MVP | MVP dùng build-time env config cho `BE_API_BASE_URL`; local dev default `http://localhost:3002/api`; staging/prod được cung cấp bởi deployment environment sau | `CONFIRMED` | Staging/prod URL cụ thể là deployment value, không còn là blocker để tạo extension foundation; không hardcode staging/prod domain khi chưa có dữ liệu; Settings screen để `LATER` |
+| `DEC-BE-003` | CORS/allowed origins cho extension | Allow extension origin / allow BE host permission / proxy | Environment-based extension origin allowlist | BE will allow Browser Extension origins through environment-based allowlist config, for example `EXTENSION_ALLOWED_ORIGINS=chrome-extension://<id1>,chrome-extension://<id2>` | `CONFIRMED` | Production must allow only explicit `chrome-extension://<production-extension-id>`; no wildcard production; local/dev may allow unpacked extension origin after local extension ID is known; proxy strategy not in MVP unless CORS runtime test fails |
 | `DEC-BE-004` | Có cần API get sync status theo `amisRecruitmentId` không | Yes / No / Later | Later cho MVP tối thiểu | Later | `CONFIRMED` | Nếu không có API này, extension không là source of truth |
 | `DEC-BE-005` | ResultCode chính thức cho sync/publish | Giữ `OK`/duplicate / thêm `CREATED`,`UPDATED`,`CLOSED` | Cần phân biệt create/update/replay cho UI và audit | `CREATED`, `UPDATED`, `DUPLICATE_OR_IDEMPOTENT_REPLAY` | `CONFIRMED` | Không dùng `OK` làm resultCode chính nữa; `CLOSE` không thuộc MVP |
 | `DEC-BE-006` | Có cần API update/close riêng không | Dùng `action` endpoint chính / API riêng | Dùng `action` endpoint chính nếu BE contract đủ | TBD | `PENDING` | Phụ thuộc MVP scope PUBLISH/UPDATE/CLOSE |
-| `DEC-BE-007` | Có cần top-level `publicUrl` không | Chỉ `channelPostings[].publishedUrl` / thêm top-level | Chưa chốt | TBD | `PENDING` | Hiện response channel có `publishedUrl` |
-| `DEC-BE-008` | `Idempotency-Key` có bắt buộc không | Optional / Required | Required cho side-effect sync/publish | Required; `Idempotency-Key` là idempotency key chính | `CONFIRMED` | Snapshot hash vẫn dùng cho change detection/versioning, không phải idempotency key chính |
-| `DEC-BE-009` | Có cần `GET /api/extension/config` không | Yes / No / Later | Later | TBD | `PENDING` | Có thể hữu ích cho channel/default/feature flags |
+| `DEC-BE-007` | Có cần top-level `publicUrl` không | Chỉ `channelPostings[].publishedUrl` / thêm top-level | Chỉ dùng `channelPostings[].publishedUrl` trong MVP | MVP does not require top-level `publicUrl`; UI reads public URL from `channelPostings[].publishedUrl` | `CONFIRMED` | `VCS_PORTAL` may return `publishedUrl`; external channels may return `null` `publishedUrl` with `NOT_CONFIGURED`; no BE response contract change required |
+| `DEC-BE-008` | `Idempotency-Key` có bắt buộc không | Optional / Required | Optional/recommended metadata header | `Idempotency-Key` is optional and used only for trace/audit metadata; it is not the primary idempotency key in MVP | `CONFIRMED` | Extension should generate and reuse the same `Idempotency-Key` for the same retry attempt group if possible; BE must not rely on it as primary idempotency key |
+| `DEC-BE-009` | Có cần `GET /api/extension/config` không | Yes / No / Later | No config API in MVP; revisit later | MVP does not require `GET /api/extension/config` | `CONFIRMED` | Channel list/default channel can use frontend constants; BE API base URL uses build-time env config; feature flags/config API is later; do not invent this endpoint in MVP |
 | `DEC-BE-010` | Error envelope `401/403` parse thế nào | Runtime check / normalize in extension | Parse theo global `ApiExceptionFilter` | `401` -> envelope `UNAUTHORIZED`; `403` -> envelope `FORBIDDEN` | `CONFIRMED` | Source filter trả `{ success:false, error:{ code, message, details }, meta:{ requestId, timestamp } }` |
 | `DEC-BE-011` | DTO channel field name | `channels` / old selected-channel field | Cần thống nhất BE contract và extension request | `channels` | `CONFIRMED` | Backend DTO chỉ dùng `channels`; "selected channels" chỉ là UI wording nếu cần |
 | `DEC-BE-012` | External AMIS reference storage | Lưu trên `JobPosting` / bảng riêng / hybrid | Bảng riêng giảm coupling domain và hỗ trợ nhiều external systems | Bảng riêng `external_references` hoặc `recruitment_external_references` theo convention backend | `CONFIRMED` | `JobPosting` có thể cache field nếu cần query nhanh, nhưng source of truth external mapping là bảng riêng |
 | `DEC-BE-013` | Requirements schema tối thiểu | Raw string / object schema / rich text schema | MVP cần object đơn giản, không bắt extension parse sâu | Object với required `rawText`, optional `sections`, `mustHaveSkills`, `niceToHaveSkills`, `minExperienceYears`, `education`, `languages`, `certifications`, `notes` | `CONFIRMED` | AMIS field source vẫn `CẦN KHẢO SÁT AMIS`; rich text strategy vẫn pending |
-| `DEC-BE-014` | Idempotency storage strategy | Bảng riêng / reuse external reference / cache | Cần replay theo required `Idempotency-Key` | Cần thiết kế trong BE-EXT-01/04; đề xuất `extension_idempotency_records` | `PENDING` | User đã chốt key chính là `Idempotency-Key`, nhưng implementation storage table/cơ chế cụ thể chưa chốt |
+| `DEC-BE-014` | Idempotency storage strategy | Bảng riêng / reuse external reference / cache | Reuse existing external reference + snapshotHash strategy | MVP uses existing BE idempotency strategy: `sourceSystem=AMIS` + `amisRecruitmentId`/`externalRecruitmentId` + BE-computed `snapshotHash` from stable JSON of snapshot | `CONFIRMED` | If same AMIS recruitment ID and same `snapshotHash` are submitted again, BE returns `DUPLICATE_OR_IDEMPOTENT_REPLAY`; extension does not compute/send `snapshotHash`; no `extension_idempotency_records` table in MVP |
 
 ## FLOW-01. BE Environment & Auth Decisions
 
@@ -101,47 +101,43 @@ Quy ước blocker:
 
 | Hạng mục | Kết quả từ source | Ảnh hưởng decision |
 | --- | --- | --- |
-| Auth mechanism | BE dùng JWT Bearer qua `JwtStrategy`; `AuthService.login` ký payload `{ sub, email, role }` và trả `{ accessToken, user }`; Google OAuth endpoints cũng tồn tại. | BE auth mechanism hiện tại rõ, nhưng extension chọn flow nào vẫn `PENDING`. |
-| Login endpoint | `POST /api/auth/login` dùng `LocalAuthGuard`; `GET /api/auth/me` dùng `JwtAuthGuard`; có `GET /api/auth/google` và `GET /api/auth/google/callback`. | JWT login hiện tại là option khả dụng cho extension MVP, chưa phải final decision. |
+| Auth mechanism | BE dùng JWT Bearer qua `JwtStrategy`; `AuthService.login` ký payload `{ sub, email, role }` và trả `{ accessToken, user }`; Google OAuth endpoints cũng tồn tại. | Group A đã chốt extension MVP dùng JWT login hiện tại của BE; Google OAuth/SSO để ngoài MVP. |
+| Login endpoint | `POST /api/auth/login` dùng `LocalAuthGuard`; `GET /api/auth/me` dùng `JwtAuthGuard`; có `GET /api/auth/google` và `GET /api/auth/google/callback`. | Extension MVP dùng `POST /api/auth/login` để lấy `accessToken` và `GET /api/auth/me` để verify user/role. |
 | JWT guard | `JwtAuthGuard extends AuthGuard('jwt')`; JWT lấy từ `Authorization: Bearer <token>`; `ignoreExpiration: false`. | Extension phải xử lý no token/expired token như auth required. |
-| Role guard | `RolesGuard` đọc metadata `@Roles(...)` và check `requiredRoles.includes(user?.role)`. | Role model source rõ, nhưng extension endpoint cụ thể chưa tìm thấy trong current source. |
-| Allowed roles extension API | Không tìm thấy `ExtensionIntegrationModule`, `ExtensionIntegrationController`, hoặc route `/api/extension/amis/job-postings/sync-and-publish` trong current source tree. Protected `JobPostingsController` hiện dùng `@UseGuards(JwtAuthGuard, RolesGuard)` và `@Roles(UserRole.ADMIN, UserRole.HR)`. | Không source-confirm được `DEC-AUTH-006` cho extension endpoint; giữ `PENDING` và cần kiểm tra đúng source/branch. |
-| Access token expiry | `JwtModule` dùng `JWT_EXPIRES_IN`, default `15m`; current backend `.env` cũng set `JWT_EXPIRES_IN=15m`. | Extension không hardcode expiry; policy khi hết hạn vẫn cần confirm. |
-| Refresh token | Không thấy endpoint refresh/logout/revoke trong auth controller/service hiện tại; `.env` có `JWT_REFRESH_EXPIRES_IN` nhưng source auth flow chưa dùng. | `DEC-AUTH-003` giữ `PENDING`. |
-| CORS config | `main.ts` gọi `app.enableCors({ origin: process.env.FRONTEND_URL || 'http://localhost:4000', credentials: true })`. | CORS cho extension origin chưa được support/chốt. |
+| Role guard | `RolesGuard` đọc metadata `@Roles(...)` và check `requiredRoles.includes(user?.role)`. | Group B đã chốt extension sync/publish API chỉ cho `ADMIN` và `HR`; `INTERVIEWER` và role khác không được phép trong MVP. |
+| Allowed roles extension API | Không tìm thấy `ExtensionIntegrationModule`, `ExtensionIntegrationController`, hoặc route `/api/extension/amis/job-postings/sync-and-publish` trong current source tree. Protected `JobPostingsController` hiện dùng `@UseGuards(JwtAuthGuard, RolesGuard)` và `@Roles(UserRole.ADMIN, UserRole.HR)`. | `DEC-AUTH-006` đã `CONFIRMED` theo BE contract decision cho endpoint extension mới: `ADMIN`/`HR` only; UI/API client phải xử lý `401`/`403`. |
+| Access token expiry | `JwtModule` dùng `JWT_EXPIRES_IN`, default `15m`; current backend `.env` cũng set `JWT_EXPIRES_IN=15m`. | Extension không hardcode expiry; khi token hết hạn hoặc BE trả `401`, clear session auth state và yêu cầu HR đăng nhập lại. |
+| Refresh token | Không thấy endpoint refresh/logout/revoke trong auth controller/service hiện tại; `.env` có `JWT_REFRESH_EXPIRES_IN` nhưng source auth flow chưa dùng. | Group A đã chốt MVP chưa làm refresh token; `DEC-AUTH-003` chuyển `CONFIRMED` theo policy login lại. |
+| CORS config | `main.ts` gọi `app.enableCors({ origin: process.env.FRONTEND_URL || 'http://localhost:4000', credentials: true })`. | Group B đã chốt policy BE phải support extension origin allowlist qua env/config như `EXTENSION_ALLOWED_ORIGINS`; production extension ID là deployment/release value. |
 | FRONTEND_URL/env | Current backend `.env` set `FRONTEND_URL=http://localhost:4000`; source fallback là `http://localhost:4000`. | Không suy luận extension origin từ `FRONTEND_URL`. |
-| Local BE base URL | `main.ts` dùng `PORT || 3000`; current backend `.env` set `PORT=3002`; global prefix là `/api`. | Local current base URL có thể dùng để ghi nhận là `http://localhost:3002/api`; dev/staging/prod vẫn `CẦN CONFIRM`. |
+| Local BE base URL | `main.ts` dùng `PORT || 3000`; current backend `.env` set `PORT=3002`; global prefix là `/api`. | Group A đã chốt local dev default `BE_API_BASE_URL=http://localhost:3002/api`; staging/prod là deployment value, không còn là foundation blocker. |
 | 401/403 behavior | Global `ApiExceptionFilter` normalize `401` thành code `UNAUTHORIZED`, message `Authentication is required.`; `403` thành code `FORBIDDEN`, message `You do not have permission to perform this action.` | `DEC-BE-010` có thể `CONFIRMED` theo source. |
 
-### FLOW-01 Recommendation - CẦN USER CONFIRM
+### FLOW-01 Recommendation - UPDATED AFTER GROUP B
 
-| Hạng mục | Recommendation chưa chốt | Status |
+| Hạng mục | Decision / remaining recommendation | Status |
 | --- | --- | --- |
-| Auth flow | Extension dùng login JWT hiện tại của BE cho MVP, không reuse token AMIS, không reuse token web app nếu chưa security review. | `PENDING` |
-| Token storage | Ưu tiên `chrome.storage.session` nếu UX chấp nhận login lại; nếu cần persistence thì dùng `chrome.storage.local` nhưng phải có logout/clear token rõ ràng. | `PENDING` |
-| BE environment | MVP dev dùng local BE trước; dev/staging/prod domain chốt sau. | `PENDING` |
-| CORS | BE cần allow extension origin cụ thể sau khi có extension ID; không mở wildcard production. | `PENDING` |
-| Security | Security review required trước khi capture AMIS thật hoặc dùng persistent token. | `PENDING` |
+| Auth flow | Extension dùng JWT login hiện tại của BE cho MVP; không dùng Google OAuth/SSO, không reuse token web app, không dùng extension token riêng. | `CONFIRMED` |
+| Token storage | MVP lưu access token trong `chrome.storage.session`; khi token hết hạn hoặc BE trả `401`, clear session auth state và yêu cầu HR đăng nhập lại. | `CONFIRMED` |
+| BE environment | MVP dùng build-time env config cho `BE_API_BASE_URL`; local dev default `http://localhost:3002/api`; staging/prod được cung cấp bởi deployment environment sau. | `CONFIRMED` |
+| CORS | BE will allow Browser Extension origins through env/config allowlist such as `EXTENSION_ALLOWED_ORIGINS`; production allows only explicit extension origin, no wildcard. | `CONFIRMED` |
+| Security | Security review required trước khi implement capture AMIS thật; debug mode off by default và không log token/full snapshot/raw HTML/full JD/PII. | `CONFIRMED` |
 
-### FLOW-01 Remaining Questions - CẦN USER CONFIRM
+### FLOW-01 Remaining Questions After Group B
 
-1. Extension auth flow MVP có dùng JWT login hiện tại của BE không?
-2. Có dùng Google OAuth/SSO không, hay để later?
-3. Có reuse token web app không, hay không dùng vì rủi ro security?
-4. Token lưu ở đâu: `chrome.storage.session`, `chrome.storage.local`, hay in-memory?
-5. Có cần refresh token không, hay token hết hạn thì login lại?
-6. Logout/clear token xử lý thế nào?
-7. BE API local URL là gì?
-8. BE API dev/staging/prod URL là gì?
-9. CORS sẽ allow extension origin cụ thể như thế nào?
-10. Có cần settings screen để nhập BE API domain không?
-11. Có yêu cầu security review trước khi dev extension thật không?
+Moved to deployment/release:
+
+1. Extension production ID/origin sẽ được chốt thế nào để BE CORS allow?
+
+Deployment value, not foundation blocker:
+
+1. Staging/prod BE API base URL là gì?
 
 ## 7. AMIS Domain / URL / Screen decisions
 
 | Decision ID | Nội dung cần chốt | Options | Recommendation nếu có | Final decision | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- |
-| `DEC-AMIS-001` | AMIS domain allowlist | Domain thật / nhiều domain tenant / wildcard có kiểm soát | Không tự điền | TBD | `PENDING` | `CẦN KHẢO SÁT AMIS DOMAIN` |
+| `DEC-AMIS-001` | AMIS domain allowlist | Domain thật / nhiều domain tenant / wildcard có kiểm soát | Dùng explicit allowlist, không wildcard rộng production | Policy đã chốt: extension chỉ chạy trên AMIS domain allowlist; production chỉ allow domain AMIS thật sau khảo sát; domain/tenant thật vẫn TBD | `PENDING` | Không còn là blocker của extension foundation; chuyển sang Group C - AMIS real detection/capture; vẫn `CẦN KHẢO SÁT AMIS DOMAIN`, tenant pattern và dev/test AMIS nếu có |
 | `DEC-AMIS-002` | Recruitment list URL pattern | URL pattern thật | Không tự điền | TBD | `PENDING` | Cần cho detection và optional badge/status |
 | `DEC-AMIS-003` | Recruitment create URL pattern | URL pattern thật | Không tự điền | TBD | `PENDING` | Cần nếu capture từ màn create |
 | `DEC-AMIS-004` | Recruitment edit URL pattern | URL pattern thật | Không tự điền | TBD | `PENDING` | Cần nếu capture từ màn edit |
@@ -149,7 +145,7 @@ Quy ước blocker:
 | `DEC-AMIS-006` | Publish action screen/popup | AMIS button / modal / API action / extension button | Không tự điền | TBD | `PENDING` | Cần khảo sát AMIS thật |
 | `DEC-AMIS-007` | Close action screen/popup | AMIS button / modal / API action / không trong MVP | Không làm CLOSE trong MVP nếu chưa confirm | TBD | `PENDING` | Phụ thuộc MVP scope |
 | `DEC-AMIS-008` | Màn AMIS nào thuộc MVP bắt buộc | Detail only / Edit only / Create+Edit / List+Detail | Chưa chốt | TBD | `PENDING` | Giới hạn để tránh scrape quá rộng |
-| `DEC-AMIS-009` | Có nhiều AMIS tenant/domain không | Yes / No / Later | Chưa chốt | TBD | `PENDING` | Ảnh hưởng manifest host permissions |
+| `DEC-AMIS-009` | Có nhiều AMIS tenant/domain không | Yes / No / Later | Nếu có nhiều tenant/domain thì phải liệt kê hoặc dùng pattern có kiểm soát sau khi confirm | CẦN CONFIRM: có một domain duy nhất hay nhiều tenant/domain; có môi trường dev/test AMIS riêng hay không | `PENDING` | Không còn là blocker của extension foundation; chuyển sang Group C - AMIS real detection/capture; ảnh hưởng manifest host permissions; không tự bịa AMIS domain hoặc tenant pattern |
 
 ## 8. AMIS Capture Source decisions
 
@@ -235,7 +231,7 @@ Quy ước blocker:
 | --- | --- | --- | --- | --- | --- | --- |
 | `DEC-LOG-001` | Có capture contact info không | Yes / No / mask only | No trong MVP nếu chưa có policy | Không capture contactInfo/PII trong MVP nếu chưa có policy | `CONFIRMED` | PII risk |
 | `DEC-LOG-002` | Contact info preview/mask thế nào | Full / masked / hidden | Hidden hoặc masked nếu capture | Không áp dụng trong MVP vì không capture contactInfo/PII | `CONFIRMED` | Cần policy nội bộ trước khi thay đổi |
-| `DEC-LOG-003` | Debug log có bật không | Off / support-toggle / build-only | Off by default | TBD | `PENDING` | Không log token/full snapshot/raw HTML |
+| `DEC-LOG-003` | Debug log có bật không | Off / support-toggle / build-only | Off by default | Debug mode off by default; chỉ bật trong dev build hoặc support mode nếu được cấu hình rõ | `CONFIRMED` | Không log token/JWT, AMIS cookie/session, full AMIS Job Snapshot, raw HTML, full JD content, PII/contact info nếu chưa có masking rule |
 | `DEC-LOG-004` | Support metadata gồm gì | requestId, timestamp, version, state, action, AMIS id, resultCode, channel statuses, error code | Dùng safe metadata từ file 09 | TBD | `PENDING` | Không chứa JD full content |
 | `DEC-LOG-005` | Không log full snapshot/token/cookie/raw HTML | Enforce / allow debug exception | Enforce | Không log full snapshot/token/cookie/raw HTML | `CONFIRMED` | Đã thống nhất trong các spec 05/08/09 |
 | `DEC-LOG-006` | Có audit client-side event riêng không | Yes / No / Later | Later nếu BE audit đủ | TBD | `PENDING` | Backend audit đã có requested/succeeded/failed |
@@ -259,16 +255,53 @@ Các recommendation đã được user chốt có status `CONFIRMED`. Recommenda
 
 ## 16. Next action after decision log
 
-Sau khi user confirm các decision critical, bước tiếp theo là:
+Sau khi Group A và Group B được chốt, extension foundation/mock flow và BE API client structure có thể bắt đầu mà chưa cần hardcode AMIS domain thật, staging/prod BE domain, hoặc production extension ID.
+
+Bước tiếp theo cho các phần gọi BE/capture AMIS thật là:
 
 1. Khảo sát AMIS domain/screen/API/field.
 2. Cập nhật file `04_amis_screen_and_capture_requirement.md` và `05_amis_job_snapshot_mapping.md` bằng dữ liệu AMIS thật.
-3. Sau đó mới bắt đầu `EXT-B0` / `EXT-B1` implementation theo `10_extension_implementation_task_breakdown.md`.
+3. Sau đó mới bắt đầu các phần real AMIS detection/capture theo `10_extension_implementation_task_breakdown.md`.
 
-Top blockers còn lại trước khi khảo sát AMIS/dev extension:
+Top blockers còn lại trước khi gọi BE thật hoặc capture AMIS thật:
 
-1. Auth flow, token storage, logout/refresh và security review.
-2. BE API domain + CORS/extension origin.
-3. AMIS domain allowlist + recruitment URL pattern + `amisRecruitmentId` source.
-4. AMIS capture source + required field mapping.
-5. Rich text transform strategy cho description/requirements/benefits.
+1. Deployment/release: production extension ID và local/dev extension ID để điền vào BE CORS allowlist.
+2. Runtime verification: test CORS thực tế giữa extension và BE sau khi có extension ID.
+3. Runtime verification: test `401`/`403` envelope thực tế để UI parser xử lý đúng.
+4. Group C - AMIS survey: AMIS domain allowlist thật, tenant pattern, recruitment URL pattern và `amisRecruitmentId` source.
+5. Group C - AMIS capture: AMIS capture source và required field mapping.
+6. Group C/D - Transform/scope: rich text transform strategy cho description/requirements/benefits.
+
+## 17. Remaining questions after Group A
+
+Moved to Group C - AMIS survey:
+
+1. AMIS domain HR đang dùng là gì?
+2. AMIS có một domain duy nhất hay nhiều tenant domain?
+3. Có môi trường dev/test AMIS riêng không?
+
+Resolved by Group B policy; remaining value moved to deployment/release:
+
+1. Extension production ID/origin sẽ được chốt thế nào để BE CORS allow?
+
+Deployment value, not foundation blocker:
+
+1. Staging/prod BE API base URL là gì?
+
+## 18. Remaining questions after Group B
+
+Moved to deployment/release:
+
+1. Production extension ID là gì để cấu hình BE CORS allowlist?
+2. Local/dev extension ID sau khi load unpacked là gì nếu muốn test gọi BE thật từ local extension?
+
+Moved to runtime verification:
+
+1. Cần test CORS thực tế giữa extension và BE sau khi có extension ID.
+2. Cần test `401`/`403` envelope thực tế để UI parser xử lý đúng.
+
+No longer blockers for MVP:
+
+1. Top-level `publicUrl` không cần.
+2. `GET /api/extension/config` không cần.
+3. Idempotency table riêng không cần.

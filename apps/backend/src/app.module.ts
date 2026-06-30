@@ -10,6 +10,7 @@ import { CandidatesModule } from './candidates/candidates.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CvDocumentsModule } from './cv-documents/cv-documents.module';
 import { EvaluationsModule } from './evaluations/evaluations.module';
+import { ExtensionIntegrationModule } from './extension-integration/extension-integration.module';
 import { ExportModule } from './export/export.module';
 import { FileParserModule } from './file-parser/file-parser.module';
 import { JobDescriptionsModule } from './job-descriptions/job-descriptions.module';
@@ -73,6 +74,7 @@ import { WebSocketModule } from './websocket/websocket.module';
     CvDocumentsModule,
     JobDescriptionsModule,
     JobPostingsModule,
+    ExtensionIntegrationModule,
     AiModule,
     UploadsModule,
     NotificationModule,

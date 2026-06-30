@@ -628,3 +628,21 @@ Chỉ bắt đầu code implementation khi:
 - Không có yêu cầu sửa legacy modules.
 
 Nếu một mục chưa xong, tạo task confirm/gap thay vì implement workaround.
+
+## 12. Current backend checkpoint status
+
+Trạng thái checkpoint hiện tại được lưu chi tiết ở `docs/recruitment-phase1/18_extension_integration_backend_checkpoint.md`.
+
+| Batch | Status | Ghi chú |
+| --- | --- | --- |
+| `BE-EXT-00` | DONE | Source verification/conflict resolution đã hoàn tất. |
+| `BE-EXT-01` | DONE | Đã có external reference và idempotency record readiness. |
+| `BE-EXT-02` | DONE | Đã có DTO/enums/contract foundation; dùng `channels`. |
+| `BE-EXT-03` | DONE | Đã có module/controller/service foundation và endpoint thật. |
+| `BE-EXT-04` | DONE | Đã có stable hash utilities và idempotency service foundation. |
+| `BE-EXT-05` | NOT_STARTED | Tạm dừng để xây extension trước. |
+| `BE-EXT-06` | NOT_STARTED | Chưa implement ChannelPosting behavior. |
+| `BE-EXT-07` | NOT_STARTED | Chưa implement audit/safe metadata. |
+| `BE-EXT-08` | NOT_STARTED | Chưa implement success response thật. |
+| `BE-EXT-09` | LATER | CORS/env/auth-token extension origin để sau. |
+| `BE-EXT-10` | PARTIAL | Chỉ mới compile/hash utility verification; chưa runtime sync success. |
