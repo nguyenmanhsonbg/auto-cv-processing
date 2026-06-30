@@ -5,7 +5,10 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
-import { ImportFacebookSessionDto } from './dto/facebook-publish.dto';
+import {
+  ImportFacebookSessionDto,
+  ResetFacebookSessionForTestingDto,
+} from './dto/facebook-publish.dto';
 import { FacebookSessionService } from './facebook-session.service';
 
 @ApiTags('Facebook Integrations')
@@ -53,6 +56,18 @@ export class FacebookPublishingController {
     return {
       success: true,
       data: await this.sessionService.importStorageState(dto.sessionOwnerKey, dto.storageState),
+      meta: this.meta(),
+    };
+  }
+
+  @Post('session/test-reset')
+  @ApiOperation({
+    summary: 'Temporary test-only reset for Facebook RPA login session',
+  })
+  async resetSessionForTesting(@Body() dto: ResetFacebookSessionForTestingDto) {
+    return {
+      success: true,
+      data: await this.sessionService.resetForTesting(dto.confirm),
       meta: this.meta(),
     };
   }

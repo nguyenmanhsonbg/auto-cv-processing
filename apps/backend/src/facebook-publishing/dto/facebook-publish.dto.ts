@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  Equals,
   IsArray,
   IsObject,
   IsOptional,
@@ -76,4 +77,14 @@ export class ImportFacebookSessionDto {
   })
   @IsObject()
   storageState: Record<string, unknown>;
+}
+
+export class ResetFacebookSessionForTestingDto {
+  @ApiProperty({
+    example: 'RESET_FACEBOOK_SESSION_FOR_TEST',
+    description: 'Explicit confirmation for the temporary test-only Facebook RPA session reset.',
+  })
+  @IsString()
+  @Equals('RESET_FACEBOOK_SESSION_FOR_TEST')
+  confirm: string;
 }

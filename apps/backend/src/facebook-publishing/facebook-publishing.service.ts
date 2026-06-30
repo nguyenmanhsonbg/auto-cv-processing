@@ -17,6 +17,7 @@ import {
 import { FacebookPostContentService } from './content/facebook-post-content.service';
 import { FacebookPageClient } from './page/facebook-page.client';
 import { FacebookGroupRpaClient } from './rpa/facebook-group-rpa.client';
+import { FacebookSessionService } from './facebook-session.service';
 
 @Injectable()
 export class FacebookPublishingService {
@@ -29,6 +30,7 @@ export class FacebookPublishingService {
     private readonly contentService: FacebookPostContentService,
     private readonly pageClient: FacebookPageClient,
     private readonly groupRpaClient: FacebookGroupRpaClient,
+    private readonly sessionService: FacebookSessionService,
   ) {}
 
   async publishJobPosting(
@@ -51,10 +53,36 @@ export class FacebookPublishingService {
       };
     }
 
+    const sessionStatus = await this.sessionService.ensureReadyForPublish();
+    if (!sessionStatus.ready) {
+      const results = targets.map((target) => this.failedTargetResult(target, sessionStatus.message));
+      for (const [index, target] of targets.entries()) {
+        await this.saveHistory(posting, target, content, results[index]);
+      }
+
+      return {
+        success: false,
+        totalTargets: targets.length,
+        successCount: 0,
+        failedCount: targets.length,
+        skippedCount: 0,
+        status: ChannelPostingStatus.PUBLISH_FAILED,
+        message: sessionStatus.message,
+        results,
+      };
+    }
+
     const results: FacebookPublishResultItem[] = [];
     for (let index = 0; index < targets.length; index += 1) {
       const target = targets[index];
-      const result = await this.publishToTarget(target, content);
+      let result = await this.publishToTarget(target, content);
+      if (this.isFacebookSessionProblem(result)) {
+        const refreshedSession = await this.sessionService.ensureReadyForPublish({ forceLogin: true });
+        result = refreshedSession.ready
+          ? await this.publishToTarget(target, content)
+          : this.failedTargetResult(target, refreshedSession.message);
+      }
+
       results.push(result);
       await this.saveHistory(posting, target, content, result);
 
@@ -77,6 +105,26 @@ export class FacebookPublishingService {
       status,
       results,
     };
+  }
+
+  private failedTargetResult(
+    target: ResolvedFacebookPublishTarget,
+    message: string,
+  ): FacebookPublishResultItem {
+    return {
+      targetType: target.targetType,
+      targetName: target.targetName,
+      targetUrl: target.targetUrl ?? null,
+      targetId: target.targetId ?? null,
+      status: FacebookPublishResultStatus.FAILED,
+      message,
+      externalPostId: null,
+    };
+  }
+
+  private isFacebookSessionProblem(result: FacebookPublishResultItem) {
+    if (result.status !== FacebookPublishResultStatus.FAILED) return false;
+    return /session is not ready|session expired|checkpoint|login facebook|please login/i.test(result.message);
   }
 
   async getLatestJobPostingSummary(jobPostingId: string): Promise<FacebookPublishSummary | null> {

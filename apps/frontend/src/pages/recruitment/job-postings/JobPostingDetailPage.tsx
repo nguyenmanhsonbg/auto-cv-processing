@@ -163,6 +163,7 @@ export function JobPostingDetailPage() {
   const [selectedChannels, setSelectedChannels] = useState<string[]>(['VCS_PORTAL']);
   const [publishNote, setPublishNote] = useState('');
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishInfo, setPublishInfo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [closing, setClosing] = useState(false);
 
@@ -248,6 +249,11 @@ export function JobPostingDetailPage() {
 
     setSubmitting(true);
     setPublishError(null);
+    setPublishInfo(
+      selectedChannels.includes('FACEBOOK')
+        ? 'Facebook login browser will open automatically if the session needs renewal. Publishing continues after login is detected.'
+        : null,
+    );
 
     try {
       await publishJobPosting(
@@ -261,8 +267,10 @@ export function JobPostingDetailPage() {
       toast({ title: 'Job posting publish requested' });
       setPublishOpen(false);
       setPublishNote('');
+      setPublishInfo(null);
       await reload();
     } catch (err) {
+      setPublishInfo(null);
       toast({
         title: 'Publish failed',
         description: getInternalSafeErrorMessage(err),
@@ -516,7 +524,10 @@ export function JobPostingDetailPage() {
         open={publishOpen}
         onOpenChange={(open) => {
           setPublishOpen(open);
-          if (!open) setPublishError(null);
+          if (!open) {
+            setPublishError(null);
+            setPublishInfo(null);
+          }
         }}
       >
         <DialogContent>
@@ -546,6 +557,7 @@ export function JobPostingDetailPage() {
                 ))}
               </div>
               {publishError && <p className="text-sm text-destructive">{publishError}</p>}
+              {publishInfo && <p className="text-sm text-muted-foreground">{publishInfo}</p>}
             </div>
 
             <div className="space-y-2">
@@ -570,7 +582,11 @@ export function JobPostingDetailPage() {
               </Button>
               <Button type="submit" disabled={submitting}>
                 <CheckCircle className="mr-2 h-4 w-4" />
-                {submitting ? 'Publishing...' : 'Publish'}
+                {submitting && selectedChannels.includes('FACEBOOK')
+                  ? 'Publishing / waiting for Facebook...'
+                  : submitting
+                    ? 'Publishing...'
+                    : 'Publish'}
               </Button>
             </div>
           </form>
