@@ -20,6 +20,7 @@ import { WorkflowStateModule } from '../workflow-state/workflow-state.module';
 import { ApplicationsController } from './applications.controller';
 import { ApplicationSourceEntity } from './entities/application-source.entity';
 import { ApplicationEntity } from './entities/application.entity';
+import { DuplicateCheckEntity } from './entities/duplicate-check.entity';
 import { ApplicationSourcesService } from './application-sources.service';
 import { ApplicationsService } from './applications.service';
 
@@ -32,6 +33,7 @@ import { ApplicationsService } from './applications.service';
       ApplicationSourceEntity,
       AuditLogEntity,
       CandidateEntity,
+      DuplicateCheckEntity,
       CvDocumentEntity,
       FormAnswerEntity,
       FormSessionEntity,

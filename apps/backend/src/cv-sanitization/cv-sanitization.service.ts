@@ -366,6 +366,8 @@ export class CvSanitizationService {
         sanitizedAt: sanitizeResult.sanitizedAt.toISOString(),
         durationMs: sanitizeResult.durationMs,
         reasonCode: sanitizeResult.reasonCode ?? 'CV_SANITIZE_FAILED',
+        manualReviewRequired: true,
+        retryAllowed: true,
         idempotencyKeyHash,
       };
 

@@ -31,6 +31,7 @@ import { JobPostingEntity } from '../../job-postings/entities/job-posting.entity
 import { MappingResultEntity } from '../../mapping/entities/mapping-result.entity';
 import { WorkflowEventEntity } from '../../workflow-state/entities/workflow-event.entity';
 import { ApplicationSourceEntity } from './application-source.entity';
+import { DuplicateCheckEntity } from './duplicate-check.entity';
 
 @Entity('applications')
 @Index('IDX_applications_status', ['status'])
@@ -123,6 +124,9 @@ export class ApplicationEntity {
 
   @OneToMany(() => ApplicationSourceEntity, (source) => source.application)
   sources: ApplicationSourceEntity[];
+
+  @OneToMany(() => DuplicateCheckEntity, (duplicateCheck) => duplicateCheck.application)
+  duplicateChecks: DuplicateCheckEntity[];
 
   @Column({ name: 'mapping_status', type: 'varchar', nullable: true })
   mappingStatus: MappingStatus | null;

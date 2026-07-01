@@ -25,7 +25,11 @@ import { StubCvMalwareScanner } from './scanner/stub-cv-malware-scanner';
     CvSanitizationService,
     {
       provide: CV_MALWARE_SCANNER,
-      useClass: StubCvMalwareScanner,
+      useFactory: () => {
+        const provider = (process.env.CV_SCANNER_PROVIDER ?? 'stub').trim().toLowerCase();
+        if (provider === 'stub') return new StubCvMalwareScanner();
+        throw new Error(`Unsupported CV_SCANNER_PROVIDER: ${provider}`);
+      },
     },
     {
       provide: CLEAN_CV_SANITIZER,

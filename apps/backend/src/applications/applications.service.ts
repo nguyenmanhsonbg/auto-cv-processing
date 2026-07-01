@@ -1,6 +1,13 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CandidateLevel, PaginatedResponse } from '@interview-assistant/shared';
+import { createHash } from 'crypto';
 import slugify from 'slugify';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
@@ -12,6 +19,8 @@ import {
   ApplicationSourceType,
   ApplicationStatus,
   CvDocumentType,
+  DuplicateCheckStatus,
+  DuplicateCheckType,
   JobDescriptionStatus,
   JobDescriptionVersionStatus,
   JobPostingStatus,
@@ -21,6 +30,7 @@ import { WorkflowStateService } from '../workflow-state/workflow-state.service';
 import { ApplicationSourcesService } from './application-sources.service';
 import { ApplicationSourceEntity } from './entities/application-source.entity';
 import { ApplicationEntity } from './entities/application.entity';
+import { DuplicateCheckEntity } from './entities/duplicate-check.entity';
 
 export interface ApplicationCandidateInput {
   candidateId?: string;
@@ -87,6 +97,14 @@ export interface OverrideApplicationStatusResult {
   previousStatus: ApplicationStatus;
   status: ApplicationStatus;
   workflowEventId: string;
+}
+
+export interface PublicApplyRateLimitInput {
+  jobPostingId: string;
+  email?: string | null;
+  phone?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
 }
 
 @Injectable()
@@ -339,6 +357,100 @@ export class ApplicationsService {
     });
   }
 
+  async assertPublicApplyRateLimit(input: PublicApplyRateLimitInput) {
+    const jobPostingId = this.requireText(input.jobPostingId, 'Job posting id');
+    const emailHash = this.hashOptional(this.normalizeEmail(input.email));
+    const phoneHash = this.hashOptional(this.optionalText(input.phone));
+    const ipAddress = this.optionalText(input.ipAddress);
+    const oneMinuteAgo = new Date(Date.now() - 60_000);
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    if (ipAddress) {
+      const attemptsByIp = await this.auditLogsRepo
+        .createQueryBuilder('auditLog')
+        .where('auditLog.action = :action', { action: 'PUBLIC_APPLY_RECEIVED' })
+        .andWhere('auditLog.createdAt >= :since', { since: oneMinuteAgo })
+        .andWhere("auditLog.metadata ->> 'jobPostingId' = :jobPostingId", { jobPostingId })
+        .andWhere('auditLog.ipAddress = :ipAddress', { ipAddress })
+        .getCount();
+
+      if (attemptsByIp >= 20) {
+        await this.recordPublicRateLimitRejected(input, 'IP_PER_MINUTE', attemptsByIp);
+        throw new HttpException(
+          {
+            code: 'UPLOAD_RATE_LIMIT_EXCEEDED',
+            message: 'Too many application attempts. Please try again later.',
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+
+    if (emailHash || phoneHash) {
+      const identityQb = this.auditLogsRepo
+        .createQueryBuilder('auditLog')
+        .where('auditLog.action = :action', { action: 'PUBLIC_APPLY_RECEIVED' })
+        .andWhere('auditLog.createdAt >= :since', { since: oneDayAgo })
+        .andWhere("auditLog.metadata ->> 'jobPostingId' = :jobPostingId", { jobPostingId });
+
+      if (emailHash && phoneHash) {
+        identityQb.andWhere(
+          `(
+            auditLog.metadata ->> 'emailHash' = :emailHash
+            OR auditLog.metadata ->> 'phoneHash' = :phoneHash
+          )`,
+          { emailHash, phoneHash },
+        );
+      } else if (emailHash) {
+        identityQb.andWhere("auditLog.metadata ->> 'emailHash' = :emailHash", { emailHash });
+      } else if (phoneHash) {
+        identityQb.andWhere("auditLog.metadata ->> 'phoneHash' = :phoneHash", { phoneHash });
+      }
+
+      const attemptsByIdentity = await identityQb.getCount();
+      if (attemptsByIdentity >= 5) {
+        await this.recordPublicRateLimitRejected(
+          input,
+          'IDENTITY_PER_JOB_PER_DAY',
+          attemptsByIdentity,
+        );
+        throw new HttpException(
+          {
+            code: 'UPLOAD_RATE_LIMIT_EXCEEDED',
+            message: 'Too many application attempts. Please try again later.',
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+  }
+
+  async recordPublicApplyReceived(input: PublicApplyRateLimitInput) {
+    const jobPostingId = this.requireText(input.jobPostingId, 'Job posting id');
+    const emailHash = this.hashOptional(this.normalizeEmail(input.email));
+    const phoneHash = this.hashOptional(this.optionalText(input.phone));
+    const ipAddress = this.optionalText(input.ipAddress);
+    const userAgent = this.optionalText(input.userAgent);
+
+    await this.auditLogsRepo.save(
+      this.auditLogsRepo.create({
+        applicationId: null,
+        actorType: 'PUBLIC',
+        actorId: null,
+        action: 'PUBLIC_APPLY_RECEIVED',
+        objectType: 'JOB_POSTING',
+        objectId: jobPostingId,
+        ipAddress,
+        userAgent,
+        metadata: {
+          jobPostingId,
+          emailHash,
+          phoneHash,
+        },
+      }),
+    );
+  }
+
   async createOrGetApplication(input: CreateApplicationInput): Promise<CreateApplicationResult> {
     this.assertSupportedSource(input.source);
     const sourceChannel = this.resolveSourceChannel(input.source, input.sourceChannel);
@@ -353,6 +465,7 @@ export class ApplicationsService {
           manager,
         );
         if (existingSource?.application) {
+          this.assertIdempotentApplicationSourceMatches(existingSource, input);
           return {
             application: existingSource.application,
             candidate: existingSource.application.candidate,
@@ -368,6 +481,36 @@ export class ApplicationsService {
 
       const createdById = await this.resolveCreatedById(manager, input.createdById);
       const candidate = await this.resolveCandidate(manager, input, createdById);
+      const duplicateByIdentity = await this.findDuplicateApplicationByIdentity(
+        manager,
+        posting.id,
+        candidate,
+        input.candidate ?? {},
+      );
+      if (duplicateByIdentity) {
+        const applicationSource = await this.resolveDuplicateApplicationSource(
+          manager,
+          duplicateByIdentity.id,
+          input,
+          sourceChannel,
+          externalApplicationId,
+        );
+        await this.recordApplicationDuplicateDetected(
+          manager,
+          duplicateByIdentity,
+          input,
+          sourceChannel,
+          externalApplicationId,
+        );
+
+        return {
+          application: duplicateByIdentity,
+          candidate: duplicateByIdentity.candidate ?? candidate,
+          applicationSource,
+          created: false,
+          duplicate: true,
+        };
+      }
 
       await this.lockApplicationPair(manager, candidate.id, posting.id);
       const existing = await manager.getRepository(ApplicationEntity).findOne({
@@ -382,6 +525,13 @@ export class ApplicationsService {
         const applicationSource = await this.resolveDuplicateApplicationSource(
           manager,
           existing.id,
+          input,
+          sourceChannel,
+          externalApplicationId,
+        );
+        await this.recordApplicationDuplicateDetected(
+          manager,
+          existing,
           input,
           sourceChannel,
           externalApplicationId,
@@ -439,6 +589,84 @@ export class ApplicationsService {
         },
         manager,
       );
+      await this.recordApplicationAuditLog(manager, {
+        applicationId: savedApplication.id,
+        actorType: this.resolveWorkflowActorType(input.source),
+        actorId: createdById,
+        action: 'APPLICATION_SUBMITTED',
+        objectType: 'APPLICATION',
+        objectId: savedApplication.id,
+        metadata: {
+          applicationId: savedApplication.id,
+          applicationSourceId: applicationSource.id,
+          candidateId: candidate.id,
+          jobPostingId: posting.id,
+          jobDescriptionVersionId: posting.jobDescriptionVersionId,
+          source: input.source,
+          sourceChannel,
+        },
+      });
+      await this.recordApplicationAuditLog(manager, {
+        applicationId: savedApplication.id,
+        actorType: this.resolveWorkflowActorType(input.source),
+        actorId: createdById,
+        action: ApplicationStatus.APPLICATION_CREATED,
+        objectType: 'APPLICATION',
+        objectId: savedApplication.id,
+        metadata: {
+          applicationId: savedApplication.id,
+          applicationSourceId: applicationSource.id,
+          candidateId: candidate.id,
+          jobPostingId: posting.id,
+          jobDescriptionVersionId: posting.jobDescriptionVersionId,
+          source: input.source,
+          sourceChannel,
+        },
+      });
+      await this.workflowStateService.recordStatusTransition(
+        {
+          applicationId: savedApplication.id,
+          toStatus: ApplicationStatus.APPLICATION_VALIDATING,
+          expectedFromStatus: ApplicationStatus.APPLICATION_CREATED,
+          eventType: 'APPLICATION_VALIDATING',
+          actorType: this.resolveWorkflowActorType(input.source),
+          actorId: createdById,
+          metadata: {
+            applicationId: savedApplication.id,
+            validationScope: ['candidate_payload', 'job_posting', 'job_description_version'],
+          },
+        },
+        manager,
+      );
+      await this.workflowStateService.recordStatusTransition(
+        {
+          applicationId: savedApplication.id,
+          toStatus: ApplicationStatus.APPLICATION_DUPLICATE_CHECKING,
+          expectedFromStatus: ApplicationStatus.APPLICATION_VALIDATING,
+          eventType: 'APPLICATION_DUPLICATE_CHECKING',
+          actorType: this.resolveWorkflowActorType(input.source),
+          actorId: createdById,
+          metadata: {
+            applicationId: savedApplication.id,
+            checkType: DuplicateCheckType.APPLICATION_DUPLICATE,
+            criteria: ['candidate', 'email', 'phone', 'jobPosting'],
+          },
+        },
+        manager,
+      );
+      await this.recordDuplicateCheck(manager, {
+        applicationId: savedApplication.id,
+        checkType: DuplicateCheckType.APPLICATION_DUPLICATE,
+        status: DuplicateCheckStatus.PASSED,
+        details: {
+          candidateId: candidate.id,
+          jobPostingId: posting.id,
+          jobDescriptionVersionId: posting.jobDescriptionVersionId,
+          sourceChannel,
+          emailHash: this.hashOptional(this.normalizeEmail(candidate.email)),
+          phoneHash: this.hashOptional(this.optionalText(candidate.phone)),
+        },
+      });
 
       return {
         application: savedApplication,
@@ -447,6 +675,229 @@ export class ApplicationsService {
         created: true,
         duplicate: false,
       };
+    });
+  }
+
+  private async recordPublicRateLimitRejected(
+    input: PublicApplyRateLimitInput,
+    reason: string,
+    attemptCount: number,
+  ) {
+    const jobPostingId = this.requireText(input.jobPostingId, 'Job posting id');
+    const emailHash = this.hashOptional(this.normalizeEmail(input.email));
+    const phoneHash = this.hashOptional(this.optionalText(input.phone));
+    const ipAddress = this.optionalText(input.ipAddress);
+    const userAgent = this.optionalText(input.userAgent);
+
+    await this.auditLogsRepo.save(
+      this.auditLogsRepo.create({
+        applicationId: null,
+        actorType: 'PUBLIC',
+        actorId: null,
+        action: ApplicationStatus.APPLICATION_REJECTED_RATE_LIMIT,
+        objectType: 'JOB_POSTING',
+        objectId: jobPostingId,
+        ipAddress,
+        userAgent,
+        metadata: {
+          jobPostingId,
+          reason,
+          attemptCount,
+          emailHash,
+          phoneHash,
+        },
+      }),
+    );
+  }
+
+  private assertIdempotentApplicationSourceMatches(
+    existingSource: ApplicationSourceEntity,
+    input: CreateApplicationInput,
+  ) {
+    const existingPayload = this.asRecord(existingSource.rawPayload);
+    const incomingPayload = this.asRecord(input.rawPayload);
+    const existingJobPostingId = this.recordText(existingPayload, 'jobPostingId');
+    const incomingJobPostingId = this.recordText(incomingPayload, 'jobPostingId') ?? input.jobPostingId;
+
+    if (
+      existingJobPostingId
+      && incomingJobPostingId
+      && existingJobPostingId !== incomingJobPostingId
+    ) {
+      this.throwIdempotencyConflict();
+    }
+
+    const hashKeys = ['candidateEmailHash', 'candidatePhoneHash', 'candidateNameHash'];
+    for (const key of hashKeys) {
+      const existingHash = this.recordText(existingPayload, key);
+      const incomingHash = this.recordText(incomingPayload, key);
+      if (existingHash && incomingHash && existingHash !== incomingHash) {
+        this.throwIdempotencyConflict();
+      }
+    }
+  }
+
+  private async findDuplicateApplicationByIdentity(
+    manager: EntityManager,
+    jobPostingId: string,
+    candidate: CandidateEntity,
+    candidateInput: ApplicationCandidateInput,
+  ) {
+    const email = this.normalizeEmail(candidateInput.email) ?? this.normalizeEmail(candidate.email);
+    const phone = this.optionalText(candidateInput.phone) ?? this.optionalText(candidate.phone);
+    const conditions = ['application.candidateId = :candidateId'];
+    const params: Record<string, string> = {
+      candidateId: candidate.id,
+      jobPostingId,
+    };
+
+    if (email) {
+      conditions.push('LOWER(candidate.email) = :email');
+      params.email = email;
+    }
+    if (phone) {
+      conditions.push('candidate.phone = :phone');
+      params.phone = phone;
+    }
+
+    return manager
+      .getRepository(ApplicationEntity)
+      .createQueryBuilder('application')
+      .leftJoinAndSelect('application.candidate', 'candidate')
+      .leftJoinAndSelect('application.jobPosting', 'jobPosting')
+      .leftJoinAndSelect('application.jobDescriptionVersion', 'jobDescriptionVersion')
+      .where('application.jobPostingId = :jobPostingId', { jobPostingId })
+      .andWhere(`(${conditions.join(' OR ')})`, params)
+      .orderBy('application.createdAt', 'ASC')
+      .getOne();
+  }
+
+  private async recordApplicationDuplicateDetected(
+    manager: EntityManager,
+    matchedApplication: ApplicationEntity,
+    input: CreateApplicationInput,
+    sourceChannel: RecruitmentChannel | null,
+    externalApplicationId: string | null,
+  ) {
+    const candidateInput = input.candidate ?? {};
+    const email = this.normalizeEmail(candidateInput.email)
+      ?? this.normalizeEmail(matchedApplication.candidate?.email);
+    const phone = this.optionalText(candidateInput.phone)
+      ?? this.optionalText(matchedApplication.candidate?.phone);
+    const actorType = this.resolveWorkflowActorType(input.source);
+    const actorId = this.optionalText(input.createdById);
+
+    await this.recordDuplicateCheck(manager, {
+      applicationId: matchedApplication.id,
+      checkType: DuplicateCheckType.APPLICATION_DUPLICATE,
+      status: DuplicateCheckStatus.DUPLICATE_FOUND,
+      matchedEntityType: 'APPLICATION',
+      matchedEntityId: matchedApplication.id,
+      details: {
+        matchedApplicationId: matchedApplication.id,
+        candidateId: matchedApplication.candidateId,
+        jobPostingId: matchedApplication.jobPostingId,
+        jobDescriptionVersionId: matchedApplication.jobDescriptionVersionId,
+        source: input.source,
+        sourceChannel,
+        externalApplicationId,
+        emailHash: this.hashOptional(email),
+        phoneHash: this.hashOptional(phone),
+      },
+    });
+    await this.workflowStateService.recordEvent(
+      {
+        applicationId: matchedApplication.id,
+        fromStatus: matchedApplication.status,
+        toStatus: matchedApplication.status,
+        eventType: ApplicationStatus.APPLICATION_DUPLICATE_FOUND,
+        actorType,
+        actorId,
+        metadata: {
+          matchedApplicationId: matchedApplication.id,
+          checkType: DuplicateCheckType.APPLICATION_DUPLICATE,
+          source: input.source,
+          sourceChannel,
+        },
+      },
+      manager,
+    );
+    await this.recordApplicationAuditLog(manager, {
+      applicationId: matchedApplication.id,
+      actorType,
+      actorId,
+      action: ApplicationStatus.APPLICATION_DUPLICATE_FOUND,
+      objectType: 'APPLICATION',
+      objectId: matchedApplication.id,
+      metadata: {
+        matchedApplicationId: matchedApplication.id,
+        checkType: DuplicateCheckType.APPLICATION_DUPLICATE,
+        source: input.source,
+        sourceChannel,
+        emailHash: this.hashOptional(email),
+        phoneHash: this.hashOptional(phone),
+      },
+    });
+  }
+
+  private async recordDuplicateCheck(
+    manager: EntityManager,
+    input: {
+      applicationId: string;
+      checkType: DuplicateCheckType;
+      status: DuplicateCheckStatus;
+      matchedEntityType?: string | null;
+      matchedEntityId?: string | null;
+      score?: string | null;
+      details?: Record<string, unknown> | null;
+    },
+  ) {
+    await manager.getRepository(DuplicateCheckEntity).save(
+      manager.getRepository(DuplicateCheckEntity).create({
+        applicationId: input.applicationId,
+        checkType: input.checkType,
+        status: input.status,
+        matchedEntityType: input.matchedEntityType ?? null,
+        matchedEntityId: input.matchedEntityId ?? null,
+        score: input.score ?? null,
+        details: input.details ?? null,
+      }),
+    );
+  }
+
+  private async recordApplicationAuditLog(
+    manager: EntityManager,
+    input: {
+      applicationId: string | null;
+      actorType: string;
+      actorId?: string | null;
+      action: string;
+      objectType: string;
+      objectId?: string | null;
+      metadata?: Record<string, unknown> | null;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+    },
+  ) {
+    await manager.getRepository(AuditLogEntity).save(
+      manager.getRepository(AuditLogEntity).create({
+        applicationId: input.applicationId,
+        actorType: input.actorType,
+        actorId: this.optionalText(input.actorId),
+        action: input.action,
+        objectType: input.objectType,
+        objectId: input.objectId ?? null,
+        metadata: input.metadata ?? null,
+        ipAddress: this.optionalText(input.ipAddress),
+        userAgent: this.optionalText(input.userAgent),
+      }),
+    );
+  }
+
+  private throwIdempotencyConflict(): never {
+    throw new ConflictException({
+      code: 'IDEMPOTENCY_CONFLICT',
+      message: 'Idempotency key was already used with different application data.',
     });
   }
 
@@ -533,7 +984,8 @@ export class ApplicationsService {
       throw new BadRequestException('Candidate email or phone is required');
     }
 
-    await this.lockCandidateLookup(manager, email ? `email:${email}` : `phone:${phone}`);
+    if (email) await this.lockCandidateLookup(manager, `email:${email}`);
+    if (phone) await this.lockCandidateLookup(manager, `phone:${phone}`);
     const existing = await this.findExistingCandidate(manager, email, phone);
     if (existing) {
       return this.mergeCandidateProfile(manager, existing, candidateInput);
@@ -548,7 +1000,12 @@ export class ApplicationsService {
     phone: string | null,
   ) {
     const qb = manager.getRepository(CandidateEntity).createQueryBuilder('candidate');
-    if (email) {
+    if (email && phone) {
+      qb.where('(LOWER(candidate.email) = :email OR candidate.phone = :phone)', {
+        email,
+        phone,
+      });
+    } else if (email) {
       qb.where('LOWER(candidate.email) = :email', { email });
     } else if (phone) {
       qb.where('candidate.phone = :phone', { phone });
@@ -774,6 +1231,22 @@ export class ApplicationsService {
   private optionalText(value?: string | null) {
     const normalized = value?.trim();
     return normalized || null;
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return value as Record<string, unknown>;
+  }
+
+  private recordText(record: Record<string, unknown> | null, key: string) {
+    const value = record?.[key];
+    return typeof value === 'string' ? this.optionalText(value) : null;
+  }
+
+  private hashOptional(value?: string | null) {
+    const normalized = this.optionalText(value);
+    if (!normalized) return null;
+    return createHash('sha256').update(normalized).digest('hex');
   }
 
   private async createUniqueCandidateSlug(manager: EntityManager, name: string) {
