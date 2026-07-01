@@ -35,6 +35,7 @@ interface NormalizedApiError {
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
+    console.error('[ApiExceptionFilter] Caught exception:', exception);
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
     const request = context.getRequest<Request>();

@@ -472,7 +472,8 @@ export function JobDescriptionDetailPage() {
             </CardContent>
           </Card>
 
-          <StructuredSection title="Description" value={jobDescription.description} />
+          <StructuredSection title="Mô tả tóm tắt" value={jobDescription.summary} />
+          <StructuredSection title="Mô tả chung về công việc" value={jobDescription.description} />
           <StructuredSection title="Requirements" value={jobDescription.requirements} />
           <StructuredSection title="Benefits" value={jobDescription.benefits} />
         </>

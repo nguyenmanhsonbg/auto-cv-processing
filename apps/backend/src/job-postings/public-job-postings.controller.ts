@@ -54,6 +54,7 @@ import { JobPostingsService } from './job-postings.service';
 
 interface PublicJobDescriptionSnapshot extends Record<string, unknown> {
   jobDescription?: {
+    summary?: unknown;
     description?: unknown;
     requirements?: unknown;
     benefits?: unknown;
@@ -96,6 +97,7 @@ const publicJobPostingSchema = {
     title: { type: 'string' },
     status: { type: 'string', example: JobPostingStatus.PUBLISHED },
     publicSlug: { type: 'string' },
+    summary: { type: 'string' },
     description: { type: 'string' },
     requirements: { type: 'object', additionalProperties: true },
     benefits: { type: 'object', nullable: true, additionalProperties: true },
@@ -311,6 +313,9 @@ export class PublicJobPostingsController {
       title: posting.title,
       status: JobPostingStatus.PUBLISHED,
       publicSlug: posting.publicSlug,
+      summary: this.asString(jobDescription?.summary)
+        ?? posting.jobDescription?.summary
+        ?? '',
       description: this.asString(jobDescription?.description)
         ?? posting.jobDescription?.description
         ?? '',

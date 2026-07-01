@@ -46,6 +46,7 @@ export interface JobDescriptionRecord {
   position?: RecruitmentRelationSummary | null;
   levelId?: string | null;
   level?: RecruitmentRelationSummary | null;
+  summary?: string | null;
   description?: string | null;
   requirements?: unknown;
   benefits?: unknown;
@@ -84,6 +85,7 @@ export interface JobDescriptionPayload {
   title: string;
   positionId?: string | null;
   levelId?: string | null;
+  summary: string;
   description: string;
   requirements: Record<string, unknown>;
   benefits?: Record<string, unknown> | null;

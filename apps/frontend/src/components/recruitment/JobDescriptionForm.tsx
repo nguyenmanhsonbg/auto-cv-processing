@@ -33,6 +33,7 @@ interface JobDescriptionFormProps {
 
 interface FormErrors {
   title?: string;
+  summary?: string;
   description?: string;
   requirements?: string;
   benefits?: string;
@@ -131,6 +132,7 @@ export function JobDescriptionForm({
   const [title, setTitle] = useState('');
   const [positionId, setPositionId] = useState('');
   const [levelId, setLevelId] = useState('');
+  const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
   const [requirements, setRequirements] = useState('');
   const [benefits, setBenefits] = useState('');
@@ -140,6 +142,7 @@ export function JobDescriptionForm({
     setTitle(initialValue?.title ?? '');
     setPositionId(initialValue?.positionId ?? '');
     setLevelId(initialValue?.levelId ?? '');
+    setSummary(initialValue?.summary ?? '');
     setDescription(initialValue?.description ?? '');
     setRequirements(structuredValueToText(initialValue?.requirements));
     setBenefits(structuredValueToText(initialValue?.benefits));
@@ -162,12 +165,17 @@ export function JobDescriptionForm({
 
     const nextErrors: FormErrors = {};
     const normalizedTitle = title.trim();
+    const normalizedSummary = summary.trim();
     const normalizedDescription = description.trim();
     const parsedRequirements = parseStructuredObject(requirements, 'Requirements', true);
     const parsedBenefits = parseStructuredObject(benefits, 'Benefits', false);
 
     if (!normalizedTitle) nextErrors.title = 'Title is required.';
-    if (!normalizedDescription) nextErrors.description = 'Description is required.';
+    if (!normalizedSummary) nextErrors.summary = 'Mô tả tóm tắt là bắt buộc.';
+    if (normalizedSummary.length > 500) {
+      nextErrors.summary = 'Mô tả tóm tắt công việc tối đa 500 ký tự.';
+    }
+    if (!normalizedDescription) nextErrors.description = 'Mô tả chung về công việc là bắt buộc.';
     if (parsedRequirements.error) nextErrors.requirements = parsedRequirements.error;
     if (parsedBenefits.error) nextErrors.benefits = parsedBenefits.error;
 
@@ -178,6 +186,7 @@ export function JobDescriptionForm({
       title: normalizedTitle,
       positionId: positionId.trim() || null,
       levelId: levelId.trim() || null,
+      summary: normalizedSummary,
       description: normalizedDescription,
       requirements: parsedRequirements.value,
       benefits: parsedBenefits.value ?? null,
@@ -262,12 +271,30 @@ export function JobDescriptionForm({
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="jd-description">Description</Label>
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="jd-summary">Mô tả tóm tắt</Label>
+          <span className="text-xs text-muted-foreground">{summary.length}/500</span>
+        </div>
+        <Textarea
+          id="jd-summary"
+          value={summary}
+          onChange={(event) => setSummary(event.target.value)}
+          rows={3}
+          maxLength={500}
+          placeholder="Mô tả tóm tắt công việc tối đa 500 ký tự"
+          disabled={submitting}
+        />
+        {errors.summary && <p className="text-sm text-destructive">{errors.summary}</p>}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="jd-description">Mô tả chung về công việc</Label>
         <Textarea
           id="jd-description"
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           rows={5}
+          placeholder="Nói về những công việc mà vị trí đang đảm nhận"
           disabled={submitting}
         />
         {errors.description && <p className="text-sm text-destructive">{errors.description}</p>}

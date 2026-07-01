@@ -1,15 +1,36 @@
 import { appendAmisDiagnostic } from './amis-diagnostics-store';
-import { AMIS_SAVE_RECRUITMENT_PATH, isAmisSaveRecruitmentUrl, mapAmisSaveRecruitmentResponse } from './amis-api-mapper';
-import type { AmisExtractionResult } from './types';
+import {
+  AMIS_CAREER_DATA_PAGING_PATH,
+  AMIS_SAVE_RECRUITMENT_PATH,
+  isAmisCareerDataPagingUrl,
+  isAmisSaveRecruitmentUrl,
+  mapAmisCareerDataPagingResponse,
+  mapAmisSaveRecruitmentResponse,
+} from './amis-api-mapper';
+import type { AmisCareerItem, AmisExtractionResult } from './types';
 
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
 
 type CaptureHandler = (capture: AmisExtractionResult, sender: ChromeMessageSender) => void | Promise<void>;
+type CareerCaptureHandler = (capture: AmisCareerCapture, sender: ChromeMessageSender) => void | Promise<void>;
 
 interface PendingSaveRequest {
   tabId: number;
   requestUrl: string;
   pageUrl: string;
+}
+
+interface PendingCareerRequest {
+  tabId: number;
+  requestUrl: string;
+  pageUrl: string;
+}
+
+export interface AmisCareerCapture {
+  sourceUrl: string;
+  pageUrl: string;
+  items: AmisCareerItem[];
+  rawCount: number;
 }
 
 interface NetworkResponseReceivedParams {
@@ -32,12 +53,15 @@ interface NetworkGetResponseBodyResult {
 
 const attachedTabs = new Set<number>();
 const pendingSaveRequests = new Map<string, PendingSaveRequest>();
+const pendingCareerRequests = new Map<string, PendingCareerRequest>();
 const tabPageUrls = new Map<number, string>();
 let captureHandler: CaptureHandler | null = null;
+let careerCaptureHandler: CareerCaptureHandler | null = null;
 let listenersInstalled = false;
 
-export function installAmisDebuggerCapture(handler: CaptureHandler) {
+export function installAmisDebuggerCapture(handler: CaptureHandler, careerHandler?: CareerCaptureHandler) {
   captureHandler = handler;
+  careerCaptureHandler = careerHandler ?? null;
   if (listenersInstalled) return;
   listenersInstalled = true;
 
@@ -91,7 +115,7 @@ export async function ensureAmisDebuggerAttached(tab: ChromeMessageSender['tab']
       timestamp: new Date().toISOString(),
       details: {
         protocolVersion: DEBUGGER_PROTOCOL_VERSION,
-        watchedPath: AMIS_SAVE_RECRUITMENT_PATH,
+        watchedPaths: [AMIS_SAVE_RECRUITMENT_PATH, AMIS_CAREER_DATA_PAGING_PATH],
       },
     });
   } catch (error) {
@@ -126,9 +150,31 @@ async function handleDebuggerEvent(
 function handleResponseReceived(tabId: number, params?: NetworkResponseReceivedParams) {
   const requestId = params?.requestId;
   const requestUrl = params?.response?.url;
-  if (!requestId || !requestUrl || !isAmisSaveRecruitmentUrl(requestUrl)) return;
+  if (!requestId || !requestUrl) return;
 
   const pageUrl = tabPageUrls.get(tabId) ?? requestUrl;
+  if (isAmisCareerDataPagingUrl(requestUrl)) {
+    pendingCareerRequests.set(requestId, {
+      tabId,
+      requestUrl,
+      pageUrl,
+    });
+
+    void appendAmisDiagnostic({
+      type: 'DEBUGGER_CAREER_RESPONSE_SEEN',
+      pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl,
+      details: {
+        status: params.response?.status,
+        mimeType: params.response?.mimeType,
+      },
+    });
+    return;
+  }
+
+  if (!isAmisSaveRecruitmentUrl(requestUrl)) return;
+
   pendingSaveRequests.set(requestId, {
     tabId,
     requestUrl,
@@ -152,9 +198,23 @@ async function handleLoadingFinished(tabId: number, params?: NetworkLoadingFinis
   if (!requestId) return;
 
   const pending = pendingSaveRequests.get(requestId);
-  if (!pending || pending.tabId !== tabId) return;
-  pendingSaveRequests.delete(requestId);
+  if (pending && pending.tabId === tabId) {
+    pendingSaveRequests.delete(requestId);
+    await handleSaveLoadingFinished(tabId, requestId, pending);
+    return;
+  }
 
+  const pendingCareer = pendingCareerRequests.get(requestId);
+  if (!pendingCareer || pendingCareer.tabId !== tabId) return;
+  pendingCareerRequests.delete(requestId);
+  await handleCareerLoadingFinished(tabId, requestId, pendingCareer);
+}
+
+async function handleSaveLoadingFinished(
+  tabId: number,
+  requestId: string,
+  pending: PendingSaveRequest,
+) {
   try {
     const responseBody = await debuggerSendCommand<NetworkGetResponseBodyResult>(
       { tabId },
@@ -211,9 +271,73 @@ async function handleLoadingFinished(tabId: number, params?: NetworkLoadingFinis
   }
 }
 
+async function handleCareerLoadingFinished(
+  tabId: number,
+  requestId: string,
+  pending: PendingCareerRequest,
+) {
+  try {
+    const responseBody = await debuggerSendCommand<NetworkGetResponseBodyResult>(
+      { tabId },
+      'Network.getResponseBody',
+      { requestId },
+    );
+    const bodyText = decodeResponseBody(responseBody);
+    const responseJson = parseJsonText(bodyText);
+    const items = mapAmisCareerDataPagingResponse(responseJson);
+
+    if (items.length === 0) {
+      await appendAmisDiagnostic({
+        type: 'CAREER_RESPONSE_UNMAPPED',
+        pageUrl: pending.pageUrl,
+        timestamp: new Date().toISOString(),
+        requestUrl: pending.requestUrl,
+        details: describePayloadShape(responseJson),
+      });
+      return;
+    }
+
+    await appendAmisDiagnostic({
+      type: 'CAREER_CAPTURE_PUBLISHED',
+      pageUrl: pending.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: pending.requestUrl,
+      details: {
+        source: 'debugger',
+        itemCount: items.length,
+        organizationUnitId: items.find((item) => item.organizationUnitId)?.organizationUnitId,
+      },
+    });
+
+    await careerCaptureHandler?.({
+      sourceUrl: pending.requestUrl,
+      pageUrl: pending.pageUrl,
+      items,
+      rawCount: items.length,
+    }, {
+      tab: {
+        id: tabId,
+        url: pending.pageUrl,
+      },
+    });
+  } catch (error) {
+    await appendAmisDiagnostic({
+      type: 'DEBUGGER_GET_BODY_FAILED',
+      pageUrl: pending.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: pending.requestUrl,
+      details: { message: toErrorMessage(error), captureType: 'career' },
+    });
+  }
+}
+
 function removePendingRequestsForTab(tabId: number) {
   for (const [requestId, request] of pendingSaveRequests.entries()) {
     if (request.tabId === tabId) pendingSaveRequests.delete(requestId);
+  }
+
+  for (const [requestId, request] of pendingCareerRequests.entries()) {
+    if (request.tabId === tabId) pendingCareerRequests.delete(requestId);
   }
 }
 

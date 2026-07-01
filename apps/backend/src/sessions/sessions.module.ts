@@ -13,6 +13,7 @@ import { SubmissionsModule } from '../submissions/submissions.module';
 import { CategoriesModule } from '../categories/categories.module';
 import { PositionsModule } from '../positions/positions.module';
 import { LevelsModule } from '../levels/levels.module';
+import { AmisCareerEntity } from '../extension-integration/entities';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { LevelsModule } from '../levels/levels.module';
       SessionQuestionEntity,
       AntiCheatEventEntity,
       SessionSurveyQuestionEntity,
+      AmisCareerEntity,
     ]),
     AiModule,
     CandidatesModule,

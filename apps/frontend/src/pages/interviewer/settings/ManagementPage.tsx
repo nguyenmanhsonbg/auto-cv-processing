@@ -25,13 +25,25 @@ import Editor from '@monaco-editor/react';
 import { cn } from '@/lib/utils';
 import { useAuthContext } from '@/lib/auth-context';
 
+interface AmisCareer {
+  id: string;
+  amisCareerId: string;
+  name: string;
+  description: string | null;
+  organizationUnitId: string | null;
+  organizationUnitName: string | null;
+  usageStatus: number | null;
+  questionCategoryNames: string[];
+  isActive: boolean;
+  lastSyncedAt: string;
+}
 interface Position { id: string; name: string; description: string | null; isActive: boolean; isCustomized?: boolean; createdAt?: string }
 interface Category { id: string; name: string; displayName: string; description: string | null; orderIndex: number; isCustomized?: boolean; positions?: string[] | null }
 interface SubCategory { id: string; categoryId: string; name: string; orderIndex: number; competencyType?: string; isCustomized?: boolean }
 
 // ── Positions tab ──────────────────────────────────────────────────────────
 
-function PositionsTab() {
+export function PositionsTab() {
   const [result, setResult] = useState<PaginatedResponse<Position>>({ data: [], total: 0, page: 1, limit: 20, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -216,6 +228,211 @@ function PositionsTab() {
 }
 
 // ── Categories tree tab ────────────────────────────────────────────────────
+
+function AmisCareersTab() {
+  const [careers, setCareers] = useState<AmisCareer[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [mappingOpen, setMappingOpen] = useState(false);
+  const [editingCareer, setEditingCareer] = useState<AmisCareer | null>(null);
+  const [selectedCategoryNames, setSelectedCategoryNames] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [sortBy, setSortBy] = useState('name');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('ASC');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(searchTimer.current);
+  }, [search]);
+
+  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, sortBy, sortOrder]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [careerRows, categoryRows] = await Promise.all([
+        apiClient.get<AmisCareer[]>('/extension/amis/careers'),
+        apiClient.get<Category[]>('/categories').catch(() => [] as Category[]),
+      ]);
+      setCareers(Array.isArray(careerRows) ? careerRows : []);
+      setCategories(Array.isArray(categoryRows) ? categoryRows : []);
+    } catch (err) {
+      toast({ title: 'Failed to load AMIS careers', description: err instanceof Error ? err.message : 'Error', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSort = (field: string, order: SortOrder) => { setSortBy(field); setSortOrder(order); };
+
+  const filteredCareers = careers
+    .filter((career) => {
+      const query = debouncedSearch.trim().toLowerCase();
+      if (!query) return true;
+      return [career.name, career.amisCareerId, career.organizationUnitName ?? '', career.organizationUnitId ?? '']
+        .some((value) => value.toLowerCase().includes(query));
+    })
+    .filter((career) => statusFilter.length === 0 || statusFilter.includes(career.isActive ? 'ACTIVE' : 'INACTIVE'))
+    .sort((a, b) => {
+      const direction = sortOrder === 'ASC' ? 1 : -1;
+      const readValue = (career: AmisCareer) => {
+        if (sortBy === 'lastSyncedAt') return career.lastSyncedAt;
+        if (sortBy === 'organizationUnitName') return career.organizationUnitName ?? '';
+        return career.name;
+      };
+      return readValue(a).localeCompare(readValue(b), undefined, { numeric: true }) * direction;
+    });
+
+  const totalPages = Math.max(1, Math.ceil(filteredCareers.length / limit));
+  const safePage = Math.min(page, totalPages);
+  const result: PaginatedResponse<AmisCareer> = {
+    data: filteredCareers.slice((safePage - 1) * limit, safePage * limit),
+    total: filteredCareers.length,
+    page: safePage,
+    limit,
+    totalPages,
+  };
+
+  const openMapping = (career: AmisCareer) => {
+    setEditingCareer(career);
+    setSelectedCategoryNames(career.questionCategoryNames ?? []);
+    setMappingOpen(true);
+  };
+
+  const saveMapping = async () => {
+    if (!editingCareer) return;
+    try {
+      const updated = await apiClient.patch<AmisCareer>(
+        `/extension/amis/careers/${editingCareer.amisCareerId}/question-categories`,
+        { questionCategoryNames: selectedCategoryNames },
+      );
+      setCareers((prev) => prev.map((career) => career.amisCareerId === updated.amisCareerId ? updated : career));
+      setMappingOpen(false);
+      toast({ title: 'AMIS career mapping updated' });
+    } catch (err) {
+      toast({ title: 'Save failed', description: err instanceof Error ? err.message : 'Error', variant: 'destructive' });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 justify-between flex-wrap">
+        <Button variant="outline" size="sm" className="sm:hidden" onClick={() => setFiltersOpen((v) => !v)}>
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </Button>
+        <Button size="sm" variant="outline" onClick={load} disabled={loading}>
+          <RotateCcw className="h-4 w-4 mr-1" /> Refresh
+        </Button>
+      </div>
+
+      <div className={filtersOpen ? 'flex flex-col gap-3' : 'hidden sm:flex sm:items-center sm:gap-3 sm:flex-wrap'}>
+        <div className="relative w-full sm:w-auto">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Search AMIS careers..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 w-full sm:w-64" />
+        </div>
+        <MultiSelect
+          options={[{ value: 'ACTIVE', label: 'Active' }, { value: 'INACTIVE', label: 'Inactive' }]}
+          selected={statusFilter}
+          onChange={setStatusFilter}
+          placeholder="All Statuses"
+          className="w-full sm:w-36"
+        />
+      </div>
+
+      <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead><SortableHeader label="Career Name" field="name" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} /></TableHead>
+              <TableHead>AMIS ID</TableHead>
+              <TableHead><SortableHeader label="Organization Unit" field="organizationUnitName" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} /></TableHead>
+              <TableHead>Question Categories</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead><SortableHeader label="Last Synced" field="lastSyncedAt" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} /></TableHead>
+              <TableHead className="w-20">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Loading...</TableCell></TableRow>
+            ) : result.data.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  No AMIS careers found. Open AMIS and interact with the career selector so the extension can sync them.
+                </TableCell>
+              </TableRow>
+            ) : result.data.map((career) => (
+              <TableRow key={career.id}>
+                <TableCell className="font-medium">{career.name}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">{career.amisCareerId}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">{career.organizationUnitName ?? career.organizationUnitId ?? '-'}</TableCell>
+                <TableCell>
+                  <div className="flex gap-1 flex-wrap">
+                    {career.questionCategoryNames.length > 0
+                      ? career.questionCategoryNames.map((name) => <Badge key={name} variant="outline" className="text-xs">{name}</Badge>)
+                      : <span className="text-xs text-muted-foreground">Not mapped</span>}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  {career.isActive
+                    ? <Badge className="bg-green-100 text-green-800">Active</Badge>
+                    : <Badge variant="secondary">Inactive</Badge>}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {career.lastSyncedAt ? new Date(career.lastSyncedAt).toLocaleString() : '-'}
+                </TableCell>
+                <TableCell>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit question category mapping" onClick={() => openMapping(career)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      <DataTablePagination page={result.page} totalPages={result.totalPages} total={result.total} limit={result.limit} onPageChange={setPage} onLimitChange={setLimit} />
+
+      <Dialog open={mappingOpen} onOpenChange={setMappingOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Map Question Categories</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>AMIS Career</Label>
+              <Input value={editingCareer?.name ?? ''} readOnly />
+            </div>
+            <div className="space-y-1">
+              <Label>Question Categories</Label>
+              <MultiSelect
+                options={categories.map((category) => ({ value: category.name, label: `${category.displayName} (${category.name})` }))}
+                selected={selectedCategoryNames}
+                onChange={setSelectedCategoryNames}
+                placeholder="Select question categories"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMappingOpen(false)}>Cancel</Button>
+            <Button onClick={saveMapping} disabled={selectedCategoryNames.length === 0}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 type SubcategoryMap = Record<string, SubCategory[]>;
 
@@ -1022,7 +1239,11 @@ function SettingsShell({ title, children }: { title: string; children: React.Rea
 }
 
 export function SettingsPositionsPage() {
-  return <SettingsShell title="Positions"><PositionsTab /></SettingsShell>;
+  return (
+    <SettingsShell title="AMIS Careers">
+      <AmisCareersTab />
+    </SettingsShell>
+  );
 }
 
 export function SettingsCategoriesPage() {
@@ -1480,12 +1701,12 @@ export function ManagementPage() {
       <h1 className="text-3xl font-bold">Settings & Management</h1>
       <Tabs defaultValue="positions">
         <TabsList>
-          <TabsTrigger value="positions">Positions</TabsTrigger>
+          <TabsTrigger value="positions">AMIS Careers</TabsTrigger>
           <TabsTrigger value="categories">Categories</TabsTrigger>
           <TabsTrigger value="levels">Levels</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
         </TabsList>
-        <TabsContent value="positions" className="mt-4"><PositionsTab /></TabsContent>
+        <TabsContent value="positions" className="mt-4"><AmisCareersTab /></TabsContent>
         <TabsContent value="categories" className="mt-4"><CategoriesTreeTab /></TabsContent>
         <TabsContent value="levels" className="mt-4"><LevelsTab /></TabsContent>
         <TabsContent value="users" className="mt-4"><UsersTab /></TabsContent>

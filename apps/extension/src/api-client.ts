@@ -1,8 +1,16 @@
 import { BE_API_BASE_URL, EXTENSION_VERSION } from './config';
 import type {
   ApiEnvelope,
+  ApiPagination,
+  AmisCareerCatalogItem,
+  AmisCareerQuestionContext,
+  CreateAmisCareerQuestionRequest,
+  ExtensionQuestion,
   ExtensionSyncResponse,
   ExtensionUser,
+  JobDescriptionSummary,
+  SyncAmisCareersRequest,
+  SyncAmisCareersResponse,
   SyncAmisJobPostingRequest,
 } from './types';
 
@@ -31,6 +39,24 @@ export async function getCurrentUser(accessToken: string) {
   });
 }
 
+export async function listJobDescriptions(
+  accessToken: string,
+  params: { page?: number; limit?: number; search?: string } = {},
+) {
+  const searchParams = new URLSearchParams();
+  searchParams.set('page', String(params.page ?? 1));
+  searchParams.set('limit', String(params.limit ?? 20));
+  if (params.search?.trim()) searchParams.set('search', params.search.trim());
+
+  return requestWithPagination<JobDescriptionSummary>(
+    `/job-descriptions?${searchParams.toString()}`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
+}
+
 export async function syncAndPublishAmisJob(
   accessToken: string,
   payload: SyncAmisJobPostingRequest,
@@ -45,6 +71,55 @@ export async function syncAndPublishAmisJob(
     headers: {
       'Idempotency-Key': idempotencyKey,
       'X-Request-Id': requestId,
+      'X-Extension-Version': EXTENSION_VERSION,
+    },
+  });
+}
+
+export async function syncAmisCareers(
+  accessToken: string,
+  payload: SyncAmisCareersRequest,
+) {
+  const requestId = `ext-careers-${crypto.randomUUID()}`;
+
+  return request<SyncAmisCareersResponse>('/extension/amis/careers/sync', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+    headers: {
+      'X-Request-Id': requestId,
+      'X-Extension-Version': EXTENSION_VERSION,
+    },
+  });
+}
+
+export async function listAmisCareers(accessToken: string) {
+  return request<AmisCareerCatalogItem[]>('/extension/amis/careers', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function getAmisCareerQuestionContext(
+  accessToken: string,
+  amisCareerId: string,
+) {
+  return request<AmisCareerQuestionContext>(`/extension/amis/careers/${encodeURIComponent(amisCareerId)}/questions`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createAmisCareerQuestion(
+  accessToken: string,
+  amisCareerId: string,
+  payload: CreateAmisCareerQuestionRequest,
+) {
+  return request<ExtensionQuestion>(`/extension/amis/careers/${encodeURIComponent(amisCareerId)}/questions`, {
+    method: 'POST',
+    accessToken,
+    body: payload,
+    headers: {
       'X-Extension-Version': EXTENSION_VERSION,
     },
   });
@@ -88,6 +163,48 @@ async function request<T>(
   return json as T;
 }
 
+async function requestWithPagination<T>(
+  path: string,
+  options: {
+    method: 'GET';
+    accessToken?: string;
+    headers?: Record<string, string>;
+  },
+): Promise<{ data: T[]; pagination: ApiPagination | null }> {
+  const response = await fetch(`${BE_API_BASE_URL}${path}`, {
+    method: options.method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {}),
+      ...options.headers,
+    },
+  });
+
+  const json = await readJson(response);
+
+  if (!response.ok) {
+    const envelope = isApiEnvelope(json) ? json : null;
+    throw new ApiClientError(
+      envelope?.error?.code ?? `HTTP_${response.status}`,
+      envelope?.error?.message ?? 'Request failed.',
+      response.status,
+      envelope?.error?.details ?? [],
+    );
+  }
+
+  if (isPaginatedEnvelope<T>(json)) {
+    return {
+      data: json.data ?? [],
+      pagination: json.pagination,
+    };
+  }
+
+  return {
+    data: Array.isArray(json) ? json as T[] : [],
+    pagination: null,
+  };
+}
+
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) return null;
@@ -101,4 +218,11 @@ async function readJson(response: Response): Promise<unknown> {
 
 function isApiEnvelope<T = unknown>(value: unknown): value is ApiEnvelope<T> {
   return typeof value === 'object' && value !== null && 'success' in value;
+}
+
+function isPaginatedEnvelope<T>(value: unknown): value is ApiEnvelope<T[]> & { pagination: ApiPagination } {
+  return isApiEnvelope<T[]>(value)
+    && Array.isArray(value.data)
+    && typeof (value as { pagination?: unknown }).pagination === 'object'
+    && (value as { pagination?: unknown }).pagination !== null;
 }

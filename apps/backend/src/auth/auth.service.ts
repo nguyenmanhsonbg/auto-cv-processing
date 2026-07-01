@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -10,13 +10,18 @@ import { RegisterDto, CreateUserDto, UpdateUserDto } from './dto/login.dto';
 import { UserRole, PaginatedResponse } from '@interview-assistant/shared';
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   constructor(
     @InjectRepository(UserEntity)
     private userRepo: Repository<UserEntity>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
+
+  async onModuleInit() {
+    await this.seedDefaultAdmin();
+    await this.seedDevelopmentUsers();
+  }
 
   async validateUser(email: string, password: string) {
     const user = await this.userRepo.findOne({ where: { email } });
@@ -25,6 +30,66 @@ export class AuthService {
       return result;
     }
     return null;
+  }
+
+  private async seedDefaultAdmin() {
+    const email = this.configService.get<string>('DEFAULT_ADMIN_EMAIL')?.trim();
+    const password = this.configService.get<string>('DEFAULT_ADMIN_PASSWORD')?.trim();
+    const name = this.configService.get<string>('DEFAULT_ADMIN_NAME')?.trim() || 'Default Admin';
+
+    if (!email || !password) return;
+
+    await this.seedUserIfMissing({
+      email,
+      name,
+      password,
+      role: UserRole.ADMIN,
+    });
+  }
+
+  private async seedDevelopmentUsers() {
+    if (this.configService.get<string>('NODE_ENV') === 'production') return;
+
+    const password = 'Test@123456';
+    await Promise.all([
+      this.seedUserIfMissing({
+        email: 'admin.test@example.com',
+        name: 'Admin Test',
+        password,
+        role: UserRole.ADMIN,
+      }),
+      this.seedUserIfMissing({
+        email: 'hr.test@example.com',
+        name: 'HR Test',
+        password,
+        role: UserRole.HR,
+      }),
+      this.seedUserIfMissing({
+        email: 'interviewer.test@example.com',
+        name: 'Interviewer Test',
+        password,
+        role: UserRole.INTERVIEWER,
+      }),
+    ]);
+  }
+
+  private async seedUserIfMissing(input: {
+    email: string;
+    name: string;
+    password: string;
+    role: UserRole;
+  }) {
+    const existing = await this.userRepo.findOne({ where: { email: input.email } });
+    if (existing) return;
+
+    await this.userRepo.save(
+      this.userRepo.create({
+        email: input.email,
+        name: input.name,
+        password: await bcrypt.hash(input.password, 10),
+        role: input.role,
+      }),
+    );
   }
 
   async login(user: { id: string; email: string; role: string; name: string }) {

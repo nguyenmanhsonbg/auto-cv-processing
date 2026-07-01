@@ -14,8 +14,14 @@ import {
 } from '../recruitment-common';
 import {
   ChannelPostingResultDto,
+  AmisCareerCatalogItemDto,
+  CreateAmisCareerQuestionDto,
   ExtensionSyncResponseDto,
+  SyncAmisCareersDto,
+  SyncAmisCareersResponseDto,
+  SyncAmisCareerItemDto,
   SyncAmisJobPostingDto,
+  UpdateAmisCareerQuestionCategoriesDto,
 } from './dto';
 import {
   ExtensionExternalEntityType,
@@ -24,12 +30,15 @@ import {
   ExtensionSyncResultCode,
   type ExtensionSyncChannel,
 } from './enums';
-import { RecruitmentExternalReferenceEntity } from './entities';
+import { AmisCareerEntity, RecruitmentExternalReferenceEntity } from './entities';
 import {
   ExtensionIdempotencyDecision,
   ExtensionIdempotencyService,
 } from './extension-idempotency.service';
 import { createAmisSnapshotHash, createExtensionRequestHash } from './utils';
+import { QuestionsService } from '../questions/questions.service';
+import { CategoriesService } from '../categories/categories.service';
+import { QuestionType } from '@interview-assistant/shared';
 
 export interface ExtensionSyncContext {
   actorUserId: string;
@@ -39,11 +48,20 @@ export interface ExtensionSyncContext {
   extensionVersion?: string;
 }
 
+export interface ExtensionCatalogSyncContext {
+  actorUserId: string;
+  actorRole: UserRole;
+  requestId?: string;
+  extensionVersion?: string;
+}
+
 @Injectable()
 export class ExtensionIntegrationService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly idempotencyService: ExtensionIdempotencyService,
+    private readonly questionsService: QuestionsService,
+    private readonly categoriesService: CategoriesService,
   ) {}
 
   async syncAndPublishFromAmis(
@@ -162,6 +180,7 @@ export class ExtensionIntegrationService {
         positionId: null,
         levelId: null,
         description: dto.snapshot.description,
+        summary: this.toSummary(dto.snapshot.summary ?? dto.snapshot.description),
         requirements: this.toPlainRequirements(dto.snapshot.requirements),
         benefits: this.normalizeBenefits(dto.snapshot.benefits),
         status: JobDescriptionStatus.ACTIVE,
@@ -238,6 +257,7 @@ export class ExtensionIntegrationService {
 
     jobDescription.title = dto.snapshot.title;
     jobDescription.description = dto.snapshot.description;
+    jobDescription.summary = this.toSummary(dto.snapshot.summary ?? dto.snapshot.description);
     jobDescription.requirements = this.toPlainRequirements(dto.snapshot.requirements);
     jobDescription.benefits = this.normalizeBenefits(dto.snapshot.benefits);
     jobDescription.status = JobDescriptionStatus.ACTIVE;
@@ -451,6 +471,7 @@ export class ExtensionIntegrationService {
         ...dto.snapshot,
         title: this.requireText(dto.snapshot.title, 'snapshot.title'),
         description: this.requireText(dto.snapshot.description, 'snapshot.description'),
+        summary: this.toSummary(dto.snapshot.summary ?? dto.snapshot.description),
         requirements: this.normalizeRequirements(dto.snapshot.requirements),
         benefits: dto.snapshot.benefits,
         location: this.optionalText(dto.snapshot.location) ?? undefined,
@@ -459,6 +480,67 @@ export class ExtensionIntegrationService {
       channels,
       metadata: this.safeMetadata(dto.metadata),
     };
+  }
+
+  private normalizeCareerItems(items: SyncAmisCareerItemDto[]): SyncAmisCareerItemDto[] {
+    const deduped = new Map<string, SyncAmisCareerItemDto>();
+
+    for (const item of items) {
+      const amisCareerId = this.optionalText(item.amisCareerId);
+      const name = this.optionalText(item.name);
+      if (!amisCareerId || !name) continue;
+
+      deduped.set(amisCareerId, {
+        amisCareerId,
+        name,
+        code: this.optionalText(item.code) ?? undefined,
+        description: this.optionalText(item.description) ?? undefined,
+        organizationUnitId: this.optionalText(item.organizationUnitId) ?? undefined,
+        organizationUnitName: this.optionalText(item.organizationUnitName) ?? undefined,
+        usageStatus: typeof item.usageStatus === 'number' ? item.usageStatus : undefined,
+        parentAmisCareerId: this.optionalText(item.parentAmisCareerId) ?? undefined,
+        sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : undefined,
+        isActive: item.isActive ?? item.usageStatus === 1,
+        rawSnapshot: this.safeAmisCatalogSnapshot(item.rawSnapshot),
+      });
+    }
+
+    if (deduped.size === 0) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'At least one AMIS career item with amisCareerId and name is required.',
+      });
+    }
+
+    return [...deduped.values()];
+  }
+
+  private safeAmisCatalogSnapshot(value: unknown) {
+    if (!this.isRecord(value) || Array.isArray(value)) return undefined;
+
+    const safeSnapshot: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (this.isSensitiveFieldName(key)) continue;
+
+      if (typeof item === 'string') {
+        safeSnapshot[key] = item.length > 500 ? item.slice(0, 500) : item;
+        continue;
+      }
+
+      if (
+        typeof item === 'number'
+        || typeof item === 'boolean'
+        || item === null
+      ) {
+        safeSnapshot[key] = item;
+      }
+    }
+
+    return Object.keys(safeSnapshot).length > 0 ? safeSnapshot : undefined;
+  }
+
+  private isSensitiveFieldName(key: string) {
+    return /(cookie|token|secret|password|authorization|session)/i.test(key);
   }
 
   private normalizeRequirements(
@@ -504,6 +586,293 @@ export class ExtensionIntegrationService {
     });
   }
 
+  async syncAmisCareers(
+    dto: SyncAmisCareersDto,
+    context: ExtensionCatalogSyncContext,
+  ): Promise<SyncAmisCareersResponseDto> {
+    const normalizedItems = this.normalizeCareerItems(dto.items);
+    const lastSyncedAt = new Date();
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    let removedCount = 0;
+
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(AmisCareerEntity);
+      const syncOrganizationUnitId = this.findSingleOrganizationUnitId(normalizedItems);
+      const incomingIds = new Set(normalizedItems.map((item) => item.amisCareerId));
+
+      for (const item of normalizedItems) {
+        const existing = await repo.findOne({
+          where: { amisCareerId: item.amisCareerId },
+        });
+
+        if (!existing) {
+          const questionCategoryNames = this.inferQuestionCategoryNames(item.name);
+          await repo.save(repo.create({
+            amisCareerId: item.amisCareerId,
+            code: item.code ?? null,
+            name: item.name,
+            description: item.description ?? null,
+            organizationUnitId: item.organizationUnitId ?? null,
+            organizationUnitName: item.organizationUnitName ?? null,
+            usageStatus: item.usageStatus ?? null,
+            parentAmisCareerId: item.parentAmisCareerId ?? null,
+            sortOrder: item.sortOrder ?? null,
+            questionCategoryNames,
+            isActive: item.isActive ?? true,
+            removedFromAmisAt: null,
+            rawSnapshot: item.rawSnapshot ?? null,
+            lastSyncedAt,
+            lastSyncedById: context.actorUserId,
+          }));
+          createdCount += 1;
+          continue;
+        }
+
+        existing.code = item.code ?? null;
+        existing.name = item.name;
+        existing.description = item.description ?? null;
+        existing.organizationUnitId = item.organizationUnitId ?? null;
+        existing.organizationUnitName = item.organizationUnitName ?? null;
+        existing.usageStatus = item.usageStatus ?? null;
+        existing.parentAmisCareerId = item.parentAmisCareerId ?? null;
+        existing.sortOrder = item.sortOrder ?? null;
+        if (!existing.questionCategoryNames?.length) {
+          existing.questionCategoryNames = this.inferQuestionCategoryNames(item.name);
+        }
+        existing.isActive = item.isActive ?? true;
+        existing.removedFromAmisAt = null;
+        existing.rawSnapshot = item.rawSnapshot ?? null;
+        existing.lastSyncedAt = lastSyncedAt;
+        existing.lastSyncedById = context.actorUserId;
+        await repo.save(existing);
+        updatedCount += 1;
+      }
+
+      if (syncOrganizationUnitId) {
+        const existingCareersForOrg = await repo.find({
+          where: { organizationUnitId: syncOrganizationUnitId },
+        });
+        const removedCareers = existingCareersForOrg.filter((career) =>
+          !incomingIds.has(career.amisCareerId) && career.removedFromAmisAt === null,
+        );
+
+        for (const career of removedCareers) {
+          career.isActive = false;
+          career.usageStatus = 0;
+          career.removedFromAmisAt = lastSyncedAt;
+          career.lastSyncedAt = lastSyncedAt;
+          career.lastSyncedById = context.actorUserId;
+          await repo.save(career);
+        }
+
+        removedCount = removedCareers.length;
+      }
+    });
+
+    return {
+      syncedCount: normalizedItems.length,
+      createdCount,
+      updatedCount,
+      removedCount,
+      skippedCount: dto.items.length - normalizedItems.length,
+      lastSyncedAt: lastSyncedAt.toISOString(),
+    };
+  }
+
+  async listAmisCareers(): Promise<AmisCareerCatalogItemDto[]> {
+    const repo = this.dataSource.getRepository(AmisCareerEntity);
+    const careers = await repo
+      .createQueryBuilder('career')
+      .where('career.removedFromAmisAt IS NULL')
+      .andWhere('career.isActive = true')
+      .orderBy('career.name', 'ASC')
+      .getMany();
+
+    return careers.map((career) => this.toCareerCatalogItem(career));
+  }
+
+  async updateAmisCareerQuestionCategories(
+    amisCareerId: string,
+    dto: UpdateAmisCareerQuestionCategoriesDto,
+  ): Promise<AmisCareerCatalogItemDto> {
+    const normalizedId = this.optionalText(amisCareerId);
+    if (!normalizedId) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'amisCareerId is required.',
+      });
+    }
+
+    const questionCategoryNames = dto.questionCategoryNames
+      .map((name) => this.optionalText(name))
+      .filter((name): name is string => Boolean(name));
+
+    if (!questionCategoryNames.length) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'At least one question category name is required.',
+      });
+    }
+
+    const repo = this.dataSource.getRepository(AmisCareerEntity);
+    const career = await repo.findOne({ where: { amisCareerId: normalizedId } });
+    if (!career) {
+      throw new BadRequestException({
+        code: 'AMIS_CAREER_NOT_FOUND',
+        message: 'AMIS career was not found in the synced catalog.',
+      });
+    }
+
+    career.questionCategoryNames = [...new Set(questionCategoryNames)];
+    await repo.save(career);
+    return this.toCareerCatalogItem(career);
+  }
+
+  async getAmisCareerQuestionContext(amisCareerId: string) {
+    const career = await this.resolveActiveAmisCareer(amisCareerId);
+    const categoryNames = this.resolveQuestionCategoryNamesForCareer(career);
+    const questions = categoryNames.length
+      ? await this.questionsService.findAll({ categories: categoryNames, isActive: true })
+      : [];
+    const allCategories = await this.categoriesService.findAllCategories();
+    const mappedCategories = allCategories.filter((category) => categoryNames.includes(category.name));
+    const categories = await Promise.all(mappedCategories.map(async (category) => ({
+      id: category.id,
+      name: category.name,
+      displayName: category.displayName,
+      description: category.description,
+      subcategories: (await this.categoriesService.findAllSubCategories(category.id)).map((subcategory) => ({
+        id: subcategory.id,
+        name: subcategory.name,
+        competencyType: subcategory.competencyType,
+        orderIndex: subcategory.orderIndex,
+      })),
+    })));
+
+    return {
+      career: this.toCareerCatalogItem(career),
+      categories,
+      questions,
+    };
+  }
+
+  async createAmisCareerQuestion(
+    amisCareerId: string,
+    dto: CreateAmisCareerQuestionDto,
+  ) {
+    const career = await this.resolveActiveAmisCareer(amisCareerId);
+    const categoryNames = this.resolveQuestionCategoryNamesForCareer(career);
+    const category = this.requireText(dto.category, 'category');
+    if (!categoryNames.includes(category)) {
+      throw new BadRequestException({
+        code: 'AMIS_CAREER_CATEGORY_NOT_MAPPED',
+        message: 'Question category is not mapped to the selected AMIS career.',
+      });
+    }
+
+    return this.questionsService.create({
+      category,
+      subcategory: this.requireText(dto.subcategory, 'subcategory'),
+      text: this.requireText(dto.text, 'text'),
+      difficulty: dto.difficulty ?? 1,
+      targetLevels: dto.targetLevels?.length
+        ? dto.targetLevels
+        : ['ENTRY', 'EXPERIENCED', 'SENIOR', 'SPECIALIST'],
+      type: dto.type ?? QuestionType.OPEN_ENDED,
+      competencyType: dto.competencyType,
+      expectedAnswer: this.optionalText(dto.expectedAnswer) ?? undefined,
+      scoringGuide: this.optionalText(dto.scoringGuide) ?? undefined,
+    });
+  }
+
+  private async resolveActiveAmisCareer(amisCareerId: string) {
+    const normalizedId = this.optionalText(amisCareerId);
+    if (!normalizedId) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'amisCareerId is required.',
+      });
+    }
+
+    const repo = this.dataSource.getRepository(AmisCareerEntity);
+    const career = await repo.findOne({ where: { amisCareerId: normalizedId } });
+    if (!career || !career.isActive || career.removedFromAmisAt) {
+      throw new BadRequestException({
+        code: 'AMIS_CAREER_NOT_FOUND',
+        message: 'AMIS career was not found in the synced catalog.',
+      });
+    }
+
+    return career;
+  }
+
+  private resolveQuestionCategoryNamesForCareer(career: AmisCareerEntity) {
+    return career.questionCategoryNames?.length
+      ? career.questionCategoryNames
+      : this.inferQuestionCategoryNames(career.name);
+  }
+
+  private toCareerCatalogItem(career: AmisCareerEntity): AmisCareerCatalogItemDto {
+    return {
+      id: career.id,
+      amisCareerId: career.amisCareerId,
+      name: career.name,
+      description: career.description,
+      organizationUnitId: career.organizationUnitId,
+      organizationUnitName: career.organizationUnitName,
+      usageStatus: career.usageStatus,
+      questionCategoryNames: career.questionCategoryNames ?? this.inferQuestionCategoryNames(career.name),
+      isActive: career.isActive,
+      lastSyncedAt: career.lastSyncedAt.toISOString(),
+    };
+  }
+
+  private inferQuestionCategoryNames(careerName: string): string[] {
+    const defaults = ['SOFT_SKILL', 'PERSONALITY'];
+    const normalizedName = this.removeVietnameseMarks(careerName).toLowerCase();
+    const isSoftwareCareer = (
+      normalizedName.includes('cntt - phan mem') ||
+      normalizedName.includes('phan mem') ||
+      normalizedName.includes('software') ||
+      normalizedName.includes('developer') ||
+      normalizedName.includes('lap trinh')
+    );
+
+    if (isSoftwareCareer) {
+      return ['BACKEND_MUST', 'BACKEND_SHOULD', ...defaults];
+    }
+
+    return defaults;
+  }
+
+  private removeVietnameseMarks(value: string) {
+    return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+  }
+
+  private findSingleOrganizationUnitId(items: SyncAmisCareerItemDto[]) {
+    const organizationUnitIds = new Set(
+      items
+        .map((item) => this.optionalText(item.organizationUnitId))
+        .filter((value): value is string => Boolean(value)),
+    );
+
+    return organizationUnitIds.size === 1 ? [...organizationUnitIds][0] : null;
+  }
+
+  private toSummary(value: unknown) {
+    const normalized = this.optionalText(value);
+    if (!normalized) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'snapshot.summary is required or must be derivable from snapshot.description.',
+      });
+    }
+
+    return normalized.length > 500 ? normalized.slice(0, 500).trim() : normalized;
+  }
+
   private parseDeadline(value: string | undefined, now: Date) {
     if (!value) return null;
     const closeAt = new Date(value);
@@ -546,6 +915,7 @@ export class ExtensionIntegrationService {
         positionId: jobDescription.positionId,
         levelId: jobDescription.levelId,
         description: jobDescription.description,
+        summary: jobDescription.summary,
         requirements: jobDescription.requirements,
         benefits: jobDescription.benefits,
         status: jobDescription.status,

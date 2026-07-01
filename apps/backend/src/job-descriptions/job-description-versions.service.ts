@@ -20,6 +20,7 @@ interface JobDescriptionSnapshot extends Record<string, unknown> {
     positionId: string | null;
     levelId: string | null;
     description: string;
+    summary: string;
     requirements: Record<string, unknown>;
     benefits: Record<string, unknown> | null;
     status: string;
@@ -232,6 +233,7 @@ export class JobDescriptionVersionsService {
         positionId: jobDescription.positionId,
         levelId: jobDescription.levelId,
         description: jobDescription.description,
+        summary: jobDescription.summary,
         requirements: jobDescription.requirements,
         benefits: jobDescription.benefits,
         status: jobDescription.status,

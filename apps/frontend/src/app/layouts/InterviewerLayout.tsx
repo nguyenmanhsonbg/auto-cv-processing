@@ -248,7 +248,7 @@ function SidebarContent() {
             {!collapsed && settingsExpanded && (
               <div className="ml-4 space-y-1">
                 {[
-                  { label: 'Positions', href: '/settings/positions', icon: Briefcase },
+                  { label: 'AMIS Careers', href: '/settings/positions', icon: Briefcase },
                   { label: 'Categories', href: '/settings/categories', icon: Tag },
                   { label: 'Levels', href: '/settings/levels', icon: BarChart2 },
                   { label: 'Users', href: '/settings/users', icon: UserCog },

@@ -11,6 +11,7 @@ export interface PublicJobPostingDetail {
   title: string;
   status: string;
   publicSlug: string;
+  summary?: string | null;
   description?: string | null;
   requirements?: unknown;
   benefits?: unknown;

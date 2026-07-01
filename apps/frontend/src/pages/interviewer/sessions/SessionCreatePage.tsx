@@ -14,24 +14,27 @@ import type { Candidate, Question, PaginatedResponse } from '@interview-assistan
 import { MeetingPlatform, UserRole } from '@interview-assistant/shared';
 import { useAuthContext } from '@/lib/auth-context';
 
-interface Position { id: string; name: string }
 interface Level { id: string; name: string; displayName: string; orderIndex: number }
-interface Category { id: string; name: string; displayName: string; positions?: string[] | null }
+interface AmisCareer {
+  id: string;
+  amisCareerId: string;
+  name: string;
+  organizationUnitName?: string | null;
+  questionCategoryNames: string[];
+}
 export function SessionCreatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuthContext();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]);
   const [levels, setLevels] = useState<Level[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [amisCareers, setAmisCareers] = useState<AmisCareer[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [candidateId, setCandidateId] = useState(searchParams.get('candidateId') ?? '');
   const [targetLevel, setTargetLevel] = useState('');
-  const [templatePosition, setTemplatePosition] = useState(''); // position name (for local question filtering)
-  const [positionId, setPositionId] = useState(''); // position UUID (sent to API)
+  const [amisCareerId, setAmisCareerId] = useState('');
   const [selectedQuestions, setSelectedQuestions] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [autoSelectHint, setAutoSelectHint] = useState('');
@@ -49,37 +52,32 @@ export function SessionCreatePage() {
     Promise.all([
       apiClient.get<PaginatedResponse<Candidate>>('/candidates', { limit: 1000 }),
       apiClient.get<PaginatedResponse<Question>>('/questions', { limit: 1000 }),
-      apiClient.get<PaginatedResponse<Position>>('/positions', { limit: 1000 }).catch(() => ({ data: [] as Position[] } as PaginatedResponse<Position>)),
       apiClient.get<PaginatedResponse<Level>>('/levels', { limit: 100 }).catch(() => ({ data: [] as Level[] } as PaginatedResponse<Level>)),
-      apiClient.get<Category[]>('/categories').catch(() => [] as Category[]),
+      apiClient.get<AmisCareer[]>('/extension/amis/careers').catch(() => [] as AmisCareer[]),
     ])
-      .then(([c, q, p, lvls, cats]) => {
+      .then(([c, q, lvls, careers]) => {
         setCandidates(c.data);
         setQuestions(q.data);
-        const pos = p.data;
-        setPositions(pos);
-        if (pos.length > 0) {
-          setTemplatePosition(pos[0].name);
-          setPositionId(pos[0].id);
-        }
         setLevels(lvls.data);
-        setCategories(Array.isArray(cats) ? cats : []);
+        setAmisCareers(Array.isArray(careers) ? careers : []);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
-  // Filter questions to only those belonging to the selected position's categories
-  // (null/empty positions = default, shown for all positions)
+  const selectedAmisCareer = useMemo(
+    () => amisCareers.find((career) => career.amisCareerId === amisCareerId),
+    [amisCareers, amisCareerId],
+  );
+
   const visibleQuestions = useMemo(() => {
-    if (!categories.length) return questions;
-    const relevantCategoryNames = new Set(
-      categories
-        .filter((c) => !c.positions?.length || c.positions.includes(templatePosition))
-        .map((c) => c.name),
-    );
-    return questions.filter((q) => relevantCategoryNames.has(q.category));
-  }, [questions, categories, templatePosition]);
+    if (selectedAmisCareer?.questionCategoryNames?.length) {
+      const careerCategoryNames = new Set(selectedAmisCareer.questionCategoryNames);
+      return questions.filter((q) => careerCategoryNames.has(q.category));
+    }
+
+    return [];
+  }, [questions, selectedAmisCareer]);
 
   // Auto-select matching questions when level changes
   const handleTargetLevelChange = (level: string) => {
@@ -92,6 +90,21 @@ export function SessionCreatePage() {
     } else {
       setAutoSelectHint('');
     }
+  };
+
+  const handleAmisCareerChange = (id: string) => {
+    setAmisCareerId(id);
+    if (!targetLevel) return;
+
+    const career = amisCareers.find((item) => item.amisCareerId === id);
+    const categoryNames = new Set(career?.questionCategoryNames ?? []);
+    const filteredQuestions = categoryNames.size
+      ? questions.filter((q) => categoryNames.has(q.category))
+      : visibleQuestions;
+    const matched = filteredQuestions.filter((q: any) => Array.isArray(q.targetLevels) && q.targetLevels.includes(targetLevel));
+
+    setSelectedQuestions(new Set(matched.map((q: any) => q.id)));
+    setAutoSelectHint(matched.length ? `Auto-selected ${matched.length} question(s) for level "${targetLevel}"` : '');
   };
 
   const toggleQuestion = (id: string) => {
@@ -138,14 +151,16 @@ export function SessionCreatePage() {
       toast({ title: 'Please select a candidate', variant: 'destructive' });
       return;
     }
+    if (!amisCareerId) {
+      toast({ title: 'Please select an AMIS career', variant: 'destructive' });
+      return;
+    }
     try {
       setSubmitting(true);
       const session = await apiClient.post<any>('/sessions', {
         candidateId,
         targetLevel,
-        // Send positionId (UUID) so the backend resolves the canonical name — avoids passing brittle strings over the wire.
-        // Fall back to templatePosition string only when no position list was loaded (e.g. API unavailable).
-        ...(positionId ? { positionId } : { templatePosition }),
+        amisCareerId,
         ...(isHR ? {} : { questionIds: Array.from(selectedQuestions) }),
         sequentialMode,
         ...(scheduledAt && { scheduledAt }),
@@ -221,7 +236,7 @@ export function SessionCreatePage() {
             </div>
             <Switch checked={sequentialMode} onCheckedChange={setSequentialMode} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Target Level *</Label>
               <Select value={targetLevel} onValueChange={handleTargetLevelChange}>
@@ -234,25 +249,15 @@ export function SessionCreatePage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Position</Label>
-              {positions.length > 0 ? (
-                <Select
-                  value={positionId}
-                  onValueChange={(id) => {
-                    const pos = positions.find((p) => p.id === id);
-                    if (pos) { setPositionId(pos.id); setTemplatePosition(pos.name); }
-                  }}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select position" /></SelectTrigger>
-                  <SelectContent>
-                    {positions.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input value={templatePosition} onChange={(e) => setTemplatePosition(e.target.value)} placeholder="Backend Developer" />
-              )}
+              <Label>AMIS Career *</Label>
+              <Select value={amisCareerId} onValueChange={handleAmisCareerChange}>
+                <SelectTrigger><SelectValue placeholder="Select AMIS career" /></SelectTrigger>
+                <SelectContent>
+                  {amisCareers.map((career) => (
+                    <SelectItem key={career.amisCareerId} value={career.amisCareerId}>{career.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="space-y-2">

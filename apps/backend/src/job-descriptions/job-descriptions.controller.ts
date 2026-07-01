@@ -68,6 +68,7 @@ export class JobDescriptionsController {
       positionId: dto.positionId ?? null,
       levelId: dto.levelId ?? null,
       description: dto.description,
+      summary: dto.summary,
       requirements: this.normalizeStructuredObject(dto.requirements, 'Requirements', true) as Record<string, unknown>,
       benefits: this.normalizeStructuredObject(dto.benefits, 'Benefits', false),
       createdById: req?.user?.id,
@@ -103,6 +104,7 @@ export class JobDescriptionsController {
       positionId: dto.positionId,
       levelId: dto.levelId,
       description: dto.description,
+      summary: dto.summary,
       requirements: dto.requirements === undefined
         ? undefined
         : this.normalizeStructuredObject(dto.requirements, 'Requirements', true) as Record<string, unknown>,
@@ -242,6 +244,7 @@ export class JobDescriptionsController {
         }
         : null,
       description: jobDescription.description,
+      summary: jobDescription.summary,
       requirements: jobDescription.requirements,
       benefits: jobDescription.benefits,
       status: jobDescription.status,

@@ -13,6 +13,7 @@ export interface CreateJobDescriptionInput {
   positionId?: string | null;
   levelId?: string | null;
   description: string;
+  summary: string;
   requirements: Record<string, unknown>;
   benefits?: Record<string, unknown> | null;
   status?: JobDescriptionStatus;
@@ -24,6 +25,7 @@ export interface UpdateJobDescriptionInput {
   positionId?: string | null;
   levelId?: string | null;
   description?: string;
+  summary?: string;
   requirements?: Record<string, unknown>;
   benefits?: Record<string, unknown> | null;
   status?: JobDescriptionStatus;
@@ -84,7 +86,7 @@ export class JobDescriptionsService {
 
     const search = params.search?.trim();
     if (search) {
-      qb.andWhere('(jd.title ILIKE :search OR jd.description ILIKE :search)', {
+      qb.andWhere('(jd.title ILIKE :search OR jd.summary ILIKE :search OR jd.description ILIKE :search)', {
         search: `%${search}%`,
       });
     }
@@ -118,6 +120,7 @@ export class JobDescriptionsService {
   async create(input: CreateJobDescriptionInput) {
     const title = this.requireText(input.title, 'Title');
     const description = this.requireText(input.description, 'Description');
+    const summary = this.requireText(input.summary, 'Summary', 500);
     const createdById = await this.assertUserExists(input.createdById);
     await this.assertPositionExists(input.positionId);
     await this.assertLevelExists(input.levelId);
@@ -128,6 +131,7 @@ export class JobDescriptionsService {
       positionId: input.positionId ?? null,
       levelId: input.levelId ?? null,
       description,
+      summary,
       requirements: this.requireJsonObject(input.requirements, 'Requirements'),
       benefits: this.optionalJsonObject(input.benefits, 'Benefits'),
       status: input.status ?? JobDescriptionStatus.DRAFT,
@@ -158,6 +162,10 @@ export class JobDescriptionsService {
       jobDescription.description = this.requireText(input.description, 'Description');
     }
 
+    if (input.summary !== undefined) {
+      jobDescription.summary = this.requireText(input.summary, 'Summary', 500);
+    }
+
     if (input.requirements !== undefined) {
       jobDescription.requirements = this.requireJsonObject(input.requirements, 'Requirements');
     }
@@ -185,9 +193,12 @@ export class JobDescriptionsService {
     return { archived: true };
   }
 
-  private requireText(value: string, fieldName: string) {
+  private requireText(value: string, fieldName: string, maxLength?: number) {
     const normalized = value?.trim();
     if (!normalized) throw new BadRequestException(`${fieldName} is required`);
+    if (maxLength !== undefined && normalized.length > maxLength) {
+      throw new BadRequestException(`${fieldName} must be at most ${maxLength} characters`);
+    }
     return normalized;
   }
 

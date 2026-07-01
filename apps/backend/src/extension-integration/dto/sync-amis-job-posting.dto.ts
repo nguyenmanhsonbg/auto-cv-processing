@@ -12,6 +12,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -98,6 +99,15 @@ export class AmisJobSnapshotDto {
   @IsString()
   @IsNotEmpty()
   description: string;
+
+  @ApiPropertyOptional({
+    description: 'Short summary for AMIS summary field. Maximum 500 characters.',
+    maxLength: 500,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  summary?: string;
 
   @ApiProperty({ type: () => AmisJobRequirementsDto })
   @IsDefined()

@@ -1,8 +1,8 @@
 import { appendAmisDiagnostic } from './amis-diagnostics-store';
-import { ensureAmisDebuggerAttached, installAmisDebuggerCapture } from './amis-debugger-capture';
+import { ensureAmisDebuggerAttached, installAmisDebuggerCapture, type AmisCareerCapture } from './amis-debugger-capture';
 import { saveLastAutoSyncState } from './amis-auto-sync-store';
 import { saveLastAmisCapture } from './amis-capture-store';
-import { ApiClientError, syncAndPublishAmisJob } from './api-client';
+import { ApiClientError, syncAmisCareers, syncAndPublishAmisJob } from './api-client';
 import { clearAccessToken, getAccessToken } from './auth-store';
 import { getSelectedChannels } from './channel-preferences';
 import type {
@@ -15,8 +15,12 @@ import type {
 
 const AMIS_SAVED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
+let lastCareerSyncSignature: string | null = null;
 
-installAmisDebuggerCapture((capture, sender) => handleAmisSaved(capture, sender));
+installAmisDebuggerCapture(
+  (capture, sender) => handleAmisSaved(capture, sender),
+  (capture, sender) => handleAmisCareersCaptured(capture, sender),
+);
 
 chrome.runtime?.onInstalled.addListener(() => {
   void chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true });
@@ -123,6 +127,78 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
   }
 }
 
+async function handleAmisCareersCaptured(capture: AmisCareerCapture, _sender: ChromeMessageSender) {
+  const signature = buildCareerSyncSignature(capture);
+  if (signature === lastCareerSyncSignature) {
+    await appendAmisDiagnostic({
+      type: 'CAREER_AUTO_SYNC_SKIPPED',
+      pageUrl: capture.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: capture.sourceUrl,
+      details: {
+        reason: 'same-payload',
+        itemCount: capture.items.length,
+      },
+    });
+    return;
+  }
+
+  const accessToken = await getAccessToken();
+  if (!accessToken) {
+    await appendAmisDiagnostic({
+      type: 'CAREER_AUTO_SYNC_SKIPPED',
+      pageUrl: capture.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: capture.sourceUrl,
+      details: {
+        reason: 'auth-required',
+        itemCount: capture.items.length,
+      },
+    });
+    return;
+  }
+
+  try {
+    const result = await syncAmisCareers(accessToken, {
+      items: capture.items,
+      sourceUrl: capture.sourceUrl,
+      metadata: {
+        autoSync: true,
+        trigger: 'AMIS_CAREER_DATA_PAGING_RESPONSE',
+        capturedAt: new Date().toISOString(),
+        pageUrl: capture.pageUrl,
+        rawCount: capture.rawCount,
+      },
+    });
+    lastCareerSyncSignature = signature;
+
+    await appendAmisDiagnostic({
+      type: 'CAREER_AUTO_SYNC_SUCCESS',
+      pageUrl: capture.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: capture.sourceUrl,
+      details: {
+        syncedCount: result.syncedCount,
+        createdCount: result.createdCount,
+        updatedCount: result.updatedCount,
+        removedCount: result.removedCount,
+      },
+    });
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 401) {
+      await clearAccessToken();
+    }
+
+    await appendAmisDiagnostic({
+      type: 'CAREER_AUTO_SYNC_FAILED',
+      pageUrl: capture.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: capture.sourceUrl,
+      details: toAutoSyncError(error),
+    });
+  }
+}
+
 async function openPanel(sender: ChromeMessageSender) {
   try {
     if (sender.tab?.id !== undefined) {
@@ -169,6 +245,19 @@ function buildAutoSyncState(
     ...state,
     updatedAt: new Date().toISOString(),
   };
+}
+
+function buildCareerSyncSignature(capture: AmisCareerCapture) {
+  return capture.items
+    .map((item) => [
+      item.amisCareerId,
+      item.name,
+      item.organizationUnitId ?? '',
+      item.usageStatus ?? '',
+      item.isActive ?? '',
+    ].join(':'))
+    .sort()
+    .join('|');
 }
 
 function toAutoSyncError(error: unknown) {

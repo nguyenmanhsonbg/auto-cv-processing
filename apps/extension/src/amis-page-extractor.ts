@@ -59,6 +59,12 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
       'description',
       'responsibilities',
     ], 'description', fieldSources, MAX_LONG_TEXT);
+    const summary = findFieldByKeywords([
+      'mo ta tom tat',
+      'tom tat cong viec',
+      'summary',
+      'job summary',
+    ], 'summary', fieldSources, 500);
     const requirements = findFieldByKeywords([
       'yeu cau cong viec',
       'yeu cau ung vien',
@@ -92,6 +98,7 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
 
     const snapshot = {
       title: extractedTitle?.value ?? '',
+      ...(summary?.value ? { summary: summary.value } : {}),
       description: description?.value ?? '',
       requirements: {
         rawText: requirements?.value ?? '',

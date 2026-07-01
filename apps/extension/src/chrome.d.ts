@@ -32,6 +32,7 @@ interface ChromeMessageSender {
 
 interface ChromeTabs {
   query(queryInfo: { active?: boolean; currentWindow?: boolean }): Promise<Array<{ id?: number; windowId?: number; url?: string }>>;
+  sendMessage?(tabId: number, message: unknown): Promise<unknown>;
 }
 
 interface ChromeDebuggee {
@@ -66,6 +67,7 @@ interface ChromeDebugger {
 
 interface ChromeScriptingInjectionTarget {
   tabId: number;
+  allFrames?: boolean;
 }
 
 interface ChromeScriptingResult<T> {
@@ -76,7 +78,8 @@ interface ChromeScriptingResult<T> {
 interface ChromeScripting {
   executeScript<Args extends unknown[], Result>(injection: {
     target: ChromeScriptingInjectionTarget;
-    func: (...args: Args) => Result;
+    func?: (...args: Args) => Result;
+    files?: string[];
     args?: Args;
   }): Promise<Array<ChromeScriptingResult<Result>>>;
 }

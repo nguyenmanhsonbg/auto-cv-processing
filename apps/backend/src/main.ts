@@ -61,12 +61,15 @@ async function bootstrap() {
 bootstrap();
 
 function buildCorsOriginResolver() {
+  const isProduction = process.env.NODE_ENV === 'production';
   const allowedOrigins = new Set([
     process.env.FRONTEND_URL || 'http://localhost:4000',
+    'http://localhost:4000',
+    'http://localhost:3001',
     ...parseCommaSeparatedEnv(process.env.EXTENSION_ALLOWED_ORIGINS),
   ]);
 
-  if (process.env.NODE_ENV === 'production') {
+  if (isProduction) {
     for (const origin of allowedOrigins) {
       if (origin.includes('*')) {
         throw new Error('Wildcard CORS origins are not allowed in production');
@@ -79,6 +82,11 @@ function buildCorsOriginResolver() {
     callback: (error: Error | null, allow?: boolean) => void,
   ) => {
     if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    if (!isProduction && origin.startsWith('chrome-extension://')) {
       callback(null, true);
       return;
     }

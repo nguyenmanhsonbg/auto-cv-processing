@@ -24,7 +24,7 @@ export class QuestionsService implements OnModuleInit {
   }
 
   async create(dto: CreateQuestionDto): Promise<QuestionEntity> {
-    const question = this.questionRepo.create(dto);
+    const question = this.questionRepo.create({ ...dto, isCustomized: true });
     return this.questionRepo.save(question);
   }
 

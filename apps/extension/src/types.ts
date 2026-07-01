@@ -7,6 +7,106 @@ export interface ExtensionUser {
   role: UserRole;
 }
 
+export interface ApiPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface JobDescriptionSummary {
+  id: string;
+  jobDescriptionId?: string;
+  title: string;
+  position?: {
+    id: string;
+    name: string;
+    description?: string | null;
+  } | null;
+  level?: {
+    id: string;
+    name: string;
+    displayName?: string | null;
+    orderIndex?: number | null;
+  } | null;
+  summary?: string | null;
+  description: string;
+  requirements?: Record<string, unknown> | null;
+  benefits?: Record<string, unknown> | null;
+  status: string;
+  createdBy?: {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+    role?: string | null;
+  } | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AmisCareerCatalogItem {
+  id: string;
+  amisCareerId: string;
+  name: string;
+  description: string | null;
+  organizationUnitId: string | null;
+  organizationUnitName: string | null;
+  usageStatus: number | null;
+  questionCategoryNames: string[];
+  isActive: boolean;
+  lastSyncedAt: string;
+}
+
+export interface ExtensionQuestion {
+  id: string;
+  category: string;
+  subcategory: string;
+  competencyType?: string | null;
+  text: string;
+  difficulty: number;
+  targetLevels: string[];
+  type: string;
+  expectedAnswer?: string | null;
+  scoringGuide?: string | null;
+  isActive: boolean;
+}
+
+export interface AmisCareerQuestionCategory {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string | null;
+  subcategories: Array<{
+    id: string;
+    name: string;
+    competencyType?: string | null;
+    orderIndex: number;
+  }>;
+}
+
+export interface AmisCareerQuestionContext {
+  career: AmisCareerCatalogItem;
+  categories: AmisCareerQuestionCategory[];
+  questions: ExtensionQuestion[];
+}
+
+export interface CreateAmisCareerQuestionRequest {
+  category: string;
+  subcategory: string;
+  text: string;
+  difficulty?: number;
+  targetLevels?: string[];
+  expectedAnswer?: string;
+  scoringGuide?: string;
+}
+
+export interface AmisSelectedCareerResult {
+  ok: boolean;
+  careerName?: string;
+  pageUrl: string;
+  error?: string;
+}
+
 export type ExtensionChannel =
   | 'VCS_PORTAL'
   | 'FACEBOOK'
@@ -32,6 +132,7 @@ export interface AmisJobRequirements {
 
 export interface AmisJobSnapshot {
   title: string;
+  summary?: string;
   description: string;
   requirements: AmisJobRequirements;
   benefits?: Record<string, unknown> | string | null;
@@ -103,6 +204,43 @@ export interface ExtensionSyncResponse {
   }>;
 }
 
+export interface AmisCareerItem {
+  amisCareerId: string;
+  code?: string;
+  name: string;
+  description?: string;
+  organizationUnitId?: string;
+  organizationUnitName?: string;
+  usageStatus?: number;
+  parentAmisCareerId?: string;
+  sortOrder?: number;
+  isActive?: boolean;
+  rawSnapshot?: Record<string, unknown>;
+}
+
+export interface SyncAmisCareersRequest {
+  items: AmisCareerItem[];
+  sourceUrl?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SyncAmisCareersResponse {
+  syncedCount: number;
+  createdCount: number;
+  updatedCount: number;
+  removedCount: number;
+  skippedCount: number;
+  lastSyncedAt: string;
+}
+
+export interface AmisCareerFetchResponse {
+  ok: boolean;
+  sourceUrl: string;
+  items: AmisCareerItem[];
+  rawCount: number;
+  error?: string;
+}
+
 export type AmisAutoSyncStatus =
   | 'IDLE'
   | 'SYNCING'
@@ -131,6 +269,7 @@ export type AmisDiagnosticEventType =
   | 'DEBUGGER_ATTACH_FAILED'
   | 'DEBUGGER_DETACHED'
   | 'DEBUGGER_SAVE_RESPONSE_SEEN'
+  | 'DEBUGGER_CAREER_RESPONSE_SEEN'
   | 'DEBUGGER_GET_BODY_FAILED'
   | 'AMIS_API_REQUEST_STARTED'
   | 'AMIS_API_RESPONSE_SEEN'
@@ -141,6 +280,11 @@ export type AmisDiagnosticEventType =
   | 'SAVE_RESPONSE_HTTP_ERROR'
   | 'SAVE_RESPONSE_UNMAPPED'
   | 'CAPTURE_PUBLISHED'
+  | 'CAREER_RESPONSE_UNMAPPED'
+  | 'CAREER_CAPTURE_PUBLISHED'
+  | 'CAREER_AUTO_SYNC_SUCCESS'
+  | 'CAREER_AUTO_SYNC_SKIPPED'
+  | 'CAREER_AUTO_SYNC_FAILED'
   | 'BACKGROUND_RECEIVED_CAPTURE';
 
 export interface AmisDiagnosticEvent {

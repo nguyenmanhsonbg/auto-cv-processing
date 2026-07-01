@@ -212,6 +212,7 @@ export function PublicJobDetailPage() {
           <CardTitle>Thông tin tuyển dụng</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
+          <PublicInfoBlock title="Mô tả tóm tắt" value={job.summary} />
           <PublicInfoBlock title="Mô tả công việc" value={job.description} />
           <PublicInfoBlock title="Yêu cầu" value={job.requirements} />
           <PublicInfoBlock title="Quyền lợi" value={job.benefits} />

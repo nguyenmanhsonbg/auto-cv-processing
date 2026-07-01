@@ -44,6 +44,9 @@ export class SessionEntity {
   @Column({ default: 'Backend Developer' })
   templatePosition: string;
 
+  @Column({ name: 'amis_career_id', type: 'varchar', nullable: true })
+  amisCareerId: string | null;
+
   @Column({ default: 'ENTRY' })
   targetLevel: string;
 

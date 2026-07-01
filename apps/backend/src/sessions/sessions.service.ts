@@ -27,6 +27,7 @@ import { LevelsService } from '../levels/levels.service';
 import { CreateSubmissionDto } from '../submissions/dto/create-submission.dto';
 import { generateSessionSlug } from './utils/slug.utils';
 import { validate as isUuid } from 'uuid';
+import { AmisCareerEntity } from '../extension-integration/entities';
 
 @Injectable()
 export class SessionsService {
@@ -41,6 +42,8 @@ export class SessionsService {
     private readonly antiCheatEventRepo: Repository<AntiCheatEventEntity>,
     @InjectRepository(SessionSurveyQuestionEntity)
     private readonly surveyQuestionRepo: Repository<SessionSurveyQuestionEntity>,
+    @InjectRepository(AmisCareerEntity)
+    private readonly amisCareerRepo: Repository<AmisCareerEntity>,
     private readonly wsGateway: InterviewWebSocketGateway,
     private readonly aiService: AiService,
     private readonly candidatesService: CandidatesService,
@@ -407,6 +410,8 @@ export class SessionsService {
       const resolvedPosition = await this.positionsService.findOne(dto.positionId);
       resolvedPositionName = resolvedPosition.name;
     }
+    const selectedAmisCareer = await this.resolveActiveAmisCareer(dto.amisCareerId);
+    resolvedPositionName = selectedAmisCareer.name;
 
     const session = this.sessionRepo.create({
       candidateId: dto.candidateId,
@@ -415,6 +420,7 @@ export class SessionsService {
       slug,
       targetLevel: dto.targetLevel || 'ENTRY',
       templatePosition: resolvedPositionName,
+      amisCareerId: selectedAmisCareer?.amisCareerId ?? null,
       status: SessionStatus.DRAFT,
       sequentialMode: dto.sequentialMode ?? true,
       candidateViewEnabled: false,
@@ -433,8 +439,9 @@ export class SessionsService {
       // Position name already resolved above.
 
       // 2. Fetch all categories applicable to this position in one query
-      const positionCategories = await this.categoriesService.findAllCategories(resolvedPositionName);
-      const categoryNames = positionCategories.map((c) => c.name);
+      const categoryNames = selectedAmisCareer
+        ? this.resolveQuestionCategoryNamesForAmisCareer(selectedAmisCareer)
+        : (await this.categoriesService.findAllCategories(resolvedPositionName)).map((c) => c.name);
 
       // 3. Resolve the level hierarchy: "higher level includes all lower levels".
       //    Load all levels and keep those with orderIndex ≤ selected level's orderIndex.
@@ -488,6 +495,46 @@ export class SessionsService {
 
     // For HR users, return session without question details (questions are hidden per HR restrictions)
     return this.findOne(saved.id, isHR ? { userId: createdById, isAdmin: false, excludeQuestions: true } : undefined);
+  }
+
+  private async resolveActiveAmisCareer(amisCareerId: string): Promise<AmisCareerEntity> {
+    const normalizedId = amisCareerId.trim();
+    const career = await this.amisCareerRepo.findOne({ where: { amisCareerId: normalizedId } });
+
+    if (!career || !career.isActive || career.removedFromAmisAt) {
+      throw new BadRequestException({
+        code: 'AMIS_CAREER_NOT_FOUND',
+        message: 'Selected AMIS career is not available in the synced catalog.',
+      });
+    }
+
+    return career;
+  }
+
+  private resolveQuestionCategoryNamesForAmisCareer(career: AmisCareerEntity): string[] {
+    if (career.questionCategoryNames?.length) {
+      return career.questionCategoryNames;
+    }
+
+    const defaults = ['SOFT_SKILL', 'PERSONALITY'];
+    const normalizedName = career.name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D')
+      .toLowerCase();
+
+    if (
+      normalizedName.includes('cntt - phan mem') ||
+      normalizedName.includes('phan mem') ||
+      normalizedName.includes('software') ||
+      normalizedName.includes('developer') ||
+      normalizedName.includes('lap trinh')
+    ) {
+      return ['BACKEND_MUST', 'BACKEND_SHOULD', ...defaults];
+    }
+
+    return defaults;
   }
 
   async findAll(scope?: { userId: string; isAdmin: boolean; filterByCandidateOwner?: boolean }): Promise<SessionEntity[]> {

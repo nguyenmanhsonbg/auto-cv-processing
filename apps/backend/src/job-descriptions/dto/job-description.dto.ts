@@ -72,6 +72,14 @@ export class CreateJobDescriptionDto {
   description: string;
 
   @ApiProperty({
+    description: 'Short job summary used by AMIS summary field. Maximum 500 characters.',
+    maxLength: 500,
+  })
+  @IsString()
+  @MaxLength(500)
+  summary: string;
+
+  @ApiProperty({
     description: 'JSON object or plain string. Plain string is stored as { text }.',
   })
   @IsDefined()
@@ -105,6 +113,15 @@ export class UpdateJobDescriptionDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({
+    description: 'Short job summary used by AMIS summary field. Maximum 500 characters.',
+    maxLength: 500,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  summary?: string;
 
   @ApiPropertyOptional({
     description: 'JSON object or plain string. Plain string is stored as { text }.',

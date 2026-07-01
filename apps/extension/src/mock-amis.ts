@@ -10,6 +10,7 @@ export function createMockAmisSyncRequest(): SyncAmisJobPostingRequest {
     action: 'PUBLISH',
     snapshot: {
       title: `Backend Developer ${suffix}`,
+      summary: 'Build and operate recruitment services for VCS.',
       description: 'Build and operate recruitment services for VCS.',
       requirements: {
         rawText: 'NestJS, PostgreSQL, API design, and production troubleshooting.',

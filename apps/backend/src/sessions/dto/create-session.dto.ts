@@ -7,6 +7,8 @@ import {
   IsBoolean,
   IsEnum,
   IsDateString,
+  MaxLength,
+  IsNotEmpty,
 } from 'class-validator';
 import { MeetingPlatform } from '@interview-assistant/shared';
 
@@ -29,6 +31,12 @@ export class CreateSessionDto {
   @IsUUID()
   @IsOptional()
   positionId?: string;
+
+  @ApiProperty({ description: 'AMIS career id selected from the synced AMIS career catalog.' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  amisCareerId: string;
 
   @ApiPropertyOptional({ type: [String] })
   @IsArray()

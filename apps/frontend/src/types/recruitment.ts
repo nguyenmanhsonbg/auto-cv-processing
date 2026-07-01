@@ -99,6 +99,7 @@ export interface RecruitmentCandidateSummary {
 export interface JobDescription {
   id: string;
   title: string;
+  summary?: string | null;
   description?: string | null;
   requirements?: string | null;
   responsibilities?: string | null;
@@ -117,6 +118,7 @@ export interface JobDescriptionVersion {
   jobDescriptionId: string;
   versionNo: number;
   title: string;
+  summary?: string | null;
   description?: string | null;
   requirements?: string | null;
   responsibilities?: string | null;

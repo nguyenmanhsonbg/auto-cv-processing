@@ -275,7 +275,7 @@ export function JobDescriptionListPage() {
               <Input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Search title or description"
+                placeholder="Search title, summary, or description"
                 className="min-w-0"
               />
               <Button type="submit" variant="outline" disabled={loading}>

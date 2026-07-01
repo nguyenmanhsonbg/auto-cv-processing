@@ -155,8 +155,9 @@ function mapAmisSaveRecruitmentResponse(
     'Id',
     'id',
   ]));
+  const summaryText = truncateText(cleanText(readFirst(data, ['Summary', 'summary'])), 500);
   const descriptionText = htmlToText(readFirst(data, ['Description', 'description']))
-    || cleanText(readFirst(data, ['Summary', 'summary']));
+    || summaryText;
   const requirementText = htmlToText(readFirst(data, ['Requirement', 'Requirements', 'requirement', 'requirements']));
   const benefitText = htmlToText(readFirst(data, ['Benifit', 'Benefit', 'Benefits', 'benifit', 'benefit', 'benefits']));
   const location = extractLocation(data);
@@ -173,6 +174,7 @@ function mapAmisSaveRecruitmentResponse(
     title: cleanText(readFirst(data, ['TitleWebsite', 'titleWebsite']))
       || cleanText(readFirst(data, ['Title', 'title']))
       || cleanText(readFirst(data, ['JobPositionName', 'jobPositionName'])),
+    ...(summaryText ? { summary: summaryText } : {}),
     description: descriptionText,
     requirements: {
       rawText: requirementText,
@@ -191,6 +193,7 @@ function mapAmisSaveRecruitmentResponse(
   const fieldSources = {
     ...(recruitmentId ? { amisRecruitmentId: 'SaveRecruitment.Data.RecruitmentID' } : {}),
     ...(snapshot.title ? { title: 'SaveRecruitment.Data.TitleWebsite|Title|JobPositionName' } : {}),
+    ...(summaryText ? { summary: 'SaveRecruitment.Data.Summary' } : {}),
     ...(snapshot.description ? { description: 'SaveRecruitment.Data.Description|Summary' } : {}),
     ...(snapshot.requirements.rawText ? { requirements: 'SaveRecruitment.Data.Requirement' } : {}),
     ...(benefitText ? { benefits: 'SaveRecruitment.Data.Benifit' } : {}),
@@ -323,6 +326,10 @@ function cleanText(value: unknown) {
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
+}
+
+function truncateText(value: string, maxLength: number) {
+  return value.length > maxLength ? value.slice(0, maxLength).trim() : value;
 }
 
 function readFirst(data: Record<string, unknown>, keys: string[]) {
