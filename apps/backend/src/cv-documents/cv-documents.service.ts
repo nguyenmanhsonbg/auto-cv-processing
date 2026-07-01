@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -13,6 +14,7 @@ import type { Stats } from 'fs';
 import * as path from 'path';
 import { DataSource, EntityManager } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
+import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import {
   CV_MALWARE_SCANNER,
@@ -25,6 +27,8 @@ import { resolveCvSafeStorageKey } from '../cv-sanitization/storage/cv-safe-stor
 import {
   ApplicationStatus,
   CvDocumentType,
+  DuplicateCheckStatus,
+  DuplicateCheckType,
   CvParseStatus,
   CvSanitizeStatus,
   CvScanStatus,
@@ -262,16 +266,41 @@ export class CvDocumentsService {
       });
       if (!application) throw new BadRequestException('Application not found');
 
-      const existingCvDocument = idempotencyKeyHash
-        ? await this.findExistingOriginalByIdempotencyKeyAndHash(
+      const idempotentUpload = idempotencyKeyHash
+        ? await this.findExistingUploadByIdempotencyKey(
             manager,
             applicationId,
-            validatedFile.originalFileHash,
             idempotencyKeyHash,
           )
         : null;
 
-      if (existingCvDocument) {
+      if (
+        idempotentUpload
+        && idempotentUpload.originalFileHash !== validatedFile.originalFileHash
+      ) {
+        await this.recordFileDuplicateDetected(manager, {
+          application,
+          matchedCvDocument: idempotentUpload.cvDocument,
+          incomingOriginalFileHash: validatedFile.originalFileHash,
+          actorId: input.actorId,
+          idempotencyKeyHash,
+          reasonCode: 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FILE',
+        });
+        throw new ConflictException({
+          code: 'IDEMPOTENCY_CONFLICT',
+          message: 'Idempotency key was already used with a different CV file.',
+        });
+      }
+
+      if (idempotentUpload?.cvDocument) {
+        await this.recordFileDuplicateDetected(manager, {
+          application,
+          matchedCvDocument: idempotentUpload.cvDocument,
+          incomingOriginalFileHash: validatedFile.originalFileHash,
+          actorId: input.actorId,
+          idempotencyKeyHash,
+          reasonCode: 'IDEMPOTENT_RETRY_SAME_FILE',
+        });
         await this.workflowStateService.recordEvent(
           {
             applicationId,
@@ -283,10 +312,10 @@ export class CvDocumentsService {
             metadata: {
               applicationId,
               candidateId: application.candidateId,
-              cvDocumentId: existingCvDocument.id,
-              documentType: existingCvDocument.documentType,
-              versionNo: existingCvDocument.versionNo,
-              originalFileHash: existingCvDocument.originalFileHash,
+              cvDocumentId: idempotentUpload.cvDocument.id,
+              documentType: idempotentUpload.cvDocument.documentType,
+              versionNo: idempotentUpload.cvDocument.versionNo,
+              originalFileHash: idempotentUpload.cvDocument.originalFileHash,
               hasIdempotencyKey: true,
               idempotencyKeyHash,
               duplicateFileDiscarded: true,
@@ -296,10 +325,30 @@ export class CvDocumentsService {
         );
 
         return {
-          cvDocument: existingCvDocument,
+          cvDocument: idempotentUpload.cvDocument,
           keepUploadedFile: false,
           scanFilePath: null,
         };
+      }
+
+      const existingFileHash = await this.findExistingOriginalByHash(
+        manager,
+        applicationId,
+        validatedFile.originalFileHash,
+      );
+      if (existingFileHash) {
+        await this.recordFileDuplicateDetected(manager, {
+          application,
+          matchedCvDocument: existingFileHash,
+          incomingOriginalFileHash: validatedFile.originalFileHash,
+          actorId: input.actorId,
+          idempotencyKeyHash,
+          reasonCode: 'SAME_FILE_HASH_ALREADY_UPLOADED',
+        });
+        throw new ConflictException({
+          code: 'DUPLICATE_CV_FILE',
+          message: 'This CV file has already been uploaded for this application.',
+        });
       }
 
       if (this.isTerminalStatus(application.status)) {
@@ -378,6 +427,60 @@ export class CvDocumentsService {
         },
         manager,
       );
+      await this.recordAuditLog(manager, {
+        applicationId,
+        actorType: 'USER',
+        actorId: this.optionalText(input.actorId),
+        action: 'CV_UPLOADED',
+        objectId: saved.id,
+        metadata: {
+          applicationId,
+          candidateId: application.candidateId,
+          cvDocumentId: saved.id,
+          documentType: saved.documentType,
+          versionNo: saved.versionNo,
+          originalFileName: saved.originalFileName,
+          mimeType: saved.mimeType,
+          fileSize: Number(saved.fileSize),
+          originalFileHash: saved.originalFileHash,
+          replaceCurrent,
+          previousCurrentCvDocumentId: previousCurrentCvDocument?.id ?? null,
+          previousCurrentVersionNo: previousCurrentCvDocument?.versionNo ?? null,
+          hasReason: Boolean(this.optionalText(input.reason)),
+          hasIdempotencyKey: Boolean(idempotencyKey),
+          idempotencyKeyHash,
+        },
+      });
+      await this.recordAuditLog(manager, {
+        applicationId,
+        actorType: 'SYSTEM',
+        actorId: null,
+        action: 'CV_HASH_CALCULATED',
+        objectId: saved.id,
+        metadata: {
+          applicationId,
+          candidateId: application.candidateId,
+          cvDocumentId: saved.id,
+          documentType: saved.documentType,
+          versionNo: saved.versionNo,
+          originalFileHash: saved.originalFileHash,
+          hashAlgorithm: 'sha256',
+        },
+      });
+      await this.recordDuplicateCheck(manager, {
+        applicationId,
+        checkType: DuplicateCheckType.FILE_DUPLICATE,
+        status: DuplicateCheckStatus.PASSED,
+        details: {
+          candidateId: application.candidateId,
+          cvDocumentId: saved.id,
+          documentType: saved.documentType,
+          versionNo: saved.versionNo,
+          originalFileHash: saved.originalFileHash,
+          hasIdempotencyKey: Boolean(idempotencyKey),
+          idempotencyKeyHash,
+        },
+      });
 
       await this.workflowStateService.recordStatusTransition(
         {
@@ -401,6 +504,24 @@ export class CvDocumentsService {
         },
         manager,
       );
+      await this.recordAuditLog(manager, {
+        applicationId,
+        actorType: 'SYSTEM',
+        actorId: null,
+        action: 'CV_STORED_QUARANTINE',
+        objectId: saved.id,
+        metadata: {
+          applicationId,
+          candidateId: application.candidateId,
+          cvDocumentId: saved.id,
+          documentType: saved.documentType,
+          versionNo: saved.versionNo,
+          storageZone: saved.storageZone,
+          storageKeyRecorded: Boolean(saved.storagePath),
+          originalFileHash: saved.originalFileHash,
+          scannerAllowedSource: 'QUARANTINE',
+        },
+      });
 
       return {
         cvDocument: saved,
@@ -543,6 +664,19 @@ export class CvDocumentsService {
         objectId: saved.id,
         metadata,
       });
+      if (nextApplicationStatus === ApplicationStatus.CV_SCAN_FAILED) {
+        await this.recordAuditLog(manager, {
+          applicationId: saved.applicationId,
+          actorType: 'SYSTEM',
+          actorId: null,
+          action: 'CV_SCAN_FAILED_INTERNAL_ALERT',
+          objectId: saved.id,
+          metadata: {
+            ...metadata,
+            alertType: 'CV_SECURITY_SCAN_FAILED',
+          },
+        });
+      }
 
       return saved;
     });
@@ -784,19 +918,15 @@ export class CvDocumentsService {
     await deleteCvQuarantineFile(file?.path);
   }
 
-  private async findExistingOriginalByIdempotencyKeyAndHash(
+  private async findExistingUploadByIdempotencyKey(
     manager: EntityManager,
     applicationId: string,
-    originalFileHash: string,
     idempotencyKeyHash: string,
   ) {
     const uploadEvent = await manager.getRepository(WorkflowEventEntity)
       .createQueryBuilder('event')
       .where('event.applicationId = :applicationId', { applicationId })
       .andWhere('event.eventType = :eventType', { eventType: 'CV_UPLOADED' })
-      .andWhere("event.metadata ->> 'originalFileHash' = :originalFileHash", {
-        originalFileHash,
-      })
       .andWhere("event.metadata ->> 'idempotencyKeyHash' = :idempotencyKeyHash", {
         idempotencyKeyHash,
       })
@@ -804,12 +934,13 @@ export class CvDocumentsService {
       .addOrderBy('event.id', 'DESC')
       .getOne();
     const cvDocumentId = uploadEvent?.metadata?.cvDocumentId;
+    const originalFileHash = uploadEvent?.metadata?.originalFileHash;
 
-    if (typeof cvDocumentId !== 'string') {
+    if (typeof cvDocumentId !== 'string' || typeof originalFileHash !== 'string') {
       return null;
     }
 
-    return manager.getRepository(CvDocumentEntity).findOne({
+    const cvDocument = await manager.getRepository(CvDocumentEntity).findOne({
       where: {
         id: cvDocumentId,
         applicationId,
@@ -821,6 +952,93 @@ export class CvDocumentsService {
         createdAt: 'DESC',
       },
     });
+
+    return cvDocument ? { cvDocument, originalFileHash } : null;
+  }
+
+  private findExistingOriginalByHash(
+    manager: EntityManager,
+    applicationId: string,
+    originalFileHash: string,
+  ) {
+    return manager.getRepository(CvDocumentEntity).findOne({
+      where: {
+        applicationId,
+        documentType: CvDocumentType.ORIGINAL,
+        originalFileHash,
+      },
+      order: {
+        versionNo: 'DESC',
+        createdAt: 'DESC',
+      },
+    });
+  }
+
+  private async recordFileDuplicateDetected(
+    manager: EntityManager,
+    input: {
+      application: ApplicationEntity;
+      matchedCvDocument: CvDocumentEntity | null;
+      incomingOriginalFileHash: string;
+      actorId?: string | null;
+      idempotencyKeyHash?: string | null;
+      reasonCode: string;
+    },
+  ) {
+    const matchedCvDocument = input.matchedCvDocument;
+    const details = {
+      applicationId: input.application.id,
+      candidateId: input.application.candidateId,
+      matchedCvDocumentId: matchedCvDocument?.id ?? null,
+      matchedVersionNo: matchedCvDocument?.versionNo ?? null,
+      incomingOriginalFileHash: input.incomingOriginalFileHash,
+      matchedOriginalFileHash: matchedCvDocument?.originalFileHash ?? null,
+      hasIdempotencyKey: Boolean(input.idempotencyKeyHash),
+      idempotencyKeyHash: input.idempotencyKeyHash ?? null,
+      reasonCode: input.reasonCode,
+    };
+
+    await this.recordDuplicateCheck(manager, {
+      applicationId: input.application.id,
+      checkType: DuplicateCheckType.FILE_DUPLICATE,
+      status: DuplicateCheckStatus.DUPLICATE_FOUND,
+      matchedEntityType: matchedCvDocument ? 'CV_DOCUMENT' : null,
+      matchedEntityId: matchedCvDocument?.id ?? null,
+      details,
+    });
+    await this.recordAuditLog(manager, {
+      applicationId: input.application.id,
+      actorType: input.actorId ? 'USER' : 'SYSTEM',
+      actorId: this.optionalText(input.actorId),
+      action: 'CV_FILE_DUPLICATE_FOUND',
+      objectId: matchedCvDocument?.id ?? input.application.id,
+      metadata: details,
+    });
+  }
+
+  private async recordDuplicateCheck(
+    manager: EntityManager,
+    input: {
+      applicationId: string;
+      checkType: DuplicateCheckType;
+      status: DuplicateCheckStatus;
+      matchedEntityType?: string | null;
+      matchedEntityId?: string | null;
+      score?: string | null;
+      details?: Record<string, unknown> | null;
+    },
+  ) {
+    await manager.getRepository(DuplicateCheckEntity).save(
+      manager.getRepository(DuplicateCheckEntity).create({
+        applicationId: input.applicationId,
+        checkType: input.checkType,
+        status: input.status,
+        matchedEntityType: input.matchedEntityType ?? null,
+        matchedEntityId: input.matchedEntityId ?? null,
+        score: input.score ?? null,
+        details: input.details ?? null,
+      }),
+    );
   }
 
   private async nextVersionNo(manager: EntityManager, applicationId: string) {

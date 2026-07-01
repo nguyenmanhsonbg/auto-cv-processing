@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { ApplicationEntity } from '../applications/entities/application.entity';
+import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { CvParsingModule } from '../cv-parsing/cv-parsing.module';
 import { CvSanitizationModule } from '../cv-sanitization/cv-sanitization.module';
@@ -24,6 +25,7 @@ const allowedCvUploadExtensions = new Set(['.pdf', '.docx', '.xlsx']);
     TypeOrmModule.forFeature([
       ApplicationEntity,
       AuditLogEntity,
+      DuplicateCheckEntity,
       CvDocumentEntity,
       ParsedProfileEntity,
     ]),

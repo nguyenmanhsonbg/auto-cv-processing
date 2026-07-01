@@ -263,6 +263,16 @@ export class CvParsingService {
         actorType: 'SYSTEM',
         actorId: null,
         action: 'CV_PARSED',
+        objectType: 'PARSED_PROFILE',
+        objectId: savedProfile.id,
+        metadata,
+      });
+      await this.recordAuditLog(manager, {
+        applicationId: cleanCvDocument.applicationId,
+        actorType: 'SYSTEM',
+        actorId: null,
+        action: 'PARSED_PROFILE_CREATED',
+        objectType: 'PARSED_PROFILE',
         objectId: savedProfile.id,
         metadata,
       });
@@ -431,6 +441,7 @@ export class CvParsingService {
       actorType: string;
       actorId?: string | null;
       action: string;
+      objectType?: string;
       objectId: string;
       metadata: Record<string, unknown>;
     },
@@ -440,7 +451,7 @@ export class CvParsingService {
       actorType: input.actorType,
       actorId: this.optionalText(input.actorId),
       action: input.action,
-      objectType: 'CV_DOCUMENT',
+      objectType: input.objectType ?? 'CV_DOCUMENT',
       objectId: input.objectId,
       applicationId: input.applicationId,
       metadata: input.metadata,

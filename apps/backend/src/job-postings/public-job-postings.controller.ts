@@ -13,6 +13,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Req,
   UploadedFile,
   UseFilters,
   UseInterceptors,
@@ -28,7 +29,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { Request, Response } from 'express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
@@ -73,7 +74,9 @@ interface PublicJobDescriptionSnapshot extends Record<string, unknown> {
 type PublicApplyErrorCode =
   | 'CV_SCAN_FAILED'
   | 'DUPLICATE_APPLICATION'
+  | 'DUPLICATE_CV_FILE'
   | 'FILE_TOO_LARGE'
+  | 'IDEMPOTENCY_CONFLICT'
   | 'INVALID_STATE_TRANSITION'
   | 'MALWARE_DETECTED'
   | 'NOT_FOUND'
@@ -252,24 +255,40 @@ export class PublicJobPostingsController {
     @Param('jobPostingId', ParseUUIDPipe) jobPostingId: string,
     @Body() dto: PublicApplyDto,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: Request,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     if (!file) throw new BadRequestException('CV file is required');
 
     const normalizedIdempotencyKey = this.normalizeIdempotencyKey(idempotencyKey);
+    const candidate = {
+      name: this.requireText(dto.fullName, 'Candidate name'),
+      email: this.requireText(dto.email, 'Candidate email'),
+      phone: this.requireText(dto.phone, 'Candidate phone'),
+    };
     let handedToCvUploadService = false;
 
     try {
+      await this.applicationsService.assertPublicApplyRateLimit({
+        jobPostingId,
+        email: candidate.email,
+        phone: candidate.phone,
+        ipAddress: this.getClientIp(req),
+        userAgent: normalizeHeader(req.headers['user-agent']),
+      });
+      await this.applicationsService.recordPublicApplyReceived({
+        jobPostingId,
+        email: candidate.email,
+        phone: candidate.phone,
+        ipAddress: this.getClientIp(req),
+        userAgent: normalizeHeader(req.headers['user-agent']),
+      });
       const applicationResult = await this.applicationsService.createFromApply({
         jobPostingId,
-        candidate: {
-          name: this.requireText(dto.fullName, 'Candidate name'),
-          email: this.requireText(dto.email, 'Candidate email'),
-          phone: this.requireText(dto.phone, 'Candidate phone'),
-        },
+        candidate,
         sourceChannel: RecruitmentChannel.VCS_PORTAL,
         externalApplicationId: normalizedIdempotencyKey,
-        rawPayload: this.toApplyRawPayload(dto),
+        rawPayload: this.toApplyRawPayload(dto, jobPostingId),
       });
 
       if (applicationResult.duplicate && !normalizedIdempotencyKey) {
@@ -350,9 +369,15 @@ export class PublicJobPostingsController {
     };
   }
 
-  private toApplyRawPayload(dto: PublicApplyDto) {
+  private toApplyRawPayload(dto: PublicApplyDto, jobPostingId: string) {
     const note = this.optionalText(dto.note);
-    return note ? { note } : null;
+    return {
+      jobPostingId,
+      candidateNameHash: this.hashIdentityText(dto.fullName, true),
+      candidateEmailHash: this.hashIdentityText(dto.email, true),
+      candidatePhoneHash: this.hashIdentityText(dto.phone),
+      hasNote: Boolean(note),
+    };
   }
 
   private applyMeta(idempotencyKey: string | null) {
@@ -376,6 +401,20 @@ export class PublicJobPostingsController {
   private optionalText(value?: string | null) {
     const normalized = value?.trim();
     return normalized || null;
+  }
+
+  private hashIdentityText(value?: string | null, lowerCase = false) {
+    const normalized = this.optionalText(value);
+    if (!normalized) return null;
+    return createHash('sha256')
+      .update(lowerCase ? normalized.toLowerCase() : normalized)
+      .digest('hex');
+  }
+
+  private getClientIp(req: Request) {
+    const forwardedFor = normalizeHeader(req.headers['x-forwarded-for']);
+    const forwardedIp = forwardedFor?.split(',')[0]?.trim();
+    return forwardedIp || req.ip || req.socket.remoteAddress || null;
   }
 
   private toPublicPosition(snapshot?: PublicJobDescriptionSnapshot) {
@@ -436,6 +475,22 @@ function toPublicApplyError(exception: unknown): PublicApplyError {
       HttpStatus.SERVICE_UNAVAILABLE,
       'CV_SCAN_FAILED',
       'CV security scan could not be completed. Please retry later.',
+    );
+  }
+
+  if (code === 'IDEMPOTENCY_CONFLICT') {
+    return buildPublicApplyError(
+      HttpStatus.CONFLICT,
+      'IDEMPOTENCY_CONFLICT',
+      'Idempotency key was already used with different application data.',
+    );
+  }
+
+  if (code === 'DUPLICATE_CV_FILE') {
+    return buildPublicApplyError(
+      HttpStatus.CONFLICT,
+      'DUPLICATE_CV_FILE',
+      'This CV file has already been uploaded for this application.',
     );
   }
 

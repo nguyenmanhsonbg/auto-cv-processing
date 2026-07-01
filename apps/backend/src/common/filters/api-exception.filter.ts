@@ -12,9 +12,11 @@ type ApiErrorCode =
   | 'CV_PARSE_FAILED'
   | 'CV_SANITIZE_FAILED'
   | 'CV_SCAN_FAILED'
+  | 'DUPLICATE_CV_FILE'
   | 'DUPLICATE_APPLICATION'
   | 'FILE_TOO_LARGE'
   | 'FORBIDDEN'
+  | 'IDEMPOTENCY_CONFLICT'
   | 'INTERNAL_SERVER_ERROR'
   | 'INVALID_STATE_TRANSITION'
   | 'MALWARE_DETECTED'
@@ -119,6 +121,22 @@ export class ApiExceptionFilter implements ExceptionFilter {
         HttpStatus.CONFLICT,
         code,
         'An application already exists for this job posting.',
+      );
+    }
+
+    if (code === 'DUPLICATE_CV_FILE') {
+      return this.buildError(
+        HttpStatus.CONFLICT,
+        code,
+        'This CV file has already been uploaded for this application.',
+      );
+    }
+
+    if (code === 'IDEMPOTENCY_CONFLICT') {
+      return this.buildError(
+        HttpStatus.CONFLICT,
+        code,
+        'Idempotency key was already used with different application data.',
       );
     }
 
