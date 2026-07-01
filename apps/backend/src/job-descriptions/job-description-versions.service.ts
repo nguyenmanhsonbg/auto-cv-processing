@@ -233,7 +233,7 @@ export class JobDescriptionVersionsService {
         positionId: jobDescription.positionId,
         levelId: jobDescription.levelId,
         description: jobDescription.description,
-        summary: jobDescription.summary,
+        summary: this.summaryForSnapshot(jobDescription),
         requirements: jobDescription.requirements,
         benefits: jobDescription.benefits,
         status: jobDescription.status,
@@ -274,5 +274,17 @@ export class JobDescriptionVersionsService {
     return manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
       `job-description-version:${jobDescriptionId}`,
     ]);
+  }
+
+  private summaryForSnapshot(jobDescription: JobDescriptionEntity) {
+    const summary = jobDescription.summary?.trim();
+    if (summary) return summary;
+
+    return this.truncateForSummary(jobDescription.description || jobDescription.title);
+  }
+
+  private truncateForSummary(value: string) {
+    const normalized = value.trim();
+    return normalized.length > 500 ? normalized.slice(0, 500).trim() : normalized;
   }
 }

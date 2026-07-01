@@ -42,8 +42,8 @@ export class JobDescriptionEntity {
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ type: 'varchar', length: 500 })
-  summary: string;
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  summary: string | null;
 
   @Column({ type: 'jsonb' })
   requirements: Record<string, unknown>;

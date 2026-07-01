@@ -873,6 +873,13 @@ export class ExtensionIntegrationService {
     return normalized.length > 500 ? normalized.slice(0, 500).trim() : normalized;
   }
 
+  private summaryForSnapshot(jobDescription: JobDescriptionEntity) {
+    const summary = jobDescription.summary?.trim();
+    if (summary) return summary;
+
+    return this.toSummary(jobDescription.description || jobDescription.title);
+  }
+
   private parseDeadline(value: string | undefined, now: Date) {
     if (!value) return null;
     const closeAt = new Date(value);
@@ -915,7 +922,7 @@ export class ExtensionIntegrationService {
         positionId: jobDescription.positionId,
         levelId: jobDescription.levelId,
         description: jobDescription.description,
-        summary: jobDescription.summary,
+        summary: this.summaryForSnapshot(jobDescription),
         requirements: jobDescription.requirements,
         benefits: jobDescription.benefits,
         status: jobDescription.status,
