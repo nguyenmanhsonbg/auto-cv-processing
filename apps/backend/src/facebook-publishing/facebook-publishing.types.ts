@@ -20,6 +20,16 @@ export interface ResolvedFacebookPublishTarget {
   targetExternalId?: string | null;
 }
 
+export interface CreateFacebookGroupInput {
+  ownerUserId: string;
+  targetName: string;
+  targetUrl: string;
+}
+
+export interface UpdateFacebookGroupInput extends CreateFacebookGroupInput {
+  targetId: string;
+}
+
 export interface ExtensionFacebookPublishPlan {
   jobPostingId: string;
   content: string;

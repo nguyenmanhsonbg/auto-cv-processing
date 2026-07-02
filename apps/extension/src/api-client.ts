@@ -1,10 +1,13 @@
 import { BE_API_BASE_URL, EXTENSION_VERSION } from './config';
 import type {
   ApiEnvelope,
+  CreateFacebookGroupRequest,
   ExtensionSyncResponse,
   ExtensionUser,
+  FacebookPublishTarget,
   FacebookPublishResultPayload,
   SyncAmisJobPostingRequest,
+  UpdateFacebookGroupRequest,
 } from './types';
 
 export class ApiClientError extends Error {
@@ -62,10 +65,47 @@ export async function reportFacebookPublishResult(
   });
 }
 
+export async function getFacebookGroups(accessToken: string) {
+  return request<FacebookPublishTarget[]>('/extension/facebook/groups', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createFacebookGroup(
+  accessToken: string,
+  payload: CreateFacebookGroupRequest,
+) {
+  return request<FacebookPublishTarget>('/extension/facebook/groups', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function updateFacebookGroup(
+  accessToken: string,
+  targetId: string,
+  payload: UpdateFacebookGroupRequest,
+) {
+  return request<FacebookPublishTarget>(`/extension/facebook/groups/${encodeURIComponent(targetId)}`, {
+    method: 'PUT',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function deleteFacebookGroup(accessToken: string, targetId: string) {
+  return request<FacebookPublishTarget>(`/extension/facebook/groups/${encodeURIComponent(targetId)}`, {
+    method: 'DELETE',
+    accessToken,
+  });
+}
+
 async function request<T>(
   path: string,
   options: {
-    method: 'GET' | 'POST';
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE';
     accessToken?: string;
     body?: unknown;
     headers?: Record<string, string>;

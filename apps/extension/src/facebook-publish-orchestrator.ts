@@ -10,6 +10,18 @@ interface FacebookPublishCallbacks {
   onProgress?: (progress: FacebookPublishProgress) => void;
 }
 
+export type FacebookSessionStatus = 'CHECKING_LOGIN' | 'WAITING_LOGIN' | 'READY';
+
+export interface FacebookSessionEvent {
+  status: FacebookSessionStatus;
+  message: string;
+  url?: string;
+}
+
+interface FacebookSessionCallbacks {
+  onStatus?: (event: FacebookSessionEvent) => void;
+}
+
 interface FacebookLoginCheckResult {
   ready: boolean;
   url: string;
@@ -49,7 +61,18 @@ export async function publishFacebookPlan(
     results,
   });
   try {
-    await ensureFacebookLogin(callbacks, total, results);
+    await ensureFacebookSession({
+      onStatus: (event) => {
+        if (event.status !== 'WAITING_LOGIN') return;
+        callbacks.onProgress?.({
+          status: 'WAITING_LOGIN',
+          currentIndex: 0,
+          total,
+          message: event.message,
+          results,
+        });
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Facebook login could not be completed.';
     await reportAllTargetsFailed(accessToken, plan, message, results);
@@ -124,22 +147,28 @@ export async function publishFacebookPlan(
   return results;
 }
 
-async function ensureFacebookLogin(
-  callbacks: FacebookPublishCallbacks,
-  total: number,
-  results: FacebookPublishResultPayload[],
-) {
+export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks = {}) {
+  callbacks.onStatus?.({
+    status: 'CHECKING_LOGIN',
+    message: 'Checking Facebook login in this browser.',
+  });
+
   const tab = await openTab('https://www.facebook.com/', true);
   await waitForTabComplete(tab.id);
   let status = await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []);
-  if (status.ready) return;
+  if (status.ready) {
+    callbacks.onStatus?.({
+      status: 'READY',
+      message: status.message,
+      url: status.url,
+    });
+    return status;
+  }
 
-  callbacks.onProgress?.({
+  callbacks.onStatus?.({
     status: 'WAITING_LOGIN',
-    currentIndex: 0,
-    total,
     message: 'Facebook login is required. Please complete login in the opened tab.',
-    results,
+    url: status.url,
   });
 
   await chrome.tabs?.update(tab.id, { url: 'https://www.facebook.com/login', active: true });
@@ -148,7 +177,14 @@ async function ensureFacebookLogin(
     await sleep(2_000);
     await waitForTabComplete(tab.id);
     status = await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []);
-    if (status.ready) return;
+    if (status.ready) {
+      callbacks.onStatus?.({
+        status: 'READY',
+        message: status.message,
+        url: status.url,
+      });
+      return status;
+    }
   }
 
   throw new Error(status.message || 'Facebook login timed out.');

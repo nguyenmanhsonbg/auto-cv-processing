@@ -106,6 +106,16 @@ export interface FacebookPublishTarget {
   targetExternalId?: string | null;
 }
 
+export interface CreateFacebookGroupRequest {
+  targetName: string;
+  targetUrl: string;
+}
+
+export interface UpdateFacebookGroupRequest {
+  targetName: string;
+  targetUrl: string;
+}
+
 export interface FacebookPublishPlan {
   jobPostingId: string;
   content: string;

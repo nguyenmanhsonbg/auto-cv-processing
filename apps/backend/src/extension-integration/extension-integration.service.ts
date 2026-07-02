@@ -135,6 +135,7 @@ export class ExtensionIntegrationService {
           dto,
           snapshotHash,
           snapshotChanged: false,
+          actorUserId: context.actorUserId,
         });
       }
 
@@ -213,6 +214,7 @@ export class ExtensionIntegrationService {
       dto,
       snapshotHash,
       snapshotChanged: true,
+      actorUserId: context.actorUserId,
     });
   }
 
@@ -274,6 +276,7 @@ export class ExtensionIntegrationService {
       dto,
       snapshotHash,
       snapshotChanged: true,
+      actorUserId: context.actorUserId,
     });
   }
 
@@ -355,9 +358,10 @@ export class ExtensionIntegrationService {
     dto: SyncAmisJobPostingDto;
     snapshotHash: string;
     snapshotChanged: boolean;
+    actorUserId: string;
   }): Promise<ExtensionSyncResponseDto> {
     const facebookPublishPlan = input.dto.channels.includes(RecruitmentChannel.FACEBOOK)
-      ? await this.facebookPublishingService.prepareExtensionPublishPlan(input.posting)
+      ? await this.facebookPublishingService.prepareExtensionPublishPlan(input.posting, input.actorUserId)
       : undefined;
     const warnings: ExtensionSyncWarningDto[] = [];
     for (const channel of input.dto.channels) {
