@@ -251,22 +251,34 @@ async function publishTarget(
   }
 
   const tab = await openTab(target.targetUrl, true);
-  await waitForTabComplete(tab.id);
-  await sleep(randomDelay(2_500, 6_000));
-  const preparedPost = await runScript<[string], FacebookPreparedPostResult>(
-    tab.id,
-    prepareFacebookPostInPage,
-    [content],
-  );
-  if (preparedPost.status !== 'READY_TO_SUBMIT' || !preparedPost.submitButton) {
-    return {
-      status: 'FAILED',
-      message: preparedPost.message,
-    };
+  let latestFailure: FacebookPreparedPostResult | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await waitForTabComplete(tab.id);
+    await sleep(randomDelay(attempt === 0 ? 2_500 : 4_000, attempt === 0 ? 6_000 : 8_000));
+    const preparedPost = await runScript<[string], FacebookPreparedPostResult>(
+      tab.id,
+      prepareFacebookPostInPage,
+      [content],
+    );
+    if (preparedPost.status === 'READY_TO_SUBMIT' && preparedPost.submitButton) {
+      await clickTabPoint(tab.id, preparedPost.submitButton);
+      return runScript<[], FacebookPagePublishResult>(tab.id, waitForFacebookSubmissionInPage, []);
+    }
+
+    latestFailure = preparedPost;
+    if (attempt === 0 && shouldRetryPrepareFailure(preparedPost.message)) {
+      await reloadTab(tab.id);
+      continue;
+    }
+
+    break;
   }
 
-  await clickTabPoint(tab.id, preparedPost.submitButton);
-  return runScript<[], FacebookPagePublishResult>(tab.id, waitForFacebookSubmissionInPage, []);
+  return {
+    status: 'FAILED',
+    message: latestFailure?.message ?? 'Facebook post could not be prepared.',
+  };
 }
 
 async function reportAllTargetsFailed(
@@ -336,6 +348,17 @@ async function waitForTabComplete(tabId: number) {
     if (tab?.status === 'complete') return;
     await sleep(500);
   }
+}
+
+async function reloadTab(tabId: number) {
+  const tab = await chrome.tabs?.get(tabId);
+  if (tab?.url) {
+    await chrome.tabs?.update(tabId, { url: tab.url });
+  }
+}
+
+function shouldRetryPrepareFailure(message: string) {
+  return /composer|post button|post editor/i.test(message);
 }
 
 async function runScript<Args extends unknown[], Result>(
@@ -504,6 +527,8 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
     /^post to group$/,
     /^dang bai$/,
     /^dang tin$/,
+    /^dang len nhom$/,
+    /^dang vao nhom$/,
   ];
   const COMMENT_PATTERNS = [
     /write a comment/,
@@ -534,6 +559,7 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
     element.getAttribute('title') ?? '',
   ].join(' '));
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
+  const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex], a') ?? element
@@ -587,6 +613,13 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
       clientX: Math.round(rect.left + rect.width / 2),
       clientY: Math.round(rect.top + rect.height / 2),
     };
+  };
+  const isUsableClickPoint = (element: Element) => {
+    const point = resolveClickPoint(element);
+    const clickable = getClickableElement(element);
+    const hit = document.elementFromPoint(point.clientX, point.clientY);
+    const hitClickable = hit?.closest?.('button, [role="button"], [tabindex], a');
+    return Boolean(hit && (hit === clickable || clickable.contains(hit) || hitClickable === clickable));
   };
   const clickElement = async (element: Element) => {
     const clickable = getClickableElement(element);
@@ -643,6 +676,45 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
       })
       .sort((left, right) => right.score - left.score)[0]?.element ?? null;
   };
+  const findPostSubmitButton = (root: Document | Element) => {
+    const uniqueClickables = new Set<Element>();
+
+    return queryAll(root, CLICKABLE_SELECTOR)
+      .map((element) => ({
+        source: element,
+        clickable: getClickableElement(element),
+      }))
+      .filter(({ source, clickable }) => {
+        if (uniqueClickables.has(clickable)) return false;
+        uniqueClickables.add(clickable);
+        if (!isVisible(clickable) || isDisabled(clickable) || isInsideCommentSurface(source)) return false;
+        const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
+        return labels.some(isSubmitLabel);
+      })
+      .map(({ source, clickable }) => {
+        const rect = clickable.getBoundingClientRect();
+        const label = elementLabel(clickable) || elementLabel(source);
+        const role = clickable.getAttribute('role');
+        const inDialog = Boolean(clickable.closest('[role="dialog"]'));
+        const exactSubmitScore = /^post$|^dang$/.test(label) ? 100 : 40;
+        const roleScore = clickable.tagName === 'BUTTON' || role === 'button' ? 80 : 0;
+        const conciseLabelScore = label.length <= 40 ? 50 : label.length <= 80 ? 20 : -50;
+        const viewportScore = rect.bottom > 0 && rect.top < window.innerHeight ? 30 : 0;
+        const hitScore = isUsableClickPoint(clickable) ? 40 : -120;
+
+        return {
+          element: clickable,
+          score: exactSubmitScore
+            + roleScore
+            + conciseLabelScore
+            + viewportScore
+            + hitScore
+            + (inDialog ? 60 : 0)
+            - Math.min(60, (rect.width * rect.height) / 1800),
+        };
+      })
+      .sort((left, right) => right.score - left.score)[0]?.element ?? null;
+  };
   const findPostEditor = (root: Document | Element) => {
     const editors = queryAll(root, '[contenteditable="true"][role="textbox"], [contenteditable="true"]')
       .filter((element): element is HTMLElement => element instanceof HTMLElement)
@@ -669,10 +741,7 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
     let depth = 0;
 
     while (current && depth < 8) {
-      const postButton = findClickable(current, POST_BUTTON_PATTERNS, {
-        excludeCommentSurfaces: true,
-        maxLabelLength: 80,
-      });
+      const postButton = findPostSubmitButton(current);
       if (postButton) return current;
 
       current = current.parentElement;
@@ -740,7 +809,7 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
         enabledOnly: true,
         excludeCommentSurfaces: true,
         maxLabelLength: 80,
-      });
+      }) ?? findPostSubmitButton(surface);
       if (button) return button;
       await sleepInPage(500);
     }
@@ -877,6 +946,18 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
     /^post to group$/,
     /^dang bai$/,
     /^dang tin$/,
+    /^dang len nhom$/,
+    /^dang vao nhom$/,
+  ];
+  const COMMENT_PATTERNS = [
+    /write a comment/,
+    /add a comment/,
+    /comment as/,
+    /reply/,
+    /binh luan/,
+    /viet binh luan/,
+    /tra loi/,
+    /viet phan hoi/,
   ];
   const queryAll = (root: Document | Element, selector: string) => (
     Array.from(root.querySelectorAll(selector))
@@ -895,6 +976,8 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
     element.getAttribute('title') ?? '',
   ].join(' '));
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
+  const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
+  const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex], a') ?? element
   );
@@ -933,15 +1016,72 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
       clientY: Math.round(rect.top + rect.height / 2),
     };
   };
+  const isInsideCommentSurface = (element: Element) => {
+    if (isCommentLabel(elementLabel(element))) return true;
+
+    let current = element.parentElement;
+    let depth = 0;
+    while (current && depth < 6) {
+      const label = elementLabel(current);
+      if (isSubmitLabel(label)) return false;
+      if (isCommentLabel(label)) return true;
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return false;
+  };
+  const isUsableClickPoint = (element: Element) => {
+    const point = resolveClickPoint(element);
+    const clickable = getClickableElement(element);
+    const hit = document.elementFromPoint(point.clientX, point.clientY);
+    const hitClickable = hit?.closest?.('button, [role="button"], [tabindex], a');
+    return Boolean(hit && (hit === clickable || clickable.contains(hit) || hitClickable === clickable));
+  };
+  const findSubmitButton = (root: Document | Element) => {
+    const uniqueClickables = new Set<Element>();
+
+    return queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
+      .map((element) => ({
+        source: element,
+        clickable: getClickableElement(element),
+      }))
+      .filter(({ source, clickable }) => {
+        if (uniqueClickables.has(clickable)) return false;
+        uniqueClickables.add(clickable);
+        if (!isVisible(clickable) || isDisabled(clickable) || isInsideCommentSurface(source)) return false;
+        const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
+        return labels.some(isSubmitLabel);
+      })
+      .map(({ source, clickable }) => {
+        const rect = clickable.getBoundingClientRect();
+        const label = elementLabel(clickable) || elementLabel(source);
+        const role = clickable.getAttribute('role');
+        const exactSubmitScore = /^post$|^dang$/.test(label) ? 100 : 40;
+        const roleScore = clickable.tagName === 'BUTTON' || role === 'button' ? 80 : 0;
+        const conciseLabelScore = label.length <= 40 ? 50 : label.length <= 80 ? 20 : -50;
+        const viewportScore = rect.bottom > 0 && rect.top < window.innerHeight ? 30 : 0;
+        const hitScore = isUsableClickPoint(clickable) ? 40 : -120;
+
+        return {
+          element: clickable,
+          score: exactSubmitScore
+            + roleScore
+            + conciseLabelScore
+            + viewportScore
+            + hitScore
+            + (clickable.closest('[role="dialog"]') ? 60 : 0)
+            - Math.min(60, (rect.width * rect.height) / 1800),
+        };
+      })
+      .sort((left, right) => right.score - left.score)[0]?.element ?? null;
+  };
 
   const dialogs = queryAll(document, '[role="dialog"]')
     .filter((element) => isVisible(element));
   const roots = dialogs.length > 0 ? dialogs : [document];
   for (const root of roots) {
-    const button = queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
-      .filter((element) => isVisible(element))
-      .filter((element) => !isDisabled(element))
-      .find((element) => matchesAny(elementLabel(element), POST_BUTTON_PATTERNS));
+    const button = findSubmitButton(root);
 
     if (button) {
       const clickPoint = resolveClickPoint(button);
@@ -1053,10 +1193,16 @@ async function waitForFacebookSubmissionInPage(): Promise<FacebookPagePublishRes
   };
   const readSubmissionMessage = () => {
     const text = normalize(document.body?.innerText ?? '');
-    const match = text.match(
-      /pending|submitted|waiting for approval|dang cho.*phe duyet|cho quan tri vien phe duyet|bai viet.*cho.*phe duyet|cho duyet|da gui/,
-    );
-    return match ? `Submitted to Facebook group: ${match[0]}` : null;
+    if (
+      /pending|waiting for approval|dang cho.{0,120}phe duyet|cho quan tri vien phe duyet|bai viet.{0,120}cho.{0,120}phe duyet|cho duyet/.test(text)
+    ) {
+      return 'Submitted to Facebook group: pending approval detected.';
+    }
+    if (/submitted|da gui|cam on ban da dang bai/.test(text)) {
+      return 'Submitted to Facebook group.';
+    }
+
+    return null;
   };
   const deadline = Date.now() + 30_000;
 
