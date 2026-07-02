@@ -12,6 +12,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -161,6 +162,16 @@ export class SyncAmisJobPostingDto {
   @ArrayNotEmpty()
   @IsIn([...EXTENSION_SYNC_CHANNELS], { each: true })
   channels: ExtensionSyncChannel[];
+
+  @ApiPropertyOptional({
+    isArray: true,
+    type: String,
+    description: 'Selected active Facebook group target ids. Required when FACEBOOK is selected.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  facebookTargetIds?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()

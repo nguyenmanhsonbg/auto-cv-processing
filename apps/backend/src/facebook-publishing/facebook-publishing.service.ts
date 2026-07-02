@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
 import { JobPostingStatus } from '../recruitment-common';
 import { FacebookPostContentService } from './content/facebook-post-content.service';
@@ -33,9 +33,10 @@ export class FacebookPublishingService {
   async prepareExtensionPublishPlan(
     posting: JobPostingEntity,
     ownerUserId: string,
+    selectedTargetIds?: string[],
   ): Promise<ExtensionFacebookPublishPlan> {
     const content = this.contentService.build(posting);
-    const targets = await this.resolveActiveTargets(ownerUserId);
+    const targets = await this.resolveActiveTargets(ownerUserId, selectedTargetIds);
 
     return {
       jobPostingId: posting.id,
@@ -162,7 +163,38 @@ export class FacebookPublishingService {
     return savedHistory;
   }
 
-  private async resolveActiveTargets(ownerUserId: string): Promise<ResolvedFacebookPublishTarget[]> {
+  private async resolveActiveTargets(
+    ownerUserId: string,
+    selectedTargetIds?: string[],
+  ): Promise<ResolvedFacebookPublishTarget[]> {
+    if (selectedTargetIds) {
+      const uniqueTargetIds = [...new Set(selectedTargetIds.map((targetId) => targetId.trim()).filter(Boolean))];
+      if (uniqueTargetIds.length === 0) {
+        throw new BadRequestException({
+          code: 'FACEBOOK_TARGETS_REQUIRED',
+          message: 'Select at least one Facebook group before publishing.',
+        });
+      }
+
+      const selectedTargets = await this.targetsRepo.find({
+        where: {
+          id: In(uniqueTargetIds),
+          active: true,
+          ownerUserId,
+          type: FacebookPublishTargetType.GROUP,
+        },
+        order: { priority: 'ASC', createdAt: 'ASC' },
+      });
+      if (selectedTargets.length !== uniqueTargetIds.length) {
+        throw new BadRequestException({
+          code: 'FACEBOOK_TARGETS_INVALID',
+          message: 'One or more selected Facebook groups are unavailable for this account.',
+        });
+      }
+
+      return selectedTargets.map((target) => this.toResolvedTarget(target));
+    }
+
     const configuredTargets = await this.targetsRepo.find({
       where: { active: true, ownerUserId },
       order: { priority: 'ASC', createdAt: 'ASC' },

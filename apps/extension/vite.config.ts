@@ -19,6 +19,7 @@ export default defineConfig({
         background: path.resolve(__dirname, 'src/background.ts'),
         'amis-page-hook': path.resolve(__dirname, 'src/amis-page-hook.ts'),
         'amis-bridge': path.resolve(__dirname, 'src/amis-bridge.ts'),
+        'frontend-bridge': path.resolve(__dirname, 'src/frontend-bridge.ts'),
       },
       output: {
         entryFileNames: 'assets/[name].js',

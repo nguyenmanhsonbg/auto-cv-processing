@@ -46,6 +46,7 @@ export interface SyncAmisJobPostingRequest {
   action: 'PUBLISH';
   snapshot: AmisJobSnapshot;
   channels: ExtensionChannel[];
+  facebookTargetIds?: string[];
   metadata?: Record<string, unknown>;
 }
 

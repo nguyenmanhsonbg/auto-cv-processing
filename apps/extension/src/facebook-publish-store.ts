@@ -6,6 +6,11 @@ export async function saveLastFacebookPublishProgress(progress: FacebookPublishP
   await chrome.storage?.session?.set({
     [LAST_FACEBOOK_PUBLISH_PROGRESS_KEY]: progress,
   });
+
+  await chrome.runtime?.sendMessage?.({
+    type: 'FACEBOOK_PUBLISH_PROGRESS_UPDATED',
+    payload: progress,
+  }).catch(() => undefined);
 }
 
 export async function getLastFacebookPublishProgress() {

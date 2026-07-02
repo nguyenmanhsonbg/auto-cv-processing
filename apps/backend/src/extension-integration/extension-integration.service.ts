@@ -361,7 +361,11 @@ export class ExtensionIntegrationService {
     actorUserId: string;
   }): Promise<ExtensionSyncResponseDto> {
     const facebookPublishPlan = input.dto.channels.includes(RecruitmentChannel.FACEBOOK)
-      ? await this.facebookPublishingService.prepareExtensionPublishPlan(input.posting, input.actorUserId)
+      ? await this.facebookPublishingService.prepareExtensionPublishPlan(
+        input.posting,
+        input.actorUserId,
+        input.dto.facebookTargetIds,
+      )
       : undefined;
     const warnings: ExtensionSyncWarningDto[] = [];
     for (const channel of input.dto.channels) {
@@ -500,6 +504,7 @@ export class ExtensionIntegrationService {
         deadline: this.optionalText(dto.snapshot.deadline) ?? undefined,
       },
       channels,
+      facebookTargetIds: this.normalizeFacebookTargetIds(dto.facebookTargetIds, channels),
       metadata: this.safeMetadata(dto.metadata),
     };
   }
@@ -575,6 +580,7 @@ export class ExtensionIntegrationService {
       actorRole: context.actorRole,
       action: dto.action,
       channels: dto.channels,
+      facebookTargetCount: dto.facebookTargetIds?.length ?? 0,
       hasAmisUrl: Boolean(dto.amisUrl),
     };
   }
@@ -667,6 +673,45 @@ export class ExtensionIntegrationService {
       extensionVersion: this.optionalText(value.extensionVersion),
       capturedAt: this.optionalText(value.capturedAt),
     };
+  }
+
+  private normalizeFacebookTargetIds(
+    value: unknown,
+    channels: ExtensionSyncChannel[],
+  ) {
+    if (!channels.includes(RecruitmentChannel.FACEBOOK)) return undefined;
+
+    if (!Array.isArray(value)) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_TARGETS_REQUIRED',
+        message: 'Select at least one Facebook group before publishing.',
+      });
+    }
+
+    const uniqueTargetIds = [...new Set(value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean))];
+
+    if (uniqueTargetIds.length === 0) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_TARGETS_REQUIRED',
+        message: 'Select at least one Facebook group before publishing.',
+      });
+    }
+
+    if (!uniqueTargetIds.every((targetId) => this.isUuid(targetId))) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_TARGETS_INVALID',
+        message: 'Selected Facebook group ids must be valid UUIDs.',
+      });
+    }
+
+    return uniqueTargetIds;
+  }
+
+  private isUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
   private requireText(value: string | undefined, fieldName: string) {

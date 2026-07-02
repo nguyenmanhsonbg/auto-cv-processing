@@ -4,6 +4,7 @@ import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
 import { getLastAmisCapture } from './amis-capture-store';
 import { getAmisDiagnostics } from './amis-diagnostics-store';
+import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
 import {
   ApiClientError,
   createFacebookGroup,
@@ -17,6 +18,8 @@ import {
 import { clearAccessToken, getAccessToken, setAccessToken } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import { CHANNELS } from './config';
+import { updateFacebookChannelStatus } from './facebook-channel-status';
+import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
 import { ensureFacebookSession, publishFacebookPlan } from './facebook-publish-orchestrator';
 import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { createMockAmisSyncRequest } from './mock-amis';
@@ -62,6 +65,7 @@ function SidePanel() {
   const [facebookProgress, setFacebookProgress] = useState<FacebookPublishProgress | null>(null);
   const [facebookRunning, setFacebookRunning] = useState(false);
   const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
+  const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
   const [facebookGroupLoadState, setFacebookGroupLoadState] = useState<FacebookGroupLoadState>('IDLE');
   const [facebookGroupMessage, setFacebookGroupMessage] = useState<string | null>(null);
   const [isFacebookSettingsOpen, setIsFacebookSettingsOpen] = useState(false);
@@ -80,9 +84,10 @@ function SidePanel() {
   useEffect(() => {
     void restoreAuth();
     void restoreSelectedChannels();
+    void restoreSelectedFacebookGroups();
     void loadLatestAmisCapture({ silent: true });
     void restoreFacebookProgress();
-    void loadDiagnostics();
+    void bootstrapAmisTab();
   }, []);
 
   useEffect(() => {
@@ -94,15 +99,21 @@ function SidePanel() {
 
       if (isDiagnosticUpdateMessage(message)) {
         setDiagnostics(message.payload);
+        return;
+      }
+
+      if (isFacebookPublishProgressUpdateMessage(message)) {
+        setFacebookProgress(message.payload);
+        setFacebookRunning(
+          message.payload.status === 'LOGIN_REQUIRED'
+            || message.payload.status === 'WAITING_LOGIN'
+            || message.payload.status === 'POSTING'
+            || message.payload.status === 'REPORTING'
+            || message.payload.status === 'DELAYING',
+        );
       }
     });
   }, []);
-
-  useEffect(() => {
-    const plan = result?.facebookPublishPlan;
-    if (!token || !plan || !channels.includes('FACEBOOK')) return;
-    void startFacebookPublish(plan);
-  }, [token, result?.facebookPublishPlan, channels]);
 
   const missingFields = useMemo(() => {
     const missing: string[] = [];
@@ -111,13 +122,15 @@ function SidePanel() {
     if (!snapshot?.description.trim()) missing.push('description');
     if (!snapshot?.requirements.rawText.trim()) missing.push('requirements');
     if (channels.length === 0) missing.push('channel');
+    if (channels.includes('FACEBOOK') && selectedFacebookGroupIds.length === 0) missing.push('facebook group');
     return missing;
-  }, [amisRecruitmentId, channels.length, snapshot]);
+  }, [amisRecruitmentId, channels, selectedFacebookGroupIds.length, snapshot]);
 
   const visibleFacebookGroups = useMemo(() => {
     if (facebookGroups.length > 0) {
       return facebookGroups.map((group) => ({
         key: group.targetId ?? group.targetExternalId ?? group.targetUrl ?? group.targetName,
+        id: group.targetId ?? null,
         name: group.targetName,
         url: group.targetUrl,
       }));
@@ -125,6 +138,7 @@ function SidePanel() {
 
     const planTargets = result?.facebookPublishPlan?.targets.map((target) => ({
       key: target.targetId ?? target.targetExternalId ?? target.targetUrl ?? target.targetName,
+      id: target.targetId ?? null,
       name: target.targetName,
       url: target.targetUrl,
     })) ?? [];
@@ -132,6 +146,7 @@ function SidePanel() {
 
     return facebookProgress?.results.map((target) => ({
       key: target.targetId ?? target.targetUrl ?? target.targetName,
+      id: target.targetId ?? null,
       name: target.targetName,
       url: target.targetUrl,
     })) ?? [];
@@ -164,6 +179,36 @@ function SidePanel() {
 
   async function restoreSelectedChannels() {
     setChannels(await getSelectedChannels());
+  }
+
+  async function restoreSelectedFacebookGroups() {
+    setSelectedFacebookGroupIdsState(await getSelectedFacebookGroupIds());
+  }
+
+  async function updateSelectedFacebookGroupIds(targetIds: string[]) {
+    const uniqueTargetIds = uniqueStrings(targetIds);
+    setSelectedFacebookGroupIdsState(uniqueTargetIds);
+    await setSelectedFacebookGroupIds(uniqueTargetIds);
+  }
+
+  async function reconcileSelectedFacebookGroups(groups: FacebookPublishTarget[], targetIds = selectedFacebookGroupIds) {
+    const activeGroupIds = new Set(groups.map((group) => group.targetId).filter(isString));
+    const nextTargetIds = uniqueStrings(targetIds).filter((targetId) => activeGroupIds.has(targetId));
+    await updateSelectedFacebookGroupIds(nextTargetIds);
+    return nextTargetIds;
+  }
+
+  function toggleFacebookGroupSelection(targetId: string | null | undefined) {
+    if (!targetId) return;
+
+    const nextTargetIds = selectedFacebookGroupIds.includes(targetId)
+      ? selectedFacebookGroupIds.filter((item) => item !== targetId)
+      : [...selectedFacebookGroupIds, targetId];
+    void updateSelectedFacebookGroupIds(nextTargetIds);
+    if (channels.includes('FACEBOOK') && facebookGroups.length > 0) {
+      setFacebookGroupLoadState('READY');
+      setFacebookGroupMessage(`${uniqueStrings(nextTargetIds).length}/${facebookGroups.length} allowed Facebook group(s) selected.`);
+    }
   }
 
   async function submitLogin(event: React.FormEvent<HTMLFormElement>) {
@@ -236,7 +281,21 @@ function SidePanel() {
     }
   }
 
-  async function loadDiagnostics() {
+  async function bootstrapAmisTab() {
+    await loadDiagnostics();
+    const capture = await getLastAmisCapture();
+    if (!capture) {
+      await extractFromCurrentTab({ silent: true });
+    }
+  }
+
+  async function loadDiagnostics(options: { ensureHooks?: boolean } = {}) {
+    if (options.ensureHooks !== false) {
+      const result = await ensureAmisHooksInActiveTab().catch(() => null);
+      if (result?.status === 'INJECTED') {
+        await sleep(250);
+      }
+    }
     setDiagnostics(await getAmisDiagnostics());
   }
 
@@ -245,10 +304,12 @@ function SidePanel() {
     if (progress) setFacebookProgress(progress);
   }
 
-  async function extractFromCurrentTab() {
-    setState('EXTRACTING');
-    setError(null);
-    setResult(null);
+  async function extractFromCurrentTab(options: { silent?: boolean } = {}) {
+    if (!options.silent) {
+      setState('EXTRACTING');
+      setError(null);
+      setResult(null);
+    }
 
     try {
       if (!chrome.scripting) {
@@ -267,11 +328,13 @@ function SidePanel() {
       }
 
       applyExtractionResult(extraction);
-      setState('READY');
+      if (!options.silent) setState('READY');
     } catch (err) {
-      setExtractionResult(null);
-      setError(toErrorMessage(err));
-      setState('ERROR');
+      if (!options.silent) {
+        setExtractionResult(null);
+        setError(toErrorMessage(err));
+        setState('ERROR');
+      }
     }
   }
 
@@ -352,10 +415,11 @@ function SidePanel() {
       setFacebookGroupMessage('Loading allowed Facebook groups from backend.');
       const groups = await getFacebookGroups(token);
       setFacebookGroups(groups);
+      const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
       setFacebookGroupLoadState('READY');
       setFacebookGroupMessage(
         groups.length > 0
-          ? `${groups.length} allowed Facebook group(s) loaded from backend.`
+          ? `${selectedIds.length}/${groups.length} allowed Facebook group(s) selected.`
           : 'No Facebook groups are configured for this account yet.',
       );
       await setSelectedChannels(next);
@@ -452,6 +516,7 @@ function SidePanel() {
     try {
       const groups = await getFacebookGroups(accessToken);
       setFacebookGroups(groups);
+      await reconcileSelectedFacebookGroups(groups);
       setFacebookSettingsState('READY');
       setFacebookSettingsMessage(
         groups.length > 0 ? null : 'Chưa có nhóm Facebook nào được cấu hình cho tài khoản này.',
@@ -492,6 +557,10 @@ function SidePanel() {
       const savedGroup = await createFacebookGroup(token, { targetName, targetUrl });
       const groups = await getFacebookGroups(token);
       setFacebookGroups(groups);
+      const nextSelectedIds = savedGroup.targetId
+        ? uniqueStrings([...selectedFacebookGroupIds, savedGroup.targetId])
+        : selectedFacebookGroupIds;
+      await updateSelectedFacebookGroupIds(nextSelectedIds);
       setFacebookGroupName('');
       setFacebookGroupUrl('');
       setIsFacebookGroupFormOpen(false);
@@ -500,7 +569,7 @@ function SidePanel() {
 
       if (channels.includes('FACEBOOK')) {
         setFacebookGroupLoadState('READY');
-        setFacebookGroupMessage(`${groups.length} allowed Facebook group(s) loaded from backend.`);
+        setFacebookGroupMessage(`${nextSelectedIds.length}/${groups.length} allowed Facebook group(s) selected.`);
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -538,6 +607,7 @@ function SidePanel() {
       const savedGroup = await updateFacebookGroup(token, selectedFacebookGroup.targetId, { targetName, targetUrl });
       const groups = await getFacebookGroups(token);
       setFacebookGroups(groups);
+      const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setSelectedFacebookGroup(null);
       setEditFacebookGroupName('');
       setEditFacebookGroupUrl('');
@@ -547,7 +617,7 @@ function SidePanel() {
 
       if (channels.includes('FACEBOOK')) {
         setFacebookGroupLoadState('READY');
-        setFacebookGroupMessage(`${groups.length} allowed Facebook group(s) loaded from backend.`);
+        setFacebookGroupMessage(`${nextSelectedIds.length}/${groups.length} allowed Facebook group(s) selected.`);
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -571,6 +641,9 @@ function SidePanel() {
       const deletedGroup = await deleteFacebookGroup(token, selectedFacebookGroup.targetId);
       const groups = await getFacebookGroups(token);
       setFacebookGroups(groups);
+      const nextSelectedIds = await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIds.filter((targetId) => (
+        targetId !== selectedFacebookGroup.targetId
+      )));
       setSelectedFacebookGroup(null);
       setFacebookGroupModalMode('SETTINGS');
       setFacebookSettingsState('READY');
@@ -580,7 +653,7 @@ function SidePanel() {
         setFacebookGroupLoadState('READY');
         setFacebookGroupMessage(
           groups.length > 0
-            ? `${groups.length} allowed Facebook group(s) loaded from backend.`
+            ? `${nextSelectedIds.length}/${groups.length} allowed Facebook group(s) selected.`
             : 'No Facebook groups are configured for this account yet.',
         );
       }
@@ -598,6 +671,12 @@ function SidePanel() {
 
   async function sync() {
     if (!token || !snapshot || !amisRecruitmentId || missingFields.length > 0) return;
+    const facebookTargetIds = channels.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
+    if (channels.includes('FACEBOOK') && facebookTargetIds.length === 0) {
+      setError('Select at least one Facebook group before publishing.');
+      setState('ERROR');
+      return;
+    }
 
     const payload: SyncAmisJobPostingRequest = {
       sourceSystem: 'AMIS',
@@ -606,6 +685,7 @@ function SidePanel() {
       action: 'PUBLISH',
       snapshot,
       channels,
+      ...(channels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
       metadata: {
         capturedAt: new Date().toISOString(),
         captureSource: extractionResult?.source ?? 'MOCK',
@@ -752,7 +832,7 @@ function SidePanel() {
               type="button"
               className="ghost-button"
               disabled={state === 'EXTRACTING' || state === 'SYNCING'}
-              onClick={extractFromCurrentTab}
+              onClick={() => void extractFromCurrentTab()}
             >
               {state === 'EXTRACTING' ? 'Extracting...' : 'Fallback DOM extract'}
             </button>
@@ -981,7 +1061,12 @@ function SidePanel() {
                           {visibleFacebookGroups.length > 0 ? (
                             visibleFacebookGroups.map((group, index) => (
                               <label key={`${group.key}-${index}`} className="channel-subselection-item">
-                                <input type="checkbox" checked readOnly />
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
+                                  disabled={!group.id}
+                                  onChange={() => toggleFacebookGroupSelection(group.id)}
+                                />
                                 <span>{group.name}</span>
                               </label>
                             ))
@@ -1353,6 +1438,18 @@ function isFacebookGroupUrlCandidate(value: string) {
   }
 }
 
+function uniqueStrings(value: string[]) {
+  return [...new Set(value.map((item) => item.trim()).filter(Boolean))];
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function isAutoSyncUpdateMessage(value: unknown): value is {
   type: 'AMIS_AUTO_SYNC_STATE_UPDATED';
   payload: AmisAutoSyncState;
@@ -1371,6 +1468,21 @@ function isDiagnosticUpdateMessage(value: unknown): value is {
     && value !== null
     && (value as { type?: unknown }).type === 'AMIS_DIAGNOSTIC_UPDATED'
     && Array.isArray((value as { payload?: unknown }).payload);
+}
+
+function isFacebookPublishProgressUpdateMessage(value: unknown): value is {
+  type: 'FACEBOOK_PUBLISH_PROGRESS_UPDATED';
+  payload: FacebookPublishProgress;
+} {
+  const payload = (value as { payload?: Partial<FacebookPublishProgress> } | null)?.payload;
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === 'FACEBOOK_PUBLISH_PROGRESS_UPDATED'
+    && typeof payload?.status === 'string'
+    && typeof payload.currentIndex === 'number'
+    && typeof payload.total === 'number'
+    && typeof payload.message === 'string'
+    && Array.isArray(payload.results);
 }
 
 function formatDiagnosticTime(value: string) {
@@ -1401,39 +1513,6 @@ function getFacebookPlanKey(plan: FacebookPublishPlan) {
     plan.content.length,
     plan.targets.map((target) => target.targetId ?? target.targetUrl ?? target.targetName).join('|'),
   ].join(':');
-}
-
-function updateFacebookChannelStatus(
-  response: ExtensionSyncResponse,
-  facebookResults: FacebookPublishProgress['results'],
-): ExtensionSyncResponse {
-  const successCount = facebookResults.filter((item) => item.status === 'SUCCESS').length;
-  const failedCount = facebookResults.filter((item) => item.status === 'FAILED').length;
-  const skippedCount = facebookResults.filter((item) => item.status === 'SKIPPED').length;
-  const status = successCount === facebookResults.length && facebookResults.length > 0
-    ? 'PUBLISHED'
-    : successCount > 0
-      ? 'UPDATED'
-      : 'PUBLISH_FAILED';
-  const message = successCount > 0
-    ? `Facebook published ${successCount}/${facebookResults.length} target(s).`
-    : `Facebook publish failed for ${failedCount} target(s), skipped ${skippedCount}.`;
-
-  return {
-    ...response,
-    channelPostings: response.channelPostings.map((channel) => (
-      channel.channel === 'FACEBOOK'
-        ? {
-            ...channel,
-            status,
-            errorCode: successCount > 0 ? null : 'FACEBOOK_PUBLISH_FAILED',
-            manualActionRequired: successCount === 0,
-            message,
-            lastSyncAt: new Date().toISOString(),
-          }
-        : channel
-    )),
-  };
 }
 
 function isFacebookGroupLoading(state: FacebookGroupLoadState) {

@@ -4,28 +4,40 @@ const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
 const BACKGROUND_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
 const BACKGROUND_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
+const BRIDGE_INSTALLED_KEY = '__VCS_AMIS_BRIDGE_INSTALLED__';
 
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (event.origin !== window.location.origin) return;
-  if (isCaptureMessage(event.data)) {
-    void chrome.runtime?.sendMessage?.({
-      type: BACKGROUND_MESSAGE_TYPE,
-      payload: event.data.payload,
-    }).catch(() => undefined);
-    return;
-  }
+const bridgeWindow = window as Window & {
+  __VCS_AMIS_BRIDGE_INSTALLED__?: boolean;
+};
+const wasBridgeInstalled = bridgeWindow[BRIDGE_INSTALLED_KEY] === true;
 
-  if (isDiagnosticMessage(event.data)) {
-    sendDiagnostic(event.data.payload);
-  }
-});
+if (!wasBridgeInstalled) {
+  bridgeWindow[BRIDGE_INSTALLED_KEY] = true;
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.origin !== window.location.origin) return;
+    if (isCaptureMessage(event.data)) {
+      void chrome.runtime?.sendMessage?.({
+        type: BACKGROUND_MESSAGE_TYPE,
+        payload: event.data.payload,
+      }).catch(() => undefined);
+      return;
+    }
+
+    if (isDiagnosticMessage(event.data)) {
+      sendDiagnostic(event.data.payload);
+    }
+  });
+}
 
 sendDiagnostic({
   type: 'BRIDGE_READY',
   pageUrl: window.location.href,
   timestamp: new Date().toISOString(),
   frameUrl: window.location.href,
+  details: {
+    reused: wasBridgeInstalled,
+  },
 });
 
 function sendDiagnostic(event: AmisDiagnosticEvent) {
