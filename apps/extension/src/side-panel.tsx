@@ -26,6 +26,8 @@ import type {
   AmisExtractionResult,
   AmisJobSnapshot,
   ApiPagination,
+  ChannelPostingResult,
+  ExtensionQuestion,
   ExtensionChannel,
   ExtensionSyncResponse,
   ExtensionUser,
@@ -38,10 +40,52 @@ type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'S
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 
+interface FacebookGroup {
+  id: string;
+  name: string;
+  url: string;
+}
+
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
 const CAREER_QUESTION_SELECTION_PREFIX = 'vcs:selected-career-questions:';
+const DEFAULT_FACEBOOK_GROUPS: FacebookGroup[] = [
+  {
+    id: 'dev-java-vn',
+    name: 'Hội Dev Java VN',
+    url: 'https://facebook.com/groups/devjavavn',
+  },
+  {
+    id: 'frontend-vn',
+    name: 'Cộng đồng Frontend Việt Nam',
+    url: 'https://facebook.com/groups/frontendvietnam',
+  },
+  {
+    id: 'it-hcm',
+    name: 'Việc làm IT HCM',
+    url: 'https://facebook.com/groups/vieclamit.hcm',
+  },
+];
+const TARGET_LEVEL_OPTIONS = [
+  { value: 'ENTRY', label: 'Entry Level' },
+  { value: 'EXPERIENCED', label: 'Experienced' },
+  { value: 'SENIOR', label: 'Senior' },
+  { value: 'SPECIALIST', label: 'Specialist / Expert' },
+];
+const DIFFICULTY_OPTIONS = [
+  { value: '1', label: '1 - Basic' },
+  { value: '2', label: '2 - Easy' },
+  { value: '3', label: '3 - Intermediate' },
+  { value: '4', label: '4 - Advanced' },
+  { value: '5', label: '5 - Expert' },
+];
+const COMPETENCY_TYPE_OPTIONS = [
+  { value: 'INHERIT', label: 'Inherit from subcategory' },
+  { value: 'KNOWLEDGE', label: 'Knowledge' },
+  { value: 'SKILL', label: 'Skill' },
+  { value: 'PERSONALITY', label: 'Personality' },
+];
 
 function getCareerQuestionSelectionStorageKey(amisCareerId: string) {
   return `${CAREER_QUESTION_SELECTION_PREFIX}${amisCareerId}`;
@@ -57,6 +101,13 @@ function SidePanel() {
   const [amisRecruitmentId, setAmisRecruitmentId] = useState<string | null>(null);
   const [amisUrl, setAmisUrl] = useState<string | undefined>();
   const [channels, setChannels] = useState<ExtensionChannel[]>(['VCS_PORTAL']);
+  const [facebookGroups, setFacebookGroups] = useState<FacebookGroup[]>(DEFAULT_FACEBOOK_GROUPS);
+  const [selectedFacebookGroupId, setSelectedFacebookGroupId] = useState(DEFAULT_FACEBOOK_GROUPS[0].id);
+  const [facebookGroupDropdownOpen, setFacebookGroupDropdownOpen] = useState(false);
+  const [channelSettingsOpen, setChannelSettingsOpen] = useState<ExtensionChannel | null>(null);
+  const [newFacebookGroupName, setNewFacebookGroupName] = useState('');
+  const [newFacebookGroupUrl, setNewFacebookGroupUrl] = useState('');
+  const [deleteFacebookGroupId, setDeleteFacebookGroupId] = useState<string | null>(null);
   const [result, setResult] = useState<ExtensionSyncResponse | null>(null);
   const [extractionResult, setExtractionResult] = useState<AmisExtractionResult | null>(null);
   const [autoSyncState, setAutoSyncState] = useState<AmisAutoSyncState | null>(null);
@@ -78,6 +129,10 @@ function SidePanel() {
   const [newQuestionSubcategory, setNewQuestionSubcategory] = useState('');
   const [newQuestionText, setNewQuestionText] = useState('');
   const [newQuestionExpectedAnswer, setNewQuestionExpectedAnswer] = useState('');
+  const [newQuestionDrawerOpen, setNewQuestionDrawerOpen] = useState(false);
+  const [newQuestionCompetencyType, setNewQuestionCompetencyType] = useState('INHERIT');
+  const [newQuestionDifficulty, setNewQuestionDifficulty] = useState('3');
+  const [newQuestionTargetLevels, setNewQuestionTargetLevels] = useState<string[]>(['SENIOR']);
   const [newQuestionSaving, setNewQuestionSaving] = useState(false);
   const [selectedCareerQuestionIds, setSelectedCareerQuestionIds] = useState<Set<string>>(new Set());
   const lastCareerContextIdRef = useRef<string | null>(null);
@@ -147,9 +202,22 @@ function SidePanel() {
     if (channels.length === 0) missing.push('channel');
     return missing;
   }, [amisRecruitmentId, channels.length, snapshot]);
+  const selectedFacebookGroup = useMemo(
+    () => facebookGroups.find((group) => group.id === selectedFacebookGroupId) ?? facebookGroups[0] ?? null,
+    [facebookGroups, selectedFacebookGroupId],
+  );
+  const deleteFacebookGroup = useMemo(
+    () => facebookGroups.find((group) => group.id === deleteFacebookGroupId) ?? null,
+    [deleteFacebookGroupId, facebookGroups],
+  );
+  const allChannelsSelected = channels.length === CHANNELS.length;
   const selectedNewQuestionCategory = useMemo(
     () => careerQuestionContext?.categories.find((category) => category.name === newQuestionCategory) ?? null,
     [careerQuestionContext, newQuestionCategory],
+  );
+  const selectedNewQuestionSubcategory = useMemo(
+    () => selectedNewQuestionCategory?.subcategories.find((subcategory) => subcategory.name === newQuestionSubcategory) ?? null,
+    [newQuestionSubcategory, selectedNewQuestionCategory],
   );
   const selectedCareerQuestionCount = useMemo(() => {
     if (!careerQuestionContext) return 0;
@@ -157,6 +225,8 @@ function SidePanel() {
     const visibleQuestionIds = new Set(careerQuestionContext.questions.map((question) => question.id));
     return Array.from(selectedCareerQuestionIds).filter((questionId) => visibleQuestionIds.has(questionId)).length;
   }, [careerQuestionContext, selectedCareerQuestionIds]);
+  const allCareerQuestionsSelected = Boolean(careerQuestionContext?.questions.length)
+    && selectedCareerQuestionCount === careerQuestionContext?.questions.length;
 
   async function restoreAuth() {
     const storedToken = await getAccessToken();
@@ -387,6 +457,31 @@ function SidePanel() {
     setNewQuestionCategory(categoryName);
     const category = careerQuestionContext?.categories.find((item) => item.name === categoryName);
     setNewQuestionSubcategory(category?.subcategories[0]?.name ?? '');
+    setNewQuestionCompetencyType('INHERIT');
+  }
+
+  function openNewQuestionDrawer() {
+    setNewQuestionDrawerOpen(true);
+  }
+
+  function closeNewQuestionDrawer() {
+    setNewQuestionDrawerOpen(false);
+  }
+
+  function resetNewQuestionDraft() {
+    setNewQuestionText('');
+    setNewQuestionExpectedAnswer('');
+    setNewQuestionCompetencyType('INHERIT');
+    setNewQuestionDifficulty('3');
+    setNewQuestionTargetLevels(['SENIOR']);
+  }
+
+  function toggleNewQuestionTargetLevel(level: string) {
+    setNewQuestionTargetLevels((current) => (
+      current.includes(level)
+        ? current.filter((item) => item !== level)
+        : [...current, level]
+    ));
   }
 
   async function submitNewCareerQuestion(event: React.FormEvent<HTMLFormElement>) {
@@ -414,8 +509,8 @@ function SidePanel() {
       const nextSelectedQuestionIds = new Set(selectedCareerQuestionIds);
       nextSelectedQuestionIds.add(question.id);
       updateSelectedCareerQuestions(nextSelectedQuestionIds);
-      setNewQuestionText('');
-      setNewQuestionExpectedAnswer('');
+      resetNewQuestionDraft();
+      closeNewQuestionDrawer();
       setCareerQuestionState('READY');
       setCareerQuestionMessage('Question added to the selected AMIS career mapping.');
     } catch (err) {
@@ -572,12 +667,90 @@ function SidePanel() {
 
   function toggleChannel(channel: ExtensionChannel) {
     setChannels((current) => {
-      const next = current.includes(channel)
+      const isSelected = current.includes(channel);
+      const next = isSelected
         ? current.filter((item) => item !== channel)
         : [...current, channel];
+
+      if (channel === 'FACEBOOK' && isSelected) {
+        setFacebookGroupDropdownOpen(false);
+      }
+
       void setSelectedChannels(next);
       return next;
     });
+  }
+
+  function selectAllChannels() {
+    const next = [...CHANNELS];
+    setChannels(next);
+    void setSelectedChannels(next);
+  }
+
+  function clearChannels() {
+    setChannels([]);
+    setFacebookGroupDropdownOpen(false);
+    void setSelectedChannels([]);
+  }
+
+  function ensureChannelSelected(channel: ExtensionChannel) {
+    setChannels((current) => {
+      if (current.includes(channel)) return current;
+
+      const next = [...current, channel];
+      void setSelectedChannels(next);
+      return next;
+    });
+  }
+
+  function openChannelSettings(channel: ExtensionChannel) {
+    setChannelSettingsOpen(channel);
+    setNewFacebookGroupName('');
+    setNewFacebookGroupUrl('');
+  }
+
+  function closeChannelSettings() {
+    setChannelSettingsOpen(null);
+    setNewFacebookGroupName('');
+    setNewFacebookGroupUrl('');
+  }
+
+  function selectFacebookGroup(groupId: string) {
+    setSelectedFacebookGroupId(groupId);
+    setFacebookGroupDropdownOpen(false);
+    ensureChannelSelected('FACEBOOK');
+  }
+
+  function submitMockFacebookGroup(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const name = newFacebookGroupName.trim();
+    if (!name) return;
+
+    const group: FacebookGroup = {
+      id: `mock-${Date.now()}`,
+      name,
+      url: newFacebookGroupUrl.trim() || 'https://facebook.com/groups/mock',
+    };
+
+    setFacebookGroups((current) => [...current, group]);
+    setSelectedFacebookGroupId(group.id);
+    ensureChannelSelected('FACEBOOK');
+    closeChannelSettings();
+  }
+
+  function confirmDeleteFacebookGroup() {
+    if (!deleteFacebookGroupId) return;
+
+    setFacebookGroups((current) => {
+      const next = current.filter((group) => group.id !== deleteFacebookGroupId);
+      if (selectedFacebookGroupId === deleteFacebookGroupId) {
+        setSelectedFacebookGroupId(next[0]?.id ?? '');
+      }
+
+      return next;
+    });
+    setDeleteFacebookGroupId(null);
   }
 
   async function sync() {
@@ -657,117 +830,118 @@ function SidePanel() {
             <strong>{user.role}</strong>
           </div>
 
-          <section className="question-panel">
-            <div className="status-row">
-              <div>
-                <p className="eyebrow">AMIS career</p>
-                <h2>{selectedCareerName || 'No career selected'}</h2>
+          <section className="question-panel career-question-panel">
+            <div className="career-panel-topbar">
+              <div className="career-title-row">
+                <h2>Chỉnh sửa câu hỏi</h2>
+                <p>VCS RECRUITMENT POSTING</p>
               </div>
               <button
                 type="button"
-                className="ghost-button"
+                className="career-icon-button"
+                aria-label="Refresh AMIS career questions"
                 disabled={careerQuestionState === 'LOADING'}
                 onClick={() => void refreshSelectedCareerContext(token)}
               >
-                Refresh
+                <RefreshIcon />
               </button>
             </div>
 
-            {careerQuestionMessage ? (
-              <p className={careerQuestionState === 'ERROR' ? 'error-text' : 'muted-text'}>
-                {careerQuestionMessage}
-              </p>
-            ) : null}
-
-            {careerQuestionContext ? (
-              <>
-                <div className="mapped-category-list">
-                  {careerQuestionContext.categories.map((category) => (
-                    <span key={category.name} className="status-badge">{category.name}</span>
-                  ))}
+            <div className="career-question-content">
+              <div className="career-industry-area">
+                <div className="career-industry-badge">
+                  <BriefcaseIcon />
+                  <span>Ngành: {selectedCareerName || careerQuestionContext?.career.name || 'Chưa chọn ngành'}</span>
                 </div>
+                <p>Chọn các câu hỏi cụ thể để thêm vào bài đánh giá của bạn.</p>
+              </div>
 
-                <div className="question-summary">
-                  <div>
-                    <strong>{careerQuestionContext.questions.length}</strong>
-                    <span> mapped questions</span>
-                    <span className="selection-count"> - {selectedCareerQuestionCount} selected</span>
+              {careerQuestionMessage ? (
+                <p className={careerQuestionState === 'ERROR' ? 'error-text' : 'muted-text'}>
+                  {careerQuestionMessage}
+                </p>
+              ) : null}
+
+              {careerQuestionContext ? (
+                <>
+                  <div className="career-question-summary-row">
+                    <span>{careerQuestionContext.questions.length} câu hỏi</span>
+                    <strong>{selectedCareerQuestionCount} đã chọn</strong>
+                    {careerQuestionContext.questions.length > 0 ? (
+                      <div className="question-selection-actions">
+                        <button
+                          type="button"
+                          className="text-button"
+                          disabled={allCareerQuestionsSelected}
+                          onClick={selectAllCareerQuestions}
+                        >
+                          Tất cả
+                        </button>
+                        <button
+                          type="button"
+                          className="text-button"
+                          disabled={selectedCareerQuestionCount === 0}
+                          onClick={clearSelectedCareerQuestions}
+                        >
+                          Bỏ chọn
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
+
                   {careerQuestionContext.questions.length > 0 ? (
-                    <div className="question-selection-actions">
-                      <button type="button" className="text-button" onClick={selectAllCareerQuestions}>
-                        Select all
-                      </button>
-                      <button type="button" className="text-button" onClick={clearSelectedCareerQuestions}>
-                        Clear
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
+                    <ul className="career-question-list">
+                      {careerQuestionContext.questions.map((question) => {
+                        const checked = selectedCareerQuestionIds.has(question.id);
 
-                {careerQuestionContext.questions.length > 0 ? (
-                  <ul className="question-list">
-                    {careerQuestionContext.questions.map((question) => (
-                      <li key={question.id}>
-                        <label className="question-option">
-                          <input
-                            type="checkbox"
-                            checked={selectedCareerQuestionIds.has(question.id)}
-                            onChange={() => toggleCareerQuestion(question.id)}
-                          />
-                          <span className="question-option-body">
-                            <p>{question.text}</p>
-                            <small>{question.category} / {question.subcategory}</small>
-                          </span>
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="muted-text">No questions are mapped to this career yet.</p>
-                )}
+                        return (
+                          <li key={question.id}>
+                            <label className={checked ? 'career-question-card is-selected' : 'career-question-card'}>
+                              <span className="question-card-handle" aria-hidden="true">
+                                <GripIcon />
+                              </span>
+                              <span className="career-question-card-body">
+                                <span className="career-question-title">{question.text}</span>
+                                <span className="question-tag-row">
+                                  <span className="question-tag question-tag-category">
+                                    {formatQuestionCategoryLabel(question.category)}
+                                  </span>
+                                  <span className="question-tag question-tag-muted">{question.subcategory}</span>
+                                  <span className="question-tag question-tag-type">{question.type}</span>
+                                </span>
+                                <span className="question-meta-row">
+                                  <strong>{formatQuestionDifficulty(question.difficulty)}</strong>
+                                  <span className="question-level-pill">
+                                    {formatQuestionTargetLevel(question.targetLevels)}
+                                  </span>
+                                </span>
+                              </span>
+                              <input
+                                className="career-question-checkbox"
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleCareerQuestion(question.id)}
+                              />
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="career-question-empty">Chưa có câu hỏi nào được map cho ngành này.</p>
+                  )}
 
-                <form className="question-form" onSubmit={submitNewCareerQuestion}>
-                  <select
-                    value={newQuestionCategory}
-                    onChange={(event) => handleNewQuestionCategoryChange(event.target.value)}
-                    aria-label="Question category"
-                  >
-                    {careerQuestionContext.categories.map((category) => (
-                      <option key={category.name} value={category.name}>{category.displayName}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={newQuestionSubcategory}
-                    onChange={(event) => setNewQuestionSubcategory(event.target.value)}
-                    aria-label="Question subcategory"
-                  >
-                    {(selectedNewQuestionCategory?.subcategories ?? []).map((subcategory) => (
-                      <option key={subcategory.id} value={subcategory.name}>{subcategory.name}</option>
-                    ))}
-                  </select>
-                  <textarea
-                    value={newQuestionText}
-                    onChange={(event) => setNewQuestionText(event.target.value)}
-                    placeholder="New question"
-                    rows={3}
-                  />
-                  <textarea
-                    value={newQuestionExpectedAnswer}
-                    onChange={(event) => setNewQuestionExpectedAnswer(event.target.value)}
-                    placeholder="Expected answer (optional)"
-                    rows={3}
-                  />
                   <button
-                    type="submit"
-                    className="primary-button"
-                    disabled={newQuestionSaving || !newQuestionText.trim() || !newQuestionCategory || !newQuestionSubcategory}
+                    type="button"
+                    className="add-question-card-button"
+                    onClick={openNewQuestionDrawer}
                   >
-                    {newQuestionSaving ? 'Adding...' : 'Add question'}
+                    <PlusIcon />
+                    <span>Thêm câu hỏi mới</span>
                   </button>
-                </form>
-              </>
-            ) : null}
+                </>
+              ) : null}
+            </div>
           </section>
 
           <section className="jd-panel">
@@ -1033,19 +1207,115 @@ function SidePanel() {
             <p className="muted-text">No snapshot loaded.</p>
           )}
 
-          <section>
-            <p className="section-title">Channels</p>
+          <section className="channel-section">
+            <div className="section-heading-row">
+              <p className="section-title">Channels</p>
+              <div className="channel-select-actions">
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={allChannelsSelected}
+                  onClick={selectAllChannels}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={channels.length === 0}
+                  onClick={clearChannels}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
             <div className="channel-list">
-              {CHANNELS.map((channel) => (
-                <label key={channel} className="channel-option">
-                  <input
-                    type="checkbox"
-                    checked={channels.includes(channel)}
-                    onChange={() => toggleChannel(channel)}
-                  />
-                  <span>{channel}</span>
-                </label>
-              ))}
+              {CHANNELS.map((channel) => {
+                const isSelected = channels.includes(channel);
+                const isFacebook = channel === 'FACEBOOK';
+
+                return (
+                  <article
+                    key={channel}
+                    className={[
+                      'channel-option',
+                      isSelected ? 'is-selected' : '',
+                      isFacebook ? 'is-facebook' : '',
+                    ].filter(Boolean).join(' ')}
+                  >
+                    <div className="channel-option-main">
+                      <label className="channel-checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleChannel(channel)}
+                        />
+                        <span>{channel}</span>
+                      </label>
+
+                      <div className="channel-tools">
+                        {isFacebook && isSelected ? (
+                          <button
+                            type="button"
+                            className={facebookGroupDropdownOpen ? 'icon-button is-active' : 'icon-button'}
+                            aria-label="Toggle Facebook group list"
+                            onClick={() => setFacebookGroupDropdownOpen((current) => !current)}
+                          >
+                            <ChevronDownIcon />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label={`Configure ${channel}`}
+                          onClick={() => openChannelSettings(channel)}
+                        >
+                          <CogIcon />
+                        </button>
+                      </div>
+                    </div>
+
+                    {isFacebook && isSelected ? (
+                      <div className="facebook-group-area">
+                        <button
+                          type="button"
+                          className="facebook-group-summary"
+                          onClick={() => setFacebookGroupDropdownOpen((current) => !current)}
+                        >
+                          <span>Chọn Group:</span>
+                          <strong>{selectedFacebookGroup?.name ?? 'Chưa có group mock'}</strong>
+                        </button>
+
+                        {facebookGroupDropdownOpen ? (
+                          <div className="facebook-group-menu">
+                            <p>CHỌN GROUP</p>
+                            {facebookGroups.map((group) => {
+                              const groupSelected = group.id === selectedFacebookGroup?.id;
+
+                              return (
+                                <button
+                                  type="button"
+                                  key={group.id}
+                                  className={groupSelected ? 'facebook-group-item is-selected' : 'facebook-group-item'}
+                                  onClick={() => selectFacebookGroup(group.id)}
+                                >
+                                  <span className="facebook-group-check">
+                                    {groupSelected ? <CheckIcon /> : null}
+                                  </span>
+                                  <span>{group.name}</span>
+                                </button>
+                              );
+                            })}
+                            {facebookGroups.length === 0 ? (
+                              <span className="facebook-group-empty">Chưa có group nào.</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
             </div>
           </section>
 
@@ -1055,27 +1325,40 @@ function SidePanel() {
 
           <button
             type="button"
-            className="primary-button"
+            className="primary-button sync-button"
             disabled={state === 'EXTRACTING' || state === 'SYNCING' || missingFields.length > 0}
             onClick={sync}
           >
-            {state === 'SYNCING' ? 'Syncing...' : 'Sync and publish'}
+            {state === 'SYNCING' ? 'SYNCING...' : 'SYNC AND PUBLISH'}
           </button>
 
           {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
 
           {result ? (
-            <section className="result-panel">
+            <section className="result-panel publish-result-panel">
               <div>
-                <p className="eyebrow">Result</p>
+                <p className="eyebrow">RESULT</p>
                 <h2>{result.resultCode}</h2>
               </div>
-              <ul>
+              <ul className="result-list">
                 {result.channelPostings.map((channel) => (
-                  <li key={channel.channel}>
-                    <span>{channel.channel}</span>
-                    <strong>{channel.status}</strong>
-                    {channel.publishedUrl ? <a href={channel.publishedUrl} target="_blank" rel="noreferrer">Open</a> : null}
+                  <li key={channel.channel} className="result-item">
+                    <span className="result-channel-name">{channel.channel}</span>
+                    <span className="result-actions">
+                      <strong className={`result-status ${getChannelPostingStatusClass(channel)}`}>
+                        {channel.status}
+                      </strong>
+                      {channel.publishedUrl ? (
+                        <a
+                          className="result-open-link"
+                          href={channel.publishedUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open
+                        </a>
+                      ) : null}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -1083,7 +1366,392 @@ function SidePanel() {
           ) : null}
         </section>
       ) : null}
+
+      {newQuestionDrawerOpen && careerQuestionContext ? (
+        <div className="question-drawer-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closeNewQuestionDrawer();
+        }}>
+          <section className="question-drawer" role="dialog" aria-modal="true" aria-labelledby="new-question-title">
+            <div className="question-drawer-header">
+              <button
+                type="button"
+                className="career-icon-button"
+                aria-label="Close create question form"
+                onClick={closeNewQuestionDrawer}
+              >
+                <CloseIcon />
+              </button>
+              <h2 id="new-question-title">Tạo câu hỏi mới</h2>
+            </div>
+
+            <form className="question-drawer-form" onSubmit={submitNewCareerQuestion}>
+              <label className="drawer-field">
+                <span>Text</span>
+                <textarea
+                  value={newQuestionText}
+                  onChange={(event) => setNewQuestionText(event.target.value)}
+                  placeholder="Nhập nội dung câu hỏi..."
+                  rows={4}
+                />
+              </label>
+
+              <div className="drawer-field-grid">
+                <label className="drawer-field">
+                  <span>Category</span>
+                  <select
+                    value={newQuestionCategory}
+                    onChange={(event) => handleNewQuestionCategoryChange(event.target.value)}
+                  >
+                    {careerQuestionContext.categories.map((category) => (
+                      <option key={category.name} value={category.name}>{category.displayName}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="drawer-field">
+                  <span>Subcategory</span>
+                  <select
+                    value={newQuestionSubcategory}
+                    onChange={(event) => {
+                      setNewQuestionSubcategory(event.target.value);
+                      setNewQuestionCompetencyType('INHERIT');
+                    }}
+                  >
+                    {(selectedNewQuestionCategory?.subcategories ?? []).map((subcategory) => (
+                      <option key={subcategory.id} value={subcategory.name}>{subcategory.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="drawer-field">
+                <span>Competency Type</span>
+                <select
+                  value={newQuestionCompetencyType}
+                  onChange={(event) => setNewQuestionCompetencyType(event.target.value)}
+                >
+                  {COMPETENCY_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.value === 'INHERIT' && selectedNewQuestionSubcategory?.competencyType
+                        ? `${option.label} (${selectedNewQuestionSubcategory.competencyType})`
+                        : option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="drawer-field">
+                <span>Difficulty (1-5)</span>
+                <select
+                  value={newQuestionDifficulty}
+                  onChange={(event) => setNewQuestionDifficulty(event.target.value)}
+                >
+                  {DIFFICULTY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              <fieldset className="drawer-target-levels">
+                <legend>Target Levels</legend>
+                <div>
+                  {TARGET_LEVEL_OPTIONS.map((level) => (
+                    <label key={level.value}>
+                      <input
+                        type="checkbox"
+                        checked={newQuestionTargetLevels.includes(level.value)}
+                        onChange={() => toggleNewQuestionTargetLevel(level.value)}
+                      />
+                      <span>{level.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <label className="drawer-field">
+                <span>Expected Answer / Scoring Guide</span>
+                <textarea
+                  value={newQuestionExpectedAnswer}
+                  onChange={(event) => setNewQuestionExpectedAnswer(event.target.value)}
+                  placeholder="Describe what a good answer looks like..."
+                  rows={5}
+                />
+              </label>
+
+              <div className="question-drawer-footer">
+                <button
+                  type="button"
+                  className="drawer-cancel-button"
+                  onClick={() => {
+                    resetNewQuestionDraft();
+                    closeNewQuestionDrawer();
+                  }}
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="drawer-submit-button"
+                  disabled={newQuestionSaving || !newQuestionText.trim() || !newQuestionCategory || !newQuestionSubcategory}
+                >
+                  {newQuestionSaving ? 'Đang tạo...' : 'Tạo mới'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {channelSettingsOpen ? (
+        <div className="modal-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closeChannelSettings();
+        }}>
+          <section className="channel-modal" role="dialog" aria-modal="true" aria-labelledby="channel-settings-title">
+            <div className="modal-header">
+              <h2 id="channel-settings-title">
+                {channelSettingsOpen === 'FACEBOOK' ? 'Thêm nhóm Facebook mới' : `Cấu hình ${channelSettingsOpen}`}
+              </h2>
+              <button type="button" className="icon-button" aria-label="Close settings" onClick={closeChannelSettings}>
+                <CloseIcon />
+              </button>
+            </div>
+
+            {channelSettingsOpen === 'FACEBOOK' ? (
+              <form className="modal-form" onSubmit={submitMockFacebookGroup}>
+                <label className="mock-field">
+                  <span>TÊN NHÓM</span>
+                  <input
+                    value={newFacebookGroupName}
+                    onChange={(event) => setNewFacebookGroupName(event.target.value)}
+                    placeholder="Ví dụ: Việc làm IT Đà Nẵng"
+                  />
+                </label>
+                <label className="mock-field">
+                  <span>LINK URL</span>
+                  <input
+                    value={newFacebookGroupUrl}
+                    onChange={(event) => setNewFacebookGroupUrl(event.target.value)}
+                    placeholder="https://facebook.com/groups/..."
+                  />
+                </label>
+                <p className="modal-helper">Link trực tiếp đến trang chủ của nhóm Facebook.</p>
+
+                <ul className="mock-group-list">
+                  {facebookGroups.map((group) => (
+                    <li key={group.id}>
+                      <button
+                        type="button"
+                        className="mock-group-select"
+                        onClick={() => selectFacebookGroup(group.id)}
+                      >
+                        <span>{group.name}</span>
+                        <small>{group.url}</small>
+                      </button>
+                      <button
+                        type="button"
+                        className="danger-icon-button"
+                        aria-label={`Delete ${group.name}`}
+                        onClick={() => setDeleteFacebookGroupId(group.id)}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="modal-footer">
+                  <button type="button" className="modal-cancel-button" onClick={closeChannelSettings}>
+                    HỦY
+                  </button>
+                  <button type="submit" className="modal-submit-button" disabled={!newFacebookGroupName.trim()}>
+                    <PlusIcon />
+                    THÊM MỚI
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="modal-form">
+                <p className="modal-helper">
+                  Kênh {channelSettingsOpen} chưa có cấu hình bổ sung trong bản mock này.
+                </p>
+                <div className="modal-footer">
+                  <button type="button" className="modal-cancel-button" onClick={closeChannelSettings}>
+                    HỦY
+                  </button>
+                  <button type="button" className="modal-submit-button" onClick={closeChannelSettings}>
+                    LƯU THAY ĐỔI
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {deleteFacebookGroup ? (
+        <div className="modal-backdrop modal-backdrop-danger" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setDeleteFacebookGroupId(null);
+        }}>
+          <section className="channel-modal delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-group-title">
+            <div className="delete-modal-icon">
+              <WarningIcon />
+            </div>
+            <div className="delete-modal-copy">
+              <h2 id="delete-group-title">Xác nhận xóa nhóm</h2>
+              <p>Bạn có chắc chắn muốn xóa nhóm này không?</p>
+              <span>Hành động này không thể hoàn tác và dữ liệu liên quan sẽ bị mất.</span>
+            </div>
+            <div className="delete-target">
+              <span>NHÓM SẼ BỊ XÓA:</span>
+              <strong>{deleteFacebookGroup.name}</strong>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="modal-cancel-button" onClick={() => setDeleteFacebookGroupId(null)}>
+                HỦY
+              </button>
+              <button type="button" className="modal-danger-button" onClick={confirmDeleteFacebookGroup}>
+                <TrashIcon />
+                XÓA NHÓM
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
+  );
+}
+
+type IconProps = {
+  className?: string;
+};
+
+function getChannelPostingStatusClass(channel: ChannelPostingResult) {
+  const status = channel.status.toUpperCase();
+  if (['CREATED', 'PUBLISHED', 'UPDATED', 'SUCCESS'].includes(status)) return 'is-success';
+  if (['NOT_CONFIGURED', 'MANUAL_REQUIRED', 'SKIPPED', 'PENDING'].includes(status)) return 'is-muted';
+  if (status.includes('FAIL') || status.includes('ERROR')) return 'is-error';
+  return 'is-warning';
+}
+
+function formatQuestionCategoryLabel(value: string) {
+  return value.replace(/[_-]+/g, ' ').toUpperCase();
+}
+
+function formatQuestionDifficulty(value: ExtensionQuestion['difficulty']) {
+  const difficulty = Number.isFinite(value) ? value : 3;
+  const labels: Record<number, string> = {
+    1: 'Rất dễ',
+    2: 'Dễ',
+    3: 'Trung bình',
+    4: 'Khó',
+    5: 'Rất khó',
+  };
+
+  return `${labels[difficulty] ?? 'Trung bình'} - ${difficulty}/5`;
+}
+
+function formatQuestionTargetLevel(levels: ExtensionQuestion['targetLevels']) {
+  if (!levels.length) return 'Any level';
+
+  const [firstLevel] = levels;
+  const label = TARGET_LEVEL_OPTIONS.find((level) => level.value === firstLevel)?.label ?? firstLevel;
+  return levels.length > 1 ? `${label} +${levels.length - 1}` : label;
+}
+
+function CheckIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M13.2 4.3 6.5 11 2.8 7.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function RefreshIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M13 7.2A5 5 0 0 0 4.6 4L3.5 5.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.4 2.4v2.8h2.8M3 8.8A5 5 0 0 0 11.4 12l1.1-1.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12.6 13.6v-2.8H9.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function BriefcaseIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M5.6 5V3.8c0-.7.5-1.2 1.2-1.2h2.4c.7 0 1.2.5 1.2 1.2V5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M2.6 5h10.8c.6 0 1 .4 1 1v6.2c0 .6-.4 1-1 1H2.6c-.6 0-1-.4-1-1V6c0-.6.4-1 1-1Z" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M1.8 8.2h12.4M7 8.2v1h2v-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function GripIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 10 16" fill="none">
+      <circle cx="3" cy="3" r="1" fill="currentColor" />
+      <circle cx="7" cy="3" r="1" fill="currentColor" />
+      <circle cx="3" cy="8" r="1" fill="currentColor" />
+      <circle cx="7" cy="8" r="1" fill="currentColor" />
+      <circle cx="3" cy="13" r="1" fill="currentColor" />
+      <circle cx="7" cy="13" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CogIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 20 20" fill="none">
+      <path
+        d="M8.9 2.5h2.2l.4 2a5.8 5.8 0 0 1 1.4.6l1.7-1.1 1.6 1.6-1.1 1.7c.3.5.5.9.6 1.4l2 .4v2.2l-2 .4a5.8 5.8 0 0 1-.6 1.4l1.1 1.7-1.6 1.6-1.7-1.1a5.8 5.8 0 0 1-1.4.6l-.4 2H8.9l-.4-2a5.8 5.8 0 0 1-1.4-.6l-1.7 1.1-1.6-1.6 1.1-1.7a5.8 5.8 0 0 1-.6-1.4l-2-.4V9.1l2-.4c.1-.5.3-1 .6-1.4L3.8 5.6 5.4 4l1.7 1.1c.5-.3.9-.5 1.4-.6l.4-2Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="10.2" r="2.2" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function CloseIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PlusIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M3 4.5h10M6.5 2.8h3L10 4.5H6l.5-1.7ZM5 6v6.3c0 .5.4.9.9.9h4.2c.5 0 .9-.4.9-.9V6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function WarningIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <path d="M12 3 2.8 19h18.4L12 3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M12 8.5v5M12 17h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }
 
