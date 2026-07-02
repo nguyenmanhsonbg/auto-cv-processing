@@ -5,6 +5,8 @@ import { UserEntity } from '../auth/entities/user.entity';
 import { JobDescriptionEntity } from '../job-descriptions/entities/job-description.entity';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
+import { FacebookPublishingService } from '../facebook-publishing/facebook-publishing.service';
+import { type ExtensionFacebookPublishPlan } from '../facebook-publishing/facebook-publishing.types';
 import {
   ChannelPostingStatus,
   JobDescriptionStatus,
@@ -15,6 +17,7 @@ import {
 import {
   ChannelPostingResultDto,
   ExtensionSyncResponseDto,
+  ExtensionSyncWarningDto,
   SyncAmisJobPostingDto,
 } from './dto';
 import {
@@ -44,6 +47,7 @@ export class ExtensionIntegrationService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly idempotencyService: ExtensionIdempotencyService,
+    private readonly facebookPublishingService: FacebookPublishingService,
   ) {}
 
   async syncAndPublishFromAmis(
@@ -125,7 +129,7 @@ export class ExtensionIntegrationService {
           snapshotHash,
         );
 
-        return this.buildResponse({
+        return await this.buildResponse({
           resultCode: ExtensionSyncResultCode.DUPLICATE_OR_IDEMPOTENT_REPLAY,
           posting,
           dto,
@@ -203,7 +207,7 @@ export class ExtensionIntegrationService {
       }),
     );
 
-    return this.buildResponse({
+    return await this.buildResponse({
       resultCode: ExtensionSyncResultCode.CREATED,
       posting: await this.findPosting(manager, posting.id),
       dto,
@@ -264,7 +268,7 @@ export class ExtensionIntegrationService {
       snapshotHash,
     );
 
-    return this.buildResponse({
+    return await this.buildResponse({
       resultCode: ExtensionSyncResultCode.UPDATED,
       posting: await this.findPosting(manager, posting.id),
       dto,
@@ -345,20 +349,37 @@ export class ExtensionIntegrationService {
     return actor;
   }
 
-  private buildResponse(input: {
+  private async buildResponse(input: {
     resultCode: ExtensionSyncResultCode;
     posting: JobPostingEntity;
     dto: SyncAmisJobPostingDto;
     snapshotHash: string;
     snapshotChanged: boolean;
-  }): ExtensionSyncResponseDto {
-    const warnings = input.dto.channels
-      .filter((channel) => channel !== RecruitmentChannel.VCS_PORTAL)
-      .map((channel) => ({
+  }): Promise<ExtensionSyncResponseDto> {
+    const facebookPublishPlan = input.dto.channels.includes(RecruitmentChannel.FACEBOOK)
+      ? await this.facebookPublishingService.prepareExtensionPublishPlan(input.posting)
+      : undefined;
+    const warnings: ExtensionSyncWarningDto[] = [];
+    for (const channel of input.dto.channels) {
+      if (channel === RecruitmentChannel.VCS_PORTAL) continue;
+
+      if (channel === RecruitmentChannel.FACEBOOK) {
+        if (!facebookPublishPlan || facebookPublishPlan.targets.length === 0) {
+          warnings.push({
+            code: 'FACEBOOK_TARGETS_NOT_CONFIGURED',
+            message: 'No active Facebook publish targets are configured.',
+            channel,
+          });
+        }
+        continue;
+      }
+
+      warnings.push({
         code: 'CHANNEL_NOT_CONFIGURED',
         message: `${channel} is not configured for automatic publishing.`,
         channel,
-      }));
+      });
+    }
 
     return {
       resultCode: input.resultCode,
@@ -368,7 +389,8 @@ export class ExtensionIntegrationService {
       amisRecruitmentId: input.dto.amisRecruitmentId,
       snapshotHash: input.snapshotHash,
       snapshotChanged: input.snapshotChanged,
-      channelPostings: this.buildChannelPostings(input.posting, input.dto.channels),
+      channelPostings: this.buildChannelPostings(input.posting, input.dto.channels, facebookPublishPlan),
+      ...(facebookPublishPlan ? { facebookPublishPlan } : {}),
       warnings: warnings.length > 0 ? warnings : undefined,
     };
   }
@@ -376,6 +398,7 @@ export class ExtensionIntegrationService {
   private buildChannelPostings(
     posting: JobPostingEntity,
     channels: ExtensionSyncChannel[],
+    facebookPublishPlan?: ExtensionFacebookPublishPlan,
   ): ChannelPostingResultDto[] {
     return channels.map((channel) => {
       if (channel === RecruitmentChannel.VCS_PORTAL) {
@@ -389,6 +412,22 @@ export class ExtensionIntegrationService {
           errorCode: null,
           manualActionRequired: false,
           message: null,
+          lastSyncAt: posting.updatedAt?.toISOString() ?? null,
+        };
+      }
+
+      if (channel === RecruitmentChannel.FACEBOOK) {
+        const hasTargets = Boolean(facebookPublishPlan?.targets.length);
+        return {
+          channel,
+          status: hasTargets ? ChannelPostingStatus.PUBLISHING : ChannelPostingStatus.NOT_CONFIGURED,
+          publishedUrl: null,
+          externalPostingId: null,
+          errorCode: hasTargets ? null : 'FACEBOOK_TARGETS_NOT_CONFIGURED',
+          manualActionRequired: !hasTargets,
+          message: hasTargets
+            ? 'Facebook publish plan is prepared for browser extension execution.'
+            : 'No active Facebook publish targets are configured.',
           lastSyncAt: posting.updatedAt?.toISOString() ?? null,
         };
       }

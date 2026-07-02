@@ -3,6 +3,7 @@ import type {
   ApiEnvelope,
   ExtensionSyncResponse,
   ExtensionUser,
+  FacebookPublishResultPayload,
   SyncAmisJobPostingRequest,
 } from './types';
 
@@ -47,6 +48,17 @@ export async function syncAndPublishAmisJob(
       'X-Request-Id': requestId,
       'X-Extension-Version': EXTENSION_VERSION,
     },
+  });
+}
+
+export async function reportFacebookPublishResult(
+  accessToken: string,
+  payload: FacebookPublishResultPayload,
+) {
+  return request<{ id: string; status: string }>('/extension/facebook/publish-results', {
+    method: 'POST',
+    accessToken,
+    body: payload,
   });
 }
 

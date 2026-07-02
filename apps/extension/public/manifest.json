@@ -17,7 +17,9 @@
   "permissions": ["activeTab", "debugger", "scripting", "sidePanel", "storage", "tabs"],
   "host_permissions": [
     "http://localhost:3002/*",
-    "https://amisapp.misa.vn/*"
+    "https://amisapp.misa.vn/*",
+    "https://www.facebook.com/*",
+    "https://facebook.com/*"
   ],
   "content_scripts": [
     {

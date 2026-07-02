@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
@@ -8,6 +8,8 @@ import { ApiClientError, getCurrentUser, login, syncAndPublishAmisJob } from './
 import { clearAccessToken, getAccessToken, setAccessToken } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import { CHANNELS } from './config';
+import { publishFacebookPlan } from './facebook-publish-orchestrator';
+import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { createMockAmisSyncRequest } from './mock-amis';
 import type {
   AmisDiagnosticEvent,
@@ -17,6 +19,8 @@ import type {
   ExtensionChannel,
   ExtensionSyncResponse,
   ExtensionUser,
+  FacebookPublishPlan,
+  FacebookPublishProgress,
   SyncAmisJobPostingRequest,
 } from './types';
 import './styles.css';
@@ -37,12 +41,16 @@ function SidePanel() {
   const [extractionResult, setExtractionResult] = useState<AmisExtractionResult | null>(null);
   const [autoSyncState, setAutoSyncState] = useState<AmisAutoSyncState | null>(null);
   const [diagnostics, setDiagnostics] = useState<AmisDiagnosticEvent[]>([]);
+  const [facebookProgress, setFacebookProgress] = useState<FacebookPublishProgress | null>(null);
+  const [facebookRunning, setFacebookRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const startedFacebookPlanKeys = useRef(new Set<string>());
 
   useEffect(() => {
     void restoreAuth();
     void restoreSelectedChannels();
     void loadLatestAmisCapture({ silent: true });
+    void restoreFacebookProgress();
     void loadDiagnostics();
   }, []);
 
@@ -58,6 +66,12 @@ function SidePanel() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    const plan = result?.facebookPublishPlan;
+    if (!token || !plan || !channels.includes('FACEBOOK')) return;
+    void startFacebookPublish(plan);
+  }, [token, result?.facebookPublishPlan, channels]);
 
   const missingFields = useMemo(() => {
     const missing: string[] = [];
@@ -172,6 +186,11 @@ function SidePanel() {
     setDiagnostics(await getAmisDiagnostics());
   }
 
+  async function restoreFacebookProgress() {
+    const progress = await getLastFacebookPublishProgress();
+    if (progress) setFacebookProgress(progress);
+  }
+
   async function extractFromCurrentTab() {
     setState('EXTRACTING');
     setError(null);
@@ -265,7 +284,11 @@ function SidePanel() {
     try {
       const response = await syncAndPublishAmisJob(token, payload);
       setResult(response);
-      setState('SUCCESS');
+      if (response.facebookPublishPlan && channels.includes('FACEBOOK')) {
+        await startFacebookPublish(response.facebookPublishPlan);
+      } else {
+        setState('SUCCESS');
+      }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -276,6 +299,60 @@ function SidePanel() {
         setError(toErrorMessage(err));
         setState('ERROR');
       }
+    }
+  }
+
+  async function startFacebookPublish(plan: FacebookPublishPlan) {
+    if (!token) return;
+    const planKey = getFacebookPlanKey(plan);
+    if (startedFacebookPlanKeys.current.has(planKey)) return;
+
+    if (plan.targets.length === 0) {
+      const progress: FacebookPublishProgress = {
+        status: 'ERROR',
+        currentIndex: 0,
+        total: 0,
+        message: 'No active Facebook publish targets are configured.',
+        results: [],
+      };
+      setFacebookProgress(progress);
+      await saveLastFacebookPublishProgress(progress);
+      setState('ERROR');
+      return;
+    }
+
+    startedFacebookPlanKeys.current.add(planKey);
+    setFacebookRunning(true);
+    setState('SYNCING');
+    setError(null);
+    let latestProgress: FacebookPublishProgress | null = facebookProgress;
+
+    try {
+      const facebookResults = await publishFacebookPlan(token, plan, {
+        onProgress: (progress) => {
+          latestProgress = progress;
+          setFacebookProgress(progress);
+          void saveLastFacebookPublishProgress(progress);
+        },
+      });
+      setResult((current) => current ? updateFacebookChannelStatus(current, facebookResults) : current);
+      setState('SUCCESS');
+    } catch (err) {
+      setError(toErrorMessage(err));
+      const progress: FacebookPublishProgress = {
+        status: 'ERROR',
+        currentIndex: latestProgress?.currentIndex ?? 0,
+        total: latestProgress?.total ?? plan.targets.length,
+        target: latestProgress?.target,
+        message: toErrorMessage(err),
+        results: latestProgress?.results ?? [],
+      };
+      setFacebookProgress(progress);
+      await saveLastFacebookPublishProgress(progress);
+      setState('ERROR');
+      startedFacebookPlanKeys.current.delete(planKey);
+    } finally {
+      setFacebookRunning(false);
     }
   }
 
@@ -407,6 +484,42 @@ function SidePanel() {
             </section>
           ) : null}
 
+          {facebookProgress ? (
+            <section className="capture-panel">
+              <div className="status-row">
+                <span>Facebook publish</span>
+                <strong>{facebookProgress.status}</strong>
+              </div>
+              <dl>
+                <div>
+                  <dt>Progress</dt>
+                  <dd>{facebookProgress.currentIndex}/{facebookProgress.total}</dd>
+                </div>
+                {facebookProgress.target ? (
+                  <div>
+                    <dt>Target</dt>
+                    <dd>{facebookProgress.target.targetName}</dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt>Status</dt>
+                  <dd>{facebookProgress.message}</dd>
+                </div>
+              </dl>
+              {facebookProgress.results.length > 0 ? (
+                <ul className="diagnostic-list">
+                  {facebookProgress.results.map((item) => (
+                    <li key={`${item.targetName}-${item.status}`}>
+                      <strong>{item.targetName}</strong>
+                      <span>{item.status}</span>
+                      <small>{item.message}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ) : null}
+
           {extractionResult ? (
             <section className="capture-panel">
               <div className="status-row">
@@ -497,10 +610,10 @@ function SidePanel() {
           <button
             type="button"
             className="primary-button"
-            disabled={state === 'EXTRACTING' || state === 'SYNCING' || missingFields.length > 0}
+            disabled={state === 'EXTRACTING' || state === 'SYNCING' || facebookRunning || missingFields.length > 0}
             onClick={sync}
           >
-            {state === 'SYNCING' ? 'Syncing...' : 'Sync and publish'}
+            {facebookRunning ? 'Publishing Facebook...' : state === 'SYNCING' ? 'Syncing...' : 'Sync and publish'}
           </button>
 
           {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
@@ -573,6 +686,47 @@ async function getActiveTab() {
   return {
     id: activeTab.id,
     url: activeTab.url,
+  };
+}
+
+function getFacebookPlanKey(plan: FacebookPublishPlan) {
+  return [
+    plan.jobPostingId,
+    plan.content.length,
+    plan.targets.map((target) => target.targetId ?? target.targetUrl ?? target.targetName).join('|'),
+  ].join(':');
+}
+
+function updateFacebookChannelStatus(
+  response: ExtensionSyncResponse,
+  facebookResults: FacebookPublishProgress['results'],
+): ExtensionSyncResponse {
+  const successCount = facebookResults.filter((item) => item.status === 'SUCCESS').length;
+  const failedCount = facebookResults.filter((item) => item.status === 'FAILED').length;
+  const skippedCount = facebookResults.filter((item) => item.status === 'SKIPPED').length;
+  const status = successCount === facebookResults.length && facebookResults.length > 0
+    ? 'PUBLISHED'
+    : successCount > 0
+      ? 'UPDATED'
+      : 'PUBLISH_FAILED';
+  const message = successCount > 0
+    ? `Facebook published ${successCount}/${facebookResults.length} target(s).`
+    : `Facebook publish failed for ${failedCount} target(s), skipped ${skippedCount}.`;
+
+  return {
+    ...response,
+    channelPostings: response.channelPostings.map((channel) => (
+      channel.channel === 'FACEBOOK'
+        ? {
+            ...channel,
+            status,
+            errorCode: successCount > 0 ? null : 'FACEBOOK_PUBLISH_FAILED',
+            manualActionRequired: successCount === 0,
+            message,
+            lastSyncAt: new Date().toISOString(),
+          }
+        : channel
+    )),
   };
 }
 
