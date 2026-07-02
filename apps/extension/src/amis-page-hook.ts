@@ -9,49 +9,86 @@ const hookWindow = window as Window & {
 
 if (!hookWindow[HOOK_INSTALLED_KEY]) {
   hookWindow[HOOK_INSTALLED_KEY] = true;
-  installFetchHook();
-  publishDiagnostic('HOOK_READY');
+  installXhrHook();
+  publishDiagnostic('HOOK_READY', {
+    details: {
+      watchedTransport: 'xhr',
+      trigger: 'XMLHttpRequest.loadend',
+    },
+  });
 }
 
-function installFetchHook() {
-  const originalFetch = window.fetch;
+function installXhrHook() {
+  const xhrPrototype = window.XMLHttpRequest?.prototype as XMLHttpRequest & {
+    open: (...args: unknown[]) => void;
+    send: (...args: unknown[]) => void;
+  } | undefined;
+  if (!xhrPrototype) return;
 
-  window.fetch = async (...args) => {
-    const requestUrl = getFetchRequestUrl(args[0]);
-    const response = await Reflect.apply(originalFetch, window, args) as Response;
+  const originalOpen = xhrPrototype.open;
+  const originalSend = xhrPrototype.send;
 
+  xhrPrototype.open = function openWithAmisCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
+    const [method, url] = args;
+    this.__vcsAmisRequestMethod = typeof method === 'string' ? method : undefined;
+    this.__vcsAmisRequestUrl = getRequestUrl(url);
+
+    return Reflect.apply(originalOpen, this, args);
+  };
+
+  xhrPrototype.send = function sendWithAmisCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
+    const requestUrl = this.__vcsAmisRequestUrl;
     if (requestUrl && isAmisSaveRecruitmentUrl(requestUrl)) {
-      publishDiagnostic('SAVE_REQUEST_SEEN', {
-        requestUrl,
-        details: {
-          transport: 'fetch',
-          status: response.status,
-        },
-      });
+      this.addEventListener('loadend', () => {
+        publishDiagnostic('SAVE_XHR_RESPONSE_SEEN', {
+          requestUrl,
+          details: {
+            transport: 'xhr',
+            trigger: 'XMLHttpRequest.loadend',
+            method: this.__vcsAmisRequestMethod,
+            status: this.status,
+            responseType: this.responseType || 'text',
+          },
+        });
 
-      void readFetchJson(response.clone())
-        .then((json) => {
+        if (this.status < 200 || this.status >= 300) {
+          publishDiagnostic('SAVE_RESPONSE_HTTP_ERROR', {
+            requestUrl,
+            details: {
+              transport: 'xhr',
+              status: this.status,
+            },
+          });
+          return;
+        }
+
+        try {
+          const json = readXhrJson(this);
           if (json === null) {
             publishDiagnostic('SAVE_RESPONSE_EMPTY', {
               requestUrl,
-              details: { transport: 'fetch', status: response.status },
+              details: {
+                transport: 'xhr',
+                status: this.status,
+                responseType: this.responseType || 'text',
+              },
             });
           }
 
           publishCapture(json, requestUrl);
-        })
-        .catch((error) => {
+        } catch (error) {
           publishDiagnostic('SAVE_RESPONSE_READ_FAILED', {
             requestUrl,
             details: {
-              transport: 'fetch',
+              transport: 'xhr',
               message: error instanceof Error ? error.message : 'Could not read JSON response.',
             },
           });
-        });
+        }
+      }, { once: true });
     }
 
-    return response;
+    return Reflect.apply(originalSend, this, args);
   };
 }
 
@@ -88,11 +125,13 @@ function publishCapture(responseJson: unknown, requestUrl: string) {
 }
 
 function publishDiagnostic(
-  type:
+      type:
     | 'HOOK_READY'
     | 'SAVE_REQUEST_SEEN'
+    | 'SAVE_XHR_RESPONSE_SEEN'
     | 'SAVE_RESPONSE_EMPTY'
     | 'SAVE_RESPONSE_READ_FAILED'
+    | 'SAVE_RESPONSE_HTTP_ERROR'
     | 'SAVE_RESPONSE_UNMAPPED'
     | 'CAPTURE_PUBLISHED',
   event: {
@@ -115,14 +154,26 @@ function publishDiagnostic(
   }, 0);
 }
 
-function getFetchRequestUrl(input: RequestInfo | URL) {
-  if (typeof input === 'string') return input;
+function getRequestUrl(input: unknown) {
+  if (typeof input === 'string') return new URL(input, window.location.origin).toString();
   if (input instanceof URL) return input.toString();
-  return input.url;
+
+  return undefined;
 }
 
-async function readFetchJson(response: Response) {
-  const text = await response.text();
+function readXhrJson(xhr: XMLHttpRequest) {
+  if (xhr.responseType === 'json') {
+    return xhr.response ?? null;
+  }
+
+  if (xhr.responseType && xhr.responseType !== 'text') {
+    return null;
+  }
+
+  return parseJsonText(xhr.responseText);
+}
+
+function parseJsonText(text: string) {
   const cleaned = text.trim().replace(/^\uFEFF/, '').replace(/^\)\]\}',?\s*/, '');
   if (!cleaned) return null;
 
@@ -218,6 +269,7 @@ function mapAmisSaveRecruitmentResponse(
         'host:amisapp.misa.vn',
         'api:SaveRecruitment',
         `request:${new URL(requestUrl).pathname}`,
+        'transport:xhr-response',
         ...('TraceID' in response ? ['trace-id-present'] : []),
         ...('ServerTime' in response ? ['server-time-present'] : []),
         'response-payload-present',
@@ -367,4 +419,9 @@ function describePayloadShape(value: unknown) {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+interface HookedXMLHttpRequest extends XMLHttpRequest {
+  __vcsAmisRequestMethod?: string;
+  __vcsAmisRequestUrl?: string;
 }
