@@ -5,6 +5,8 @@ import { UserEntity } from '../auth/entities/user.entity';
 import { JobDescriptionEntity } from '../job-descriptions/entities/job-description.entity';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
+import { FacebookPublishingService } from '../facebook-publishing/facebook-publishing.service';
+import { type ExtensionFacebookPublishPlan } from '../facebook-publishing/facebook-publishing.types';
 import {
   ChannelPostingStatus,
   JobDescriptionStatus,
@@ -17,6 +19,7 @@ import {
   AmisCareerCatalogItemDto,
   CreateAmisCareerQuestionDto,
   ExtensionSyncResponseDto,
+  ExtensionSyncWarningDto,
   SyncAmisCareersDto,
   SyncAmisCareersResponseDto,
   SyncAmisCareerItemDto,
@@ -62,6 +65,7 @@ export class ExtensionIntegrationService {
     private readonly idempotencyService: ExtensionIdempotencyService,
     private readonly questionsService: QuestionsService,
     private readonly categoriesService: CategoriesService,
+    private readonly facebookPublishingService: FacebookPublishingService,
   ) {}
 
   async syncAndPublishFromAmis(
@@ -143,12 +147,13 @@ export class ExtensionIntegrationService {
           snapshotHash,
         );
 
-        return this.buildResponse({
+        return await this.buildResponse({
           resultCode: ExtensionSyncResultCode.DUPLICATE_OR_IDEMPOTENT_REPLAY,
           posting,
           dto,
           snapshotHash,
           snapshotChanged: false,
+          actorUserId: context.actorUserId,
         });
       }
 
@@ -222,12 +227,13 @@ export class ExtensionIntegrationService {
       }),
     );
 
-    return this.buildResponse({
+    return await this.buildResponse({
       resultCode: ExtensionSyncResultCode.CREATED,
       posting: await this.findPosting(manager, posting.id),
       dto,
       snapshotHash,
       snapshotChanged: true,
+      actorUserId: context.actorUserId,
     });
   }
 
@@ -284,12 +290,13 @@ export class ExtensionIntegrationService {
       snapshotHash,
     );
 
-    return this.buildResponse({
+    return await this.buildResponse({
       resultCode: ExtensionSyncResultCode.UPDATED,
       posting: await this.findPosting(manager, posting.id),
       dto,
       snapshotHash,
       snapshotChanged: true,
+      actorUserId: context.actorUserId,
     });
   }
 
@@ -365,20 +372,42 @@ export class ExtensionIntegrationService {
     return actor;
   }
 
-  private buildResponse(input: {
+  private async buildResponse(input: {
     resultCode: ExtensionSyncResultCode;
     posting: JobPostingEntity;
     dto: SyncAmisJobPostingDto;
     snapshotHash: string;
     snapshotChanged: boolean;
-  }): ExtensionSyncResponseDto {
-    const warnings = input.dto.channels
-      .filter((channel) => channel !== RecruitmentChannel.VCS_PORTAL)
-      .map((channel) => ({
+    actorUserId: string;
+  }): Promise<ExtensionSyncResponseDto> {
+    const facebookPublishPlan = input.dto.channels.includes(RecruitmentChannel.FACEBOOK)
+      ? await this.facebookPublishingService.prepareExtensionPublishPlan(
+        input.posting,
+        input.actorUserId,
+        input.dto.facebookTargetIds,
+      )
+      : undefined;
+    const warnings: ExtensionSyncWarningDto[] = [];
+    for (const channel of input.dto.channels) {
+      if (channel === RecruitmentChannel.VCS_PORTAL) continue;
+
+      if (channel === RecruitmentChannel.FACEBOOK) {
+        if (!facebookPublishPlan || facebookPublishPlan.targets.length === 0) {
+          warnings.push({
+            code: 'FACEBOOK_TARGETS_NOT_CONFIGURED',
+            message: 'No active Facebook publish targets are configured.',
+            channel,
+          });
+        }
+        continue;
+      }
+
+      warnings.push({
         code: 'CHANNEL_NOT_CONFIGURED',
         message: `${channel} is not configured for automatic publishing.`,
         channel,
-      }));
+      });
+    }
 
     return {
       resultCode: input.resultCode,
@@ -388,7 +417,8 @@ export class ExtensionIntegrationService {
       amisRecruitmentId: input.dto.amisRecruitmentId,
       snapshotHash: input.snapshotHash,
       snapshotChanged: input.snapshotChanged,
-      channelPostings: this.buildChannelPostings(input.posting, input.dto.channels),
+      channelPostings: this.buildChannelPostings(input.posting, input.dto.channels, facebookPublishPlan),
+      ...(facebookPublishPlan ? { facebookPublishPlan } : {}),
       warnings: warnings.length > 0 ? warnings : undefined,
     };
   }
@@ -396,6 +426,7 @@ export class ExtensionIntegrationService {
   private buildChannelPostings(
     posting: JobPostingEntity,
     channels: ExtensionSyncChannel[],
+    facebookPublishPlan?: ExtensionFacebookPublishPlan,
   ): ChannelPostingResultDto[] {
     return channels.map((channel) => {
       if (channel === RecruitmentChannel.VCS_PORTAL) {
@@ -409,6 +440,22 @@ export class ExtensionIntegrationService {
           errorCode: null,
           manualActionRequired: false,
           message: null,
+          lastSyncAt: posting.updatedAt?.toISOString() ?? null,
+        };
+      }
+
+      if (channel === RecruitmentChannel.FACEBOOK) {
+        const hasTargets = Boolean(facebookPublishPlan?.targets.length);
+        return {
+          channel,
+          status: hasTargets ? ChannelPostingStatus.PUBLISHING : ChannelPostingStatus.NOT_CONFIGURED,
+          publishedUrl: null,
+          externalPostingId: null,
+          errorCode: hasTargets ? null : 'FACEBOOK_TARGETS_NOT_CONFIGURED',
+          manualActionRequired: !hasTargets,
+          message: hasTargets
+            ? 'Facebook publish plan is prepared for browser extension execution.'
+            : 'No active Facebook publish targets are configured.',
           lastSyncAt: posting.updatedAt?.toISOString() ?? null,
         };
       }
@@ -478,6 +525,7 @@ export class ExtensionIntegrationService {
         deadline: this.optionalText(dto.snapshot.deadline) ?? undefined,
       },
       channels,
+      facebookTargetIds: this.normalizeFacebookTargetIds(dto.facebookTargetIds, channels),
       metadata: this.safeMetadata(dto.metadata),
     };
   }
@@ -908,6 +956,7 @@ export class ExtensionIntegrationService {
       actorRole: context.actorRole,
       action: dto.action,
       channels: dto.channels,
+      facebookTargetCount: dto.facebookTargetIds?.length ?? 0,
       hasAmisUrl: Boolean(dto.amisUrl),
     };
   }
@@ -1001,6 +1050,45 @@ export class ExtensionIntegrationService {
       extensionVersion: this.optionalText(value.extensionVersion),
       capturedAt: this.optionalText(value.capturedAt),
     };
+  }
+
+  private normalizeFacebookTargetIds(
+    value: unknown,
+    channels: ExtensionSyncChannel[],
+  ) {
+    if (!channels.includes(RecruitmentChannel.FACEBOOK)) return undefined;
+
+    if (!Array.isArray(value)) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_TARGETS_REQUIRED',
+        message: 'Select at least one Facebook group before publishing.',
+      });
+    }
+
+    const uniqueTargetIds = [...new Set(value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean))];
+
+    if (uniqueTargetIds.length === 0) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_TARGETS_REQUIRED',
+        message: 'Select at least one Facebook group before publishing.',
+      });
+    }
+
+    if (!uniqueTargetIds.every((targetId) => this.isUuid(targetId))) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_TARGETS_INVALID',
+        message: 'Selected Facebook group ids must be valid UUIDs.',
+      });
+    }
+
+    return uniqueTargetIds;
+  }
+
+  private isUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
   private requireText(value: string | undefined, fieldName: string) {

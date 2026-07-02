@@ -152,6 +152,60 @@ export interface ListJobPostingsParams {
 export interface PublishJobPostingPayload {
   publishChannels: string[];
   publishNote?: string;
+  facebookTargetIds?: string[];
+}
+
+export type FacebookPublishTargetType = 'GROUP' | 'FANPAGE';
+export type FacebookPublishResultStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED';
+
+export interface FacebookPublishTarget {
+  targetId?: string | null;
+  targetType: FacebookPublishTargetType;
+  targetName: string;
+  targetUrl?: string | null;
+  targetExternalId?: string | null;
+}
+
+export interface FacebookPublishPlan {
+  jobPostingId: string;
+  content: string;
+  targets: FacebookPublishTarget[];
+  delay: {
+    minMs: number;
+    maxMs: number;
+  };
+}
+
+export interface FacebookPublishResultPayload {
+  jobPostingId: string;
+  targetId?: string | null;
+  targetType: FacebookPublishTargetType;
+  targetName: string;
+  targetUrl?: string | null;
+  content?: string | null;
+  status: FacebookPublishResultStatus;
+  message: string;
+  externalPostId?: string | null;
+  submittedAt?: string | null;
+}
+
+export interface FacebookPublishProgress {
+  status: string;
+  currentIndex: number;
+  total: number;
+  target?: FacebookPublishTarget;
+  message: string;
+  results: FacebookPublishResultPayload[];
+}
+
+export interface JobPostingPublishResponse extends JobPostingRecord {
+  channels?: JobPostingChannelStatus[];
+  facebookPublishPlan?: FacebookPublishPlan;
+}
+
+export interface FacebookGroupPayload {
+  targetName: string;
+  targetUrl: string;
 }
 
 export interface JobPostingChannelStatus {
@@ -609,10 +663,39 @@ export function publishJobPosting(
   idempotencyKey: string,
 ) {
   return apiClient
-    .post<ApiEnvelope<JobPostingRecord> | JobPostingRecord>(
+    .post<ApiEnvelope<JobPostingPublishResponse> | JobPostingPublishResponse>(
       `/job-postings/${encodeURIComponent(id)}/publish`,
       payload,
       { idempotencyKey },
+    )
+    .then(unwrapEnvelope);
+}
+
+export function listFacebookGroups() {
+  return apiClient
+    .get<ApiEnvelope<FacebookPublishTarget[]> | FacebookPublishTarget[]>('/extension/facebook/groups')
+    .then(unwrapEnvelope);
+}
+
+export function createFacebookGroup(payload: FacebookGroupPayload) {
+  return apiClient
+    .post<ApiEnvelope<FacebookPublishTarget> | FacebookPublishTarget>('/extension/facebook/groups', payload)
+    .then(unwrapEnvelope);
+}
+
+export function updateFacebookGroup(targetId: string, payload: FacebookGroupPayload) {
+  return apiClient
+    .put<ApiEnvelope<FacebookPublishTarget> | FacebookPublishTarget>(
+      `/extension/facebook/groups/${encodeURIComponent(targetId)}`,
+      payload,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function deleteFacebookGroup(targetId: string) {
+  return apiClient
+    .delete<ApiEnvelope<FacebookPublishTarget> | FacebookPublishTarget>(
+      `/extension/facebook/groups/${encodeURIComponent(targetId)}`,
     )
     .then(unwrapEnvelope);
 }

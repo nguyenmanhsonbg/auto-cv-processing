@@ -4,19 +4,28 @@ import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
 import { getLastAmisCapture } from './amis-capture-store';
 import { getAmisDiagnostics } from './amis-diagnostics-store';
+import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
 import {
   ApiClientError,
   createAmisCareerQuestion,
+  createFacebookGroup,
+  deleteFacebookGroup,
   getAmisCareerQuestionContext,
   getCurrentUser,
+  getFacebookGroups,
   listJobDescriptions,
   listAmisCareers,
   login,
   syncAndPublishAmisJob,
+  updateFacebookGroup,
 } from './api-client';
 import { clearAccessToken, getAccessToken, setAccessToken } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import { CHANNELS } from './config';
+import { updateFacebookChannelStatus } from './facebook-channel-status';
+import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
+import { ensureFacebookSession, publishFacebookPlan } from './facebook-publish-orchestrator';
+import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { createMockAmisSyncRequest } from './mock-amis';
 import type {
   AmisDiagnosticEvent,
@@ -31,6 +40,9 @@ import type {
   ExtensionChannel,
   ExtensionSyncResponse,
   ExtensionUser,
+  FacebookPublishPlan,
+  FacebookPublishProgress,
+  FacebookPublishTarget,
   JobDescriptionSummary,
   SyncAmisJobPostingRequest,
 } from './types';
@@ -39,34 +51,19 @@ import './styles.css';
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
-
-interface FacebookGroup {
-  id: string;
-  name: string;
-  url: string;
-}
+type FacebookGroupLoadState =
+  | 'IDLE'
+  | 'CHECKING_LOGIN'
+  | 'WAITING_LOGIN'
+  | 'LOADING_GROUPS'
+  | 'READY'
+  | 'ERROR';
+type FacebookGroupModalMode = 'SETTINGS' | 'EDIT' | 'DELETE';
 
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
 const CAREER_QUESTION_SELECTION_PREFIX = 'vcs:selected-career-questions:';
-const DEFAULT_FACEBOOK_GROUPS: FacebookGroup[] = [
-  {
-    id: 'dev-java-vn',
-    name: 'Hội Dev Java VN',
-    url: 'https://facebook.com/groups/devjavavn',
-  },
-  {
-    id: 'frontend-vn',
-    name: 'Cộng đồng Frontend Việt Nam',
-    url: 'https://facebook.com/groups/frontendvietnam',
-  },
-  {
-    id: 'it-hcm',
-    name: 'Việc làm IT HCM',
-    url: 'https://facebook.com/groups/vieclamit.hcm',
-  },
-];
 const TARGET_LEVEL_OPTIONS = [
   { value: 'ENTRY', label: 'Entry Level' },
   { value: 'EXPERIENCED', label: 'Experienced' },
@@ -101,17 +98,26 @@ function SidePanel() {
   const [amisRecruitmentId, setAmisRecruitmentId] = useState<string | null>(null);
   const [amisUrl, setAmisUrl] = useState<string | undefined>();
   const [channels, setChannels] = useState<ExtensionChannel[]>(['VCS_PORTAL']);
-  const [facebookGroups, setFacebookGroups] = useState<FacebookGroup[]>(DEFAULT_FACEBOOK_GROUPS);
-  const [selectedFacebookGroupId, setSelectedFacebookGroupId] = useState(DEFAULT_FACEBOOK_GROUPS[0].id);
-  const [facebookGroupDropdownOpen, setFacebookGroupDropdownOpen] = useState(false);
-  const [channelSettingsOpen, setChannelSettingsOpen] = useState<ExtensionChannel | null>(null);
-  const [newFacebookGroupName, setNewFacebookGroupName] = useState('');
-  const [newFacebookGroupUrl, setNewFacebookGroupUrl] = useState('');
-  const [deleteFacebookGroupId, setDeleteFacebookGroupId] = useState<string | null>(null);
   const [result, setResult] = useState<ExtensionSyncResponse | null>(null);
   const [extractionResult, setExtractionResult] = useState<AmisExtractionResult | null>(null);
   const [autoSyncState, setAutoSyncState] = useState<AmisAutoSyncState | null>(null);
   const [diagnostics, setDiagnostics] = useState<AmisDiagnosticEvent[]>([]);
+  const [facebookProgress, setFacebookProgress] = useState<FacebookPublishProgress | null>(null);
+  const [facebookRunning, setFacebookRunning] = useState(false);
+  const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
+  const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
+  const [facebookGroupLoadState, setFacebookGroupLoadState] = useState<FacebookGroupLoadState>('IDLE');
+  const [facebookGroupMessage, setFacebookGroupMessage] = useState<string | null>(null);
+  const [isFacebookSettingsOpen, setIsFacebookSettingsOpen] = useState(false);
+  const [facebookSettingsState, setFacebookSettingsState] = useState<'IDLE' | 'LOADING' | 'READY' | 'SAVING' | 'ERROR'>('IDLE');
+  const [facebookSettingsMessage, setFacebookSettingsMessage] = useState<string | null>(null);
+  const [facebookGroupModalMode, setFacebookGroupModalMode] = useState<FacebookGroupModalMode>('SETTINGS');
+  const [selectedFacebookGroup, setSelectedFacebookGroup] = useState<FacebookPublishTarget | null>(null);
+  const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
+  const [facebookGroupName, setFacebookGroupName] = useState('');
+  const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
+  const [editFacebookGroupName, setEditFacebookGroupName] = useState('');
+  const [editFacebookGroupUrl, setEditFacebookGroupUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [jobDescriptionPagination, setJobDescriptionPagination] = useState<ApiPagination | null>(null);
@@ -137,6 +143,7 @@ function SidePanel() {
   const [selectedCareerQuestionIds, setSelectedCareerQuestionIds] = useState<Set<string>>(new Set());
   const lastCareerContextIdRef = useRef<string | null>(null);
   const tokenRef = useRef<string | null>(null);
+  const startedFacebookPlanKeys = useRef(new Set<string>());
 
   useEffect(() => {
     tokenRef.current = token;
@@ -145,8 +152,10 @@ function SidePanel() {
   useEffect(() => {
     void restoreAuth();
     void restoreSelectedChannels();
+    void restoreSelectedFacebookGroups();
     void loadLatestAmisCapture({ silent: true });
-    void loadDiagnostics();
+    void restoreFacebookProgress();
+    void bootstrapAmisTab();
   }, []);
 
   useEffect(() => {
@@ -166,6 +175,18 @@ function SidePanel() {
         if (tokenRef.current) {
           void refreshSelectedCareerContext(tokenRef.current, { silent: true });
         }
+        return;
+      }
+
+      if (isFacebookPublishProgressUpdateMessage(message)) {
+        setFacebookProgress(message.payload);
+        setFacebookRunning(
+          message.payload.status === 'LOGIN_REQUIRED'
+            || message.payload.status === 'WAITING_LOGIN'
+            || message.payload.status === 'POSTING'
+            || message.payload.status === 'REPORTING'
+            || message.payload.status === 'DELAYING',
+        );
       }
     });
   }, []);
@@ -200,16 +221,10 @@ function SidePanel() {
     if (!snapshot?.description.trim()) missing.push('description');
     if (!snapshot?.requirements.rawText.trim()) missing.push('requirements');
     if (channels.length === 0) missing.push('channel');
+    if (channels.includes('FACEBOOK') && selectedFacebookGroupIds.length === 0) missing.push('facebook group');
     return missing;
-  }, [amisRecruitmentId, channels.length, snapshot]);
-  const selectedFacebookGroup = useMemo(
-    () => facebookGroups.find((group) => group.id === selectedFacebookGroupId) ?? facebookGroups[0] ?? null,
-    [facebookGroups, selectedFacebookGroupId],
-  );
-  const deleteFacebookGroup = useMemo(
-    () => facebookGroups.find((group) => group.id === deleteFacebookGroupId) ?? null,
-    [deleteFacebookGroupId, facebookGroups],
-  );
+  }, [amisRecruitmentId, channels, selectedFacebookGroupIds.length, snapshot]);
+
   const allChannelsSelected = channels.length === CHANNELS.length;
   const selectedNewQuestionCategory = useMemo(
     () => careerQuestionContext?.categories.find((category) => category.name === newQuestionCategory) ?? null,
@@ -227,6 +242,32 @@ function SidePanel() {
   }, [careerQuestionContext, selectedCareerQuestionIds]);
   const allCareerQuestionsSelected = Boolean(careerQuestionContext?.questions.length)
     && selectedCareerQuestionCount === careerQuestionContext?.questions.length;
+
+  const visibleFacebookGroups = useMemo(() => {
+    if (facebookGroups.length > 0) {
+      return facebookGroups.map((group) => ({
+        key: group.targetId ?? group.targetExternalId ?? group.targetUrl ?? group.targetName,
+        id: group.targetId ?? null,
+        name: group.targetName,
+        url: group.targetUrl,
+      }));
+    }
+
+    const planTargets = result?.facebookPublishPlan?.targets.map((target) => ({
+      key: target.targetId ?? target.targetExternalId ?? target.targetUrl ?? target.targetName,
+      id: target.targetId ?? null,
+      name: target.targetName,
+      url: target.targetUrl,
+    })) ?? [];
+    if (planTargets.length > 0) return planTargets;
+
+    return facebookProgress?.results.map((target) => ({
+      key: target.targetId ?? target.targetUrl ?? target.targetName,
+      id: target.targetId ?? null,
+      name: target.targetName,
+      url: target.targetUrl,
+    })) ?? [];
+  }, [facebookGroups, facebookProgress, result]);
 
   async function restoreAuth() {
     const storedToken = await getAccessToken();
@@ -256,6 +297,36 @@ function SidePanel() {
 
   async function restoreSelectedChannels() {
     setChannels(await getSelectedChannels());
+  }
+
+  async function restoreSelectedFacebookGroups() {
+    setSelectedFacebookGroupIdsState(await getSelectedFacebookGroupIds());
+  }
+
+  async function updateSelectedFacebookGroupIds(targetIds: string[]) {
+    const uniqueTargetIds = uniqueStrings(targetIds);
+    setSelectedFacebookGroupIdsState(uniqueTargetIds);
+    await setSelectedFacebookGroupIds(uniqueTargetIds);
+  }
+
+  async function reconcileSelectedFacebookGroups(groups: FacebookPublishTarget[], targetIds = selectedFacebookGroupIds) {
+    const activeGroupIds = new Set(groups.map((group) => group.targetId).filter(isString));
+    const nextTargetIds = uniqueStrings(targetIds).filter((targetId) => activeGroupIds.has(targetId));
+    await updateSelectedFacebookGroupIds(nextTargetIds);
+    return nextTargetIds;
+  }
+
+  function toggleFacebookGroupSelection(targetId: string | null | undefined) {
+    if (!targetId) return;
+
+    const nextTargetIds = selectedFacebookGroupIds.includes(targetId)
+      ? selectedFacebookGroupIds.filter((item) => item !== targetId)
+      : [...selectedFacebookGroupIds, targetId];
+    void updateSelectedFacebookGroupIds(nextTargetIds);
+    if (channels.includes('FACEBOOK') && facebookGroups.length > 0) {
+      setFacebookGroupLoadState('READY');
+      setFacebookGroupMessage(`${uniqueStrings(nextTargetIds).length}/${facebookGroups.length} allowed Facebook group(s) selected.`);
+    }
   }
 
   async function submitLogin(event: React.FormEvent<HTMLFormElement>) {
@@ -603,14 +674,35 @@ function SidePanel() {
     }
   }
 
-  async function loadDiagnostics() {
+  async function bootstrapAmisTab() {
+    await loadDiagnostics();
+    const capture = await getLastAmisCapture();
+    if (!capture) {
+      await extractFromCurrentTab({ silent: true });
+    }
+  }
+
+  async function loadDiagnostics(options: { ensureHooks?: boolean } = {}) {
+    if (options.ensureHooks !== false) {
+      const result = await ensureAmisHooksInActiveTab().catch(() => null);
+      if (result?.status === 'INJECTED') {
+        await sleep(250);
+      }
+    }
     setDiagnostics(await getAmisDiagnostics());
   }
 
-  async function extractFromCurrentTab() {
-    setState('EXTRACTING');
-    setError(null);
-    setResult(null);
+  async function restoreFacebookProgress() {
+    const progress = await getLastFacebookPublishProgress();
+    if (progress) setFacebookProgress(progress);
+  }
+
+  async function extractFromCurrentTab(options: { silent?: boolean } = {}) {
+    if (!options.silent) {
+      setState('EXTRACTING');
+      setError(null);
+      setResult(null);
+    }
 
     try {
       if (!chrome.scripting) {
@@ -629,11 +721,13 @@ function SidePanel() {
       }
 
       applyExtractionResult(extraction);
-      setState('READY');
+      if (!options.silent) setState('READY');
     } catch (err) {
-      setExtractionResult(null);
-      setError(toErrorMessage(err));
-      setState('ERROR');
+      if (!options.silent) {
+        setExtractionResult(null);
+        setError(toErrorMessage(err));
+        setState('ERROR');
+      }
     }
   }
 
@@ -665,20 +759,307 @@ function SidePanel() {
     if (latestState.status === 'AUTH_REQUIRED') setState('AUTH_REQUIRED');
   }
 
-  function toggleChannel(channel: ExtensionChannel) {
-    setChannels((current) => {
-      const isSelected = current.includes(channel);
-      const next = isSelected
-        ? current.filter((item) => item !== channel)
-        : [...current, channel];
+  async function toggleChannel(channel: ExtensionChannel) {
+    if (channel === 'FACEBOOK') {
+      await toggleFacebookChannel();
+      return;
+    }
 
-      if (channel === 'FACEBOOK' && isSelected) {
-        setFacebookGroupDropdownOpen(false);
+    const next = channels.includes(channel)
+      ? channels.filter((item) => item !== channel)
+      : [...channels, channel];
+    setChannels(next);
+    void setSelectedChannels(next);
+  }
+
+  async function toggleFacebookChannel() {
+    if (isFacebookGroupLoading(facebookGroupLoadState)) return;
+
+    if (channels.includes('FACEBOOK')) {
+      const next = channels.filter((item) => item !== 'FACEBOOK');
+      setChannels(next);
+      setFacebookGroupLoadState('IDLE');
+      setFacebookGroupMessage(null);
+      void setSelectedChannels(next);
+      return;
+    }
+
+    if (!token) {
+      setError('Sign in to VCS Recruitment before selecting Facebook.');
+      setState('AUTH_REQUIRED');
+      return;
+    }
+
+    const next: ExtensionChannel[] = [...channels, 'FACEBOOK'];
+    setChannels(next);
+    setError(null);
+    setFacebookGroupLoadState('CHECKING_LOGIN');
+    setFacebookGroupMessage('Checking Facebook login in this browser.');
+
+    try {
+      await ensureFacebookSession({
+        onStatus: (event) => {
+          setFacebookGroupLoadState(event.status === 'READY' ? 'LOADING_GROUPS' : event.status);
+          setFacebookGroupMessage(event.message);
+        },
+      });
+
+      setFacebookGroupLoadState('LOADING_GROUPS');
+      setFacebookGroupMessage('Loading allowed Facebook groups from backend.');
+      const groups = await getFacebookGroups(token);
+      setFacebookGroups(groups);
+      const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
+      setFacebookGroupLoadState('READY');
+      setFacebookGroupMessage(
+        groups.length > 0
+          ? `${selectedIds.length}/${groups.length} allowed Facebook group(s) selected.`
+          : 'No Facebook groups are configured for this account yet.',
+      );
+      await setSelectedChannels(next);
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
       }
 
-      void setSelectedChannels(next);
-      return next;
-    });
+      const rollback: ExtensionChannel[] = next.filter((item) => item !== 'FACEBOOK');
+      setChannels(rollback);
+      void setSelectedChannels(rollback);
+      setFacebookGroupLoadState('ERROR');
+      setFacebookGroupMessage(toErrorMessage(err));
+    }
+  }
+
+  async function openFacebookGroupSettings(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!token) {
+      setError('Sign in to VCS Recruitment before configuring Facebook groups.');
+      setState('AUTH_REQUIRED');
+      return;
+    }
+
+    setIsFacebookSettingsOpen(true);
+    setFacebookGroupModalMode('SETTINGS');
+    setSelectedFacebookGroup(null);
+    setIsFacebookGroupFormOpen(false);
+    setFacebookSettingsMessage(null);
+    await refreshFacebookGroupsForSettings(token);
+  }
+
+  function closeFacebookGroupSettings() {
+    setIsFacebookSettingsOpen(false);
+    setFacebookGroupModalMode('SETTINGS');
+    setSelectedFacebookGroup(null);
+    setIsFacebookGroupFormOpen(false);
+    setFacebookSettingsState('IDLE');
+    setFacebookSettingsMessage(null);
+    setFacebookGroupName('');
+    setFacebookGroupUrl('');
+    setEditFacebookGroupName('');
+    setEditFacebookGroupUrl('');
+  }
+
+  function closeFacebookGroupActionModal() {
+    setFacebookGroupModalMode('SETTINGS');
+    setSelectedFacebookGroup(null);
+    setEditFacebookGroupName('');
+    setEditFacebookGroupUrl('');
+    setFacebookSettingsState('READY');
+    setFacebookSettingsMessage(null);
+  }
+
+  function openEditFacebookGroup(group: FacebookPublishTarget) {
+    if (!group.targetId) {
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage('Không thể chỉnh sửa nhóm chưa có mã định danh.');
+      return;
+    }
+
+    setSelectedFacebookGroup(group);
+    setEditFacebookGroupName(group.targetName);
+    setEditFacebookGroupUrl(group.targetUrl ?? '');
+    setFacebookSettingsMessage(null);
+    setFacebookSettingsState('READY');
+    setFacebookGroupModalMode('EDIT');
+  }
+
+  function openDeleteFacebookGroup(group: FacebookPublishTarget) {
+    if (!group.targetId) {
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage('Không thể xóa nhóm chưa có mã định danh.');
+      return;
+    }
+
+    setSelectedFacebookGroup(group);
+    setFacebookSettingsMessage(null);
+    setFacebookSettingsState('READY');
+    setFacebookGroupModalMode('DELETE');
+  }
+
+  async function refreshFacebookGroupsForSettings(accessToken = token) {
+    if (!accessToken) return;
+
+    setFacebookSettingsState('LOADING');
+    setFacebookSettingsMessage(null);
+
+    try {
+      const groups = await getFacebookGroups(accessToken);
+      setFacebookGroups(groups);
+      await reconcileSelectedFacebookGroups(groups);
+      setFacebookSettingsState('READY');
+      setFacebookSettingsMessage(
+        groups.length > 0 ? null : 'Chưa có nhóm Facebook nào được cấu hình cho tài khoản này.',
+      );
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+      }
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage(toErrorMessage(err));
+    }
+  }
+
+  async function submitFacebookGroup(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+
+    const targetName = facebookGroupName.trim();
+    const targetUrl = facebookGroupUrl.trim();
+    if (!targetName) {
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage('Tên nhóm là bắt buộc.');
+      return;
+    }
+    if (!isFacebookGroupUrlCandidate(targetUrl)) {
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage('Link URL phải có dạng https://www.facebook.com/groups/{groupId}.');
+      return;
+    }
+
+    setFacebookSettingsState('SAVING');
+    setFacebookSettingsMessage(null);
+
+    try {
+      const savedGroup = await createFacebookGroup(token, { targetName, targetUrl });
+      const groups = await getFacebookGroups(token);
+      setFacebookGroups(groups);
+      const nextSelectedIds = savedGroup.targetId
+        ? uniqueStrings([...selectedFacebookGroupIds, savedGroup.targetId])
+        : selectedFacebookGroupIds;
+      await updateSelectedFacebookGroupIds(nextSelectedIds);
+      setFacebookGroupName('');
+      setFacebookGroupUrl('');
+      setIsFacebookGroupFormOpen(false);
+      setFacebookSettingsState('READY');
+      setFacebookSettingsMessage(`Đã thêm nhóm "${savedGroup.targetName}".`);
+
+      if (channels.includes('FACEBOOK')) {
+        setFacebookGroupLoadState('READY');
+        setFacebookGroupMessage(`${nextSelectedIds.length}/${groups.length} allowed Facebook group(s) selected.`);
+      }
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+      }
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage(toErrorMessage(err));
+    }
+  }
+
+  async function submitFacebookGroupEdit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token || !selectedFacebookGroup?.targetId) return;
+
+    const targetName = editFacebookGroupName.trim();
+    const targetUrl = editFacebookGroupUrl.trim();
+    if (!targetName) {
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage('Tên nhóm là bắt buộc.');
+      return;
+    }
+    if (!isFacebookGroupUrlCandidate(targetUrl)) {
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage('Link URL phải có dạng https://www.facebook.com/groups/{groupId}.');
+      return;
+    }
+
+    setFacebookSettingsState('SAVING');
+    setFacebookSettingsMessage(null);
+
+    try {
+      const savedGroup = await updateFacebookGroup(token, selectedFacebookGroup.targetId, { targetName, targetUrl });
+      const groups = await getFacebookGroups(token);
+      setFacebookGroups(groups);
+      const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
+      setSelectedFacebookGroup(null);
+      setEditFacebookGroupName('');
+      setEditFacebookGroupUrl('');
+      setFacebookGroupModalMode('SETTINGS');
+      setFacebookSettingsState('READY');
+      setFacebookSettingsMessage(`Đã lưu nhóm "${savedGroup.targetName}".`);
+
+      if (channels.includes('FACEBOOK')) {
+        setFacebookGroupLoadState('READY');
+        setFacebookGroupMessage(`${nextSelectedIds.length}/${groups.length} allowed Facebook group(s) selected.`);
+      }
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+      }
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage(toErrorMessage(err));
+    }
+  }
+
+  async function confirmDeleteFacebookGroup() {
+    if (!token || !selectedFacebookGroup?.targetId) return;
+
+    setFacebookSettingsState('SAVING');
+    setFacebookSettingsMessage(null);
+
+    try {
+      const deletedGroup = await deleteFacebookGroup(token, selectedFacebookGroup.targetId);
+      const groups = await getFacebookGroups(token);
+      setFacebookGroups(groups);
+      const nextSelectedIds = await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIds.filter((targetId) => (
+        targetId !== selectedFacebookGroup.targetId
+      )));
+      setSelectedFacebookGroup(null);
+      setFacebookGroupModalMode('SETTINGS');
+      setFacebookSettingsState('READY');
+      setFacebookSettingsMessage(`Đã xóa nhóm "${deletedGroup.targetName}".`);
+
+      if (channels.includes('FACEBOOK')) {
+        setFacebookGroupLoadState('READY');
+        setFacebookGroupMessage(
+          groups.length > 0
+            ? `${nextSelectedIds.length}/${groups.length} allowed Facebook group(s) selected.`
+            : 'No Facebook groups are configured for this account yet.',
+        );
+      }
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+      }
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage(toErrorMessage(err));
+    }
   }
 
   function selectAllChannels() {
@@ -689,72 +1070,19 @@ function SidePanel() {
 
   function clearChannels() {
     setChannels([]);
-    setFacebookGroupDropdownOpen(false);
+    setFacebookGroupLoadState('IDLE');
+    setFacebookGroupMessage(null);
     void setSelectedChannels([]);
-  }
-
-  function ensureChannelSelected(channel: ExtensionChannel) {
-    setChannels((current) => {
-      if (current.includes(channel)) return current;
-
-      const next = [...current, channel];
-      void setSelectedChannels(next);
-      return next;
-    });
-  }
-
-  function openChannelSettings(channel: ExtensionChannel) {
-    setChannelSettingsOpen(channel);
-    setNewFacebookGroupName('');
-    setNewFacebookGroupUrl('');
-  }
-
-  function closeChannelSettings() {
-    setChannelSettingsOpen(null);
-    setNewFacebookGroupName('');
-    setNewFacebookGroupUrl('');
-  }
-
-  function selectFacebookGroup(groupId: string) {
-    setSelectedFacebookGroupId(groupId);
-    setFacebookGroupDropdownOpen(false);
-    ensureChannelSelected('FACEBOOK');
-  }
-
-  function submitMockFacebookGroup(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const name = newFacebookGroupName.trim();
-    if (!name) return;
-
-    const group: FacebookGroup = {
-      id: `mock-${Date.now()}`,
-      name,
-      url: newFacebookGroupUrl.trim() || 'https://facebook.com/groups/mock',
-    };
-
-    setFacebookGroups((current) => [...current, group]);
-    setSelectedFacebookGroupId(group.id);
-    ensureChannelSelected('FACEBOOK');
-    closeChannelSettings();
-  }
-
-  function confirmDeleteFacebookGroup() {
-    if (!deleteFacebookGroupId) return;
-
-    setFacebookGroups((current) => {
-      const next = current.filter((group) => group.id !== deleteFacebookGroupId);
-      if (selectedFacebookGroupId === deleteFacebookGroupId) {
-        setSelectedFacebookGroupId(next[0]?.id ?? '');
-      }
-
-      return next;
-    });
-    setDeleteFacebookGroupId(null);
   }
 
   async function sync() {
     if (!token || !snapshot || !amisRecruitmentId || missingFields.length > 0) return;
+    const facebookTargetIds = channels.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
+    if (channels.includes('FACEBOOK') && facebookTargetIds.length === 0) {
+      setError('Select at least one Facebook group before publishing.');
+      setState('ERROR');
+      return;
+    }
 
     const payload: SyncAmisJobPostingRequest = {
       sourceSystem: 'AMIS',
@@ -763,6 +1091,7 @@ function SidePanel() {
       action: 'PUBLISH',
       snapshot,
       channels,
+      ...(channels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
       metadata: {
         capturedAt: new Date().toISOString(),
         captureSource: extractionResult?.source ?? 'MOCK',
@@ -778,7 +1107,11 @@ function SidePanel() {
     try {
       const response = await syncAndPublishAmisJob(token, payload);
       setResult(response);
-      setState('SUCCESS');
+      if (response.facebookPublishPlan && channels.includes('FACEBOOK')) {
+        await startFacebookPublish(response.facebookPublishPlan);
+      } else {
+        setState('SUCCESS');
+      }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -789,6 +1122,60 @@ function SidePanel() {
         setError(toErrorMessage(err));
         setState('ERROR');
       }
+    }
+  }
+
+  async function startFacebookPublish(plan: FacebookPublishPlan) {
+    if (!token) return;
+    const planKey = getFacebookPlanKey(plan);
+    if (startedFacebookPlanKeys.current.has(planKey)) return;
+
+    if (plan.targets.length === 0) {
+      const progress: FacebookPublishProgress = {
+        status: 'ERROR',
+        currentIndex: 0,
+        total: 0,
+        message: 'No active Facebook publish targets are configured.',
+        results: [],
+      };
+      setFacebookProgress(progress);
+      await saveLastFacebookPublishProgress(progress);
+      setState('ERROR');
+      return;
+    }
+
+    startedFacebookPlanKeys.current.add(planKey);
+    setFacebookRunning(true);
+    setState('SYNCING');
+    setError(null);
+    let latestProgress: FacebookPublishProgress | null = facebookProgress;
+
+    try {
+      const facebookResults = await publishFacebookPlan(token, plan, {
+        onProgress: (progress) => {
+          latestProgress = progress;
+          setFacebookProgress(progress);
+          void saveLastFacebookPublishProgress(progress);
+        },
+      });
+      setResult((current) => current ? updateFacebookChannelStatus(current, facebookResults) : current);
+      setState('SUCCESS');
+    } catch (err) {
+      setError(toErrorMessage(err));
+      const progress: FacebookPublishProgress = {
+        status: 'ERROR',
+        currentIndex: latestProgress?.currentIndex ?? 0,
+        total: latestProgress?.total ?? plan.targets.length,
+        target: latestProgress?.target,
+        message: toErrorMessage(err),
+        results: latestProgress?.results ?? [],
+      };
+      setFacebookProgress(progress);
+      await saveLastFacebookPublishProgress(progress);
+      setState('ERROR');
+      startedFacebookPlanKeys.current.delete(planKey);
+    } finally {
+      setFacebookRunning(false);
     }
   }
 
@@ -1071,7 +1458,7 @@ function SidePanel() {
               type="button"
               className="ghost-button"
               disabled={state === 'EXTRACTING' || state === 'SYNCING'}
-              onClick={extractFromCurrentTab}
+              onClick={() => void extractFromCurrentTab()}
             >
               {state === 'EXTRACTING' ? 'Extracting...' : 'Fallback DOM extract'}
             </button>
@@ -1136,6 +1523,42 @@ function SidePanel() {
               </dl>
               {autoSyncState.error ? (
                 <p className="error-text">{autoSyncState.error.code}: {autoSyncState.error.message}</p>
+              ) : null}
+            </section>
+          ) : null}
+
+          {facebookProgress ? (
+            <section className="capture-panel">
+              <div className="status-row">
+                <span>Facebook publish</span>
+                <strong>{facebookProgress.status}</strong>
+              </div>
+              <dl>
+                <div>
+                  <dt>Progress</dt>
+                  <dd>{facebookProgress.currentIndex}/{facebookProgress.total}</dd>
+                </div>
+                {facebookProgress.target ? (
+                  <div>
+                    <dt>Target</dt>
+                    <dd>{facebookProgress.target.targetName}</dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt>Status</dt>
+                  <dd>{facebookProgress.message}</dd>
+                </div>
+              </dl>
+              {facebookProgress.results.length > 0 ? (
+                <ul className="diagnostic-list">
+                  {facebookProgress.results.map((item) => (
+                    <li key={`${item.targetName}-${item.status}`}>
+                      <strong>{item.targetName}</strong>
+                      <span>{item.status}</span>
+                      <small>{item.message}</small>
+                    </li>
+                  ))}
+                </ul>
               ) : null}
             </section>
           ) : null}
@@ -1232,88 +1655,76 @@ function SidePanel() {
             <div className="channel-list">
               {CHANNELS.map((channel) => {
                 const isSelected = channels.includes(channel);
-                const isFacebook = channel === 'FACEBOOK';
+                const isFacebookChannel = channel === 'FACEBOOK';
+                const isFacebookLoading = isFacebookChannel && isFacebookGroupLoading(facebookGroupLoadState);
+                const showFacebookGroups = isFacebookChannel
+                  && (isSelected || facebookGroupLoadState !== 'IDLE' || Boolean(facebookGroupMessage));
 
                 return (
-                  <article
-                    key={channel}
-                    className={[
-                      'channel-option',
-                      isSelected ? 'is-selected' : '',
-                      isFacebook ? 'is-facebook' : '',
-                    ].filter(Boolean).join(' ')}
-                  >
-                    <div className="channel-option-main">
-                      <label className="channel-checkbox-row">
+                  <div key={channel} className={`channel-option${isSelected ? ' is-selected' : ''}`}>
+                    <div className="channel-option-row">
+                      <label className="channel-option-label">
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => toggleChannel(channel)}
+                          disabled={isFacebookLoading}
+                          onChange={() => void toggleChannel(channel)}
                         />
                         <span>{channel}</span>
                       </label>
-
-                      <div className="channel-tools">
-                        {isFacebook && isSelected ? (
+                      <span className="channel-actions">
+                        {showFacebookGroups ? (
+                          <span className="channel-action-icon" title="Select groups">
+                            <ChevronUpIcon />
+                          </span>
+                        ) : null}
+                        {isFacebookChannel ? (
                           <button
                             type="button"
-                            className={facebookGroupDropdownOpen ? 'icon-button is-active' : 'icon-button'}
-                            aria-label="Toggle Facebook group list"
-                            onClick={() => setFacebookGroupDropdownOpen((current) => !current)}
+                            className="channel-action-button"
+                            title="Cài đặt Group Facebook"
+                            aria-label="Cài đặt Group Facebook"
+                            onClick={(event) => void openFacebookGroupSettings(event)}
                           >
-                            <ChevronDownIcon />
+                            <GearIcon />
                           </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Configure ${channel}`}
-                          onClick={() => openChannelSettings(channel)}
-                        >
-                          <CogIcon />
-                        </button>
-                      </div>
+                        ) : (
+                          <span className="channel-action-icon" title="Settings">
+                            <GearIcon />
+                          </span>
+                        )}
+                      </span>
                     </div>
-
-                    {isFacebook && isSelected ? (
-                      <div className="facebook-group-area">
-                        <button
-                          type="button"
-                          className="facebook-group-summary"
-                          onClick={() => setFacebookGroupDropdownOpen((current) => !current)}
-                        >
-                          <span>Chọn Group:</span>
-                          <strong>{selectedFacebookGroup?.name ?? 'Chưa có group mock'}</strong>
-                        </button>
-
-                        {facebookGroupDropdownOpen ? (
-                          <div className="facebook-group-menu">
-                            <p>CHỌN GROUP</p>
-                            {facebookGroups.map((group) => {
-                              const groupSelected = group.id === selectedFacebookGroup?.id;
-
-                              return (
-                                <button
-                                  type="button"
-                                  key={group.id}
-                                  className={groupSelected ? 'facebook-group-item is-selected' : 'facebook-group-item'}
-                                  onClick={() => selectFacebookGroup(group.id)}
-                                >
-                                  <span className="facebook-group-check">
-                                    {groupSelected ? <CheckIcon /> : null}
-                                  </span>
-                                  <span>{group.name}</span>
-                                </button>
-                              );
-                            })}
-                            {facebookGroups.length === 0 ? (
-                              <span className="facebook-group-empty">Chưa có group nào.</span>
-                            ) : null}
-                          </div>
-                        ) : null}
+                    {showFacebookGroups ? (
+                      <div className="channel-subselection">
+                        <div className="channel-subselection-title">Facebook groups</div>
+                        <div className="channel-subselection-list">
+                          {facebookGroupMessage ? (
+                            <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
+                              {facebookGroupMessage}
+                            </p>
+                          ) : null}
+                          {visibleFacebookGroups.length > 0 ? (
+                            visibleFacebookGroups.map((group, index) => (
+                              <label key={`${group.key}-${index}`} className="channel-subselection-item">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
+                                  disabled={!group.id}
+                                  onChange={() => toggleFacebookGroupSelection(group.id)}
+                                />
+                                <span>{group.name}</span>
+                              </label>
+                            ))
+                          ) : (
+                            facebookGroupLoadState === 'READY'
+                              ? <p className="channel-subselection-empty">No Facebook groups are available.</p>
+                              : null
+                          )}
+                        </div>
                       </div>
                     ) : null}
-                  </article>
+                  </div>
                 );
               })}
             </div>
@@ -1325,11 +1736,11 @@ function SidePanel() {
 
           <button
             type="button"
-            className="primary-button sync-button"
-            disabled={state === 'EXTRACTING' || state === 'SYNCING' || missingFields.length > 0}
+            className="primary-button"
+            disabled={state === 'EXTRACTING' || state === 'SYNCING' || facebookRunning || missingFields.length > 0}
             onClick={sync}
           >
-            {state === 'SYNCING' ? 'SYNCING...' : 'SYNC AND PUBLISH'}
+            {facebookRunning ? 'Publishing Facebook...' : state === 'SYNCING' ? 'Syncing...' : 'Sync and publish'}
           </button>
 
           {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
@@ -1502,119 +1913,300 @@ function SidePanel() {
         </div>
       ) : null}
 
-      {channelSettingsOpen ? (
-        <div className="modal-backdrop" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) closeChannelSettings();
-        }}>
-          <section className="channel-modal" role="dialog" aria-modal="true" aria-labelledby="channel-settings-title">
-            <div className="modal-header">
-              <h2 id="channel-settings-title">
-                {channelSettingsOpen === 'FACEBOOK' ? 'Thêm nhóm Facebook mới' : `Cấu hình ${channelSettingsOpen}`}
-              </h2>
-              <button type="button" className="icon-button" aria-label="Close settings" onClick={closeChannelSettings}>
+{isFacebookSettingsOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          {facebookGroupModalMode === 'SETTINGS' ? (
+            <section
+              className="facebook-group-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="facebook-group-settings-title"
+            >
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Facebook</p>
+                <h2 id="facebook-group-settings-title">Cài đặt Group Facebook</h2>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                title="Đóng"
+                aria-label="Đóng"
+                onClick={closeFacebookGroupSettings}
+              >
                 <CloseIcon />
               </button>
-            </div>
+            </header>
 
-            {channelSettingsOpen === 'FACEBOOK' ? (
-              <form className="modal-form" onSubmit={submitMockFacebookGroup}>
-                <label className="mock-field">
-                  <span>TÊN NHÓM</span>
-                  <input
-                    value={newFacebookGroupName}
-                    onChange={(event) => setNewFacebookGroupName(event.target.value)}
-                    placeholder="Ví dụ: Việc làm IT Đà Nẵng"
-                  />
-                </label>
-                <label className="mock-field">
-                  <span>LINK URL</span>
-                  <input
-                    value={newFacebookGroupUrl}
-                    onChange={(event) => setNewFacebookGroupUrl(event.target.value)}
-                    placeholder="https://facebook.com/groups/..."
-                  />
-                </label>
-                <p className="modal-helper">Link trực tiếp đến trang chủ của nhóm Facebook.</p>
-
-                <ul className="mock-group-list">
-                  {facebookGroups.map((group) => (
-                    <li key={group.id}>
-                      <button
-                        type="button"
-                        className="mock-group-select"
-                        onClick={() => selectFacebookGroup(group.id)}
-                      >
-                        <span>{group.name}</span>
-                        <small>{group.url}</small>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger-icon-button"
-                        aria-label={`Delete ${group.name}`}
-                        onClick={() => setDeleteFacebookGroupId(group.id)}
-                      >
-                        <TrashIcon />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="modal-footer">
-                  <button type="button" className="modal-cancel-button" onClick={closeChannelSettings}>
-                    HỦY
+            <div className="modal-body">
+              <div className="modal-toolbar">
+                <p className="section-title">Danh sách nhóm</p>
+                {!isFacebookGroupFormOpen ? (
+                  <button
+                    type="button"
+                    className="secondary-button compact-button"
+                    onClick={() => {
+                      setIsFacebookGroupFormOpen(true);
+                      setFacebookSettingsMessage(null);
+                      setFacebookSettingsState('READY');
+                    }}
+                  >
+                    Thêm nhóm mới
                   </button>
-                  <button type="submit" className="modal-submit-button" disabled={!newFacebookGroupName.trim()}>
-                    <PlusIcon />
-                    THÊM MỚI
+                ) : null}
+              </div>
+
+              {facebookSettingsMessage ? (
+                <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
+                  {facebookSettingsMessage}
+                </p>
+              ) : null}
+
+              {facebookSettingsState === 'LOADING' ? (
+                <p className="muted-text">Đang tải danh sách nhóm từ backend...</p>
+              ) : (
+                <div className="facebook-group-list">
+                  {facebookGroups.length > 0 ? (
+                    facebookGroups.map((group) => (
+                      <article
+                        key={group.targetId ?? group.targetExternalId ?? group.targetUrl ?? group.targetName}
+                        className="facebook-group-item"
+                      >
+                        <div>
+                          <strong>{group.targetName}</strong>
+                          <span>{group.targetExternalId ?? 'GROUP'}</span>
+                        </div>
+                        <div className="facebook-group-item-actions">
+                          {group.targetUrl ? (
+                            <a href={group.targetUrl} target="_blank" rel="noreferrer">
+                              Open
+                            </a>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="group-icon-button"
+                            title="Chỉnh sửa nhóm"
+                            aria-label={`Chỉnh sửa nhóm ${group.targetName}`}
+                            onClick={() => openEditFacebookGroup(group)}
+                          >
+                            <EditIcon />
+                          </button>
+                          <button
+                            type="button"
+                            className="group-icon-button is-danger"
+                            title="Xóa nhóm"
+                            aria-label={`Xóa nhóm ${group.targetName}`}
+                            onClick={() => openDeleteFacebookGroup(group)}
+                          >
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="facebook-group-empty">
+                      <strong>Chưa có nhóm nào</strong>
+                      <p>Danh sách này chỉ lấy từ backend cho tài khoản HR hiện tại.</p>
+                      {!isFacebookGroupFormOpen ? (
+                        <button
+                          type="button"
+                          className="primary-button compact-button"
+                          onClick={() => {
+                            setIsFacebookGroupFormOpen(true);
+                            setFacebookSettingsMessage(null);
+                            setFacebookSettingsState('READY');
+                          }}
+                        >
+                          Thêm nhóm mới
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {isFacebookGroupFormOpen ? (
+                <form className="facebook-group-form" onSubmit={(event) => void submitFacebookGroup(event)}>
+                  <label>
+                    Tên nhóm
+                    <input
+                      value={facebookGroupName}
+                      maxLength={255}
+                      placeholder="Ví dụ: Việc làm IT Đà Nẵng"
+                      onChange={(event) => setFacebookGroupName(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Link URL
+                    <input
+                      value={facebookGroupUrl}
+                      maxLength={2048}
+                      placeholder="https://www.facebook.com/groups/..."
+                      onChange={(event) => setFacebookGroupUrl(event.target.value)}
+                    />
+                    <small>Link trực tiếp đến trang chủ của nhóm Facebook.</small>
+                  </label>
+                  <div className="form-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={facebookSettingsState === 'SAVING'}
+                      onClick={() => {
+                        setIsFacebookGroupFormOpen(false);
+                        setFacebookSettingsMessage(facebookGroups.length > 0
+                          ? null
+                          : 'Chưa có nhóm Facebook nào được cấu hình cho tài khoản này.');
+                        setFacebookSettingsState('READY');
+                      }}
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      className="primary-button compact-button"
+                      disabled={facebookSettingsState === 'SAVING'}
+                    >
+                      <SaveIcon />
+                      <span>{facebookSettingsState === 'SAVING' ? 'Đang thêm...' : 'Thêm mới'}</span>
+                    </button>
+                  </div>
+                </form>
+              ) : null}
+            </div>
+            </section>
+          ) : null}
+          {facebookGroupModalMode === 'EDIT' && selectedFacebookGroup ? (
+            <section
+              className="facebook-group-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="facebook-group-edit-title"
+            >
+              <header className="modal-header">
+                <div>
+                  <h2 id="facebook-group-edit-title">Chỉnh sửa thông tin nhóm Facebook</h2>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  title="Đóng"
+                  aria-label="Đóng"
+                  disabled={facebookSettingsState === 'SAVING'}
+                  onClick={closeFacebookGroupActionModal}
+                >
+                  <CloseIcon />
+                </button>
+              </header>
+
+              <form className="modal-body facebook-group-form is-standalone" onSubmit={(event) => void submitFacebookGroupEdit(event)}>
+                {facebookSettingsMessage ? (
+                  <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
+                    {facebookSettingsMessage}
+                  </p>
+                ) : null}
+                <label>
+                  Tên nhóm
+                  <input
+                    value={editFacebookGroupName}
+                    maxLength={255}
+                    placeholder="Hội Dev Java VN"
+                    disabled={facebookSettingsState === 'SAVING'}
+                    onChange={(event) => setEditFacebookGroupName(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Link URL
+                  <input
+                    value={editFacebookGroupUrl}
+                    maxLength={2048}
+                    placeholder="https://facebook.com/groups/..."
+                    disabled={facebookSettingsState === 'SAVING'}
+                    onChange={(event) => setEditFacebookGroupUrl(event.target.value)}
+                  />
+                  <small>Link trực tiếp đến trang chủ của nhóm Facebook.</small>
+                </label>
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={facebookSettingsState === 'SAVING'}
+                    onClick={closeFacebookGroupActionModal}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary-button compact-button"
+                    disabled={facebookSettingsState === 'SAVING'}
+                  >
+                    <SaveIcon />
+                    <span>{facebookSettingsState === 'SAVING' ? 'Đang lưu...' : 'Lưu'}</span>
                   </button>
                 </div>
               </form>
-            ) : (
-              <div className="modal-form">
-                <p className="modal-helper">
-                  Kênh {channelSettingsOpen} chưa có cấu hình bổ sung trong bản mock này.
-                </p>
-                <div className="modal-footer">
-                  <button type="button" className="modal-cancel-button" onClick={closeChannelSettings}>
-                    HỦY
+            </section>
+          ) : null}
+          {facebookGroupModalMode === 'DELETE' && selectedFacebookGroup ? (
+            <section
+              className="facebook-group-modal delete-group-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="facebook-group-delete-title"
+            >
+              <header className="modal-header">
+                <div>
+                  <h2 id="facebook-group-delete-title">Xác nhận xóa nhóm</h2>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  title="Đóng"
+                  aria-label="Đóng"
+                  disabled={facebookSettingsState === 'SAVING'}
+                  onClick={closeFacebookGroupActionModal}
+                >
+                  <CloseIcon />
+                </button>
+              </header>
+
+              <div className="modal-body delete-confirm-body">
+                <div className="warning-icon">
+                  <WarningIcon />
+                </div>
+                <div className="delete-copy">
+                  <h3>Bạn có chắc chắn muốn xóa nhóm này không?</h3>
+                  <p>Hành động này không thể hoàn tác và dữ liệu liên quan sẽ bị mất.</p>
+                </div>
+                <div className="delete-target-preview">
+                  <span>Nhóm sẽ bị xóa:</span>
+                  <strong>{selectedFacebookGroup.targetName}</strong>
+                </div>
+                {facebookSettingsMessage ? (
+                  <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
+                    {facebookSettingsMessage}
+                  </p>
+                ) : null}
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={facebookSettingsState === 'SAVING'}
+                    onClick={closeFacebookGroupActionModal}
+                  >
+                    Hủy
                   </button>
-                  <button type="button" className="modal-submit-button" onClick={closeChannelSettings}>
-                    LƯU THAY ĐỔI
+                  <button
+                    type="button"
+                    className="danger-button compact-button"
+                    disabled={facebookSettingsState === 'SAVING'}
+                    onClick={() => void confirmDeleteFacebookGroup()}
+                  >
+                    {facebookSettingsState === 'SAVING' ? 'Đang xóa...' : 'Xác nhận'}
                   </button>
                 </div>
               </div>
-            )}
-          </section>
-        </div>
-      ) : null}
-
-      {deleteFacebookGroup ? (
-        <div className="modal-backdrop modal-backdrop-danger" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setDeleteFacebookGroupId(null);
-        }}>
-          <section className="channel-modal delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-group-title">
-            <div className="delete-modal-icon">
-              <WarningIcon />
-            </div>
-            <div className="delete-modal-copy">
-              <h2 id="delete-group-title">Xác nhận xóa nhóm</h2>
-              <p>Bạn có chắc chắn muốn xóa nhóm này không?</p>
-              <span>Hành động này không thể hoàn tác và dữ liệu liên quan sẽ bị mất.</span>
-            </div>
-            <div className="delete-target">
-              <span>NHÓM SẼ BỊ XÓA:</span>
-              <strong>{deleteFacebookGroup.name}</strong>
-            </div>
-            <div className="modal-footer">
-              <button type="button" className="modal-cancel-button" onClick={() => setDeleteFacebookGroupId(null)}>
-                HỦY
-              </button>
-              <button type="button" className="modal-danger-button" onClick={confirmDeleteFacebookGroup}>
-                <TrashIcon />
-                XÓA NHÓM
-              </button>
-            </div>
-          </section>
+            </section>
+          ) : null}
         </div>
       ) : null}
     </main>
@@ -1658,22 +2250,6 @@ function formatQuestionTargetLevel(levels: ExtensionQuestion['targetLevels']) {
   return levels.length > 1 ? `${label} +${levels.length - 1}` : label;
 }
 
-function CheckIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="M13.2 4.3 6.5 11 2.8 7.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function RefreshIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
@@ -1703,21 +2279,6 @@ function GripIcon({ className }: IconProps) {
       <circle cx="7" cy="8" r="1" fill="currentColor" />
       <circle cx="3" cy="13" r="1" fill="currentColor" />
       <circle cx="7" cy="13" r="1" fill="currentColor" />
-    </svg>
-  );
-}
-
-function CogIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 20 20" fill="none">
-      <path
-        d="M8.9 2.5h2.2l.4 2a5.8 5.8 0 0 1 1.4.6l1.7-1.1 1.6 1.6-1.1 1.7c.3.5.5.9.6 1.4l2 .4v2.2l-2 .4a5.8 5.8 0 0 1-.6 1.4l1.1 1.7-1.6 1.6-1.7-1.1a5.8 5.8 0 0 1-1.4.6l-.4 2H8.9l-.4-2a5.8 5.8 0 0 1-1.4-.6l-1.7 1.1-1.6-1.6 1.1-1.7a5.8 5.8 0 0 1-.6-1.4l-2-.4V9.1l2-.4c.1-.5.3-1 .6-1.4L3.8 5.6 5.4 4l1.7 1.1c.5-.3.9-.5 1.4-.6l.4-2Z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="10" cy="10.2" r="2.2" stroke="currentColor" strokeWidth="1.4" />
     </svg>
   );
 }
@@ -1761,6 +2322,31 @@ function toErrorMessage(error: unknown) {
   return 'Request failed.';
 }
 
+function isFacebookGroupUrlCandidate(value: string) {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    const isFacebookHost = hostname === 'facebook.com' || hostname.endsWith('.facebook.com');
+    const pathSegments = url.pathname.split('/').filter(Boolean);
+    const groupsIndex = pathSegments.findIndex((segment) => segment.toLowerCase() === 'groups');
+    return isFacebookHost && groupsIndex >= 0 && Boolean(pathSegments[groupsIndex + 1]);
+  } catch {
+    return false;
+  }
+}
+
+function uniqueStrings(value: string[]) {
+  return [...new Set(value.map((item) => item.trim()).filter(Boolean))];
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function isAutoSyncUpdateMessage(value: unknown): value is {
   type: 'AMIS_AUTO_SYNC_STATE_UPDATED';
   payload: AmisAutoSyncState;
@@ -1795,6 +2381,21 @@ function isSelectedCareerChangedMessage(value: unknown): value is {
     && typeof payload === 'object'
     && payload !== null
     && typeof (payload as { careerName?: unknown }).careerName === 'string';
+}
+
+function isFacebookPublishProgressUpdateMessage(value: unknown): value is {
+  type: 'FACEBOOK_PUBLISH_PROGRESS_UPDATED';
+  payload: FacebookPublishProgress;
+} {
+  const payload = (value as { payload?: Partial<FacebookPublishProgress> } | null)?.payload;
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === 'FACEBOOK_PUBLISH_PROGRESS_UPDATED'
+    && typeof payload?.status === 'string'
+    && typeof payload.currentIndex === 'number'
+    && typeof payload.total === 'number'
+    && typeof payload.message === 'string'
+    && Array.isArray(payload.results);
 }
 
 function formatDiagnosticTime(value: string) {
@@ -1959,6 +2560,96 @@ function isMissingContentScriptError(error: unknown) {
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function getFacebookPlanKey(plan: FacebookPublishPlan) {
+  return [
+    plan.jobPostingId,
+    plan.content.length,
+    plan.targets.map((target) => target.targetId ?? target.targetUrl ?? target.targetName).join('|'),
+  ].join(':');
+}
+
+function isFacebookGroupLoading(state: FacebookGroupLoadState) {
+  return state === 'CHECKING_LOGIN'
+    || state === 'WAITING_LOGIN'
+    || state === 'LOADING_GROUPS';
+}
+
+function SaveIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="14"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      width="14"
+    >
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+      <path d="M17 21v-8H7v8" />
+      <path d="M7 3v5h8" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="15"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      width="15"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="16"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      width="16"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  );
+}
+
+function ChevronUpIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="16"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      width="16"
+    >
+      <path d="m18 15-6-6-6 6" />
+    </svg>
+  );
 }
 
 createRoot(document.getElementById('root') as HTMLElement).render(

@@ -8,6 +8,9 @@ interface ChromeRuntime {
   onInstalled: {
     addListener(callback: () => void): void;
   };
+  onConnect?: {
+    addListener(callback: (port: ChromePort) => void): void;
+  };
   onMessage: {
     addListener(callback: (
       message: unknown,
@@ -15,11 +18,24 @@ interface ChromeRuntime {
       sendResponse: (response?: unknown) => void,
     ) => boolean | void): void;
   };
+  connect?(connectInfo?: { name?: string }): ChromePort;
   sendMessage?(message: unknown): Promise<unknown>;
   getURL?(path: string): string;
   lastError?: {
     message?: string;
   };
+}
+
+interface ChromePort {
+  name: string;
+  onDisconnect: {
+    addListener(callback: () => void): void;
+  };
+  onMessage: {
+    addListener(callback: (message: unknown) => void): void;
+  };
+  postMessage(message: unknown): void;
+  disconnect(): void;
 }
 
 interface ChromeMessageSender {
@@ -30,8 +46,19 @@ interface ChromeMessageSender {
   };
 }
 
+interface ChromeTab {
+  id?: number;
+  windowId?: number;
+  url?: string;
+  status?: string;
+}
+
 interface ChromeTabs {
-  query(queryInfo: { active?: boolean; currentWindow?: boolean }): Promise<Array<{ id?: number; windowId?: number; url?: string }>>;
+  query(queryInfo: { active?: boolean; currentWindow?: boolean; url?: string | string[] }): Promise<ChromeTab[]>;
+  create(createProperties: { url?: string; active?: boolean }): Promise<ChromeTab>;
+  update(tabId: number, updateProperties: { url?: string; active?: boolean }): Promise<ChromeTab>;
+  get(tabId: number): Promise<ChromeTab>;
+  remove(tabId: number): Promise<void>;
   sendMessage?(tabId: number, message: unknown): Promise<unknown>;
 }
 
@@ -78,10 +105,11 @@ interface ChromeScriptingResult<T> {
 interface ChromeScripting {
   executeScript<Args extends unknown[], Result>(injection: {
     target: ChromeScriptingInjectionTarget;
-    func?: (...args: Args) => Result;
-    files?: string[];
+    func?: (...args: Args) => Result | Promise<Result>;
     args?: Args;
-  }): Promise<Array<ChromeScriptingResult<Result>>>;
+    files?: string[];
+    world?: 'ISOLATED' | 'MAIN';
+  }): Promise<Array<ChromeScriptingResult<Awaited<Result>>>>;
 }
 
 interface ChromeSidePanel {

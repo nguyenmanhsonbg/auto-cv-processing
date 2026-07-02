@@ -1,11 +1,13 @@
 import { UserRole } from '@interview-assistant/shared';
-import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
 import { ChannelPostingStatus, JobPostingStatus, RecruitmentChannel } from '../recruitment-common';
+import { FacebookPublishingService } from '../facebook-publishing/facebook-publishing.service';
+import { type ExtensionFacebookPublishPlan } from '../facebook-publishing/facebook-publishing.types';
 import {
   CloseJobPostingDto,
   CreateJobPostingDto,
@@ -23,7 +25,10 @@ import { JobPostingsService } from './job-postings.service';
 @Controller('job-postings')
 @ApiErrorResponses([400, 401, 403, 404, 409, 500])
 export class JobPostingsController {
-  constructor(private readonly jobPostingsService: JobPostingsService) {}
+  constructor(
+    private readonly jobPostingsService: JobPostingsService,
+    private readonly facebookPublishingService: FacebookPublishingService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List internal job postings' })
@@ -127,21 +132,30 @@ export class JobPostingsController {
   async publish(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: PublishJobPostingDto,
+    @Request() req: any,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     const channels = dto.publishChannels?.length
       ? dto.publishChannels
       : [RecruitmentChannel.VCS_PORTAL];
     const canPublishPublicPortal = channels.includes(RecruitmentChannel.VCS_PORTAL);
+    const canPublishFacebook = channels.includes(RecruitmentChannel.FACEBOOK);
+    const facebookPublishPlan = canPublishFacebook
+      ? await this.prepareFacebookPublishPlan(id, req?.user?.id, dto.facebookTargetIds)
+      : undefined;
     const posting = canPublishPublicPortal
       ? await this.jobPostingsService.markPublished(id)
+      : canPublishFacebook
+        ? await this.jobPostingsService.markPublishing(id)
       : await this.jobPostingsService.markManualRequired(id);
+    const latestPosting = await this.jobPostingsService.findOne(posting.id);
 
     return {
       success: true,
       data: {
-        ...this.toJobPostingResponse(await this.jobPostingsService.findOne(posting.id)),
-        channels: this.toChannelStatuses(posting, channels),
+        ...this.toJobPostingResponse(latestPosting),
+        channels: this.toChannelStatuses(latestPosting, channels, facebookPublishPlan),
+        ...(facebookPublishPlan ? { facebookPublishPlan } : {}),
       },
       meta: this.meta(idempotencyKey),
     };
@@ -235,6 +249,7 @@ export class JobPostingsController {
   private toChannelStatuses(
     posting: JobPostingEntity,
     requestedChannels: string[] = [RecruitmentChannel.VCS_PORTAL],
+    facebookPublishPlan?: ExtensionFacebookPublishPlan,
   ) {
     const normalizedChannels = requestedChannels.length
       ? requestedChannels
@@ -253,6 +268,21 @@ export class JobPostingsController {
           publishedAt: posting.status === JobPostingStatus.PUBLISHED
             ? posting.updatedAt?.toISOString()
             : null,
+          updatedAt: posting.updatedAt?.toISOString(),
+        };
+      }
+
+      if (channel === RecruitmentChannel.FACEBOOK) {
+        const hasTargets = Boolean(facebookPublishPlan?.targets.length);
+        return {
+          channel,
+          status: hasTargets ? ChannelPostingStatus.PUBLISHING : ChannelPostingStatus.NOT_CONFIGURED,
+          publishedUrl: null,
+          externalPostingId: null,
+          manualInstruction: hasTargets
+            ? 'Facebook publish plan is prepared for browser extension execution.'
+            : 'No active Facebook publish targets are configured.',
+          publishedAt: null,
           updatedAt: posting.updatedAt?.toISOString(),
         };
       }
@@ -276,6 +306,29 @@ export class JobPostingsController {
     if (status === JobPostingStatus.CLOSED) return ChannelPostingStatus.CLOSED;
     if (status === JobPostingStatus.MANUAL_REQUIRED) return ChannelPostingStatus.MANUAL_REQUIRED;
     return ChannelPostingStatus.DRAFT;
+  }
+
+  private async prepareFacebookPublishPlan(
+    jobPostingId: string,
+    actorUserId: string | undefined,
+    facebookTargetIds: string[] | undefined,
+  ) {
+    if (!actorUserId) {
+      throw new BadRequestException('Actor user is required for Facebook publishing');
+    }
+    if (!facebookTargetIds?.length) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_TARGETS_REQUIRED',
+        message: 'Select at least one Facebook group before publishing.',
+      });
+    }
+
+    const posting = await this.jobPostingsService.ensurePublishReady(jobPostingId);
+    return this.facebookPublishingService.prepareExtensionPublishPlan(
+      posting,
+      actorUserId,
+      facebookTargetIds,
+    );
   }
 
   private toUserSummary(user?: { id: string; email?: string; name?: string; role?: string } | null) {

@@ -147,6 +147,7 @@ export interface SyncAmisJobPostingRequest {
   action: 'PUBLISH';
   snapshot: AmisJobSnapshot;
   channels: ExtensionChannel[];
+  facebookTargetIds?: string[];
   metadata?: Record<string, unknown>;
 }
 
@@ -188,6 +189,67 @@ export interface ChannelPostingResult {
   lastSyncAt?: string | null;
 }
 
+export type FacebookPublishTargetType = 'GROUP' | 'FANPAGE';
+export type FacebookPublishResultStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED';
+export type FacebookPublishProgressStatus =
+  | 'LOGIN_REQUIRED'
+  | 'WAITING_LOGIN'
+  | 'POSTING'
+  | 'REPORTING'
+  | 'DELAYING'
+  | 'SUCCESS'
+  | 'ERROR';
+
+export interface FacebookPublishTarget {
+  targetId?: string | null;
+  targetType: FacebookPublishTargetType;
+  targetName: string;
+  targetUrl?: string | null;
+  targetExternalId?: string | null;
+}
+
+export interface CreateFacebookGroupRequest {
+  targetName: string;
+  targetUrl: string;
+}
+
+export interface UpdateFacebookGroupRequest {
+  targetName: string;
+  targetUrl: string;
+}
+
+export interface FacebookPublishPlan {
+  jobPostingId: string;
+  content: string;
+  targets: FacebookPublishTarget[];
+  delay: {
+    minMs: number;
+    maxMs: number;
+  };
+}
+
+export interface FacebookPublishResultPayload {
+  jobPostingId: string;
+  targetId?: string | null;
+  targetType: FacebookPublishTargetType;
+  targetName: string;
+  targetUrl?: string | null;
+  content?: string | null;
+  status: FacebookPublishResultStatus;
+  message: string;
+  externalPostId?: string | null;
+  submittedAt?: string | null;
+}
+
+export interface FacebookPublishProgress {
+  status: FacebookPublishProgressStatus;
+  currentIndex: number;
+  total: number;
+  target?: FacebookPublishTarget;
+  message: string;
+  results: FacebookPublishResultPayload[];
+}
+
 export interface ExtensionSyncResponse {
   resultCode: 'CREATED' | 'UPDATED' | 'DUPLICATE_OR_IDEMPOTENT_REPLAY';
   jobDescriptionId?: string;
@@ -197,6 +259,7 @@ export interface ExtensionSyncResponse {
   snapshotHash: string;
   snapshotChanged: boolean;
   channelPostings: ChannelPostingResult[];
+  facebookPublishPlan?: FacebookPublishPlan;
   warnings?: Array<{
     code: string;
     message: string;

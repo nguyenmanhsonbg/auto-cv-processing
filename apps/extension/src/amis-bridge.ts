@@ -4,6 +4,7 @@ const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
 const BACKGROUND_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
 const BACKGROUND_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
+const BRIDGE_INSTALLED_KEY = '__VCS_AMIS_BRIDGE_INSTALLED__';
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
 const FETCH_AMIS_CAREERS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_CAREERS';
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
@@ -49,21 +50,29 @@ interface QuillContainer extends HTMLElement {
   __quill?: QuillLike;
 }
 
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (event.origin !== window.location.origin) return;
-  if (isCaptureMessage(event.data)) {
-    void chrome.runtime?.sendMessage?.({
-      type: BACKGROUND_MESSAGE_TYPE,
-      payload: event.data.payload,
-    }).catch(() => undefined);
-    return;
-  }
+const bridgeWindow = window as Window & {
+  __VCS_AMIS_BRIDGE_INSTALLED__?: boolean;
+};
+const wasBridgeInstalled = bridgeWindow[BRIDGE_INSTALLED_KEY] === true;
 
-  if (isDiagnosticMessage(event.data)) {
-    sendDiagnostic(event.data.payload);
-  }
-});
+if (!wasBridgeInstalled) {
+  bridgeWindow[BRIDGE_INSTALLED_KEY] = true;
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.origin !== window.location.origin) return;
+    if (isCaptureMessage(event.data)) {
+      void chrome.runtime?.sendMessage?.({
+        type: BACKGROUND_MESSAGE_TYPE,
+        payload: event.data.payload,
+      }).catch(() => undefined);
+      return;
+    }
+
+    if (isDiagnosticMessage(event.data)) {
+      sendDiagnostic(event.data.payload);
+    }
+  });
+}
 
 chrome.runtime?.onMessage.addListener((message, _sender, sendResponse) => {
   if (isGetSelectedCareerMessage(message)) {
@@ -108,6 +117,9 @@ sendDiagnostic({
   pageUrl: window.location.href,
   timestamp: new Date().toISOString(),
   frameUrl: window.location.href,
+  details: {
+    reused: wasBridgeInstalled,
+  },
 });
 installSelectedCareerObserver();
 

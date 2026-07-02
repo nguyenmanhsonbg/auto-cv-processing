@@ -2,20 +2,31 @@ import { appendAmisDiagnostic } from './amis-diagnostics-store';
 import { ensureAmisDebuggerAttached, installAmisDebuggerCapture, type AmisCareerCapture } from './amis-debugger-capture';
 import { saveLastAutoSyncState } from './amis-auto-sync-store';
 import { saveLastAmisCapture } from './amis-capture-store';
+import { extractAmisJobFromPage } from './amis-page-extractor';
 import { ApiClientError, syncAmisCareers, syncAndPublishAmisJob } from './api-client';
 import { clearAccessToken, getAccessToken } from './auth-store';
 import { getSelectedChannels } from './channel-preferences';
+import { updateFacebookChannelStatus } from './facebook-channel-status';
+import { getSelectedFacebookGroupIds } from './facebook-group-preferences';
+import { ensureFacebookSession, publishFacebookPlan } from './facebook-publish-orchestrator';
+import { saveLastFacebookPublishProgress } from './facebook-publish-store';
 import type {
   AmisDiagnosticEvent,
   AmisExtractionResult,
   AmisAutoSyncState,
   ExtensionChannel,
+  FacebookPublishPlan,
   SyncAmisJobPostingRequest,
 } from './types';
 
 const AMIS_SAVED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
 let lastCareerSyncSignature: string | null = null;
+const FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST = 'FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
+const FRONTEND_FACEBOOK_PUBLISH_REQUEST = 'FRONTEND_FACEBOOK_PUBLISH_REQUEST';
+const FRONTEND_FACEBOOK_EVENT = 'FRONTEND_FACEBOOK_EVENT';
+const FRONTEND_FACEBOOK_PORT = 'frontend-facebook-publish';
+const activeAutoSyncKeys = new Set<string>();
 
 installAmisDebuggerCapture(
   (capture, sender) => handleAmisSaved(capture, sender),
@@ -35,10 +46,124 @@ chrome.runtime?.onMessage.addListener((message, sender) => {
     return;
   }
 
+  if (isFrontendFacebookAuthCheckRequest(message)) {
+    void handleFrontendFacebookAuthCheck(message.requestId, sender);
+    return;
+  }
+
+  if (isFrontendFacebookPublishRequest(message)) {
+    void handleFrontendFacebookPublish(message, sender);
+    return;
+  }
+
   if (!isAmisSavedMessage(message)) return;
 
   void handleAmisSaved(message.payload, sender);
 });
+
+chrome.runtime?.onConnect?.addListener((port) => {
+  if (port.name !== FRONTEND_FACEBOOK_PORT) return;
+
+  port.onMessage.addListener((message) => {
+    if (isFrontendFacebookAuthCheckRequest(message)) {
+      void runFrontendFacebookPortTask(port, message.requestId, async (emit) => {
+        await handleFrontendFacebookAuthCheck(message.requestId, emit);
+      });
+      return;
+    }
+
+    if (isFrontendFacebookPublishRequest(message)) {
+      void runFrontendFacebookPortTask(port, message.requestId, async (emit) => {
+        await handleFrontendFacebookPublish(message, emit);
+      });
+      return;
+    }
+
+    postFrontendFacebookPortEvent(port, 'unknown', 'ERROR', {
+      message: 'Unsupported Facebook bridge request.',
+    });
+  });
+});
+
+async function runFrontendFacebookPortTask(
+  port: ChromePort,
+  requestId: string,
+  task: (emit: FrontendFacebookEventEmitter) => Promise<void>,
+) {
+  const emit: FrontendFacebookEventEmitter = async (event, payload) => {
+    postFrontendFacebookPortEvent(port, requestId, event, payload);
+  };
+
+  try {
+    await emit('ACCEPTED', { message: 'Facebook browser automation request accepted.' });
+    await task(emit);
+  } catch (error) {
+    await emit('ERROR', {
+      message: error instanceof Error ? error.message : 'Facebook browser automation failed.',
+    });
+  } finally {
+    try {
+      port.disconnect();
+    } catch {
+      // The content script may close the port immediately after a terminal event.
+    }
+  }
+}
+
+type FrontendFacebookEventEmitter = (event: string, payload?: unknown) => Promise<void>;
+
+async function handleFrontendFacebookAuthCheck(
+  requestId: string,
+  emitOrSender: FrontendFacebookEventEmitter | ChromeMessageSender,
+) {
+  const emit = toFrontendFacebookEmitter(requestId, emitOrSender);
+  try {
+    await emit('AUTH_CHECKING', {
+      message: 'Checking Facebook login in this browser.',
+    });
+    const result = await ensureFacebookSession({
+      onStatus: (event) => {
+        void emit(event.status, event);
+      },
+    });
+    await emit('COMPLETED', result);
+  } catch (error) {
+    await emit('ERROR', {
+      message: error instanceof Error ? error.message : 'Facebook login could not be completed.',
+    });
+  }
+}
+
+async function handleFrontendFacebookPublish(
+  request: {
+    requestId: string;
+    accessToken: string;
+    plan: FacebookPublishPlan;
+  },
+  emitOrSender: FrontendFacebookEventEmitter | ChromeMessageSender,
+) {
+  const emit = toFrontendFacebookEmitter(request.requestId, emitOrSender);
+  try {
+    await emit('PROGRESS', {
+      status: 'LOGIN_REQUIRED',
+      currentIndex: 0,
+      total: request.plan.targets.length,
+      message: 'Starting Facebook browser automation.',
+      results: [],
+    });
+    const results = await publishFacebookPlan(request.accessToken, request.plan, {
+      onProgress: (progress) => {
+        void saveLastFacebookPublishProgress(progress);
+        void emit('PROGRESS', progress);
+      },
+    });
+    await emit('COMPLETED', { results });
+  } catch (error) {
+    await emit('ERROR', {
+      message: error instanceof Error ? error.message : 'Facebook publishing could not be completed.',
+    });
+  }
+}
 
 async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMessageSender) {
   await saveLastAmisCapture(capture);
@@ -55,75 +180,140 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
   });
   await openPanel(sender);
 
-  const amisRecruitmentId = capture.amisRecruitmentId;
-  const snapshot = capture.snapshot;
+  const enrichedCapture = await enrichCaptureFromDom(capture, sender);
+  if (enrichedCapture !== capture) {
+    await saveLastAmisCapture(enrichedCapture);
+    await appendAmisDiagnostic({
+      type: 'BACKGROUND_RECEIVED_CAPTURE',
+      pageUrl: enrichedCapture.url,
+      timestamp: new Date().toISOString(),
+      details: {
+        domFallbackMerged: true,
+        originalMissingFields: capture.missingFields,
+        mergedMissingFields: enrichedCapture.missingFields,
+      },
+    });
+  }
 
-  if (!capture.detected || !snapshot || !amisRecruitmentId || capture.missingFields.length > 0) {
+  const amisRecruitmentId = enrichedCapture.amisRecruitmentId;
+  const snapshot = enrichedCapture.snapshot;
+
+  if (!enrichedCapture.detected || !snapshot || !amisRecruitmentId || enrichedCapture.missingFields.length > 0) {
     await saveLastAutoSyncState(buildAutoSyncState({
       status: 'SKIPPED',
-      capture,
+      capture: enrichedCapture,
       error: {
         code: 'AMIS_CAPTURE_INCOMPLETE',
-        message: `AMIS capture is missing required fields: ${capture.missingFields.join(', ') || 'unknown'}.`,
+        message: `AMIS capture is missing required fields: ${enrichedCapture.missingFields.join(', ') || 'unknown'}.`,
       },
     }));
     return;
   }
 
   const channels = await getSelectedChannels();
-  await saveLastAutoSyncState(buildAutoSyncState({
-    status: 'SYNCING',
-    capture,
-    channels,
-  }));
-
-  const accessToken = await getAccessToken();
-  if (!accessToken) {
-    await saveLastAutoSyncState(buildAutoSyncState({
-      status: 'AUTH_REQUIRED',
-      capture,
-      channels,
-      error: {
-        code: 'AUTH_REQUIRED',
-        message: 'Sign in to the extension before publishing from AMIS.',
+  const facebookTargetIds = channels.includes('FACEBOOK')
+    ? await getSelectedFacebookGroupIds()
+    : [];
+  const autoSyncKey = buildAutoSyncKey(amisRecruitmentId, channels, facebookTargetIds);
+  if (activeAutoSyncKeys.has(autoSyncKey)) {
+    await appendAmisDiagnostic({
+      type: 'BACKGROUND_RECEIVED_CAPTURE',
+      pageUrl: capture.url,
+      timestamp: new Date().toISOString(),
+      details: {
+        duplicateIgnored: true,
+        amisRecruitmentId,
+        channels,
+        facebookTargetIds,
       },
-    }));
+    });
     return;
   }
 
+  activeAutoSyncKeys.add(autoSyncKey);
+
   try {
-    const result = await syncAndPublishAmisJob(
-      accessToken,
-      buildSyncPayload({ ...capture, amisRecruitmentId, snapshot }, channels),
-    );
     await saveLastAutoSyncState(buildAutoSyncState({
-      status: 'SUCCESS',
-      capture,
+      status: 'SYNCING',
+      capture: enrichedCapture,
       channels,
-      result,
     }));
-  } catch (error) {
-    if (error instanceof ApiClientError && error.status === 401) {
-      await clearAccessToken();
+
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
       await saveLastAutoSyncState(buildAutoSyncState({
         status: 'AUTH_REQUIRED',
-        capture,
+        capture: enrichedCapture,
         channels,
         error: {
-          code: error.code,
-          message: error.message,
-          status: error.status,
+          code: 'AUTH_REQUIRED',
+          message: 'Sign in to the extension before publishing from AMIS.',
         },
       }));
       return;
     }
 
-    await saveLastAutoSyncState(buildAutoSyncState({
-      status: 'ERROR',
-      capture,
-      channels,
-      error: toAutoSyncError(error),
-    }));
+    try {
+      const result = await syncAndPublishAmisJob(
+        accessToken,
+        buildSyncPayload({ ...enrichedCapture, amisRecruitmentId, snapshot }, channels, facebookTargetIds),
+      );
+
+      if (channels.includes('FACEBOOK') && result.facebookPublishPlan) {
+        await saveLastAutoSyncState(buildAutoSyncState({
+          status: 'SYNCING',
+          capture: enrichedCapture,
+          channels,
+          result,
+        }));
+
+        const facebookResults = await publishFacebookPlan(accessToken, result.facebookPublishPlan, {
+          onProgress: (progress) => {
+            void saveLastFacebookPublishProgress(progress);
+          },
+        });
+        const resultWithFacebookStatus = updateFacebookChannelStatus(result, facebookResults);
+
+        await saveLastAutoSyncState(buildAutoSyncState({
+          status: 'SUCCESS',
+          capture: enrichedCapture,
+          channels,
+          result: resultWithFacebookStatus,
+        }));
+        return;
+      }
+
+      await saveLastAutoSyncState(buildAutoSyncState({
+        status: 'SUCCESS',
+        capture: enrichedCapture,
+        channels,
+        result,
+      }));
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 401) {
+        await clearAccessToken();
+        await saveLastAutoSyncState(buildAutoSyncState({
+          status: 'AUTH_REQUIRED',
+          capture: enrichedCapture,
+          channels,
+          error: {
+            code: error.code,
+            message: error.message,
+            status: error.status,
+          },
+        }));
+        return;
+      }
+
+      await saveLastAutoSyncState(buildAutoSyncState({
+        status: 'ERROR',
+        capture: enrichedCapture,
+        channels,
+        error: toAutoSyncError(error),
+      }));
+    }
+  } finally {
+    activeAutoSyncKeys.delete(autoSyncKey);
   }
 }
 
@@ -218,6 +408,7 @@ async function openPanel(sender: ChromeMessageSender) {
 function buildSyncPayload(
   capture: Required<Pick<AmisExtractionResult, 'amisRecruitmentId' | 'snapshot'>> & AmisExtractionResult,
   channels: ExtensionChannel[],
+  facebookTargetIds: string[],
 ): SyncAmisJobPostingRequest {
   return {
     sourceSystem: 'AMIS',
@@ -226,6 +417,7 @@ function buildSyncPayload(
     action: 'PUBLISH',
     snapshot: capture.snapshot,
     channels,
+    ...(channels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
     metadata: {
       autoSync: true,
       trigger: 'AMIS_SAVE_RECRUITMENT_RESPONSE',
@@ -260,6 +452,117 @@ function buildCareerSyncSignature(capture: AmisCareerCapture) {
     .join('|');
 }
 
+function buildAutoSyncKey(
+  amisRecruitmentId: string,
+  channels: ExtensionChannel[],
+  facebookTargetIds: string[],
+) {
+  return [
+    amisRecruitmentId,
+    [...channels].sort().join(','),
+    [...facebookTargetIds].sort().join(','),
+  ].join(':');
+}
+
+async function enrichCaptureFromDom(
+  capture: AmisExtractionResult,
+  sender: ChromeMessageSender,
+) {
+  if (capture.missingFields.length === 0 || !sender.tab?.id || !chrome.scripting) {
+    return capture;
+  }
+
+  try {
+    const [injectionResult] = await chrome.scripting.executeScript<[], AmisExtractionResult>({
+      target: { tabId: sender.tab.id },
+      func: extractAmisJobFromPage,
+    });
+    const domCapture = injectionResult?.result;
+    if (!domCapture?.detected || !domCapture.snapshot) return capture;
+
+    const mergedCapture = mergeAmisCapture(capture, domCapture);
+    return mergedCapture.missingFields.length < capture.missingFields.length
+      ? mergedCapture
+      : capture;
+  } catch {
+    return capture;
+  }
+}
+
+function mergeAmisCapture(
+  apiCapture: AmisExtractionResult,
+  domCapture: AmisExtractionResult,
+): AmisExtractionResult {
+  const apiSnapshot = apiCapture.snapshot;
+  const domSnapshot = domCapture.snapshot;
+  const snapshot = {
+    title: firstText(apiSnapshot?.title, domSnapshot?.title),
+    description: firstText(apiSnapshot?.description, domSnapshot?.description),
+    requirements: {
+      ...domSnapshot?.requirements,
+      ...apiSnapshot?.requirements,
+      rawText: firstText(apiSnapshot?.requirements.rawText, domSnapshot?.requirements.rawText),
+    },
+    ...(apiSnapshot?.benefits ?? domSnapshot?.benefits ? {
+      benefits: apiSnapshot?.benefits ?? domSnapshot?.benefits,
+    } : {}),
+    ...(firstText(apiSnapshot?.location, domSnapshot?.location) ? {
+      location: firstText(apiSnapshot?.location, domSnapshot?.location),
+    } : {}),
+    ...(firstText(apiSnapshot?.deadline, domSnapshot?.deadline) ? {
+      deadline: firstText(apiSnapshot?.deadline, domSnapshot?.deadline),
+    } : {}),
+  };
+  const amisRecruitmentId = firstText(apiCapture.amisRecruitmentId, domCapture.amisRecruitmentId);
+  const missingFields = getMissingFields(amisRecruitmentId, snapshot);
+  const markers = uniqueStrings([
+    ...apiCapture.evidence.markers,
+    ...domCapture.evidence.markers,
+    'dom-fallback-merged',
+  ]);
+
+  return {
+    ...apiCapture,
+    ...(amisRecruitmentId ? { amisRecruitmentId } : {}),
+    snapshot,
+    missingFields,
+    confidence: missingFields.length === 0 ? 'HIGH' : missingFields.length <= 1 ? 'MEDIUM' : 'LOW',
+    warnings: uniqueStrings([
+      ...apiCapture.warnings,
+      ...domCapture.warnings,
+      'Missing AMIS SaveRecruitment fields were supplemented from the visible AMIS page.',
+    ]),
+    evidence: {
+      ...apiCapture.evidence,
+      markers,
+      fieldSources: {
+        ...domCapture.evidence.fieldSources,
+        ...apiCapture.evidence.fieldSources,
+      },
+    },
+  };
+}
+
+function getMissingFields(
+  amisRecruitmentId: string,
+  snapshot: NonNullable<AmisExtractionResult['snapshot']>,
+) {
+  const missingFields: string[] = [];
+  if (!amisRecruitmentId) missingFields.push('AMIS recruitment id');
+  if (!snapshot.title) missingFields.push('title');
+  if (!snapshot.description) missingFields.push('description');
+  if (!snapshot.requirements.rawText) missingFields.push('requirements');
+  return missingFields;
+}
+
+function firstText(...values: Array<string | null | undefined>) {
+  return values.find((value) => typeof value === 'string' && value.trim())?.trim() ?? '';
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)];
+}
+
 function toAutoSyncError(error: unknown) {
   if (error instanceof ApiClientError) {
     return {
@@ -292,6 +595,41 @@ function isAmisSavedMessage(value: unknown): value is {
     && isAmisExtractionResult((value as { payload?: unknown }).payload);
 }
 
+function isFrontendFacebookAuthCheckRequest(value: unknown): value is {
+  type: typeof FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST;
+  requestId: string;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST
+    && typeof (value as { requestId?: unknown }).requestId === 'string';
+}
+
+function isFrontendFacebookPublishRequest(value: unknown): value is {
+  type: typeof FRONTEND_FACEBOOK_PUBLISH_REQUEST;
+  requestId: string;
+  accessToken: string;
+  plan: FacebookPublishPlan;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === FRONTEND_FACEBOOK_PUBLISH_REQUEST
+    && typeof (value as { requestId?: unknown }).requestId === 'string'
+    && typeof (value as { accessToken?: unknown }).accessToken === 'string'
+    && isFacebookPublishPlan((value as { plan?: unknown }).plan);
+}
+
+function isFacebookPublishPlan(value: unknown): value is FacebookPublishPlan {
+  const delay = (value as { delay?: { minMs?: unknown; maxMs?: unknown } } | null)?.delay;
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { jobPostingId?: unknown }).jobPostingId === 'string'
+    && typeof (value as { content?: unknown }).content === 'string'
+    && Array.isArray((value as { targets?: unknown }).targets)
+    && typeof delay?.minMs === 'number'
+    && typeof delay.maxMs === 'number';
+}
+
 function isAmisDiagnosticMessage(value: unknown): value is {
   type: typeof AMIS_DIAGNOSTIC_MESSAGE_TYPE;
   payload: AmisDiagnosticEvent;
@@ -315,4 +653,48 @@ function isAmisDiagnosticEvent(value: unknown): value is AmisDiagnosticEvent {
     && typeof (value as { type?: unknown }).type === 'string'
     && typeof (value as { pageUrl?: unknown }).pageUrl === 'string'
     && typeof (value as { timestamp?: unknown }).timestamp === 'string';
+}
+
+async function sendFrontendFacebookEvent(
+  tabId: number | undefined,
+  requestId: string,
+  event: string,
+  payload?: unknown,
+) {
+  if (!tabId || !chrome.tabs?.sendMessage) return;
+  await chrome.tabs.sendMessage(tabId, {
+    type: FRONTEND_FACEBOOK_EVENT,
+    requestId,
+    event,
+    payload,
+  }).catch(() => undefined);
+}
+
+function toFrontendFacebookEmitter(
+  requestId: string,
+  emitOrSender: FrontendFacebookEventEmitter | ChromeMessageSender,
+): FrontendFacebookEventEmitter {
+  if (typeof emitOrSender === 'function') return emitOrSender;
+
+  return async (event, payload) => {
+    await sendFrontendFacebookEvent(emitOrSender.tab?.id, requestId, event, payload);
+  };
+}
+
+function postFrontendFacebookPortEvent(
+  port: ChromePort,
+  requestId: string,
+  event: string,
+  payload?: unknown,
+) {
+  try {
+    port.postMessage({
+      type: FRONTEND_FACEBOOK_EVENT,
+      requestId,
+      event,
+      payload,
+    });
+  } catch {
+    // The tab may have navigated away or closed while Facebook automation is running.
+  }
 }

@@ -122,6 +122,16 @@ export class PublishJobPostingDto {
   @IsString()
   @MaxLength(1000)
   publishNote?: string;
+
+  @ApiPropertyOptional({
+    isArray: true,
+    type: String,
+    description: 'Selected active Facebook group target ids. Required when FACEBOOK is selected.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  facebookTargetIds?: string[];
 }
 
 export class CloseJobPostingDto {

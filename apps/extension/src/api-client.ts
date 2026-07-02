@@ -5,13 +5,17 @@ import type {
   AmisCareerCatalogItem,
   AmisCareerQuestionContext,
   CreateAmisCareerQuestionRequest,
+  CreateFacebookGroupRequest,
   ExtensionQuestion,
   ExtensionSyncResponse,
   ExtensionUser,
+  FacebookPublishTarget,
+  FacebookPublishResultPayload,
   JobDescriptionSummary,
   SyncAmisCareersRequest,
   SyncAmisCareersResponse,
   SyncAmisJobPostingRequest,
+  UpdateFacebookGroupRequest,
 } from './types';
 
 export class ApiClientError extends Error {
@@ -100,6 +104,24 @@ export async function listAmisCareers(accessToken: string) {
   });
 }
 
+export async function reportFacebookPublishResult(
+  accessToken: string,
+  payload: FacebookPublishResultPayload,
+) {
+  return request<{ id: string; status: string }>('/extension/facebook/publish-results', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function getFacebookGroups(accessToken: string) {
+  return request<FacebookPublishTarget[]>('/extension/facebook/groups', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function getAmisCareerQuestionContext(
   accessToken: string,
   amisCareerId: string,
@@ -125,10 +147,40 @@ export async function createAmisCareerQuestion(
   });
 }
 
+export async function createFacebookGroup(
+  accessToken: string,
+  payload: CreateFacebookGroupRequest,
+) {
+  return request<FacebookPublishTarget>('/extension/facebook/groups', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function updateFacebookGroup(
+  accessToken: string,
+  targetId: string,
+  payload: UpdateFacebookGroupRequest,
+) {
+  return request<FacebookPublishTarget>(`/extension/facebook/groups/${encodeURIComponent(targetId)}`, {
+    method: 'PUT',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function deleteFacebookGroup(accessToken: string, targetId: string) {
+  return request<FacebookPublishTarget>(`/extension/facebook/groups/${encodeURIComponent(targetId)}`, {
+    method: 'DELETE',
+    accessToken,
+  });
+}
+
 async function request<T>(
   path: string,
   options: {
-    method: 'GET' | 'POST';
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE';
     accessToken?: string;
     body?: unknown;
     headers?: Record<string, string>;

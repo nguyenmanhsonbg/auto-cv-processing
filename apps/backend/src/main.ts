@@ -69,6 +69,13 @@ function buildCorsOriginResolver() {
     ...parseCommaSeparatedEnv(process.env.EXTENSION_ALLOWED_ORIGINS),
   ]);
 
+  if (!isProduction) {
+    allowedOrigins.add('http://localhost:4000');
+    allowedOrigins.add('http://127.0.0.1:4000');
+    allowedOrigins.add('http://localhost:4001');
+    allowedOrigins.add('http://127.0.0.1:4001');
+  }
+
   if (isProduction) {
     for (const origin of allowedOrigins) {
       if (origin.includes('*')) {
