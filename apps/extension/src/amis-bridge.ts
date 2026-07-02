@@ -1,17 +1,29 @@
-import type { AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisSelectedCareerResult } from './types';
+import type { AmisApplicationItem, AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisSelectedCareerResult } from './types';
 
-const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
-const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
-const BACKGROUND_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
-const BACKGROUND_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
-const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
-const FETCH_AMIS_CAREERS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_CAREERS';
-const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
-const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
-const AMIS_CAREER_DATA_PAGING_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/Career/data_paging';
-const AMIS_CAREER_SORT = 'W3sic2VsZWN0b3IiOiAiVXNhZ2VTdGF0dXMiLCAiZGVzYyI6ICJmYWxzZSJ9LHsic2VsZWN0b3IiOiAiQ2FyZWVyTmFtZSIsICJkZXNjIjogImZhbHNlIn1d';
-const CAREER_LABEL_TEXT = 'Ng\u00e0nh ngh\u1ec1';
-const CAREER_LABEL_TEXT_MOJIBAKE = 'NgÃ nh nghá»';
+(() => {
+
+var AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
+var AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
+var BACKGROUND_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
+var BACKGROUND_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
+var FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
+var FETCH_AMIS_CAREERS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_CAREERS';
+var FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
+var UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
+var GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
+var GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
+var SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
+var AMIS_CAREER_DATA_PAGING_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/Career/data_paging';
+var AMIS_CAREER_SORT = 'W3sic2VsZWN0b3IiOiAiVXNhZ2VTdGF0dXMiLCAiZGVzYyI6ICJmYWxzZSJ9LHsic2VsZWN0b3IiOiAiQ2FyZWVyTmFtZSIsICJkZXNjIjogImZhbHNlIn1d';
+var CAREER_LABEL_TEXT = 'Ng\u00e0nh ngh\u1ec1';
+var CAREER_LABEL_TEXT_MOJIBAKE = 'NgÃ nh nghá»';
+var RECRUITMENT_CONTEXT_CACHE_TTL_MS = 10 * 60 * 1000;
+var lastRecruitmentContextCache: {
+  amisRecruitmentId: string;
+  amisRecruitmentRoundId: string | null;
+  sourceUrl: string;
+  capturedAt: number;
+} | null = null;
 
 interface AmisRecruitmentFormFillPayload {
   title: string;
@@ -36,6 +48,40 @@ interface FetchAmisCareersMessage {
   };
 }
 
+interface FetchAmisApplicationsMessage {
+  type: typeof FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE;
+  payload?: {
+    sourceUrl?: string;
+  };
+}
+
+interface AmisApplicationsFetchResponse {
+  ok: boolean;
+  sourceUrl: string;
+  items: AmisApplicationItem[];
+  rawCount: number;
+  error?: string;
+}
+
+interface UploadAmisCvFileMessage {
+  type: typeof UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE;
+  payload: {
+    files: Array<{
+      fileName: string;
+      mimeType: string;
+      dataBase64: string;
+    }>;
+  };
+}
+
+interface UploadAmisCvFileResponse {
+  ok: boolean;
+  fileName?: string;
+  fileNames?: string[];
+  fileCount?: number;
+  error?: string;
+}
+
 interface QuillLike {
   root?: HTMLElement;
   setText?: (text: string, source?: string) => void;
@@ -49,67 +95,109 @@ interface QuillContainer extends HTMLElement {
   __quill?: QuillLike;
 }
 
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (event.origin !== window.location.origin) return;
-  if (isCaptureMessage(event.data)) {
-    void chrome.runtime?.sendMessage?.({
-      type: BACKGROUND_MESSAGE_TYPE,
-      payload: event.data.payload,
-    }).catch(() => undefined);
-    return;
-  }
+const bridgeGlobal = globalThis as typeof globalThis & {
+  __vcsAmisBridgeInstalled__?: boolean;
+};
 
-  if (isDiagnosticMessage(event.data)) {
-    sendDiagnostic(event.data.payload);
-  }
-});
+if (!bridgeGlobal.__vcsAmisBridgeInstalled__) {
+  bridgeGlobal.__vcsAmisBridgeInstalled__ = true;
 
-chrome.runtime?.onMessage.addListener((message, _sender, sendResponse) => {
-  if (isGetSelectedCareerMessage(message)) {
-    sendResponse(getSelectedCareerFromPage());
-    return;
-  }
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.origin !== window.location.origin) return;
+    if (isCaptureMessage(event.data)) {
+      void chrome.runtime?.sendMessage?.({
+        type: BACKGROUND_MESSAGE_TYPE,
+        payload: event.data.payload,
+      }).catch(() => undefined);
+      return;
+    }
 
-  if (isFetchAmisCareersMessage(message)) {
-    void fetchAmisCareers(message.payload?.organizationUnitId)
+    if (isDiagnosticMessage(event.data)) {
+      sendDiagnostic(event.data.payload);
+    }
+  });
+
+  chrome.runtime?.onMessage.addListener((message, _sender, sendResponse) => {
+    if (isGetSelectedCareerMessage(message)) {
+      sendResponse(getSelectedCareerFromPage());
+      return;
+    }
+
+    if (isGetRecruitmentContextMessage(message)) {
+      sendResponse(getRecruitmentContextFromPage());
+      return;
+    }
+
+    if (isFetchAmisCareersMessage(message)) {
+      void fetchAmisCareers(message.payload?.organizationUnitId)
+        .then((response) => sendResponse(response))
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            sourceUrl: AMIS_CAREER_DATA_PAGING_URL,
+            items: [],
+            rawCount: 0,
+            error: error instanceof Error ? error.message : 'Could not fetch AMIS careers.',
+          } satisfies AmisCareerFetchResponse);
+        });
+
+      return true;
+    }
+
+    if (isFetchAmisApplicationsMessage(message)) {
+      void fetchAmisApplications(message.payload?.sourceUrl)
+        .then((response) => sendResponse(response))
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            sourceUrl: message.payload?.sourceUrl ?? window.location.href,
+            items: [],
+            rawCount: 0,
+            error: error instanceof Error ? error.message : 'Could not fetch AMIS applications.',
+          } satisfies AmisApplicationsFetchResponse);
+        });
+
+      return true;
+    }
+
+    if (isUploadAmisCvFileMessage(message)) {
+      void uploadAmisCvFile(message.payload)
+        .then((response) => sendResponse(response))
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : 'Could not upload CV file into AMIS form.',
+          } satisfies UploadAmisCvFileResponse);
+        });
+
+      return true;
+    }
+
+    if (!isFillAmisRecruitmentFormMessage(message)) return;
+
+    void fillAmisRecruitmentForm(message.payload)
       .then((response) => sendResponse(response))
       .catch((error: unknown) => {
         sendResponse({
           ok: false,
-          sourceUrl: AMIS_CAREER_DATA_PAGING_URL,
-          items: [],
-          rawCount: 0,
-          error: error instanceof Error ? error.message : 'Could not fetch AMIS careers.',
-        } satisfies AmisCareerFetchResponse);
+          filledFields: [],
+          missingFields: [],
+          error: error instanceof Error ? error.message : 'Could not fill the AMIS recruitment form.',
+        } satisfies AmisRecruitmentFormFillResponse);
       });
 
     return true;
-  }
+  });
 
-  if (!isFillAmisRecruitmentFormMessage(message)) return;
-
-  void fillAmisRecruitmentForm(message.payload)
-    .then((response) => sendResponse(response))
-    .catch((error: unknown) => {
-      sendResponse({
-        ok: false,
-        filledFields: [],
-        missingFields: [],
-        error: error instanceof Error ? error.message : 'Could not fill the AMIS recruitment form.',
-      } satisfies AmisRecruitmentFormFillResponse);
-    });
-
-  return true;
-});
-
-sendDiagnostic({
-  type: 'BRIDGE_READY',
-  pageUrl: window.location.href,
-  timestamp: new Date().toISOString(),
-  frameUrl: window.location.href,
-});
-installSelectedCareerObserver();
+  sendDiagnostic({
+    type: 'BRIDGE_READY',
+    pageUrl: window.location.href,
+    timestamp: new Date().toISOString(),
+    frameUrl: window.location.href,
+  });
+  installSelectedCareerObserver();
+}
 
 function sendDiagnostic(event: AmisDiagnosticEvent) {
   void chrome.runtime?.sendMessage?.({
@@ -120,17 +208,124 @@ function sendDiagnostic(event: AmisDiagnosticEvent) {
 
 function getSelectedCareerFromPage(): AmisSelectedCareerResult {
   try {
-    const careerName = readFieldValueNearLabel('Ngành nghề');
+    const selectedCareerName = readSelectedCareerName();
     return {
       ok: true,
       pageUrl: window.location.href,
-      ...(careerName ? { careerName } : {}),
+      ...(selectedCareerName ? { careerName: selectedCareerName } : {}),
     };
   } catch (error) {
     return {
       ok: false,
       pageUrl: window.location.href,
       error: error instanceof Error ? error.message : 'Could not read selected AMIS career.',
+    };
+  }
+}
+
+function getRecruitmentContextFromPage() {
+  if (isLikelyRecruitmentListPage()) {
+    lastRecruitmentContextCache = null;
+    return {
+      ok: false,
+      pageUrl: window.location.href,
+      pageKind: 'LIST',
+      error: 'Current AMIS page is the recruitment list, not a recruitment detail.',
+    };
+  }
+
+  const urls = [
+    window.location.href,
+    ...getRecentRecruitmentResourceUrls(),
+  ];
+
+  for (const url of urls) {
+    const context = parseRecruitmentContextFromUrl(url);
+    if (context.amisRecruitmentId) {
+      lastRecruitmentContextCache = {
+        amisRecruitmentId: context.amisRecruitmentId,
+        amisRecruitmentRoundId: context.amisRecruitmentRoundId ?? null,
+        sourceUrl: url,
+        capturedAt: Date.now(),
+      };
+
+      return {
+        ok: true,
+        pageUrl: window.location.href,
+        sourceUrl: url,
+        ...context,
+      };
+    }
+  }
+
+  if (
+    lastRecruitmentContextCache
+    && Date.now() - lastRecruitmentContextCache.capturedAt <= RECRUITMENT_CONTEXT_CACHE_TTL_MS
+  ) {
+    return {
+      ok: true,
+      pageUrl: window.location.href,
+      sourceUrl: lastRecruitmentContextCache.sourceUrl,
+      amisRecruitmentId: lastRecruitmentContextCache.amisRecruitmentId,
+      amisRecruitmentRoundId: lastRecruitmentContextCache.amisRecruitmentRoundId,
+    };
+  }
+
+  return {
+    ok: false,
+    pageUrl: window.location.href,
+    pageKind: 'UNKNOWN',
+    error: 'No AMIS recruitment id was found in URL or resource timing.',
+  };
+}
+
+function isLikelyRecruitmentListPage() {
+  const bodyText = cleanText(document.body?.innerText).toLowerCase();
+  if (!bodyText) return false;
+
+  const hasListHeading = /\btin tuyển dụng\b/i.test(bodyText) || /\btuyển dụng\b/i.test(bodyText);
+  const hasListActions = bodyText.includes('thêm mới')
+    || bodyText.includes('xuất khẩu tin')
+    || bodyText.includes('tìm kiếm nhanh trong danh sách')
+    || bodyText.includes('sắp xếp theo');
+  const hasDetailActions = bodyText.includes('thêm ứng viên')
+    || bodyText.includes('thêm hàng loạt')
+    || bodyText.includes('lịch phỏng vấn')
+    || bodyText.includes('thi tuyển trực tuyến');
+
+  return hasListHeading && hasListActions && !hasDetailActions;
+}
+
+function getRecentRecruitmentResourceUrls() {
+  const now = performance.now();
+  return performance.getEntriesByType('resource')
+    .filter((entry) => now - entry.startTime <= RECRUITMENT_CONTEXT_CACHE_TTL_MS)
+    .map((entry) => entry.name)
+    .filter((url) => /\/paging_candidate\/|recruitmentRoundID=/i.test(url))
+    .reverse();
+}
+
+function parseRecruitmentContextFromUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    const candidatePathMatch = parsedUrl.pathname.match(/\/paging_candidate\/([^/?#]+)/i);
+    const recruitmentId = candidatePathMatch?.[1]
+      ?? parsedUrl.searchParams.get('recruitmentID')
+      ?? parsedUrl.searchParams.get('RecruitmentID')
+      ?? parsedUrl.searchParams.get('recruitmentId')
+      ?? parsedUrl.searchParams.get('id');
+    const recruitmentRoundId = parsedUrl.searchParams.get('recruitmentRoundID')
+      ?? parsedUrl.searchParams.get('RecruitmentRoundID')
+      ?? parsedUrl.searchParams.get('recruitmentRoundId');
+
+    return {
+      amisRecruitmentId: recruitmentId,
+      amisRecruitmentRoundId: recruitmentRoundId,
+    };
+  } catch {
+    return {
+      amisRecruitmentId: null,
+      amisRecruitmentRoundId: null,
     };
   }
 }
@@ -329,6 +524,246 @@ async function fetchAmisCareers(initialOrganizationUnitId?: string): Promise<Ami
     items,
     rawCount: allRows.length,
   };
+}
+
+async function fetchAmisApplications(sourceUrl?: string): Promise<AmisApplicationsFetchResponse> {
+  const effectiveSourceUrl = cleanText(sourceUrl) || findLatestCandidatePagingUrl();
+  if (!effectiveSourceUrl) {
+    throw new Error('AMIS candidate paging URL was not found in this tab.');
+  }
+
+  const response = await fetch(effectiveSourceUrl, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json, text/plain, */*',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`AMIS paging_candidate returned HTTP ${response.status}.`);
+  }
+
+  const json = await readJsonResponse(response);
+  const items = mapAmisApplicationsResponse(json);
+  if (items.length === 0) {
+    throw new Error('AMIS paging_candidate response did not contain mappable candidate rows.');
+  }
+
+  return {
+    ok: true,
+    sourceUrl: effectiveSourceUrl,
+    items,
+    rawCount: items.length,
+  };
+}
+
+function findLatestCandidatePagingUrl() {
+  return performance.getEntriesByType('resource')
+    .map((entry) => entry.name)
+    .filter((url) => /\/paging_candidate\/\d+/i.test(url))
+    .reverse()[0] ?? '';
+}
+
+function mapAmisApplicationsResponse(response: unknown): AmisApplicationItem[] {
+  const rows = extractCandidateRows(response);
+  const items = rows.map(mapApplicationRow).filter(Boolean) as AmisApplicationItem[];
+  return [...new Map(items.map((item) => [
+    `${item.recruitmentId}:${item.recruitmentRoundId}:${item.candidateId}`,
+    item,
+  ])).values()];
+}
+
+function extractCandidateRows(value: unknown): unknown[] {
+  if (Array.isArray(value)) return looksLikeCandidateRowArray(value) ? value : [];
+  if (!isObject(value)) return [];
+
+  const candidates = value.Candidates;
+  if (Array.isArray(candidates) && looksLikeCandidateRowArray(candidates)) return candidates;
+
+  for (const child of Object.values(value)) {
+    const rows = extractCandidateRows(child);
+    if (rows.length > 0) return rows;
+  }
+
+  return [];
+}
+
+function looksLikeCandidateRowArray(rows: unknown[]) {
+  return rows.some((row) =>
+    isObject(row)
+    && readFirst(row, ['RecruitmentID', 'recruitmentId'])
+    && readFirst(row, ['RecruitmentRoundID', 'recruitmentRoundId'])
+    && readFirst(row, ['CandidateID', 'candidateId']),
+  );
+}
+
+function mapApplicationRow(row: unknown): AmisApplicationItem | null {
+  if (!isObject(row)) return null;
+
+  const recruitmentId = cleanText(readFirst(row, ['RecruitmentID', 'recruitmentId']));
+  const recruitmentRoundId = cleanText(readFirst(row, ['RecruitmentRoundID', 'recruitmentRoundId']));
+  const candidateId = cleanText(readFirst(row, ['CandidateID', 'candidateId']));
+  const candidateName = cleanText(readFirst(row, ['CandidateName', 'candidateName', 'Name', 'name']));
+  const email = cleanText(readFirst(row, ['Email', 'email']));
+  const mobile = cleanText(readFirst(row, ['Mobile', 'Phone', 'phone', 'mobile']));
+  if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) return null;
+  if (!email && !mobile) return null;
+
+  const status = readNumber(row, ['Status', 'status']);
+
+  return {
+    recruitmentId,
+    recruitmentRoundId,
+    candidateId,
+    candidateName,
+    ...(cleanText(readFirst(row, ['CandidateConvertID', 'candidateConvertId'])) ? {
+      candidateConvertId: cleanText(readFirst(row, ['CandidateConvertID', 'candidateConvertId'])),
+    } : {}),
+    ...(email ? { email } : {}),
+    ...(mobile ? { mobile } : {}),
+    ...(cleanText(readFirst(row, ['Birthday', 'birthday'])) ? { birthday: cleanText(readFirst(row, ['Birthday', 'birthday'])) } : {}),
+    ...(cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])) ? {
+      recruitmentRoundName: cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])),
+    } : {}),
+    ...(status !== undefined ? { status } : {}),
+    ...(cleanText(readFirst(row, ['ChannelName', 'channelName'])) ? { channelName: cleanText(readFirst(row, ['ChannelName', 'channelName'])) } : {}),
+    ...(cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])) ? {
+      applyDate: cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])),
+    } : {}),
+    ...(cleanText(readFirst(row, ['RecruitmentTitle', 'recruitmentTitle'])) ? {
+      recruitmentTitle: cleanText(readFirst(row, ['RecruitmentTitle', 'recruitmentTitle'])),
+    } : {}),
+    ...(cleanText(readFirst(row, ['AttachmentCVID', 'attachmentCvId'])) ? {
+      attachmentCvId: cleanText(readFirst(row, ['AttachmentCVID', 'attachmentCvId'])),
+    } : {}),
+    ...(cleanText(readFirst(row, ['AttachmentCVName', 'attachmentCvName'])) ? {
+      attachmentCvName: cleanText(readFirst(row, ['AttachmentCVName', 'attachmentCvName'])),
+    } : {}),
+    rawSnapshot: sanitizeApplicationSnapshot(row),
+  };
+}
+
+function sanitizeApplicationSnapshot(row: Record<string, unknown>) {
+  const allowedKeys = new Set([
+    'RecruitmentID',
+    'RecruitmentRoundID',
+    'RecruitmentRoundName',
+    'Status',
+    'CandidateID',
+    'CandidateConvertID',
+    'AttachmentCVID',
+    'AttachmentCVName',
+    'ChannelName',
+    'ApplyDate',
+    'RecruitmentTitle',
+  ]);
+  const snapshot: Record<string, unknown> = {};
+
+  for (const key of allowedKeys) {
+    const value = row[key];
+    if (typeof value === 'string') snapshot[key] = value.length > 500 ? value.slice(0, 500) : value;
+    if (typeof value === 'number' || typeof value === 'boolean' || value === null) snapshot[key] = value;
+  }
+
+  return snapshot;
+}
+
+async function uploadAmisCvFile(payload: UploadAmisCvFileMessage['payload']): Promise<UploadAmisCvFileResponse> {
+  const files = payload.files.map((item, index) => {
+    const fileName = cleanText(item.fileName) || `clean-cv-${index + 1}.pdf`;
+    const mimeType = cleanText(item.mimeType) || 'application/pdf';
+    return new File([decodeBase64ToUint8Array(item.dataBase64)], fileName, { type: mimeType });
+  });
+  if (files.length === 0) {
+    throw new Error('No clean CV files were provided.');
+  }
+
+  const input = findAmisCvFileInput();
+  const dropTarget = findAmisCvDropTarget(input);
+
+  if (!input && !dropTarget) {
+    throw new Error('AMIS CV upload field was not found. Open the "Thêm ứng viên" modal first.');
+  }
+
+  const dataTransfer = new DataTransfer();
+  for (const file of files) {
+    dataTransfer.items.add(file);
+  }
+
+  if (dropTarget) {
+    dispatchDropEvents(dropTarget, dataTransfer);
+  } else if (input) {
+    input.files = dataTransfer.files;
+    dispatchFileInputEvents(input);
+  }
+
+  return {
+    ok: true,
+    fileName: files[0]?.name,
+    fileNames: files.map((file) => file.name),
+    fileCount: files.length,
+  };
+}
+
+function decodeBase64ToUint8Array(value: string) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+function findAmisCvFileInput() {
+  const modalRoots = findVisibleModalRoots();
+  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+  const scopedInputs = modalRoots.flatMap((root) => Array.from(root.querySelectorAll<HTMLInputElement>('input[type="file"]')));
+  const candidates = [...scopedInputs, ...inputs].filter((input, index, array) => array.indexOf(input) === index);
+
+  return candidates.find((input) => {
+    const accept = cleanText(input.accept).toLowerCase();
+    const contextText = cleanText(input.closest('form, .dx-popup-content, .modal, [role="dialog"], body')?.textContent).toLowerCase();
+    return !accept || accept.includes('pdf') || accept.includes('doc') || contextText.includes('cv') || contextText.includes('tải cv');
+  }) ?? candidates[0] ?? null;
+}
+
+function findAmisCvDropTarget(input: HTMLInputElement | null) {
+  if (input) {
+    const target = input.closest<HTMLElement>('.dx-fileuploader, .dx-fileuploader-wrapper, .dx-fileuploader-input-wrapper, [class*="upload"], [class*="Upload"]');
+    if (target) return target;
+  }
+
+  const uploadText = findVisibleTextElement('Kéo thả hoặc bấm vào đây để tải CV lên')
+    ?? findVisibleTextElement('tải CV lên')
+    ?? findVisibleTextElement('file .doc');
+
+  return uploadText?.closest<HTMLElement>('.dx-fileuploader, .dx-fileuploader-wrapper, .dx-fileuploader-input-wrapper, [class*="upload"], [class*="Upload"], [role="button"], div')
+    ?? null;
+}
+
+function findVisibleModalRoots() {
+  return getVisibleElements<HTMLElement>('.dx-popup-wrapper, .dx-overlay-wrapper, [role="dialog"], .modal, .ant-modal, .v-modal')
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 100 && rect.height > 100;
+    });
+}
+
+function dispatchFileInputEvents(input: HTMLInputElement) {
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function dispatchDropEvents(target: HTMLElement, dataTransfer: DataTransfer) {
+  for (const type of ['dragenter', 'dragover', 'drop']) {
+    target.dispatchEvent(new DragEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer,
+    }));
+  }
 }
 
 function buildCareerDataPagingPayload(pageIndex: number, pageSize: number, organizationUnitId: string) {
@@ -756,12 +1191,42 @@ function isFetchAmisCareersMessage(value: unknown): value is FetchAmisCareersMes
     && (value as { type?: unknown }).type === FETCH_AMIS_CAREERS_MESSAGE_TYPE;
 }
 
+function isFetchAmisApplicationsMessage(value: unknown): value is FetchAmisApplicationsMessage {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE;
+}
+
+function isUploadAmisCvFileMessage(value: unknown): value is UploadAmisCvFileMessage {
+  if (typeof value !== 'object' || value === null) return false;
+  const payload = (value as { payload?: unknown }).payload;
+  return (value as { type?: unknown }).type === UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE
+    && typeof payload === 'object'
+    && payload !== null
+    && Array.isArray((payload as { files?: unknown }).files)
+    && (payload as { files: unknown[] }).files.every((file) =>
+      typeof file === 'object'
+      && file !== null
+      && typeof (file as { fileName?: unknown }).fileName === 'string'
+      && typeof (file as { mimeType?: unknown }).mimeType === 'string'
+      && typeof (file as { dataBase64?: unknown }).dataBase64 === 'string',
+    );
+}
+
 function isGetSelectedCareerMessage(value: unknown): value is {
   type: typeof GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE;
 } {
   return typeof value === 'object'
     && value !== null
     && (value as { type?: unknown }).type === GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE;
+}
+
+function isGetRecruitmentContextMessage(value: unknown): value is {
+  type: typeof GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE;
 }
 
 function isAmisExtractionResult(value: unknown): value is AmisExtractionResult {
@@ -782,3 +1247,5 @@ function isAmisDiagnosticEvent(value: unknown): value is AmisDiagnosticEvent {
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
+
+})();

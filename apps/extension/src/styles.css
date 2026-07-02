@@ -113,6 +113,7 @@ h2 {
 }
 
 .auth-form,
+.applications-panel,
 .jd-panel,
 .question-panel,
 .preview,
@@ -155,6 +156,12 @@ h2 {
   gap: 8px;
 }
 
+.panel-action-stack {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
 .text-button {
   border: 0;
   padding: 0;
@@ -167,6 +174,12 @@ h2 {
 
 .text-button:hover {
   text-decoration: underline;
+}
+
+.text-button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+  text-decoration: none;
 }
 
 .question-list {
@@ -238,6 +251,83 @@ h2 {
 
 .question-form textarea {
   resize: vertical;
+}
+
+.application-list {
+  display: grid;
+  gap: 8px;
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.application-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid #edf1f7;
+  border-radius: 6px;
+  padding: 9px;
+  background: #fbfdff;
+}
+
+.application-list div,
+.application-main,
+.application-body {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.application-selection-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.application-main {
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.application-main input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: #2563eb;
+}
+
+.application-status-stack {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+
+.application-upload-button {
+  justify-self: start;
+  margin-top: 2px;
+}
+
+.application-list strong,
+.application-list span,
+.application-list small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.application-list strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.application-list span,
+.application-list small {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .auth-form label {
@@ -341,6 +431,21 @@ h2 {
   font-weight: 850;
   line-height: 1;
   white-space: nowrap;
+}
+
+.status-badge-success {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.status-badge-warning {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.status-badge-danger {
+  color: #991b1b;
+  background: #fee2e2;
 }
 
 .pagination-row {

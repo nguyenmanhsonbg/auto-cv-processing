@@ -7,11 +7,14 @@ import { getAmisDiagnostics } from './amis-diagnostics-store';
 import {
   ApiClientError,
   createAmisCareerQuestion,
+  downloadCleanCvFile,
+  getAmisApplicationsForRecruitment,
   getAmisCareerQuestionContext,
   getCurrentUser,
   listJobDescriptions,
   listAmisCareers,
   login,
+  syncAmisApplications,
   syncAndPublishAmisJob,
 } from './api-client';
 import { clearAccessToken, getAccessToken, setAccessToken } from './auth-store';
@@ -22,6 +25,8 @@ import type {
   AmisDiagnosticEvent,
   AmisAutoSyncState,
   AmisCareerQuestionContext,
+  AmisApplicationsForRecruitment,
+  AmisApplicationItem,
   AmisSelectedCareerResult,
   AmisExtractionResult,
   AmisJobSnapshot,
@@ -37,10 +42,15 @@ import './styles.css';
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
+type ApplicationsState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
+const FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
+const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
+const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
+const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 const CAREER_QUESTION_SELECTION_PREFIX = 'vcs:selected-career-questions:';
 
 function getCareerQuestionSelectionStorageKey(amisCareerId: string) {
@@ -55,6 +65,7 @@ function SidePanel() {
   const [password, setPassword] = useState('');
   const [snapshot, setSnapshot] = useState<AmisJobSnapshot | null>(null);
   const [amisRecruitmentId, setAmisRecruitmentId] = useState<string | null>(null);
+  const [amisRecruitmentRoundId, setAmisRecruitmentRoundId] = useState<string | null>(null);
   const [amisUrl, setAmisUrl] = useState<string | undefined>();
   const [channels, setChannels] = useState<ExtensionChannel[]>(['VCS_PORTAL']);
   const [result, setResult] = useState<ExtensionSyncResponse | null>(null);
@@ -80,12 +91,25 @@ function SidePanel() {
   const [newQuestionExpectedAnswer, setNewQuestionExpectedAnswer] = useState('');
   const [newQuestionSaving, setNewQuestionSaving] = useState(false);
   const [selectedCareerQuestionIds, setSelectedCareerQuestionIds] = useState<Set<string>>(new Set());
+  const [applicationsState, setApplicationsState] = useState<ApplicationsState>('IDLE');
+  const [applicationsContext, setApplicationsContext] = useState<AmisApplicationsForRecruitment | null>(null);
+  const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
+  const [cvUploadApplicationId, setCvUploadApplicationId] = useState<string | null>(null);
+  const [selectedApplicationCvIds, setSelectedApplicationCvIds] = useState<Set<string>>(new Set());
   const lastCareerContextIdRef = useRef<string | null>(null);
+  const lastApplicationsFallbackSyncUrlRef = useRef<string | null>(null);
+  const activeAmisRecruitmentIdRef = useRef<string | null>(null);
+  const applicationsRequestSeqRef = useRef(0);
+  const missedRecruitmentContextCountRef = useRef(0);
   const tokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     tokenRef.current = token;
   }, [token]);
+
+  useEffect(() => {
+    activeAmisRecruitmentIdRef.current = amisRecruitmentId;
+  }, [amisRecruitmentId]);
 
   useEffect(() => {
     void restoreAuth();
@@ -111,9 +135,35 @@ function SidePanel() {
         if (tokenRef.current) {
           void refreshSelectedCareerContext(tokenRef.current, { silent: true });
         }
+        return;
+      }
+
+      if (isApplicationsSyncedMessage(message)) {
+        if (
+          activeAmisRecruitmentIdRef.current &&
+          activeAmisRecruitmentIdRef.current !== message.payload.amisRecruitmentId
+        ) {
+          return;
+        }
+
+        setActiveAmisRecruitmentContext(message.payload.amisRecruitmentId, amisRecruitmentRoundId);
+        if (tokenRef.current) {
+          void loadAmisApplications(tokenRef.current, message.payload.amisRecruitmentId, { silent: true });
+        }
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+
+    void refreshAmisRecruitmentContextFromActiveTab({ silent: true });
+    const intervalId = window.setInterval(() => {
+      void refreshAmisRecruitmentContextFromActiveTab({ silent: true });
+    }, 3000);
+
+    return () => window.clearInterval(intervalId);
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -125,6 +175,31 @@ function SidePanel() {
 
     return () => window.clearInterval(intervalId);
   }, [token]);
+
+  useEffect(() => {
+    if (!token || !amisRecruitmentId) {
+      setApplicationsContext(null);
+      setApplicationsState('IDLE');
+      setApplicationsMessage(null);
+      setSelectedApplicationCvIds(new Set());
+      return;
+    }
+
+    void loadAmisApplications(token, amisRecruitmentId, { silent: true });
+    const intervalId = window.setInterval(() => {
+      void loadAmisApplications(token, amisRecruitmentId, { silent: true });
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [token, amisRecruitmentId]);
+
+  useEffect(() => {
+    if (!applicationsContext) return;
+    const currentIds = new Set(applicationsContext.applications.map((application) => application.applicationId));
+    setSelectedApplicationCvIds((current) =>
+      new Set(Array.from(current).filter((applicationId) => currentIds.has(applicationId))),
+    );
+  }, [applicationsContext]);
 
   useEffect(() => {
     const firstCategory = careerQuestionContext?.categories[0];
@@ -157,6 +232,14 @@ function SidePanel() {
     const visibleQuestionIds = new Set(careerQuestionContext.questions.map((question) => question.id));
     return Array.from(selectedCareerQuestionIds).filter((questionId) => visibleQuestionIds.has(questionId)).length;
   }, [careerQuestionContext, selectedCareerQuestionIds]);
+  const uploadableApplications = useMemo(
+    () => applicationsContext?.applications.filter(canUploadApplicationCv) ?? [],
+    [applicationsContext],
+  );
+  const selectedUploadableApplicationCount = useMemo(() => {
+    const uploadableIds = new Set(uploadableApplications.map((application) => application.applicationId));
+    return Array.from(selectedApplicationCvIds).filter((applicationId) => uploadableIds.has(applicationId)).length;
+  }, [selectedApplicationCvIds, uploadableApplications]);
 
   async function restoreAuth() {
     const storedToken = await getAccessToken();
@@ -247,6 +330,238 @@ function SidePanel() {
     }
   }
 
+  async function loadAmisApplications(
+    accessToken = token,
+    recruitmentId = amisRecruitmentId,
+    options: { silent?: boolean } = {},
+  ) {
+    if (!accessToken || !recruitmentId) return;
+
+    const requestSeq = ++applicationsRequestSeqRef.current;
+    if (!options.silent) {
+      setApplicationsState('LOADING');
+      setApplicationsMessage(null);
+    }
+
+    try {
+      const context = await getAmisApplicationsForRecruitment(accessToken, recruitmentId);
+      if (
+        requestSeq !== applicationsRequestSeqRef.current ||
+        activeAmisRecruitmentIdRef.current !== recruitmentId
+      ) {
+        return;
+      }
+
+      setApplicationsContext(context);
+      setApplicationsState('READY');
+      setApplicationsMessage(null);
+    } catch (err) {
+      if (
+        requestSeq !== applicationsRequestSeqRef.current ||
+        activeAmisRecruitmentIdRef.current !== recruitmentId
+      ) {
+        return;
+      }
+
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+
+      setApplicationsContext(null);
+      setApplicationsState('ERROR');
+      setApplicationsMessage(toErrorMessage(err));
+    }
+  }
+
+  async function refreshAmisRecruitmentContextFromActiveTab(options: { silent?: boolean } = {}) {
+    try {
+      const activeTab = await getActiveTab();
+      if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+        missedRecruitmentContextCountRef.current = 0;
+        setActiveAmisRecruitmentContext(null, null);
+        return;
+      }
+
+      const context = parseAmisRecruitmentContextFromUrl(activeTab.url);
+      let pageKind: string | null = null;
+      if (!context.amisRecruitmentId) {
+        const pageContext = await sendMessageToAmisTab(activeTab.id, {
+          type: GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE,
+        });
+        if (isAmisRecruitmentContextResponse(pageContext)) {
+          pageKind = pageContext.pageKind ?? null;
+        }
+        if (isAmisRecruitmentContextResponse(pageContext) && pageContext.ok) {
+          context.amisRecruitmentId = pageContext.amisRecruitmentId ?? null;
+          context.amisRecruitmentRoundId = pageContext.amisRecruitmentRoundId ?? null;
+          context.sourceUrl = pageContext.sourceUrl ?? null;
+        }
+      }
+
+      if (!context.amisRecruitmentId) {
+        missedRecruitmentContextCountRef.current += 1;
+        if (
+          activeAmisRecruitmentIdRef.current
+          && activeTab.url?.startsWith('https://amisapp.misa.vn/')
+          && pageKind !== 'LIST'
+        ) {
+          return;
+        }
+
+        if (pageKind === 'LIST' || !isLikelyAmisRecruitmentPage(activeTab.url) || missedRecruitmentContextCountRef.current >= 2) {
+          setActiveAmisRecruitmentContext(null, null);
+        }
+        return;
+      }
+
+      missedRecruitmentContextCountRef.current = 0;
+      setActiveAmisRecruitmentContext(context.amisRecruitmentId, context.amisRecruitmentRoundId ?? null);
+
+      if (tokenRef.current && context.sourceUrl && lastApplicationsFallbackSyncUrlRef.current !== context.sourceUrl) {
+        await syncAmisApplicationsFromAmisTab(tokenRef.current, activeTab.id, context.sourceUrl);
+      }
+    } catch (err) {
+      if (!options.silent) setApplicationsMessage(toErrorMessage(err));
+    }
+  }
+
+  async function syncAmisApplicationsFromAmisTab(
+    accessToken: string,
+    tabId: number,
+    sourceUrl: string,
+  ) {
+    const response = await sendMessageToAmisTab(tabId, {
+      type: FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE,
+      payload: { sourceUrl },
+    });
+
+    if (!isAmisApplicationsFetchResponse(response) || !response.ok || response.items.length === 0) return;
+
+    const result = await syncAmisApplications(accessToken, {
+      items: response.items,
+      sourceUrl: response.sourceUrl,
+      metadata: {
+        autoSync: true,
+        trigger: 'AMIS_APPLICATIONS_SIDE_PANEL_FALLBACK',
+        capturedAt: new Date().toISOString(),
+        rawCount: response.rawCount,
+      },
+    });
+
+    lastApplicationsFallbackSyncUrlRef.current = sourceUrl;
+    setActiveAmisRecruitmentContext(result.amisRecruitmentId, activeAmisRecruitmentIdRef.current === result.amisRecruitmentId ? amisRecruitmentRoundId : null);
+    await loadAmisApplications(accessToken, result.amisRecruitmentId, { silent: true });
+  }
+
+  async function uploadApplicationCvToAmisForm(application: AmisApplicationsForRecruitment['applications'][number]) {
+    await uploadApplicationCvsToAmisForm([application]);
+  }
+
+  async function uploadSelectedApplicationCvsToAmisForm() {
+    if (!applicationsContext) return;
+    const selectedApplications = applicationsContext.applications.filter((application) =>
+      selectedApplicationCvIds.has(application.applicationId),
+    );
+    await uploadApplicationCvsToAmisForm(selectedApplications);
+  }
+
+  async function uploadApplicationCvsToAmisForm(applications: AmisApplicationsForRecruitment['applications']) {
+    if (!token) return;
+    const uploadableApplications = applications.filter(canUploadApplicationCv);
+    if (uploadableApplications.length === 0) {
+      setApplicationsMessage('Select at least one application with a sanitized clean CV.');
+      return;
+    }
+
+    setCvUploadApplicationId(uploadableApplications.length === 1 ? uploadableApplications[0].applicationId : 'BATCH');
+    setApplicationsMessage(null);
+
+    try {
+      const activeTab = await getActiveTab();
+      if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+        throw new Error('Open the AMIS recruitment tab and the "Thêm ứng viên" modal first.');
+      }
+
+      const cleanCvs = await Promise.all(uploadableApplications.map((application) =>
+        downloadCleanCvFile(token, application.applicationId, application.currentCvDocumentId as string),
+      ));
+      const response = await sendMessageToAmisTab(activeTab.id, {
+        type: UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
+        payload: {
+          files: cleanCvs.map((cleanCv, index) => ({
+            fileName: buildAmisUploadCvFileName(uploadableApplications[index], cleanCv.fileName),
+            mimeType: cleanCv.mimeType,
+            dataBase64: arrayBufferToBase64(cleanCv.data),
+          })),
+        },
+      });
+
+      if (!isUploadAmisCvFileResponse(response) || !response.ok) {
+        throw new Error(isUploadAmisCvFileResponse(response)
+          ? response.error ?? 'AMIS did not accept the CV file.'
+          : `AMIS tab did not confirm CV upload. Response: ${JSON.stringify(response ?? null).slice(0, 160)}`);
+      }
+
+      setApplicationsMessage(`Loaded ${response.fileCount ?? cleanCvs.length} CV file(s) into AMIS bulk upload form.`);
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+
+      setApplicationsMessage(toErrorMessage(err));
+    } finally {
+      setCvUploadApplicationId(null);
+    }
+  }
+
+  function toggleApplicationCvSelection(applicationId: string) {
+    const next = new Set(selectedApplicationCvIds);
+    if (next.has(applicationId)) {
+      next.delete(applicationId);
+    } else {
+      next.add(applicationId);
+    }
+
+    setSelectedApplicationCvIds(next);
+  }
+
+  function selectAllUploadableApplicationCvs() {
+    if (!applicationsContext) return;
+    setSelectedApplicationCvIds(new Set(
+      applicationsContext.applications.filter(canUploadApplicationCv).map((application) => application.applicationId),
+    ));
+  }
+
+  function clearSelectedApplicationCvs() {
+    setSelectedApplicationCvIds(new Set());
+  }
+
+  function setActiveAmisRecruitmentContext(recruitmentId: string | null, recruitmentRoundId: string | null) {
+    const normalizedRecruitmentId = normalizeOptionalText(recruitmentId);
+    const normalizedRoundId = normalizeOptionalText(recruitmentRoundId);
+    const previousRecruitmentId = activeAmisRecruitmentIdRef.current;
+
+    activeAmisRecruitmentIdRef.current = normalizedRecruitmentId;
+    setAmisRecruitmentId(normalizedRecruitmentId);
+    setAmisRecruitmentRoundId(normalizedRoundId);
+
+    if (previousRecruitmentId !== normalizedRecruitmentId) {
+      applicationsRequestSeqRef.current += 1;
+      lastApplicationsFallbackSyncUrlRef.current = null;
+      setApplicationsContext(null);
+      setApplicationsMessage(null);
+      setApplicationsState(normalizedRecruitmentId ? 'LOADING' : 'IDLE');
+    }
+  }
+
   async function refreshSelectedCareerContext(
     accessToken = token,
     options: { silent?: boolean } = {},
@@ -279,7 +594,7 @@ function SidePanel() {
         throw new Error(isSelectedCareerResponse(selected) ? selected.error ?? 'Could not read AMIS career.' : 'AMIS tab did not return career selection.');
       }
 
-      const careerName = selected.careerName?.trim() ?? '';
+      const careerName = sanitizeDetectedCareerName(selected.careerName);
       setSelectedCareerName(careerName || null);
       if (!careerName) {
         lastCareerContextIdRef.current = null;
@@ -656,6 +971,131 @@ function SidePanel() {
             <span>{user.email}</span>
             <strong>{user.role}</strong>
           </div>
+
+          <section className="applications-panel">
+            <div className="status-row">
+              <div>
+                <p className="eyebrow">Hồ sơ ứng tuyển</p>
+                <h2>{applicationsContext?.total ?? 0} applications</h2>
+                {uploadableApplications.length > 0 ? (
+                  <span className="selection-count">
+                    {selectedUploadableApplicationCount} / {uploadableApplications.length} clean CVs selected
+                  </span>
+                ) : null}
+              </div>
+              <div className="panel-action-stack">
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={selectedUploadableApplicationCount === 0 || cvUploadApplicationId === 'BATCH'}
+                  onClick={() => void uploadSelectedApplicationCvsToAmisForm()}
+                >
+                  {cvUploadApplicationId === 'BATCH' ? 'Loading CVs...' : 'Load selected CVs'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  disabled={!amisRecruitmentId || applicationsState === 'LOADING'}
+                  onClick={() => void loadAmisApplications(token, amisRecruitmentId)}
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {amisRecruitmentId ? (
+              <p className="muted-text">
+                AMIS RecruitmentID: {amisRecruitmentId}
+                {amisRecruitmentRoundId ? ` - RoundID: ${amisRecruitmentRoundId}` : ''}
+              </p>
+            ) : (
+              <p className="muted-text">Open or save an AMIS recruitment detail to detect RecruitmentID.</p>
+            )}
+
+            {applicationsMessage ? (
+              <p className={applicationsState === 'ERROR' ? 'error-text' : 'muted-text'}>
+                {applicationsMessage}
+              </p>
+            ) : null}
+
+            {applicationsContext && applicationsContext.applications.length > 0 ? (
+              <>
+              {uploadableApplications.length > 0 ? (
+                <div className="application-selection-actions">
+                  <button type="button" className="text-button" onClick={selectAllUploadableApplicationCvs}>
+                    Select all clean CVs
+                  </button>
+                  <button type="button" className="text-button" onClick={clearSelectedApplicationCvs}>
+                    Clear
+                  </button>
+                </div>
+              ) : null}
+              <ul className="application-list">
+                {applicationsContext.applications.map((application) => (
+                  <li key={application.applicationId}>
+                    <label className="application-main">
+                      <input
+                        type="checkbox"
+                        checked={selectedApplicationCvIds.has(application.applicationId)}
+                        disabled={!canUploadApplicationCv(application)}
+                        onChange={() => toggleApplicationCvSelection(application.applicationId)}
+                      />
+                      <span className="application-body">
+                      <strong>{application.candidateName}</strong>
+                      <span>{[application.email, application.mobile].filter(Boolean).join(' • ')}</span>
+                      <small>
+                        {[
+                          application.amisRecruitmentRoundName
+                            ? `Round: ${application.amisRecruitmentRoundName}`
+                            : application.amisRecruitmentRoundId
+                              ? `Round ID: ${application.amisRecruitmentRoundId}`
+                              : null,
+                          application.sourceChannel,
+                          application.attachmentCvName,
+                          application.applyDate ? formatDate(application.applyDate) : null,
+                        ].filter(Boolean).join(' • ')}
+                      </small>
+                      <button
+                        type="button"
+                        className="text-button application-upload-button"
+                        disabled={!canUploadApplicationCv(application) || Boolean(cvUploadApplicationId)}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void uploadApplicationCvToAmisForm(application);
+                        }}
+                      >
+                        {cvUploadApplicationId === application.applicationId ? 'Loading CV...' : 'Load CV into AMIS form'}
+                      </button>
+                      </span>
+                    </label>
+                    <div className="application-status-stack">
+                      <span className="status-badge">{formatStatusText(application.status)}</span>
+                      {application.cvSanitizeStatus ? (
+                        <span className={getCvStatusBadgeClass(application.cvSanitizeStatus)}>
+                          CV {formatStatusText(application.cvSanitizeStatus)}
+                        </span>
+                      ) : null}
+                      {application.cvParseStatus ? (
+                        <span className={getCvStatusBadgeClass(application.cvParseStatus)}>
+                          Parse {formatStatusText(application.cvParseStatus)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              </>
+            ) : null}
+
+            {applicationsState === 'LOADING' && !applicationsContext ? (
+              <p className="muted-text">Loading applications for this AMIS recruitment...</p>
+            ) : null}
+
+            {applicationsContext && applicationsContext.applications.length === 0 ? (
+              <p className="muted-text">No synced applications for this AMIS recruitment yet.</p>
+            ) : null}
+          </section>
 
           <section className="question-panel">
             <div className="status-row">
@@ -1093,6 +1533,75 @@ function toErrorMessage(error: unknown) {
   return 'Request failed.';
 }
 
+function normalizeOptionalText(value?: string | null) {
+  const normalized = value?.trim();
+  return normalized || null;
+}
+
+function formatStatusText(value: string) {
+  return value
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function getCvStatusBadgeClass(status: string) {
+  const normalized = status.toUpperCase();
+  if (normalized === 'SANITIZED' || normalized === 'PASSED' || normalized === 'PARSED') {
+    return 'status-badge status-badge-success';
+  }
+
+  if (normalized === 'FAILED') {
+    return 'status-badge status-badge-danger';
+  }
+
+  if (normalized === 'PENDING' || normalized === 'PARSING' || normalized === 'SANITIZING') {
+    return 'status-badge status-badge-warning';
+  }
+
+  return 'status-badge';
+}
+
+function canUploadApplicationCv(application: AmisApplicationsForRecruitment['applications'][number]) {
+  return Boolean(application.currentCvDocumentId)
+    && application.cvSanitizeStatus?.toUpperCase() === 'SANITIZED';
+}
+
+function arrayBufferToBase64(value: ArrayBuffer) {
+  const bytes = new Uint8Array(value);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary);
+}
+
+function buildAmisUploadCvFileName(
+  application: AmisApplicationsForRecruitment['applications'][number],
+  fallbackFileName: string,
+) {
+  const extension = fallbackFileName.match(/\.[a-z0-9]{2,8}$/i)?.[0] ?? '.pdf';
+  const identity = application.email
+    || application.candidateName
+    || application.candidateId
+    || 'candidate';
+  const safeIdentity = identity
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+    .toLowerCase() || 'candidate';
+  const shortApplicationId = application.applicationId.replace(/-/g, '').slice(0, 8);
+
+  return `${safeIdentity}-${shortApplicationId}${extension.toLowerCase()}`;
+}
+
 function isAutoSyncUpdateMessage(value: unknown): value is {
   type: 'AMIS_AUTO_SYNC_STATE_UPDATED';
   payload: AmisAutoSyncState;
@@ -1127,6 +1636,62 @@ function isSelectedCareerChangedMessage(value: unknown): value is {
     && typeof payload === 'object'
     && payload !== null
     && typeof (payload as { careerName?: unknown }).careerName === 'string';
+}
+
+function isApplicationsSyncedMessage(value: unknown): value is {
+  type: typeof AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE;
+  payload: {
+    amisRecruitmentId: string;
+    jobPostingId: string;
+    syncedCount: number;
+  };
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const payload = (value as { payload?: unknown }).payload;
+  return (value as { type?: unknown }).type === AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE
+    && typeof payload === 'object'
+    && payload !== null
+    && typeof (payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string';
+}
+
+function isAmisRecruitmentContextResponse(value: unknown): value is {
+  ok: boolean;
+  pageUrl: string;
+  pageKind?: string;
+  amisRecruitmentId?: string;
+  amisRecruitmentRoundId?: string;
+  sourceUrl?: string;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { ok?: unknown }).ok === 'boolean'
+    && typeof (value as { pageUrl?: unknown }).pageUrl === 'string';
+}
+
+function isAmisApplicationsFetchResponse(value: unknown): value is {
+  ok: boolean;
+  sourceUrl: string;
+  items: AmisApplicationItem[];
+  rawCount: number;
+  error?: string;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { ok?: unknown }).ok === 'boolean'
+    && typeof (value as { sourceUrl?: unknown }).sourceUrl === 'string'
+    && Array.isArray((value as { items?: unknown }).items);
+}
+
+function isUploadAmisCvFileResponse(value: unknown): value is {
+  ok: boolean;
+  fileName?: string;
+  fileNames?: string[];
+  fileCount?: number;
+  error?: string;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { ok?: unknown }).ok === 'boolean';
 }
 
 function formatDiagnosticTime(value: string) {
@@ -1243,6 +1808,62 @@ function normalizeMatchText(value: string) {
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+function sanitizeDetectedCareerName(value: string | undefined) {
+  const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!normalized) return '';
+  if (normalized.length > 120) return '';
+  if (/họ và tên|số điện thoại|email|chiến dịch tuyển dụng|trình độ đào tạo|nguồn ứng viên|ngày ứng tuyển/i.test(normalized)) {
+    return '';
+  }
+
+  return normalized;
+}
+
+function isLikelyAmisRecruitmentPage(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    const target = `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`.toLowerCase();
+    return target.includes('recruitment')
+      || target.includes('candidate')
+      || target.includes('ung-vien')
+      || target.includes('tin-tuyen-dung')
+      || target.includes('tuyen-dung');
+  } catch {
+    return false;
+  }
+}
+
+function parseAmisRecruitmentContextFromUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    const path = parsedUrl.pathname;
+    const candidatePathMatch = path.match(/\/paging_candidate\/([^/?#]+)/i);
+    const genericRecruitmentMatch = path.match(/\/(?:recruitment|tin-tuyen-dung|job)[^/]*(?:\/|%2F)(\d{3,})/i);
+    const queryRecruitmentId = parsedUrl.searchParams.get('recruitmentID')
+      ?? parsedUrl.searchParams.get('RecruitmentID')
+      ?? parsedUrl.searchParams.get('recruitmentId')
+      ?? parsedUrl.searchParams.get('id');
+    const queryRoundId = parsedUrl.searchParams.get('recruitmentRoundID')
+      ?? parsedUrl.searchParams.get('RecruitmentRoundID')
+      ?? parsedUrl.searchParams.get('recruitmentRoundId');
+
+    return {
+      amisRecruitmentId: candidatePathMatch?.[1]
+        ?? queryRecruitmentId
+        ?? genericRecruitmentMatch?.[1]
+        ?? null,
+      amisRecruitmentRoundId: queryRoundId,
+      sourceUrl: candidatePathMatch?.[1] ? url : null,
+    };
+  } catch {
+    return {
+      amisRecruitmentId: null,
+      amisRecruitmentRoundId: null,
+      sourceUrl: null,
+    };
+  }
 }
 
 async function getActiveTab() {

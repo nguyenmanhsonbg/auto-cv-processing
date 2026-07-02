@@ -2,6 +2,7 @@ import { BE_API_BASE_URL, EXTENSION_VERSION } from './config';
 import type {
   ApiEnvelope,
   ApiPagination,
+  AmisApplicationsForRecruitment,
   AmisCareerCatalogItem,
   AmisCareerQuestionContext,
   CreateAmisCareerQuestionRequest,
@@ -9,6 +10,8 @@ import type {
   ExtensionSyncResponse,
   ExtensionUser,
   JobDescriptionSummary,
+  SyncAmisApplicationsRequest,
+  SyncAmisApplicationsResponse,
   SyncAmisCareersRequest,
   SyncAmisCareersResponse,
   SyncAmisJobPostingRequest,
@@ -91,6 +94,70 @@ export async function syncAmisCareers(
       'X-Extension-Version': EXTENSION_VERSION,
     },
   });
+}
+
+export async function syncAmisApplications(
+  accessToken: string,
+  payload: SyncAmisApplicationsRequest,
+) {
+  const requestId = `ext-applications-${crypto.randomUUID()}`;
+
+  return request<SyncAmisApplicationsResponse>('/extension/amis/applications/sync', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+    headers: {
+      'X-Request-Id': requestId,
+      'X-Extension-Version': EXTENSION_VERSION,
+    },
+  });
+}
+
+export async function getAmisApplicationsForRecruitment(
+  accessToken: string,
+  amisRecruitmentId: string,
+) {
+  return request<AmisApplicationsForRecruitment>(
+    `/extension/amis/recruitments/${encodeURIComponent(amisRecruitmentId)}/applications`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
+}
+
+export async function downloadCleanCvFile(
+  accessToken: string,
+  applicationId: string,
+  cvDocumentId: string,
+) {
+  const response = await fetch(
+    `${BE_API_BASE_URL}/applications/${encodeURIComponent(applicationId)}/cv/${encodeURIComponent(cvDocumentId)}/clean-file?disposition=attachment`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'X-Extension-Version': EXTENSION_VERSION,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const json = await readJson(response);
+    const envelope = isApiEnvelope(json) ? json : null;
+    throw new ApiClientError(
+      envelope?.error?.code ?? `HTTP_${response.status}`,
+      envelope?.error?.message ?? 'Could not download clean CV file.',
+      response.status,
+      envelope?.error?.details ?? [],
+    );
+  }
+
+  return {
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'clean-cv.pdf',
+    mimeType: response.headers.get('Content-Type') ?? 'application/pdf',
+    data: await response.arrayBuffer(),
+  };
 }
 
 export async function listAmisCareers(accessToken: string) {
@@ -225,4 +292,19 @@ function isPaginatedEnvelope<T>(value: unknown): value is ApiEnvelope<T[]> & { p
     && Array.isArray(value.data)
     && typeof (value as { pagination?: unknown }).pagination === 'object'
     && (value as { pagination?: unknown }).pagination !== null;
+}
+
+function readContentDispositionFileName(value: string | null) {
+  if (!value) return null;
+
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/^"|"$/g, ''));
+    } catch {
+      return utf8Match[1].replace(/^"|"$/g, '');
+    }
+  }
+
+  return value.match(/filename="?([^";]+)"?/i)?.[1] ?? null;
 }

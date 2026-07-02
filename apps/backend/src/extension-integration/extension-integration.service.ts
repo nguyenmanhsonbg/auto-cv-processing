@@ -20,12 +20,15 @@ import {
   SyncAmisCareersDto,
   SyncAmisCareersResponseDto,
   SyncAmisCareerItemDto,
+  SyncAmisApplicationsDto,
+  SyncAmisApplicationsResponseDto,
   SyncAmisJobPostingDto,
   UpdateAmisCareerQuestionCategoriesDto,
 } from './dto';
 import {
   ExtensionExternalEntityType,
   ExtensionInternalEntityType,
+  ExtensionSourceSystem,
   ExtensionSyncAction,
   ExtensionSyncResultCode,
   type ExtensionSyncChannel,
@@ -39,6 +42,9 @@ import { createAmisSnapshotHash, createExtensionRequestHash } from './utils';
 import { QuestionsService } from '../questions/questions.service';
 import { CategoriesService } from '../categories/categories.service';
 import { QuestionType } from '@interview-assistant/shared';
+import { ApplicationsService } from '../applications/applications.service';
+import { ApplicationEntity } from '../applications/entities/application.entity';
+import { ApplicationSourceEntity } from '../applications/entities/application-source.entity';
 
 export interface ExtensionSyncContext {
   actorUserId: string;
@@ -62,6 +68,7 @@ export class ExtensionIntegrationService {
     private readonly idempotencyService: ExtensionIdempotencyService,
     private readonly questionsService: QuestionsService,
     private readonly categoriesService: CategoriesService,
+    private readonly applicationsService: ApplicationsService,
   ) {}
 
   async syncAndPublishFromAmis(
@@ -515,6 +522,156 @@ export class ExtensionIntegrationService {
     return [...deduped.values()];
   }
 
+  private normalizeApplicationItems(items: SyncAmisApplicationsDto['items']) {
+    const deduped = new Map<string, SyncAmisApplicationsDto['items'][number]>();
+
+    for (const item of items) {
+      const recruitmentId = this.optionalText(item.recruitmentId);
+      const recruitmentRoundId = this.optionalText(item.recruitmentRoundId);
+      const candidateId = this.optionalText(item.candidateId);
+      const candidateName = this.optionalText(item.candidateName);
+      const email = this.optionalText(item.email)?.toLowerCase() ?? undefined;
+      const mobile = this.optionalText(item.mobile) ?? undefined;
+
+      if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) continue;
+      if (!email && !mobile) continue;
+
+      const normalizedItem = {
+        recruitmentId,
+        recruitmentRoundId,
+        candidateId,
+        candidateName,
+        ...(this.optionalText(item.candidateConvertId) ? { candidateConvertId: this.optionalText(item.candidateConvertId) ?? undefined } : {}),
+        ...(email ? { email } : {}),
+        ...(mobile ? { mobile } : {}),
+        ...(this.optionalText(item.birthday) ? { birthday: this.optionalText(item.birthday) ?? undefined } : {}),
+        ...(this.optionalText(item.recruitmentRoundName) ? { recruitmentRoundName: this.optionalText(item.recruitmentRoundName) ?? undefined } : {}),
+        ...(typeof item.status === 'number' ? { status: item.status } : {}),
+        ...(this.optionalText(item.channelName) ? { channelName: this.optionalText(item.channelName) ?? undefined } : {}),
+        ...(this.optionalText(item.applyDate) ? { applyDate: this.optionalText(item.applyDate) ?? undefined } : {}),
+        ...(this.optionalText(item.recruitmentTitle) ? { recruitmentTitle: this.optionalText(item.recruitmentTitle) ?? undefined } : {}),
+        ...(this.optionalText(item.attachmentCvId) ? { attachmentCvId: this.optionalText(item.attachmentCvId) ?? undefined } : {}),
+        ...(this.optionalText(item.attachmentCvName) ? { attachmentCvName: this.optionalText(item.attachmentCvName) ?? undefined } : {}),
+        ...(this.optionalText(item.educationDegreeName) ? { educationDegreeName: this.optionalText(item.educationDegreeName) ?? undefined } : {}),
+        ...(this.optionalText(item.educationMajorName) ? { educationMajorName: this.optionalText(item.educationMajorName) ?? undefined } : {}),
+        ...(this.optionalText(item.workPlaceRecent) ? { workPlaceRecent: this.optionalText(item.workPlaceRecent) ?? undefined } : {}),
+        rawSnapshot: this.safeAmisCatalogSnapshot(item.rawSnapshot),
+      };
+
+      deduped.set(this.buildAmisExternalApplicationId(normalizedItem), normalizedItem);
+    }
+
+    if (deduped.size === 0) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'At least one AMIS candidate item with recruitment, round, candidate, and contact data is required.',
+      });
+    }
+
+    return [...deduped.values()];
+  }
+
+  private requireSingleRecruitmentId(items: Array<{ recruitmentId: string }>) {
+    const recruitmentIds = [...new Set(items.map((item) => item.recruitmentId))];
+    if (recruitmentIds.length !== 1) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'AMIS application sync must contain candidates from a single RecruitmentID.',
+      });
+    }
+
+    return recruitmentIds[0];
+  }
+
+  private async resolveJobPostingIdByAmisRecruitmentId(amisRecruitmentId: string) {
+    const reference = await this.dataSource.getRepository(RecruitmentExternalReferenceEntity).findOne({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+        externalId: this.requireText(amisRecruitmentId, 'amisRecruitmentId'),
+        internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
+      },
+    });
+
+    if (!reference) {
+      throw new BadRequestException({
+        code: 'AMIS_RECRUITMENT_NOT_SYNCED',
+        message: 'AMIS recruitment is not mapped to an internal job posting yet.',
+      });
+    }
+
+    return reference.internalEntityId;
+  }
+
+  private buildAmisExternalApplicationId(item: {
+    recruitmentId: string;
+    recruitmentRoundId: string;
+    candidateId: string;
+  }) {
+    return `AMIS:${item.recruitmentId}:${item.recruitmentRoundId}:${item.candidateId}`;
+  }
+
+  private resolveAmisApplicationChannel(channelName?: string) {
+    const normalized = this.removeVietnameseMarks(channelName ?? '').toUpperCase().replace(/\s+/g, '');
+    if (normalized.includes('FACEBOOK')) return RecruitmentChannel.FACEBOOK;
+    if (normalized.includes('TOPCV')) return RecruitmentChannel.TOPCV;
+    if (normalized.includes('ITVIEC')) return RecruitmentChannel.ITVIEC;
+    if (normalized.includes('VIETNAMWORKS')) return RecruitmentChannel.VIETNAMWORKS;
+    if (normalized.includes('LINKEDIN')) return RecruitmentChannel.LINKEDIN;
+    return RecruitmentChannel.OTHER;
+  }
+
+  private extractBirthYear(value?: string) {
+    const normalizedValue = this.optionalText(value);
+    if (!normalizedValue) return null;
+    const date = new Date(normalizedValue);
+    if (!Number.isNaN(date.getTime())) return date.getFullYear();
+
+    const yearMatch = normalizedValue.match(/\b(19|20)\d{2}\b/);
+    return yearMatch ? Number(yearMatch[0]) : null;
+  }
+
+  private buildAmisApplicationRawPayload(
+    item: SyncAmisApplicationsDto['items'][number],
+    dto: SyncAmisApplicationsDto,
+    context: ExtensionCatalogSyncContext,
+    syncedAt: Date,
+  ) {
+    return {
+      sourceSystem: ExtensionSourceSystem.AMIS,
+      recruitmentId: item.recruitmentId,
+      recruitmentRoundId: item.recruitmentRoundId,
+      recruitmentRoundName: item.recruitmentRoundName ?? null,
+      candidateId: item.candidateId,
+      candidateConvertId: item.candidateConvertId ?? null,
+      status: item.status ?? null,
+      channelName: item.channelName ?? null,
+      applyDate: item.applyDate ?? null,
+      recruitmentTitle: item.recruitmentTitle ?? null,
+      attachmentCvId: item.attachmentCvId ?? null,
+      attachmentCvName: item.attachmentCvName ?? null,
+      educationDegreeName: item.educationDegreeName ?? null,
+      educationMajorName: item.educationMajorName ?? null,
+      workPlaceRecent: item.workPlaceRecent ?? null,
+      sourceUrl: this.optionalText(dto.sourceUrl),
+      autoSync: dto.metadata?.autoSync === true,
+      extensionVersion: this.optionalText(context.extensionVersion),
+      requestId: this.optionalText(context.requestId),
+      lastSyncedAt: syncedAt.toISOString(),
+    };
+  }
+
+  private findAmisApplicationSource(
+    sources: ApplicationSourceEntity[] | undefined,
+    amisRecruitmentId: string,
+  ) {
+    return sources?.find((source) => {
+      if (!this.isRecord(source.rawPayload)) return false;
+      return source.rawPayload.sourceSystem === ExtensionSourceSystem.AMIS
+        && source.rawPayload.recruitmentId === amisRecruitmentId;
+    }) ?? null;
+  }
+
   private safeAmisCatalogSnapshot(value: unknown) {
     if (!this.isRecord(value) || Array.isArray(value)) return undefined;
 
@@ -678,6 +835,108 @@ export class ExtensionIntegrationService {
       removedCount,
       skippedCount: dto.items.length - normalizedItems.length,
       lastSyncedAt: lastSyncedAt.toISOString(),
+    };
+  }
+
+  async syncAmisApplications(
+    dto: SyncAmisApplicationsDto,
+    context: ExtensionCatalogSyncContext,
+  ): Promise<SyncAmisApplicationsResponseDto> {
+    const normalizedItems = this.normalizeApplicationItems(dto.items);
+    const amisRecruitmentId = this.requireSingleRecruitmentId(normalizedItems);
+    const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(amisRecruitmentId);
+    const lastSyncedAt = new Date();
+
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    for (const item of normalizedItems) {
+      const sourceChannel = this.resolveAmisApplicationChannel(item.channelName);
+      const externalApplicationId = this.buildAmisExternalApplicationId(item);
+      const result = await this.applicationsService.createFromChannel({
+        jobPostingId,
+        candidate: {
+          name: item.candidateName,
+          email: item.email ?? null,
+          phone: item.mobile ?? null,
+          birthYear: this.extractBirthYear(item.birthday),
+          position: item.recruitmentTitle ?? null,
+        },
+        sourceChannel,
+        externalApplicationId,
+        rawPayload: this.buildAmisApplicationRawPayload(item, dto, context, lastSyncedAt),
+        createdById: context.actorUserId,
+      });
+
+      if (result.created) {
+        createdCount += 1;
+      } else {
+        updatedCount += 1;
+      }
+
+      if (result.applicationSource) {
+        result.applicationSource.rawPayload = this.buildAmisApplicationRawPayload(
+          item,
+          dto,
+          context,
+          lastSyncedAt,
+        );
+        await this.dataSource.getRepository(ApplicationSourceEntity).save(result.applicationSource);
+      }
+    }
+
+    return {
+      syncedCount: normalizedItems.length,
+      createdCount,
+      updatedCount,
+      skippedCount: dto.items.length - normalizedItems.length,
+      jobPostingId,
+      amisRecruitmentId,
+      lastSyncedAt: lastSyncedAt.toISOString(),
+    };
+  }
+
+  async listAmisApplicationsForRecruitment(amisRecruitmentId: string) {
+    const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
+    const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(normalizedRecruitmentId);
+    const applications = await this.dataSource.getRepository(ApplicationEntity).find({
+      where: { jobPostingId },
+      relations: ['candidate', 'currentCvDocument', 'sources'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return {
+      amisRecruitmentId: normalizedRecruitmentId,
+      jobPostingId,
+      total: applications.length,
+      applications: applications.map((application) => {
+        const source = this.findAmisApplicationSource(application.sources, normalizedRecruitmentId);
+        const rawPayload = this.isRecord(source?.rawPayload) ? source.rawPayload : {};
+
+        return {
+          applicationId: application.id,
+          candidateId: application.candidateId,
+          candidateName: application.candidate?.name ?? '',
+          email: application.candidate?.email ?? null,
+          mobile: application.candidate?.phone ?? null,
+          status: application.status,
+          currentCvDocumentId: application.currentCvDocumentId,
+          cvScanStatus: application.currentCvDocument?.scanStatus ?? null,
+          cvSanitizeStatus: application.currentCvDocument?.sanitizeStatus ?? null,
+          cvParseStatus: application.currentCvDocument?.parseStatus ?? null,
+          cvDocumentType: application.currentCvDocument?.documentType ?? null,
+          sourceChannel: application.sourceChannel,
+          externalApplicationId: application.externalApplicationId,
+          amisRecruitmentRoundId: this.optionalText(rawPayload.recruitmentRoundId),
+          amisRecruitmentRoundName: this.optionalText(rawPayload.recruitmentRoundName),
+          amisStatus: typeof rawPayload.status === 'number' ? rawPayload.status : null,
+          attachmentCvId: this.optionalText(rawPayload.attachmentCvId),
+          attachmentCvName: this.optionalText(rawPayload.attachmentCvName),
+          applyDate: this.optionalText(rawPayload.applyDate),
+          createdAt: application.createdAt.toISOString(),
+          updatedAt: application.updatedAt.toISOString(),
+        };
+      }),
     };
   }
 
