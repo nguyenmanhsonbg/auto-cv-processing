@@ -296,6 +296,75 @@ export interface SyncAmisCareersResponse {
   lastSyncedAt: string;
 }
 
+export interface AmisApplicationItem {
+  recruitmentId: string;
+  recruitmentRoundId: string;
+  candidateId: string;
+  candidateConvertId?: string;
+  candidateName: string;
+  email?: string;
+  mobile?: string;
+  birthday?: string;
+  recruitmentRoundName?: string;
+  status?: number;
+  channelName?: string;
+  applyDate?: string;
+  recruitmentTitle?: string;
+  attachmentCvId?: string;
+  attachmentCvName?: string;
+  educationDegreeName?: string;
+  educationMajorName?: string;
+  workPlaceRecent?: string;
+  rawSnapshot?: Record<string, unknown>;
+}
+
+export interface SyncAmisApplicationsRequest {
+  items: AmisApplicationItem[];
+  sourceUrl?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SyncAmisApplicationsResponse {
+  syncedCount: number;
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  jobPostingId: string;
+  amisRecruitmentId: string;
+  lastSyncedAt: string;
+}
+
+export interface AmisApplicationListItem {
+  applicationId: string;
+  candidateId: string;
+  candidateName: string;
+  email: string | null;
+  mobile: string | null;
+  status: string;
+  currentCvDocumentId: string | null;
+  cvScanStatus: string | null;
+  cvSanitizeStatus: string | null;
+  cvParseStatus: string | null;
+  cvDocumentType: string | null;
+  sourceChannel: string | null;
+  externalApplicationId: string | null;
+  amisRecruitmentRoundId: string | null;
+  amisRecruitmentRoundName: string | null;
+  amisStatus: number | null;
+  attachmentCvId: string | null;
+  attachmentCvName: string | null;
+  applyDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AmisApplicationsForRecruitment {
+  amisRecruitmentId: string;
+  jobPostingId: string;
+  total: number;
+  applications: AmisApplicationListItem[];
+}
+
 export interface AmisCareerFetchResponse {
   ok: boolean;
   sourceUrl: string;
@@ -333,6 +402,7 @@ export type AmisDiagnosticEventType =
   | 'DEBUGGER_DETACHED'
   | 'DEBUGGER_SAVE_RESPONSE_SEEN'
   | 'DEBUGGER_CAREER_RESPONSE_SEEN'
+  | 'DEBUGGER_APPLICATIONS_RESPONSE_SEEN'
   | 'DEBUGGER_GET_BODY_FAILED'
   | 'AMIS_API_REQUEST_STARTED'
   | 'AMIS_API_RESPONSE_SEEN'
@@ -349,6 +419,11 @@ export type AmisDiagnosticEventType =
   | 'CAREER_AUTO_SYNC_SUCCESS'
   | 'CAREER_AUTO_SYNC_SKIPPED'
   | 'CAREER_AUTO_SYNC_FAILED'
+  | 'APPLICATIONS_RESPONSE_UNMAPPED'
+  | 'APPLICATIONS_CAPTURE_PUBLISHED'
+  | 'APPLICATIONS_AUTO_SYNC_SUCCESS'
+  | 'APPLICATIONS_AUTO_SYNC_SKIPPED'
+  | 'APPLICATIONS_AUTO_SYNC_FAILED'
   | 'BACKGROUND_RECEIVED_CAPTURE';
 
 export interface AmisDiagnosticEvent {

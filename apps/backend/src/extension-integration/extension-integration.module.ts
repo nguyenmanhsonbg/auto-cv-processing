@@ -8,6 +8,7 @@ import { ExtensionIntegrationController } from './extension-integration.controll
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { QuestionsModule } from '../questions/questions.module';
 import { CategoriesModule } from '../categories/categories.module';
+import { ApplicationsModule } from '../applications/applications.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { CategoriesModule } from '../categories/categories.module';
     ]),
     QuestionsModule,
     CategoriesModule,
+    ApplicationsModule,
   ],
   controllers: [ExtensionIntegrationController, ExtensionFacebookController],
   providers: [ExtensionIntegrationService, ExtensionIdempotencyService],

@@ -9,6 +9,9 @@ import {
   ExtensionSyncResponseDto,
   AmisCareerCatalogItemDto,
   CreateAmisCareerQuestionDto,
+  AmisApplicationsForRecruitmentDto,
+  SyncAmisApplicationsDto,
+  SyncAmisApplicationsResponseDto,
   SyncAmisCareersDto,
   SyncAmisCareersResponseDto,
   SyncAmisJobPostingDto,
@@ -126,6 +129,59 @@ export class ExtensionIntegrationController {
         extensionVersion: this.optionalHeader(extensionVersion) ?? null,
       },
     };
+  }
+
+  @Post('applications/sync')
+  @ApiOperation({ summary: 'Sync AMIS candidate/application rows captured by the browser extension' })
+  @ApiHeader({
+    name: 'X-Request-Id',
+    required: false,
+    description: 'Optional upstream request correlation id from the extension.',
+  })
+  @ApiHeader({
+    name: 'X-Extension-Version',
+    required: false,
+    description: 'Optional browser extension version.',
+  })
+  @ApiBody({ type: SyncAmisApplicationsDto })
+  @ApiResponse({
+    status: 201,
+    description: 'AMIS application candidate sync result.',
+    type: SyncAmisApplicationsResponseDto,
+  })
+  async syncApplications(
+    @Body() dto: SyncAmisApplicationsDto,
+    @Request() req: ExtensionAuthenticatedRequest,
+    @Headers('x-request-id') requestId: HeaderValue,
+    @Headers('x-extension-version') extensionVersion: HeaderValue,
+  ) {
+    const data = await this.extensionIntegrationService.syncAmisApplications(dto, {
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      requestId: this.optionalHeader(requestId),
+      extensionVersion: this.optionalHeader(extensionVersion),
+    });
+
+    return {
+      success: true,
+      data,
+      meta: {
+        timestamp: new Date().toISOString(),
+        requestId: this.optionalHeader(requestId) ?? null,
+        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+      },
+    };
+  }
+
+  @Get('recruitments/:amisRecruitmentId/applications')
+  @ApiOperation({ summary: 'List synced applications for an AMIS recruitment id' })
+  @ApiResponse({
+    status: 200,
+    description: 'Synced application list for the mapped AMIS recruitment.',
+    type: AmisApplicationsForRecruitmentDto,
+  })
+  async listApplicationsForRecruitment(@Param('amisRecruitmentId') amisRecruitmentId: string) {
+    return this.extensionIntegrationService.listAmisApplicationsForRecruitment(amisRecruitmentId);
   }
 
   @Get('careers')

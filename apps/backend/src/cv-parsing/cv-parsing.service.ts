@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -49,6 +50,8 @@ interface ParseResult {
 
 @Injectable()
 export class CvParsingService {
+  private readonly logger = new Logger(CvParsingService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly workflowStateService: WorkflowStateService,
@@ -75,6 +78,9 @@ export class CvParsingService {
       }
 
       const reasonCode = this.toParseFailureReason(error);
+      this.logger.error(
+        `CV parse failed for application ${context.cleanCvDocument.applicationId}, document ${context.cleanCvDocument.id}: ${this.toErrorDetail(error)}`,
+      );
       await this.markParseFailed(context, reasonCode);
       throw this.toParseException(reasonCode);
     }
@@ -185,7 +191,7 @@ export class CvParsingService {
   }
 
   private async parseCleanFile(filePath: string, parserMode: string): Promise<ParseResult> {
-    const parsedData = await this.fileParserService.parseFile(filePath);
+    const parsedData = this.sanitizeForJsonb(await this.fileParserService.parseFile(filePath));
     const parserError = this.optionalText(String(parsedData.error ?? ''));
     const rawText = typeof parsedData.rawText === 'string' ? parsedData.rawText : '';
     const normalizedText = this.normalizeText(rawText);
@@ -207,6 +213,34 @@ export class CvParsingService {
       normalizedTextHash: this.calculateTextSha256(normalizedText),
       parserVersion: DEFAULT_PARSER_VERSION,
     };
+  }
+
+  private sanitizeForJsonb(value: Record<string, unknown>): Record<string, unknown> {
+    const sanitized = this.sanitizeJsonbValue(value);
+    return this.isRecord(sanitized) ? sanitized : {};
+  }
+
+  private sanitizeJsonbValue(value: unknown): unknown {
+    if (typeof value === 'string') {
+      return value.replace(/\u0000/g, '');
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this.sanitizeJsonbValue(item));
+    }
+
+    if (this.isRecord(value)) {
+      return Object.fromEntries(
+        Object.entries(value)
+          .filter(([, item]) => item !== undefined)
+          .map(([key, item]) => [
+            key.replace(/\u0000/g, ''),
+            this.sanitizeJsonbValue(item),
+          ]),
+      );
+    }
+
+    return value;
   }
 
   private async markParseSucceeded(context: ParseStartContext, parseResult: ParseResult) {
@@ -405,6 +439,22 @@ export class CvParsingService {
     }
 
     return 'PARSER_FAILED';
+  }
+
+  private toErrorDetail(error: unknown) {
+    if (error instanceof Error) {
+      return error.stack ?? error.message;
+    }
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
   private listExtractedFields(parsedData: Record<string, unknown>) {

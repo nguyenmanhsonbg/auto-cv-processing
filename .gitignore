@@ -9,3 +9,5 @@ apps/backend/uploads/
 ~*
 tmp
 .playwright-mcp
+cv-quarantine/
+cv-safe/
