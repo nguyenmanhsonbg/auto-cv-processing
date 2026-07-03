@@ -5,6 +5,7 @@ export type ApiErrorCode =
   | 'UPLOAD_RATE_LIMIT_EXCEEDED'
   | 'MALWARE_DETECTED'
   | 'CV_SCAN_FAILED'
+  | 'CV_NOT_RESUME'
   | 'CV_SANITIZE_FAILED'
   | 'CV_PARSE_FAILED'
   | 'DUPLICATE_APPLICATION'
@@ -30,6 +31,7 @@ export const API_ERROR_CODES = {
   UPLOAD_RATE_LIMIT_EXCEEDED: 'UPLOAD_RATE_LIMIT_EXCEEDED',
   MALWARE_DETECTED: 'MALWARE_DETECTED',
   CV_SCAN_FAILED: 'CV_SCAN_FAILED',
+  CV_NOT_RESUME: 'CV_NOT_RESUME',
   CV_SANITIZE_FAILED: 'CV_SANITIZE_FAILED',
   CV_PARSE_FAILED: 'CV_PARSE_FAILED',
   DUPLICATE_APPLICATION: 'DUPLICATE_APPLICATION',
@@ -52,6 +54,8 @@ const PUBLIC_SAFE_MESSAGES: Record<string, string> = {
     'CV không được chấp nhận do không đáp ứng chính sách bảo mật.',
   [API_ERROR_CODES.CV_SCAN_FAILED]:
     'Hệ thống chưa thể kiểm tra CV. Vui lòng thử lại sau.',
+  [API_ERROR_CODES.CV_NOT_RESUME]:
+    'File tải lên chưa được xác nhận là CV. CV cần có nội dung văn bản, email và kỹ năng.',
   [API_ERROR_CODES.CV_SANITIZE_FAILED]: 'Hồ sơ đang cần được xử lý thêm.',
   [API_ERROR_CODES.CV_PARSE_FAILED]: 'Hồ sơ đang cần được xử lý thêm.',
   [API_ERROR_CODES.DUPLICATE_APPLICATION]: 'Hồ sơ ứng tuyển cho vị trí này đã tồn tại.',
@@ -71,6 +75,7 @@ const INTERNAL_SAFE_MESSAGES: Record<string, string> = {
   [API_ERROR_CODES.UPLOAD_RATE_LIMIT_EXCEEDED]: 'Yêu cầu bị giới hạn tần suất.',
   [API_ERROR_CODES.MALWARE_DETECTED]: 'CV bị scanner đánh dấu rủi ro bảo mật.',
   [API_ERROR_CODES.CV_SCAN_FAILED]: 'Scanner failed hoặc timeout kỹ thuật.',
+  [API_ERROR_CODES.CV_NOT_RESUME]: 'File không đủ tín hiệu CV bắt buộc: rawText, email, skills.',
   [API_ERROR_CODES.CV_SANITIZE_FAILED]: 'Sanitize clean CV thất bại.',
   [API_ERROR_CODES.CV_PARSE_FAILED]: 'Parse clean CV thất bại hoặc text rỗng.',
   [API_ERROR_CODES.DUPLICATE_APPLICATION]: 'Application đã tồn tại cho candidate/job posting.',

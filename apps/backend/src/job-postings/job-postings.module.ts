@@ -15,6 +15,7 @@ import { HrReviewDecisionEntity } from '../hr-review/entities/hr-review-decision
 import { JobDescriptionEntity } from '../job-descriptions/entities/job-description.entity';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
 import { FacebookPublishingModule } from '../facebook-publishing/facebook-publishing.module';
+import { FileParserModule } from '../file-parser/file-parser.module';
 import { LevelEntity } from '../levels/entities/level.entity';
 import { MappingResultEntity } from '../mapping/entities/mapping-result.entity';
 import { PositionEntity } from '../positions/entities/position.entity';
@@ -29,6 +30,7 @@ import { PublicJobPostingsController } from './public-job-postings.controller';
     ApplicationsModule,
     CvDocumentsModule,
     FacebookPublishingModule,
+    FileParserModule,
     TypeOrmModule.forFeature([
       AiScreeningResultEntity,
       ApplicationEntity,

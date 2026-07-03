@@ -80,6 +80,7 @@ interface UploadAmisCvFileResponse {
   fileName?: string;
   fileNames?: string[];
   fileCount?: number;
+  target?: string;
   error?: string;
 }
 
@@ -695,11 +696,16 @@ async function uploadAmisCvFile(payload: UploadAmisCvFileMessage['payload']): Pr
     dataTransfer.items.add(file);
   }
 
+  const deliveredTargets: string[] = [];
+  if (input) {
+    assignFilesToInput(input, dataTransfer.files);
+    dispatchFileInputEvents(input);
+    deliveredTargets.push('file-input');
+  }
+
   if (dropTarget) {
     dispatchDropEvents(dropTarget, dataTransfer);
-  } else if (input) {
-    input.files = dataTransfer.files;
-    dispatchFileInputEvents(input);
+    deliveredTargets.push('drop-target');
   }
 
   return {
@@ -707,6 +713,7 @@ async function uploadAmisCvFile(payload: UploadAmisCvFileMessage['payload']): Pr
     fileName: files[0]?.name,
     fileNames: files.map((file) => file.name),
     fileCount: files.length,
+    target: deliveredTargets.join('+') || undefined,
   };
 }
 
@@ -726,16 +733,23 @@ function findAmisCvFileInput() {
   const scopedInputs = modalRoots.flatMap((root) => Array.from(root.querySelectorAll<HTMLInputElement>('input[type="file"]')));
   const candidates = [...scopedInputs, ...inputs].filter((input, index, array) => array.indexOf(input) === index);
 
-  return candidates.find((input) => {
-    const accept = cleanText(input.accept).toLowerCase();
-    const contextText = cleanText(input.closest('form, .dx-popup-content, .modal, [role="dialog"], body')?.textContent).toLowerCase();
-    return !accept || accept.includes('pdf') || accept.includes('doc') || contextText.includes('cv') || contextText.includes('tải cv');
-  }) ?? candidates[0] ?? null;
+  return candidates
+    .map((input) => ({
+      input,
+      score: scoreAmisCvFileInput(input),
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score)[0]?.input
+    ?? candidates[0]
+    ?? null;
 }
 
 function findAmisCvDropTarget(input: HTMLInputElement | null) {
   if (input) {
-    const target = input.closest<HTMLElement>('.dx-fileuploader, .dx-fileuploader-wrapper, .dx-fileuploader-input-wrapper, [class*="upload"], [class*="Upload"]');
+    const target = input.closest<HTMLElement>(
+      '.dx-fileuploader, .dx-fileuploader-wrapper, .dx-fileuploader-input-wrapper, '
+      + '.dx-fileuploader-input-container, [class*="upload"], [class*="Upload"]',
+    );
     if (target) return target;
   }
 
@@ -743,8 +757,32 @@ function findAmisCvDropTarget(input: HTMLInputElement | null) {
     ?? findVisibleTextElement('tải CV lên')
     ?? findVisibleTextElement('file .doc');
 
-  return uploadText?.closest<HTMLElement>('.dx-fileuploader, .dx-fileuploader-wrapper, .dx-fileuploader-input-wrapper, [class*="upload"], [class*="Upload"], [role="button"], div')
+  return uploadText?.closest<HTMLElement>(
+    '.dx-fileuploader, .dx-fileuploader-wrapper, .dx-fileuploader-input-wrapper, '
+    + '.dx-fileuploader-input-container, [class*="upload"], [class*="Upload"], [role="button"], div',
+  )
     ?? null;
+}
+
+function scoreAmisCvFileInput(input: HTMLInputElement) {
+  const accept = cleanText(input.accept).toLowerCase();
+  const name = cleanText(input.name).toLowerCase();
+  const id = cleanText(input.id).toLowerCase();
+  const className = cleanText(input.className).toLowerCase();
+  const contextText = cleanText(input.closest('form, .dx-popup-content, .modal, [role="dialog"], body')?.textContent).toLowerCase();
+  let score = 0;
+
+  if (!accept) score += 1;
+  if (accept.includes('pdf')) score += 6;
+  if (accept.includes('doc')) score += 6;
+  if (accept.includes('image') || accept.includes('jpg') || accept.includes('jpeg') || accept.includes('png')) score += 2;
+  if (name.includes('cv') || id.includes('cv') || className.includes('cv')) score += 8;
+  if (contextText.includes('cv')) score += 5;
+  if (contextText.includes('tải cv') || contextText.includes('tải lên tệp') || contextText.includes('file .doc')) score += 5;
+  if (contextText.includes('thêm ứng viên')) score += 4;
+  if (input.multiple) score += 1;
+
+  return score;
 }
 
 function findVisibleModalRoots() {
@@ -758,6 +796,16 @@ function findVisibleModalRoots() {
 function dispatchFileInputEvents(input: HTMLInputElement) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function assignFilesToInput(input: HTMLInputElement, files: FileList) {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files');
+  if (descriptor?.set) {
+    descriptor.set.call(input, files);
+    return;
+  }
+
+  input.files = files;
 }
 
 function dispatchDropEvents(target: HTMLElement, dataTransfer: DataTransfer) {

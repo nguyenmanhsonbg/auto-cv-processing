@@ -72,6 +72,7 @@ export interface UploadCvInput {
   reason?: string | null;
   actorId?: string | null;
   idempotencyKey?: string | null;
+  allowedApplicationStatuses?: readonly ApplicationStatus[];
 }
 
 export interface CleanCvFileAccessInput {
@@ -348,6 +349,16 @@ export class CvDocumentsService {
         throw new ConflictException({
           code: 'DUPLICATE_CV_FILE',
           message: 'This CV file has already been uploaded for this application.',
+        });
+      }
+
+      if (
+        input.allowedApplicationStatuses
+        && !input.allowedApplicationStatuses.includes(application.status)
+      ) {
+        throw new ConflictException({
+          code: 'INVALID_STATE_TRANSITION',
+          message: 'Application cannot receive candidate CV update in its current state.',
         });
       }
 

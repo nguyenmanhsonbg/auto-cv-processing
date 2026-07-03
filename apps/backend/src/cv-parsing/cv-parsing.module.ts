@@ -6,6 +6,7 @@ import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
 import { ParsedProfileEntity } from '../cv-documents/entities/parsed-profile.entity';
 import { FileParserModule } from '../file-parser/file-parser.module';
 import { WorkflowStateModule } from '../workflow-state/workflow-state.module';
+import { GeminiCvParserService } from './gemini-cv-parser.service';
 import { CvParsingService } from './cv-parsing.service';
 
 @Module({
@@ -19,7 +20,7 @@ import { CvParsingService } from './cv-parsing.service';
     FileParserModule,
     WorkflowStateModule,
   ],
-  providers: [CvParsingService],
+  providers: [CvParsingService, GeminiCvParserService],
   exports: [CvParsingService],
 })
 export class CvParsingModule {}
