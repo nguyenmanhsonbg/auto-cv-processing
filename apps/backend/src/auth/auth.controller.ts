@@ -18,7 +18,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Roles } from './decorators/roles.decorator';
-import { CreateUserDto, LoginDto, UpdateUserDto } from './dto/login.dto';
+import { CreateUserDto, LoginDto, LogoutDto, RefreshTokenDto, UpdateUserDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
@@ -37,6 +37,20 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with email and password' })
   async login(@Request() req: any, @Body() _dto: LoginDto) {
     return this.authService.login(req.user);
+  }
+
+  @Post('refresh')
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @ApiOperation({ summary: 'Rotate refresh token and issue a new access token' })
+  async refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refresh(dto.refreshToken);
+  }
+
+  @Post('logout')
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @ApiOperation({ summary: 'Revoke the current refresh token' })
+  async logout(@Body() dto: LogoutDto) {
+    return this.authService.logout(dto.refreshToken);
   }
 
   @Get('me')
@@ -125,7 +139,11 @@ export class AuthController {
     const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3001');
     try {
       const result = await req.user; // set by GoogleStrategy.validate()
-      return res.redirect(`${frontendUrl}/auth/google/callback?token=${result.accessToken}`);
+      const params = new URLSearchParams({
+        token: result.accessToken,
+        refreshToken: result.refreshToken,
+      });
+      return res.redirect(`${frontendUrl}/auth/google/callback?${params.toString()}`);
     } catch {
       return res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
     }

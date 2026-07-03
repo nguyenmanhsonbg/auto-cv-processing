@@ -1,4 +1,5 @@
 import { BE_API_BASE_URL, EXTENSION_VERSION } from './config';
+import { clearAccessToken, getRefreshToken, setAuthTokens } from './auth-store';
 import type {
   ApiEnvelope,
   ApiPagination,
@@ -33,7 +34,7 @@ export class ApiClientError extends Error {
 }
 
 export async function login(email: string, password: string) {
-  return request<{ accessToken: string; user: ExtensionUser }>('/auth/login', {
+  return request<{ accessToken: string; refreshToken: string; user: ExtensionUser }>('/auth/login', {
     method: 'POST',
     body: { email, password },
   });
@@ -253,15 +254,23 @@ async function request<T>(
     headers?: Record<string, string>;
   },
 ): Promise<T> {
-  const response = await fetch(`${BE_API_BASE_URL}${path}`, {
+  const body = options.body === undefined ? undefined : JSON.stringify(options.body);
+  let response = await fetch(`${BE_API_BASE_URL}${path}`, {
     method: options.method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {}),
-      ...options.headers,
-    },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    headers: buildJsonHeaders(options.accessToken, options.headers),
+    body,
   });
+
+  if (response.status === 401 && shouldAttemptRefresh(path)) {
+    const refreshedAccessToken = await refreshAccessToken();
+    if (refreshedAccessToken) {
+      response = await fetch(`${BE_API_BASE_URL}${path}`, {
+        method: options.method,
+        headers: buildJsonHeaders(refreshedAccessToken, options.headers),
+        body,
+      });
+    }
+  }
 
   const json = await readJson(response);
 
@@ -290,14 +299,20 @@ async function requestWithPagination<T>(
     headers?: Record<string, string>;
   },
 ): Promise<{ data: T[]; pagination: ApiPagination | null }> {
-  const response = await fetch(`${BE_API_BASE_URL}${path}`, {
+  let response = await fetch(`${BE_API_BASE_URL}${path}`, {
     method: options.method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {}),
-      ...options.headers,
-    },
+    headers: buildJsonHeaders(options.accessToken, options.headers),
   });
+
+  if (response.status === 401 && shouldAttemptRefresh(path)) {
+    const refreshedAccessToken = await refreshAccessToken();
+    if (refreshedAccessToken) {
+      response = await fetch(`${BE_API_BASE_URL}${path}`, {
+        method: options.method,
+        headers: buildJsonHeaders(refreshedAccessToken, options.headers),
+      });
+    }
+  }
 
   const json = await readJson(response);
 
@@ -324,6 +339,52 @@ async function requestWithPagination<T>(
   };
 }
 
+function buildJsonHeaders(accessToken?: string, headers?: Record<string, string>) {
+  return {
+    'Content-Type': 'application/json',
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...headers,
+  };
+}
+
+function shouldAttemptRefresh(path: string) {
+  return !path.startsWith('/auth/login')
+    && !path.startsWith('/auth/refresh')
+    && !path.startsWith('/auth/logout');
+}
+
+async function refreshAccessToken() {
+  const refreshToken = await getRefreshToken();
+  if (!refreshToken) return null;
+
+  const response = await fetch(`${BE_API_BASE_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Extension-Version': EXTENSION_VERSION,
+    },
+    body: JSON.stringify({ refreshToken }),
+  });
+  const json = await readJson(response);
+
+  if (!response.ok) {
+    await clearAccessToken();
+    return null;
+  }
+
+  const auth = isExtensionAuthResponse(json) ? json : null;
+  if (!auth) {
+    await clearAccessToken();
+    return null;
+  }
+
+  await setAuthTokens({
+    accessToken: auth.accessToken,
+    refreshToken: auth.refreshToken,
+  });
+  return auth.accessToken;
+}
+
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) return null;
@@ -344,6 +405,13 @@ function isPaginatedEnvelope<T>(value: unknown): value is ApiEnvelope<T[]> & { p
     && Array.isArray(value.data)
     && typeof (value as { pagination?: unknown }).pagination === 'object'
     && (value as { pagination?: unknown }).pagination !== null;
+}
+
+function isExtensionAuthResponse(value: unknown): value is { accessToken: string; refreshToken: string } {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { accessToken?: unknown }).accessToken === 'string'
+    && typeof (value as { refreshToken?: unknown }).refreshToken === 'string';
 }
 
 function readContentDispositionFileName(value: string | null) {

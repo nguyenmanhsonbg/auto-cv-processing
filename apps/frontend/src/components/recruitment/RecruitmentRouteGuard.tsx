@@ -5,8 +5,9 @@ import { useAuthContext } from '@/lib/auth-context';
 export function RecruitmentRouteGuard() {
   const { user } = useAuthContext();
   const token = localStorage.getItem('token');
+  const refreshToken = localStorage.getItem('refreshToken');
 
-  if (!token) {
+  if (!token && !refreshToken) {
     return <Navigate to="/login" replace />;
   }
 

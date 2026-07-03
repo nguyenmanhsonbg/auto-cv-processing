@@ -13,6 +13,21 @@ export class LoginDto {
   password: string;
 }
 
+export class RefreshTokenDto {
+  @ApiProperty({ example: 'refresh_token_value' })
+  @IsString()
+  @MinLength(20)
+  refreshToken: string;
+}
+
+export class LogoutDto {
+  @ApiPropertyOptional({ example: 'refresh_token_value' })
+  @IsOptional()
+  @IsString()
+  @MinLength(20)
+  refreshToken?: string;
+}
+
 export class RegisterDto {
   @ApiProperty({ example: 'admin@vcs.com' })
   @IsEmail()
