@@ -52,6 +52,11 @@ interface FacebookSubmitButtonPointProbe {
   submitButton?: FacebookSubmitButtonPoint;
 }
 
+interface FacebookSubmitPreflightResult {
+  ready: boolean;
+  message: string;
+}
+
 export async function publishFacebookPlan(
   accessToken: string,
   plan: FacebookPublishPlan,
@@ -195,28 +200,11 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
     message: 'Checking Facebook login in this browser.',
   });
 
-  const tab = await openTab('https://www.facebook.com/', true);
-  await waitForTabComplete(tab.id);
-  let status = await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []);
-  if (status.ready) {
-    callbacks.onStatus?.({
-      status: 'READY',
-      message: status.message,
-      url: status.url,
-    });
-    return status;
-  }
+  const tab = await openTab('https://www.facebook.com/', false);
+  let status: FacebookLoginCheckResult | null = null;
+  let closeAfterCheck = true;
 
-  callbacks.onStatus?.({
-    status: 'WAITING_LOGIN',
-    message: 'Facebook login is required. Please complete login in the opened tab.',
-    url: status.url,
-  });
-
-  await chrome.tabs?.update(tab.id, { url: 'https://www.facebook.com/login', active: true });
-  const deadline = Date.now() + 10 * 60_000;
-  while (Date.now() < deadline) {
-    await sleep(2_000);
+  try {
     await waitForTabComplete(tab.id);
     status = await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []);
     if (status.ready) {
@@ -227,9 +215,37 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
       });
       return status;
     }
-  }
 
-  throw new Error(status.message || 'Facebook login timed out.');
+    closeAfterCheck = false;
+    callbacks.onStatus?.({
+      status: 'WAITING_LOGIN',
+      message: 'Facebook login is required. Please complete login in the opened tab.',
+      url: status.url,
+    });
+
+    await chrome.tabs?.update(tab.id, { url: 'https://www.facebook.com/login', active: true });
+    const deadline = Date.now() + 10 * 60_000;
+    while (Date.now() < deadline) {
+      await sleep(2_000);
+      await waitForTabComplete(tab.id);
+      status = await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []);
+      if (status.ready) {
+        closeAfterCheck = true;
+        callbacks.onStatus?.({
+          status: 'READY',
+          message: status.message,
+          url: status.url,
+        });
+        return status;
+      }
+    }
+
+    throw new Error(status.message || 'Facebook login timed out.');
+  } finally {
+    if (closeAfterCheck) {
+      await closeTabSafely(tab.id);
+    }
+  }
 }
 
 async function publishTarget(
@@ -250,35 +266,81 @@ async function publishTarget(
     };
   }
 
-  const tab = await openTab(target.targetUrl, true);
-  let latestFailure: FacebookPreparedPostResult | null = null;
+  let latestFailure: FacebookPagePublishResult | null = null;
+  for (let tabAttempt = 0; tabAttempt < 2; tabAttempt += 1) {
+    const result = await publishTargetInFreshTab(target.targetUrl, content).catch((error) => ({
+      status: 'FAILED' as const,
+      message: toAutomationErrorMessage(error),
+    }));
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await waitForTabComplete(tab.id);
-    await sleep(randomDelay(attempt === 0 ? 2_500 : 4_000, attempt === 0 ? 6_000 : 8_000));
-    const preparedPost = await runScript<[string], FacebookPreparedPostResult>(
-      tab.id,
-      prepareFacebookPostInPage,
-      [content],
-    );
-    if (preparedPost.status === 'READY_TO_SUBMIT' && preparedPost.submitButton) {
-      await clickTabPoint(tab.id, preparedPost.submitButton);
-      return runScript<[], FacebookPagePublishResult>(tab.id, waitForFacebookSubmissionInPage, []);
+    latestFailure = result;
+    if (result.status !== 'FAILED' || !isRecoverableTabAutomationFailure(result.message)) {
+      return result;
     }
 
-    latestFailure = preparedPost;
-    if (attempt === 0 && shouldRetryPrepareFailure(preparedPost.message)) {
-      await reloadTab(tab.id);
-      continue;
-    }
-
-    break;
+    await sleep(randomDelay(1_200, 2_500));
   }
 
-  return {
+  return latestFailure ?? {
     status: 'FAILED',
-    message: latestFailure?.message ?? 'Facebook post could not be prepared.',
+    message: 'Facebook post could not be prepared.',
   };
+}
+
+async function publishTargetInFreshTab(
+  targetUrl: string,
+  content: string,
+): Promise<FacebookPagePublishResult> {
+  const tab = await openTab(targetUrl, false);
+  let closeAfterPublish = true;
+  try {
+    let latestFailure: FacebookPreparedPostResult | null = null;
+    let activatedForPrepareRetry = false;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await waitForTabComplete(tab.id);
+      await sleep(randomDelay(attempt === 0 ? 2_500 : 4_000, attempt === 0 ? 6_000 : 8_000));
+      const preparedPost = await runScript<[string], FacebookPreparedPostResult>(
+        tab.id,
+        prepareFacebookPostInPage,
+        [content],
+      );
+      if (preparedPost.status === 'READY_TO_SUBMIT' && preparedPost.submitButton) {
+        const submitResult = await submitPreparedPost(tab.id, preparedPost.submitButton, content);
+        closeAfterPublish = submitResult.status === 'SUCCESS';
+        return submitResult;
+      }
+
+      latestFailure = preparedPost;
+      if (!shouldRetryPrepareFailure(preparedPost.message)) {
+        break;
+      }
+
+      if (attempt === 0) {
+        await reloadTab(tab.id);
+        continue;
+      }
+
+      if (!activatedForPrepareRetry) {
+        activatedForPrepareRetry = true;
+        await activateTab(tab.id);
+        await sleep(randomDelay(800, 1_500));
+        await reloadTab(tab.id);
+        continue;
+      }
+
+      break;
+    }
+
+    return {
+      status: 'FAILED',
+      message: latestFailure?.message ?? 'Facebook post could not be prepared.',
+    };
+  } finally {
+    if (closeAfterPublish) {
+      await closeTabSafely(tab.id);
+    }
+  }
 }
 
 async function reportAllTargetsFailed(
@@ -361,6 +423,100 @@ function shouldRetryPrepareFailure(message: string) {
   return /composer|post button|post editor/i.test(message);
 }
 
+function isRecoverableTabAutomationFailure(message: string) {
+  return /no tab with given id|tab.*closed|target closed|target page|frame was removed|cannot access.*closed|extension context invalidated/i.test(message);
+}
+
+function toAutomationErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Facebook browser automation failed.';
+}
+
+async function activateTab(tabId: number) {
+  await chrome.tabs?.update(tabId, { active: true });
+}
+
+async function closeTabSafely(tabId: number) {
+  try {
+    await chrome.tabs?.remove(tabId);
+  } catch {
+    // The tab may already be closed by the browser or user.
+  }
+}
+
+async function submitPreparedPost(
+  tabId: number,
+  submitButton: FacebookSubmitButtonPoint,
+  content: string,
+): Promise<FacebookPagePublishResult> {
+  const hiddenResult = await clickAndWaitForSubmission(tabId, submitButton, content);
+  if (
+    hiddenResult.status === 'SUCCESS'
+    || isRecoverableTabAutomationFailure(hiddenResult.message)
+    || !shouldRetryVisibleSubmitFailure(hiddenResult.message)
+  ) {
+    return hiddenResult;
+  }
+
+  try {
+    await activateTab(tabId);
+    await sleep(randomDelay(500, 1_200));
+    return clickAndWaitForSubmission(tabId, submitButton, content);
+  } catch (error) {
+    return {
+      status: 'FAILED',
+      message: toAutomationErrorMessage(error),
+    };
+  }
+}
+
+async function clickAndWaitForSubmission(
+  tabId: number,
+  submitButton: FacebookSubmitButtonPoint,
+  content: string,
+): Promise<FacebookPagePublishResult> {
+  const preflight = await runScript<[string], FacebookSubmitPreflightResult>(
+    tabId,
+    verifyFacebookPostReadyToSubmitInPage,
+    [content],
+  ).catch((error) => ({
+    ready: false,
+    message: toAutomationErrorMessage(error),
+  }));
+
+  if (!preflight.ready) {
+    return {
+      status: 'FAILED',
+      message: preflight.message,
+    };
+  }
+
+  try {
+    await clickTabPoint(tabId, submitButton);
+  } catch (error) {
+    return {
+      status: 'FAILED',
+      message: error instanceof Error ? error.message : 'Facebook submit click failed.',
+    };
+  }
+
+  try {
+    return await runScript<[string], FacebookPagePublishResult>(
+      tabId,
+      waitForFacebookSubmissionInPage,
+      [content],
+    );
+  } catch (error) {
+    return {
+      status: 'FAILED',
+      message: toAutomationErrorMessage(error),
+    };
+  }
+}
+
+function shouldRetryVisibleSubmitFailure(message: string) {
+  return /did not complete|submit click|target closed|target page|cannot access|remained available|not triggered|not activated|resolve.*post button|ready before submit/i.test(message);
+}
+
 async function runScript<Args extends unknown[], Result>(
   tabId: number,
   func: (...args: Args) => Result | Promise<Result>,
@@ -393,6 +549,9 @@ async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint) {
       resolveFacebookSubmitButtonPointInPage,
       [],
     ).catch(() => null);
+    if (probedPoint && !probedPoint.found) {
+      throw new Error('Could not resolve Facebook Post button before submit click.');
+    }
     const clickPoint = probedPoint?.found && probedPoint.submitButton
       ? probedPoint.submitButton
       : point;
@@ -1099,8 +1258,7 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
   return { found: false };
 }
 
-async function waitForFacebookSubmissionInPage(): Promise<FacebookPagePublishResult> {
-  const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitPreflightResult {
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -1109,6 +1267,17 @@ async function waitForFacebookSubmissionInPage(): Promise<FacebookPagePublishRes
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+  const POST_BUTTON_PATTERNS = [
+    /^post$/,
+    /^dang$/,
+    /^post post$/,
+    /^dang dang$/,
+    /^post to group$/,
+    /^dang bai$/,
+    /^dang tin$/,
+    /^dang len nhom$/,
+    /^dang vao nhom$/,
+  ];
   const COMMENT_PATTERNS = [
     /write a comment/,
     /add a comment/,
@@ -1148,7 +1317,16 @@ async function waitForFacebookSubmissionInPage(): Promise<FacebookPagePublishRes
     element.getAttribute('title') ?? '',
   ].join(' '));
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
+  const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
+  const getClickableElement = (element: Element) => (
+    element.closest('button, [role="button"], [tabindex], a') ?? element
+  );
+  const isDisabled = (element: Element) => {
+    const clickable = getClickableElement(element);
+    return clickable.hasAttribute('disabled')
+      || clickable.getAttribute('aria-disabled') === 'true';
+  };
   const isInsideCommentSurface = (element: Element) => {
     if (isCommentLabel(elementLabel(element))) return true;
 
@@ -1156,7 +1334,7 @@ async function waitForFacebookSubmissionInPage(): Promise<FacebookPagePublishRes
     let depth = 0;
     while (current && depth < 6) {
       const label = elementLabel(current);
-      if (matchesAny(label, POST_COMPOSER_PATTERNS)) return false;
+      if (matchesAny(label, POST_COMPOSER_PATTERNS) || isSubmitLabel(label)) return false;
       if (isCommentLabel(label)) return true;
       current = current.parentElement;
       depth += 1;
@@ -1177,13 +1355,195 @@ async function waitForFacebookSubmissionInPage(): Promise<FacebookPagePublishRes
         || element.closest('[role="dialog"]')
         || normalize(element.innerText || element.textContent || '').length > 0;
     }) ?? null;
-  const hasOpenPostSurface = () => {
+  const findSubmitButton = (root: Document | Element) => {
+    const uniqueClickables = new Set<Element>();
+
+    return queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
+      .map((element) => ({
+        source: element,
+        clickable: getClickableElement(element),
+      }))
+      .filter(({ source, clickable }) => {
+        if (uniqueClickables.has(clickable)) return false;
+        uniqueClickables.add(clickable);
+        if (!isVisible(clickable) || isDisabled(clickable) || isInsideCommentSurface(source)) return false;
+        const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
+        return labels.some(isSubmitLabel);
+      })[0]?.clickable ?? null;
+  };
+  const dialogs = queryAll(document, '[role="dialog"]')
+    .filter((element) => isVisible(element));
+  const roots = dialogs.length > 0 ? dialogs : [document];
+  const editor = roots
+    .map((root) => findPostEditor(root))
+    .find((element): element is HTMLElement => Boolean(element)) ?? null;
+  const submitButton = roots
+    .map((root) => findSubmitButton(root))
+    .find((element): element is Element => Boolean(element)) ?? null;
+  const contentSample = normalize(content).slice(0, 24);
+  const editorText = normalize(editor?.innerText || editor?.textContent || '');
+
+  if (!editor) {
+    return {
+      ready: false,
+      message: 'Facebook post editor is not open before submit.',
+    };
+  }
+
+  if (contentSample && !editorText.includes(contentSample)) {
+    return {
+      ready: false,
+      message: 'Facebook post content is not present before submit.',
+    };
+  }
+
+  if (!submitButton) {
+    return {
+      ready: false,
+      message: 'Facebook Post button is not ready before submit.',
+    };
+  }
+
+  return {
+    ready: true,
+    message: 'Facebook post is ready before submit.',
+  };
+}
+
+async function waitForFacebookSubmissionInPage(content: string): Promise<FacebookPagePublishResult> {
+  const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  const POST_BUTTON_PATTERNS = [
+    /^post$/,
+    /^dang$/,
+    /^post post$/,
+    /^dang dang$/,
+    /^post to group$/,
+    /^dang bai$/,
+    /^dang tin$/,
+    /^dang len nhom$/,
+    /^dang vao nhom$/,
+  ];
+  const COMMENT_PATTERNS = [
+    /write a comment/,
+    /add a comment/,
+    /comment as/,
+    /reply/,
+    /binh luan/,
+    /viet binh luan/,
+    /tra loi/,
+    /viet phan hoi/,
+  ];
+  const POST_COMPOSER_PATTERNS = [
+    /write something/,
+    /create a public post/,
+    /create post/,
+    /start a post/,
+    /what.?s on your mind/,
+    /ban viet gi/,
+    /viet gi/,
+    /tao bai viet/,
+  ];
+  const queryAll = (root: Document | Element, selector: string) => (
+    Array.from(root.querySelectorAll(selector))
+  );
+  const isVisible = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.visibility !== 'hidden'
+      && style.display !== 'none';
+  };
+  const elementLabel = (element: Element) => normalize([
+    element.textContent ?? '',
+    element.getAttribute('aria-label') ?? '',
+    element.getAttribute('aria-placeholder') ?? '',
+    element.getAttribute('placeholder') ?? '',
+    element.getAttribute('title') ?? '',
+  ].join(' '));
+  const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
+  const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
+  const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
+  const getClickableElement = (element: Element) => (
+    element.closest('button, [role="button"], [tabindex], a') ?? element
+  );
+  const isDisabled = (element: Element) => {
+    const clickable = getClickableElement(element);
+    return clickable.hasAttribute('disabled')
+      || clickable.getAttribute('aria-disabled') === 'true';
+  };
+  const isInsideCommentSurface = (element: Element) => {
+    if (isCommentLabel(elementLabel(element))) return true;
+
+    let current = element.parentElement;
+    let depth = 0;
+    while (current && depth < 6) {
+      const label = elementLabel(current);
+      if (matchesAny(label, POST_COMPOSER_PATTERNS) || isSubmitLabel(label)) return false;
+      if (isCommentLabel(label)) return true;
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return false;
+  };
+  const findPostEditor = (root: Document | Element) => queryAll(
+    root,
+    '[contenteditable="true"][role="textbox"], [contenteditable="true"]',
+  )
+    .filter((element): element is HTMLElement => element instanceof HTMLElement)
+    .filter((element) => isVisible(element))
+    .filter((element) => !isInsideCommentSurface(element))
+    .find((element) => {
+      const label = elementLabel(element);
+      return matchesAny(label, POST_COMPOSER_PATTERNS)
+        || element.closest('[role="dialog"]')
+        || normalize(element.innerText || element.textContent || '').length > 0;
+    }) ?? null;
+  const findSubmitButton = (root: Document | Element) => {
+    const uniqueClickables = new Set<Element>();
+
+    return queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
+      .map((element) => ({
+        source: element,
+        clickable: getClickableElement(element),
+      }))
+      .filter(({ source, clickable }) => {
+        if (uniqueClickables.has(clickable)) return false;
+        uniqueClickables.add(clickable);
+        if (!isVisible(clickable) || isInsideCommentSurface(source)) return false;
+        const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
+        return labels.some(isSubmitLabel);
+      })[0]?.clickable ?? null;
+  };
+  const readPostSurfaceState = () => {
     const dialogs = queryAll(document, '[role="dialog"]')
       .filter((element) => isVisible(element))
       .filter((element) => !isInsideCommentSurface(element));
-    if (dialogs.some((dialog) => findPostEditor(dialog))) return true;
+    const roots = dialogs.length > 0 ? dialogs : [document];
+    const editor = roots
+      .map((root) => findPostEditor(root))
+      .find((element): element is HTMLElement => Boolean(element)) ?? null;
+    const submitButton = roots
+      .map((root) => findSubmitButton(root))
+      .find((element): element is Element => Boolean(element)) ?? null;
+    const contentSample = normalize(content).slice(0, 24);
+    const editorText = normalize(editor?.innerText || editor?.textContent || '');
 
-    return Boolean(findPostEditor(document));
+    return {
+      hasPostSurface: Boolean(editor || submitButton),
+      contentInEditor: Boolean(editor && (!contentSample || editorText.includes(contentSample))),
+      submitButtonFound: Boolean(submitButton),
+      submitButtonDisabled: submitButton ? isDisabled(submitButton) : false,
+    };
   };
   const readSubmissionError = () => {
     const text = normalize(document.body?.innerText ?? '');
@@ -1204,7 +1564,10 @@ async function waitForFacebookSubmissionInPage(): Promise<FacebookPagePublishRes
 
     return null;
   };
+  const startedAt = Date.now();
   const deadline = Date.now() + 30_000;
+  let observedPostContentAfterClick = false;
+  let observedSubmitButtonAfterClick = false;
 
   while (Date.now() < deadline) {
     const errorMessage = readSubmissionError();
@@ -1223,10 +1586,28 @@ async function waitForFacebookSubmissionInPage(): Promise<FacebookPagePublishRes
       };
     }
 
-    if (!hasOpenPostSurface()) {
+    const postSurfaceState = readPostSurfaceState();
+    observedPostContentAfterClick = observedPostContentAfterClick || postSurfaceState.contentInEditor;
+    observedSubmitButtonAfterClick = observedSubmitButtonAfterClick || postSurfaceState.submitButtonFound;
+    const elapsedMs = Date.now() - startedAt;
+
+    if (!postSurfaceState.hasPostSurface && elapsedMs > 1_200) {
       return {
         status: 'SUCCESS',
         message: 'Submitted to Facebook group.',
+      };
+    }
+
+    if (
+      elapsedMs > 5_000
+      && postSurfaceState.contentInEditor
+      && postSurfaceState.submitButtonFound
+      && !postSurfaceState.submitButtonDisabled
+      && (observedPostContentAfterClick || observedSubmitButtonAfterClick)
+    ) {
+      return {
+        status: 'FAILED',
+        message: 'Facebook submit button remained available after click; submit was not triggered.',
       };
     }
 
