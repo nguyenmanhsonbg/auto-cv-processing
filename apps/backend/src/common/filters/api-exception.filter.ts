@@ -37,7 +37,6 @@ interface NormalizedApiError {
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
-    console.error('[ApiExceptionFilter] Caught exception:', exception);
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
     const request = context.getRequest<Request>();
@@ -48,6 +47,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     }
 
     const error = this.normalizeException(exception);
+    this.logException(exception, error, request);
     response.status(error.status).json({
       success: false,
       error: {
@@ -59,6 +59,29 @@ export class ApiExceptionFilter implements ExceptionFilter {
         requestId: this.resolveRequestId(request),
         timestamp: new Date().toISOString(),
       },
+    });
+  }
+
+  private logException(exception: unknown, error: NormalizedApiError, request: Request) {
+    const path = `${request.method} ${request.originalUrl ?? request.url}`;
+
+    if (this.isServerErrorStatus(error.status)) {
+      console.error('[ApiExceptionFilter] Unhandled server exception:', {
+        status: error.status,
+        code: error.code,
+        path,
+        exception,
+      });
+      return;
+    }
+
+    if (error.status === HttpStatus.UNAUTHORIZED) return;
+
+    console.warn('[ApiExceptionFilter] Request rejected:', {
+      status: error.status,
+      code: error.code,
+      path,
+      message: error.message,
     });
   }
 
