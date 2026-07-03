@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
@@ -56,6 +56,7 @@ import './styles.css';
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
+type WorkspaceTab = 'overview' | 'posting' | 'cv';
 type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
@@ -93,6 +94,11 @@ const COMPETENCY_TYPE_OPTIONS = [
   { value: 'SKILL', label: 'Skill' },
   { value: 'PERSONALITY', label: 'Personality' },
 ];
+const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
+  { id: 'overview', label: 'Tổng Quan' },
+  { id: 'posting', label: 'Posting' },
+  { id: 'cv', label: 'CV' },
+];
 
 function getCareerQuestionSelectionStorageKey(amisCareerId: string) {
   return `${CAREER_QUESTION_SELECTION_PREFIX}${amisCareerId}`;
@@ -100,6 +106,8 @@ function getCareerQuestionSelectionStorageKey(amisCareerId: string) {
 
 function SidePanel() {
   const [state, setState] = useState<PanelState>('AUTH_LOADING');
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('overview');
+  const [pinnedWorkspaceTab, setPinnedWorkspaceTab] = useState<WorkspaceTab | null>('overview');
   const [user, setUser] = useState<ExtensionUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState('');
@@ -299,6 +307,14 @@ function SidePanel() {
     if (channels.includes('FACEBOOK') && selectedFacebookGroupIds.length === 0) missing.push('facebook group');
     return missing;
   }, [amisRecruitmentId, channels, selectedFacebookGroupIds.length, snapshot]);
+
+  const visibleWorkspaceTabs = useMemo<WorkspaceTab[]>(() => {
+    if (pinnedWorkspaceTab && pinnedWorkspaceTab !== activeWorkspaceTab) {
+      return [pinnedWorkspaceTab, activeWorkspaceTab];
+    }
+
+    return [activeWorkspaceTab];
+  }, [activeWorkspaceTab, pinnedWorkspaceTab]);
 
   const allChannelsSelected = channels.length === CHANNELS.length;
   const selectedNewQuestionCategory = useMemo(
@@ -1495,389 +1511,349 @@ function SidePanel() {
     }
   }
 
-  return (
-    <main className="panel-shell">
-      <header className="panel-header">
-        <div>
-          <p className="eyebrow">VCS Recruitment</p>
-          <h1>AMIS Posting Sync</h1>
-        </div>
-        {user ? (
-          <button type="button" className="ghost-button" onClick={logout}>
-            Sign out
-          </button>
-        ) : null}
-      </header>
+  function selectWorkspaceTab(tab: WorkspaceTab) {
+    setActiveWorkspaceTab(tab);
+  }
 
-      {state === 'AUTH_LOADING' ? <p className="muted-text">Checking session...</p> : null}
+  function toggleWorkspacePin(tab: WorkspaceTab) {
+    setPinnedWorkspaceTab((current) => (current === tab ? null : tab));
+  }
 
-      {state === 'AUTH_REQUIRED' ? (
-        <form className="auth-form" onSubmit={submitLogin}>
-          <label>
-            Email
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" />
-          </label>
-          <label>
-            Password
-            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" />
-          </label>
-          <button type="submit" className="primary-button">Sign in</button>
-          {error ? <p className="error-text">{error}</p> : null}
-        </form>
-      ) : null}
+  function getWorkspaceTabLabel(tab: WorkspaceTab) {
+    return WORKSPACE_TABS.find((item) => item.id === tab)?.label ?? tab;
+  }
 
-      {user ? (
-        <section className="stack">
-          <div className="status-row">
-            <span>{user.email}</span>
-            <strong>{user.role}</strong>
+  function renderWorkspacePanel(tab: WorkspaceTab) {
+    const isPinned = pinnedWorkspaceTab === tab;
+
+    return (
+      <section key={tab} className={`workspace-panel workspace-panel-${tab}${isPinned ? ' is-pinned' : ''}`}>
+        <div className="workspace-panel-heading">
+          <div>
+            <p className="workspace-panel-kicker">VCS Recruitment</p>
+            <h2>{tab === 'overview' ? 'VCS Recruitment Posting' : getWorkspaceTabLabel(tab)}</h2>
           </div>
+          <button
+            type="button"
+            className={`panel-pin-button${isPinned ? ' is-active' : ''}`}
+            title={isPinned ? 'Bỏ ghim màn này' : 'Ghim màn này'}
+            aria-label={isPinned ? 'Bỏ ghim màn này' : 'Ghim màn này'}
+            aria-pressed={isPinned}
+            onClick={() => toggleWorkspacePin(tab)}
+          >
+            <PinIcon filled={isPinned} />
+          </button>
+        </div>
+        {tab === 'overview' ? renderOverviewPanel() : null}
+        {tab === 'posting' ? renderPostingPanel() : null}
+        {tab === 'cv' ? renderCvPanel() : null}
+      </section>
+    );
+  }
 
-          <section className="applications-panel">
-            <div className="status-row">
-              <div>
-                <p className="eyebrow">AMIS applications</p>
-                <h2>{applicationsContext?.total ?? 0} applications</h2>
-                {uploadableApplications.length > 0 ? (
-                  <span className="selection-count">
-                    {selectedUploadableApplicationCount} / {uploadableApplications.length} clean CVs selected
-                  </span>
-                ) : null}
-              </div>
-              <div className="panel-action-stack">
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={selectedUploadableApplicationCount === 0 || cvUploadApplicationId === 'BATCH'}
-                  onClick={() => void uploadSelectedApplicationCvsToAmisForm()}
-                >
-                  {cvUploadApplicationId === 'BATCH' ? 'Loading CVs...' : 'Load selected CVs'}
+  function renderOverviewPanel() {
+    const totalPostings = Math.max(
+      jobDescriptionPagination?.total ?? 0,
+      jobDescriptions.length,
+      snapshot ? 1 : 0,
+    );
+    const totalPositions = Math.max(jobDescriptions.length, snapshot ? 1 : 0);
+    const totalCvs = applicationsContext?.total ?? 0;
+    const postingCards = [
+      ...(snapshot ? [{
+        key: 'snapshot',
+        title: snapshot.title,
+        company: snapshot.location ?? selectedCareerName ?? 'AMIS Recruitment',
+        deadline: snapshot.deadline,
+        statusLabel: 'Đang hoạt động',
+        statusTone: 'active',
+        badgeLabel: 'Đang tuyển',
+        badgeTone: 'active',
+        candidateCount: applicationsContext?.total ?? 0,
+        examCount: 0,
+        interviewCount: 0,
+        offerCount: 0,
+        hiredCount: 0,
+      }] : []),
+      ...jobDescriptions.slice(0, snapshot ? 2 : 3).map((jobDescription) => ({
+        key: jobDescription.id,
+        title: jobDescription.title,
+        company: jobDescription.position?.name ?? jobDescription.level?.displayName ?? 'VCS Recruitment',
+        deadline: jobDescription.updatedAt ?? jobDescription.createdAt,
+        statusLabel: formatStatusText(jobDescription.status),
+        statusTone: jobDescription.status.toUpperCase().includes('ACTIVE') ? 'active' : 'muted',
+        badgeLabel: jobDescription.status.toUpperCase().includes('DRAFT') ? 'Nội bộ' : 'Đang tuyển',
+        badgeTone: jobDescription.status.toUpperCase().includes('DRAFT') ? 'muted' : 'active',
+        candidateCount: null,
+        examCount: null,
+        interviewCount: null,
+        offerCount: null,
+        hiredCount: null,
+      })),
+    ];
+
+    return (
+      <div className="overview-panel-content">
+        <div className="overview-metric-grid">
+          <article>
+            <strong>{totalPostings}</strong>
+            <span>Tổng bài đăng</span>
+          </article>
+          <article>
+            <strong>{totalPositions}</strong>
+            <span>Vị trí tuyển</span>
+          </article>
+          <article>
+            <strong>{totalCvs}</strong>
+            <span>Tổng số CV</span>
+          </article>
+        </div>
+
+        <div className="posting-card-list">
+          {postingCards.length > 0 ? postingCards.map((posting) => (
+            <article key={posting.key} className="posting-card">
+              <div className="posting-card-top">
+                <label className="posting-select-box">
+                  <input type="checkbox" aria-label={`Chọn ${posting.title}`} />
+                  <span className={`posting-status-dot is-${posting.statusTone}`} />
+                </label>
+                <h3>{posting.title}</h3>
+                <span className={`posting-badge is-${posting.badgeTone}`}>{posting.badgeLabel}</span>
+                <button type="button" className="posting-more-button" aria-label="Thêm tùy chọn">
+                  <MoreVerticalIcon />
                 </button>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  disabled={!amisRecruitmentId || applicationsState === 'LOADING'}
-                  onClick={() => void loadAmisApplications(token, amisRecruitmentId)}
-                >
-                  Refresh
-                </button>
               </div>
-            </div>
-
-            {amisRecruitmentId ? (
-              <p className="muted-text">
-                AMIS RecruitmentID: {amisRecruitmentId}
-                {amisRecruitmentRoundId ? ` - RoundID: ${amisRecruitmentRoundId}` : ''}
+              <p className={`posting-status-text is-${posting.statusTone}`}>{posting.statusLabel}</p>
+              <p className="posting-company">{posting.company}</p>
+              <p className="posting-deadline">
+                SL cần tuyển: 1 | Hạn nộp hồ sơ: {posting.deadline ? formatDate(posting.deadline) : '-'}
               </p>
-            ) : (
-              <p className="muted-text">Open or save an AMIS recruitment detail to detect RecruitmentID.</p>
-            )}
-
-            {applicationsMessage ? (
-              <p className={applicationsState === 'ERROR' ? 'error-text' : 'muted-text'}>
-                {applicationsMessage}
-              </p>
-            ) : null}
-
-            {applicationsContext && applicationsContext.applications.length > 0 ? (
-              <>
-                {uploadableApplications.length > 0 ? (
-                  <div className="application-selection-actions">
-                    <button type="button" className="text-button" onClick={selectAllUploadableApplicationCvs}>
-                      Select all clean CVs
-                    </button>
-                    <button type="button" className="text-button" onClick={clearSelectedApplicationCvs}>
-                      Clear
-                    </button>
-                  </div>
-                ) : null}
-                <ul className="application-list">
-                  {applicationsContext.applications.map((application) => (
-                    <li key={application.applicationId}>
-                      <label className="application-main">
-                        <input
-                          type="checkbox"
-                          checked={selectedApplicationCvIds.has(application.applicationId)}
-                          disabled={!canUploadApplicationCv(application)}
-                          onChange={() => toggleApplicationCvSelection(application.applicationId)}
-                        />
-                        <span className="application-body">
-                          <strong>{application.candidateName}</strong>
-                          <span>{[application.email, application.mobile].filter(Boolean).join(' - ')}</span>
-                          <small>
-                            {[
-                              application.amisRecruitmentRoundName
-                                ? `Round: ${application.amisRecruitmentRoundName}`
-                                : application.amisRecruitmentRoundId
-                                  ? `Round ID: ${application.amisRecruitmentRoundId}`
-                                  : null,
-                              application.sourceChannel,
-                              application.attachmentCvName,
-                              application.applyDate ? formatDate(application.applyDate) : null,
-                            ].filter(Boolean).join(' - ')}
-                          </small>
-                          <button
-                            type="button"
-                            className="text-button application-upload-button"
-                            disabled={!canUploadApplicationCv(application) || Boolean(cvUploadApplicationId)}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              void uploadApplicationCvToAmisForm(application);
-                            }}
-                          >
-                            {cvUploadApplicationId === application.applicationId ? 'Loading CV...' : 'Load CV into AMIS form'}
-                          </button>
-                        </span>
-                      </label>
-                      <div className="application-status-stack">
-                        <span className="status-badge">{formatStatusText(application.status)}</span>
-                        {application.cvSanitizeStatus ? (
-                          <span className={getCvStatusBadgeClass(application.cvSanitizeStatus)}>
-                            CV {formatStatusText(application.cvSanitizeStatus)}
-                          </span>
-                        ) : null}
-                        {application.cvParseStatus ? (
-                          <span className={getCvStatusBadgeClass(application.cvParseStatus)}>
-                            Parse {formatStatusText(application.cvParseStatus)}
-                          </span>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-
-            {applicationsState === 'LOADING' && !applicationsContext ? (
-              <p className="muted-text">Loading applications for this AMIS recruitment...</p>
-            ) : null}
-
-            {applicationsContext && applicationsContext.applications.length === 0 ? (
-              <p className="muted-text">No synced applications for this AMIS recruitment yet.</p>
-            ) : null}
-          </section>
-
-          <section className="question-panel career-question-panel">
-            <div className="career-panel-topbar">
-              <div className="career-title-row">
-                <h2>Chỉnh sửa câu hỏi</h2>
-                <p>VCS RECRUITMENT POSTING</p>
+              <div className="posting-funnel-grid">
+                <span><strong>{formatMetricValue(posting.candidateCount)}</strong>Ứng tuyển</span>
+                <span><strong>{formatMetricValue(posting.examCount)}</strong>Thi tuyển</span>
+                <span><strong>{formatMetricValue(posting.interviewCount)}</strong>Phỏng vấn</span>
+                <span><strong>{formatMetricValue(posting.offerCount)}</strong>Offer</span>
+                <span><strong>{formatMetricValue(posting.hiredCount)}</strong>Đã tuyển</span>
               </div>
               <button
                 type="button"
-                className="career-icon-button"
-                aria-label="Refresh AMIS career questions"
-                disabled={careerQuestionState === 'LOADING'}
-                onClick={() => void refreshSelectedCareerContext(token)}
+                className="manage-posting-button"
+                onClick={() => selectWorkspaceTab('posting')}
               >
-                <RefreshIcon />
+                Quản lý
+              </button>
+            </article>
+          )) : (
+            <div className="empty-panel-state">
+              <strong>Chưa có dữ liệu posting</strong>
+              <span>Mở AMIS recruitment hoặc tải mock snapshot để xem dữ liệu.</span>
+              <button type="button" className="manage-posting-button" onClick={loadMockSnapshot}>
+                Load mock snapshot
               </button>
             </div>
+          )}
+        </div>
 
-            <div className="career-question-content">
-              <div className="career-industry-area">
-                <div className="career-industry-badge">
-                  <BriefcaseIcon />
-                  <span>Ngành: {selectedCareerName || careerQuestionContext?.career.name || 'Chưa chọn ngành'}</span>
+        <div className="overview-footer-actions">
+          <button type="button" className="secondary-action-button" onClick={() => void loadLatestAmisCapture()}>
+            <DownloadIcon />
+            <span>Tải AMIS save</span>
+          </button>
+          <button type="button" className="secondary-action-button" onClick={() => void loadLatestAutoSyncState()}>
+            <InfoExportIcon />
+            <span>Tải auto sync</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderPostingPanel() {
+    return (
+      <div className="posting-detail-content">
+        {snapshot ? (
+          <section className="preview recruitment-snapshot-card">
+            <div>
+              <p className="eyebrow">Snapshot</p>
+              <h2>{snapshot.title}</h2>
+            </div>
+            <dl>
+              <div>
+                <dt>AMIS ID</dt>
+                <dd>{amisRecruitmentId}</dd>
+              </div>
+              <div>
+                <dt>Description</dt>
+                <dd>{snapshot.summary ?? snapshot.description}</dd>
+              </div>
+              <div>
+                <dt>Requirements</dt>
+                <dd>{snapshot.requirements.rawText}</dd>
+              </div>
+              {snapshot.location ? (
+                <div>
+                  <dt>Location</dt>
+                  <dd>{snapshot.location}</dd>
                 </div>
-                <p>Chọn các câu hỏi cụ thể để thêm vào bài đánh giá của bạn.</p>
-              </div>
-
-              {careerQuestionMessage ? (
-                <p className={careerQuestionState === 'ERROR' ? 'error-text' : 'muted-text'}>
-                  {careerQuestionMessage}
-                </p>
               ) : null}
+              {snapshot.deadline ? (
+                <div>
+                  <dt>Deadline</dt>
+                  <dd>{snapshot.deadline}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </section>
+        ) : (
+          <div className="empty-panel-state">
+            <strong>No snapshot loaded</strong>
+            <span>Load the latest AMIS save, run DOM extract, or use mock data.</span>
+          </div>
+        )}
 
-              {careerQuestionContext ? (
-                <>
-                  <div className="career-question-summary-row">
-                    <span>{careerQuestionContext.questions.length} câu hỏi</span>
-                    <strong>{selectedCareerQuestionCount} đã chọn</strong>
-                    {careerQuestionContext.questions.length > 0 ? (
-                      <div className="question-selection-actions">
+        <section className="channel-section">
+          <div className="section-heading-row">
+            <p className="section-title">Channels</p>
+            <div className="channel-select-actions">
+              <button type="button" className="text-button" disabled={allChannelsSelected} onClick={selectAllChannels}>
+                All
+              </button>
+              <button type="button" className="text-button" disabled={channels.length === 0} onClick={clearChannels}>
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="channel-list">
+            {CHANNELS.map((channel) => {
+              const isSelected = channels.includes(channel);
+              const isFacebookChannel = channel === 'FACEBOOK';
+              const isFacebookLoading = isFacebookChannel && isFacebookGroupLoading(facebookGroupLoadState);
+              const showFacebookGroups = isFacebookChannel
+                && (isSelected || facebookGroupLoadState !== 'IDLE' || Boolean(facebookGroupMessage));
+
+              return (
+                <div
+                  key={channel}
+                  className={`channel-option${isFacebookChannel ? ' is-facebook' : ''}${isSelected ? ' is-selected' : ''}`}
+                >
+                  <div className="channel-option-row">
+                    <label className="channel-option-label">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={isFacebookLoading}
+                        onChange={() => void toggleChannel(channel)}
+                      />
+                      <span>{channel}</span>
+                    </label>
+                    <span className="channel-actions">
+                      {showFacebookGroups ? (
+                        <span className="channel-action-icon" title="Select groups">
+                          <ChevronUpIcon />
+                        </span>
+                      ) : null}
+                      {isFacebookChannel ? (
                         <button
                           type="button"
-                          className="text-button"
-                          disabled={allCareerQuestionsSelected}
-                          onClick={selectAllCareerQuestions}
+                          className="channel-action-button"
+                          title="Cài đặt Group Facebook"
+                          aria-label="Cài đặt Group Facebook"
+                          onClick={(event) => void openFacebookGroupSettings(event)}
                         >
-                          Tất cả
+                          <GearIcon />
                         </button>
-                        <button
-                          type="button"
-                          className="text-button"
-                          disabled={selectedCareerQuestionCount === 0}
-                          onClick={clearSelectedCareerQuestions}
-                        >
-                          Bỏ chọn
-                        </button>
-                      </div>
-                    ) : null}
+                      ) : (
+                        <span className="channel-action-icon" title="Settings">
+                          <GearIcon />
+                        </span>
+                      )}
+                    </span>
                   </div>
-
-                  {careerQuestionContext.questions.length > 0 ? (
-                    <ul className="career-question-list">
-                      {careerQuestionContext.questions.map((question) => {
-                        const checked = selectedCareerQuestionIds.has(question.id);
-
-                        return (
-                          <li key={question.id}>
-                            <label className={checked ? 'career-question-card is-selected' : 'career-question-card'}>
-                              <span className="question-card-handle" aria-hidden="true">
-                                <GripIcon />
-                              </span>
-                              <span className="career-question-card-body">
-                                <span className="career-question-title">{question.text}</span>
-                                <span className="question-tag-row">
-                                  <span className="question-tag question-tag-category">
-                                    {formatQuestionCategoryLabel(question.category)}
-                                  </span>
-                                  <span className="question-tag question-tag-muted">{question.subcategory}</span>
-                                  <span className="question-tag question-tag-type">{question.type}</span>
-                                </span>
-                                <span className="question-meta-row">
-                                  <strong>{formatQuestionDifficulty(question.difficulty)}</strong>
-                                  <span className="question-level-pill">
-                                    {formatQuestionTargetLevel(question.targetLevels)}
-                                  </span>
-                                </span>
-                              </span>
+                  {showFacebookGroups ? (
+                    <div className="channel-subselection">
+                      <div className="channel-subselection-list">
+                        {facebookGroupMessage ? (
+                          <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
+                            {facebookGroupMessage}
+                          </p>
+                        ) : null}
+                        {visibleFacebookGroups.length > 0 ? (
+                          visibleFacebookGroups.map((group, index) => (
+                            <label key={`${group.key}-${index}`} className="channel-subselection-item">
                               <input
-                                className="career-question-checkbox"
                                 type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleCareerQuestion(question.id)}
+                                checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
+                                disabled={!group.id}
+                                onChange={() => toggleFacebookGroupSelection(group.id)}
                               />
+                              <span>{group.name}</span>
                             </label>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <p className="career-question-empty">Chưa có câu hỏi nào được map cho ngành này.</p>
-                  )}
+                          ))
+                        ) : (
+                          facebookGroupLoadState === 'READY'
+                            ? <p className="channel-subselection-empty">No Facebook groups are available.</p>
+                            : null
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </section>
 
-                  <button
-                    type="button"
-                    className="add-question-card-button"
-                    onClick={openNewQuestionDrawer}
-                  >
-                    <PlusIcon />
-                    <span>Thêm câu hỏi mới</span>
-                  </button>
-                </>
-              ) : null}
+        {missingFields.length > 0 ? <p className="warning-text">Missing: {missingFields.join(', ')}</p> : null}
+
+        <button
+          type="button"
+          className="primary-button sync-button"
+          disabled={state === 'EXTRACTING' || state === 'SYNCING' || facebookRunning || missingFields.length > 0}
+          onClick={sync}
+        >
+          {facebookRunning ? 'Publishing Facebook...' : state === 'SYNCING' ? 'Syncing...' : 'SYNC AND PUBLISH'}
+        </button>
+
+        {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
+
+        {result ? (
+          <section className="result-panel publish-result-panel">
+            <div>
+              <p className="eyebrow">RESULT</p>
+              <h2>{result.resultCode}</h2>
             </div>
-          </section>
-
-          <section className="jd-panel">
-            <div className="status-row">
-              <div>
-                <p className="eyebrow">System connection</p>
-                <h2>Job descriptions</h2>
-              </div>
-              <strong>{jobDescriptionPagination?.total ?? jobDescriptions.length}</strong>
-            </div>
-
-            <form className="jd-toolbar" onSubmit={submitJobDescriptionSearch}>
-              <input
-                value={jobDescriptionSearch}
-                onChange={(event) => setJobDescriptionSearch(event.target.value)}
-                placeholder="Search JD"
-                aria-label="Search job descriptions"
-              />
-              <button
-                type="submit"
-                className="secondary-button"
-                disabled={jobDescriptionStatus === 'LOADING'}
-              >
-                Search
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
-                disabled={jobDescriptionStatus === 'LOADING'}
-                onClick={() => void loadJobDescriptions(token, jobDescriptionPagination?.page ?? 1)}
-              >
-                Refresh
-              </button>
-            </form>
-
-            {jobDescriptionStatus === 'LOADING' ? (
-              <p className="muted-text">Loading job descriptions from backend...</p>
-            ) : null}
-
-            {jobDescriptionError ? <p className="error-text">{jobDescriptionError}</p> : null}
-
-            {jobDescriptionFillMessage ? (
-              <p className={jobDescriptionFillState === 'ERROR' ? 'error-text' : 'muted-text'}>
-                {jobDescriptionFillMessage}
-              </p>
-            ) : null}
-
-            {jobDescriptionStatus !== 'LOADING' && jobDescriptions.length === 0 ? (
-              <p className="muted-text">No job descriptions found.</p>
-            ) : null}
-
-            {jobDescriptions.length > 0 ? (
-              <ul className="jd-list">
-                {jobDescriptions.map((jobDescription) => (
-                  <li key={jobDescription.id}>
-                    <button
-                      type="button"
-                      className="jd-card-button"
-                      disabled={jobDescriptionFillState === 'FILLING'}
-                      onClick={() => void fillJobDescriptionInAmis(jobDescription)}
-                    >
-                      <h3>{jobDescription.title}</h3>
-                      <p>{summarizeText(jobDescription.summary ?? jobDescription.description)}</p>
-                      <small>
-                        {[
-                          jobDescription.position?.name,
-                          jobDescription.level?.displayName ?? jobDescription.level?.name,
-                          formatDate(jobDescription.updatedAt ?? jobDescription.createdAt),
-                        ].filter(Boolean).join(' • ')}
-                      </small>
-                    </button>
-                    <span className="status-badge">{jobDescription.status}</span>
-                    {fillingJobDescriptionId === jobDescription.id ? (
-                      <span className="status-badge">FILLING</span>
+            <ul className="result-list">
+              {result.channelPostings.map((channel) => (
+                <li key={channel.channel} className="result-item">
+                  <span className="result-channel-name">{channel.channel}</span>
+                  <span className="result-actions">
+                    <strong className={`result-status ${getChannelPostingStatusClass(channel)}`}>
+                      {channel.status}
+                    </strong>
+                    {channel.publishedUrl ? (
+                      <a className="result-open-link" href={channel.publishedUrl} target="_blank" rel="noreferrer">
+                        Open
+                      </a>
                     ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-
-            {jobDescriptionPagination && jobDescriptionPagination.totalPages > 1 ? (
-              <div className="pagination-row">
-                <button
-                  type="button"
-                  className="ghost-button"
-                  disabled={jobDescriptionStatus === 'LOADING' || jobDescriptionPagination.page <= 1}
-                  onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page - 1)}
-                >
-                  Previous
-                </button>
-                <span>
-                  Page {jobDescriptionPagination.page} / {jobDescriptionPagination.totalPages}
-                </span>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  disabled={
-                    jobDescriptionStatus === 'LOADING'
-                    || jobDescriptionPagination.page >= jobDescriptionPagination.totalPages
-                  }
-                  onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            ) : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </section>
+        ) : null}
 
+        {renderPostingSupportPanels()}
+      </div>
+    );
+  }
+
+  function renderPostingSupportPanels() {
+    return (
+      <>
+        <section className="extension-tools-panel">
+          <div className="section-heading-row">
+            <p className="section-title">AMIS tools</p>
+          </div>
           <div className="button-grid">
             <button
               type="button"
@@ -1920,304 +1896,547 @@ function SidePanel() {
               Refresh diagnostics
             </button>
           </div>
+        </section>
 
-          <section className="capture-panel">
-            <div className="status-row">
-              <span>AMIS diagnostics</span>
-              <strong>{diagnostics.length > 0 ? diagnostics[diagnostics.length - 1]?.type : 'NO_EVENTS'}</strong>
-            </div>
-            {diagnostics.length > 0 ? (
-              <ul className="diagnostic-list">
-                {diagnostics.slice(-6).reverse().map((event, index) => (
-                  <li key={`${event.timestamp}-${event.type}-${index}`}>
-                    <strong>{event.type}</strong>
-                    <span>{formatDiagnosticTime(event.timestamp)}</span>
-                    {event.requestUrl ? <small>{event.requestUrl}</small> : null}
-                    {event.details ? <small>{formatDiagnosticDetails(event.details)}</small> : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted-text">
-                No content-script event from AMIS yet. Reload the AMIS tab after reloading the extension.
-              </p>
-            )}
-          </section>
+        {renderJobDescriptionPanel()}
+        {renderCareerQuestionPanel()}
+        {renderRuntimePanels()}
+      </>
+    );
+  }
 
-          {autoSyncState ? (
-            <section className="capture-panel">
-              <div className="status-row">
-                <span>Auto sync</span>
-                <strong>{autoSyncState.status}</strong>
-              </div>
-              <dl>
-                <div>
-                  <dt>Updated</dt>
-                  <dd>{autoSyncState.updatedAt}</dd>
-                </div>
-                {autoSyncState.channels ? (
-                  <div>
-                    <dt>Channels</dt>
-                    <dd>{autoSyncState.channels.join(', ')}</dd>
-                  </div>
-                ) : null}
-              </dl>
-              {autoSyncState.error ? (
-                <p className="error-text">{autoSyncState.error.code}: {autoSyncState.error.message}</p>
-              ) : null}
-            </section>
-          ) : null}
+  function renderJobDescriptionPanel() {
+    return (
+      <section className="jd-panel compact-workspace-section">
+        <div className="status-row">
+          <div>
+            <p className="eyebrow">System connection</p>
+            <h2>Job descriptions</h2>
+          </div>
+          <strong>{jobDescriptionPagination?.total ?? jobDescriptions.length}</strong>
+        </div>
 
-          {facebookProgress ? (
-            <section className="capture-panel">
-              <div className="status-row">
-                <span>Facebook publish</span>
-                <strong>{facebookProgress.status}</strong>
-              </div>
-              <dl>
-                <div>
-                  <dt>Progress</dt>
-                  <dd>{facebookProgress.currentIndex}/{facebookProgress.total}</dd>
-                </div>
-                {facebookProgress.target ? (
-                  <div>
-                    <dt>Target</dt>
-                    <dd>{facebookProgress.target.targetName}</dd>
-                  </div>
-                ) : null}
-                <div>
-                  <dt>Status</dt>
-                  <dd>{facebookProgress.message}</dd>
-                </div>
-              </dl>
-              {facebookProgress.results.length > 0 ? (
-                <ul className="diagnostic-list">
-                  {facebookProgress.results.map((item) => (
-                    <li key={`${item.targetName}-${item.status}`}>
-                      <strong>{item.targetName}</strong>
-                      <span>{item.status}</span>
-                      <small>{item.message}</small>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </section>
-          ) : null}
-
-          {extractionResult ? (
-            <section className="capture-panel">
-              <div className="status-row">
-                <span>{extractionResult.status}</span>
-                <strong>{extractionResult.confidence}</strong>
-              </div>
-              <dl>
-                <div>
-                  <dt>Source</dt>
-                  <dd>{extractionResult.source}</dd>
-                </div>
-                <div>
-                  <dt>URL</dt>
-                  <dd>{extractionResult.url}</dd>
-                </div>
-                <div>
-                  <dt>Markers</dt>
-                  <dd>{extractionResult.evidence.markers.join(', ') || 'None'}</dd>
-                </div>
-              </dl>
-              {extractionResult.warnings.length > 0 ? (
-                <ul className="warning-list">
-                  {extractionResult.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </section>
-          ) : null}
-
-          {snapshot ? (
-            <section className="preview">
-              <div>
-                <p className="eyebrow">Snapshot</p>
-                <h2>{snapshot.title}</h2>
-              </div>
-              <dl>
-                <div>
-                  <dt>AMIS ID</dt>
-                  <dd>{amisRecruitmentId}</dd>
-                </div>
-                <div>
-                  <dt>Description</dt>
-                  <dd>{snapshot.summary ?? snapshot.description}</dd>
-                </div>
-                <div>
-                  <dt>Requirements</dt>
-                  <dd>{snapshot.requirements.rawText}</dd>
-                </div>
-                {snapshot.location ? (
-                  <div>
-                    <dt>Location</dt>
-                    <dd>{snapshot.location}</dd>
-                  </div>
-                ) : null}
-                {snapshot.deadline ? (
-                  <div>
-                    <dt>Deadline</dt>
-                    <dd>{snapshot.deadline}</dd>
-                  </div>
-                ) : null}
-              </dl>
-            </section>
-          ) : (
-            <p className="muted-text">No snapshot loaded.</p>
-          )}
-
-          <section className="channel-section">
-            <div className="section-heading-row">
-              <p className="section-title">Channels</p>
-              <div className="channel-select-actions">
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={allChannelsSelected}
-                  onClick={selectAllChannels}
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={channels.length === 0}
-                  onClick={clearChannels}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-            <div className="channel-list">
-              {CHANNELS.map((channel) => {
-                const isSelected = channels.includes(channel);
-                const isFacebookChannel = channel === 'FACEBOOK';
-                const isFacebookLoading = isFacebookChannel && isFacebookGroupLoading(facebookGroupLoadState);
-                const showFacebookGroups = isFacebookChannel
-                  && (isSelected || facebookGroupLoadState !== 'IDLE' || Boolean(facebookGroupMessage));
-
-                return (
-                  <div key={channel} className={`channel-option${isSelected ? ' is-selected' : ''}`}>
-                    <div className="channel-option-row">
-                      <label className="channel-option-label">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          disabled={isFacebookLoading}
-                          onChange={() => void toggleChannel(channel)}
-                        />
-                        <span>{channel}</span>
-                      </label>
-                      <span className="channel-actions">
-                        {showFacebookGroups ? (
-                          <span className="channel-action-icon" title="Select groups">
-                            <ChevronUpIcon />
-                          </span>
-                        ) : null}
-                        {isFacebookChannel ? (
-                          <button
-                            type="button"
-                            className="channel-action-button"
-                            title="Cài đặt Group Facebook"
-                            aria-label="Cài đặt Group Facebook"
-                            onClick={(event) => void openFacebookGroupSettings(event)}
-                          >
-                            <GearIcon />
-                          </button>
-                        ) : (
-                          <span className="channel-action-icon" title="Settings">
-                            <GearIcon />
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    {showFacebookGroups ? (
-                      <div className="channel-subselection">
-                        <div className="channel-subselection-title">Facebook groups</div>
-                        <div className="channel-subselection-list">
-                          {facebookGroupMessage ? (
-                            <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
-                              {facebookGroupMessage}
-                            </p>
-                          ) : null}
-                          {visibleFacebookGroups.length > 0 ? (
-                            visibleFacebookGroups.map((group, index) => (
-                              <label key={`${group.key}-${index}`} className="channel-subselection-item">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
-                                  disabled={!group.id}
-                                  onChange={() => toggleFacebookGroupSelection(group.id)}
-                                />
-                                <span>{group.name}</span>
-                              </label>
-                            ))
-                          ) : (
-                            facebookGroupLoadState === 'READY'
-                              ? <p className="channel-subselection-empty">No Facebook groups are available.</p>
-                              : null
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          {missingFields.length > 0 ? (
-            <p className="warning-text">Missing: {missingFields.join(', ')}</p>
-          ) : null}
-
+        <form className="jd-toolbar" onSubmit={submitJobDescriptionSearch}>
+          <input
+            value={jobDescriptionSearch}
+            onChange={(event) => setJobDescriptionSearch(event.target.value)}
+            placeholder="Search JD"
+            aria-label="Search job descriptions"
+          />
+          <button type="submit" className="secondary-button" disabled={jobDescriptionStatus === 'LOADING'}>
+            Search
+          </button>
           <button
             type="button"
-            className="primary-button"
-            disabled={state === 'EXTRACTING' || state === 'SYNCING' || facebookRunning || missingFields.length > 0}
-            onClick={sync}
+            className="ghost-button"
+            disabled={jobDescriptionStatus === 'LOADING'}
+            onClick={() => void loadJobDescriptions(token, jobDescriptionPagination?.page ?? 1)}
           >
-            {facebookRunning ? 'Publishing Facebook...' : state === 'SYNCING' ? 'Syncing...' : 'Sync and publish'}
+            Refresh
           </button>
+        </form>
 
-          {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
+        {jobDescriptionStatus === 'LOADING' ? (
+          <p className="muted-text">Loading job descriptions from backend...</p>
+        ) : null}
 
-          {result ? (
-            <section className="result-panel publish-result-panel">
-              <div>
-                <p className="eyebrow">RESULT</p>
-                <h2>{result.resultCode}</h2>
+        {jobDescriptionError ? <p className="error-text">{jobDescriptionError}</p> : null}
+
+        {jobDescriptionFillMessage ? (
+          <p className={jobDescriptionFillState === 'ERROR' ? 'error-text' : 'muted-text'}>
+            {jobDescriptionFillMessage}
+          </p>
+        ) : null}
+
+        {jobDescriptionStatus !== 'LOADING' && jobDescriptions.length === 0 ? (
+          <p className="muted-text">No job descriptions found.</p>
+        ) : null}
+
+        {jobDescriptions.length > 0 ? (
+          <ul className="jd-list">
+            {jobDescriptions.map((jobDescription) => (
+              <li key={jobDescription.id}>
+                <button
+                  type="button"
+                  className="jd-card-button"
+                  disabled={jobDescriptionFillState === 'FILLING'}
+                  onClick={() => void fillJobDescriptionInAmis(jobDescription)}
+                >
+                  <h3>{jobDescription.title}</h3>
+                  <p>{summarizeText(jobDescription.summary ?? jobDescription.description)}</p>
+                  <small>
+                    {[
+                      jobDescription.position?.name,
+                      jobDescription.level?.displayName ?? jobDescription.level?.name,
+                      formatDate(jobDescription.updatedAt ?? jobDescription.createdAt),
+                    ].filter(Boolean).join(' - ')}
+                  </small>
+                </button>
+                <span className="status-badge">{jobDescription.status}</span>
+                {fillingJobDescriptionId === jobDescription.id ? <span className="status-badge">FILLING</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {jobDescriptionPagination && jobDescriptionPagination.totalPages > 1 ? (
+          <div className="pagination-row">
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={jobDescriptionStatus === 'LOADING' || jobDescriptionPagination.page <= 1}
+              onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page - 1)}
+            >
+              Previous
+            </button>
+            <span>
+              Page {jobDescriptionPagination.page} / {jobDescriptionPagination.totalPages}
+            </span>
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={
+                jobDescriptionStatus === 'LOADING'
+                || jobDescriptionPagination.page >= jobDescriptionPagination.totalPages
+              }
+              onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page + 1)}
+            >
+              Next
+            </button>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  function renderCareerQuestionPanel() {
+    return (
+      <section className="question-panel career-question-panel compact-workspace-section">
+        <div className="career-panel-topbar">
+          <div className="career-title-row">
+            <h2>Chỉnh sửa câu hỏi</h2>
+            <p>VCS RECRUITMENT POSTING</p>
+          </div>
+          <button
+            type="button"
+            className="career-icon-button"
+            aria-label="Refresh AMIS career questions"
+            disabled={careerQuestionState === 'LOADING'}
+            onClick={() => void refreshSelectedCareerContext(token)}
+          >
+            <RefreshIcon />
+          </button>
+        </div>
+
+        <div className="career-question-content">
+          <div className="career-industry-area">
+            <div className="career-industry-badge">
+              <BriefcaseIcon />
+              <span>Ngành: {selectedCareerName || careerQuestionContext?.career.name || 'Chưa chọn ngành'}</span>
+            </div>
+            <p>Chọn các câu hỏi cụ thể để thêm vào bài đánh giá của bạn.</p>
+          </div>
+
+          {careerQuestionMessage ? (
+            <p className={careerQuestionState === 'ERROR' ? 'error-text' : 'muted-text'}>
+              {careerQuestionMessage}
+            </p>
+          ) : null}
+
+          {careerQuestionContext ? (
+            <>
+              <div className="career-question-summary-row">
+                <span>{careerQuestionContext.questions.length} câu hỏi</span>
+                <strong>{selectedCareerQuestionCount} đã chọn</strong>
+                {careerQuestionContext.questions.length > 0 ? (
+                  <div className="question-selection-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={allCareerQuestionsSelected}
+                      onClick={selectAllCareerQuestions}
+                    >
+                      Tất cả
+                    </button>
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={selectedCareerQuestionCount === 0}
+                      onClick={clearSelectedCareerQuestions}
+                    >
+                      Bỏ chọn
+                    </button>
+                  </div>
+                ) : null}
               </div>
-              <ul className="result-list">
-                {result.channelPostings.map((channel) => (
-                  <li key={channel.channel} className="result-item">
-                    <span className="result-channel-name">{channel.channel}</span>
-                    <span className="result-actions">
-                      <strong className={`result-status ${getChannelPostingStatusClass(channel)}`}>
-                        {channel.status}
-                      </strong>
-                      {channel.publishedUrl ? (
-                        <a
-                          className="result-open-link"
-                          href={channel.publishedUrl}
-                          target="_blank"
-                          rel="noreferrer"
+
+              {careerQuestionContext.questions.length > 0 ? (
+                <ul className="career-question-list">
+                  {careerQuestionContext.questions.map((question) => {
+                    const checked = selectedCareerQuestionIds.has(question.id);
+
+                    return (
+                      <li key={question.id}>
+                        <label className={checked ? 'career-question-card is-selected' : 'career-question-card'}>
+                          <span className="question-card-handle" aria-hidden="true">
+                            <GripIcon />
+                          </span>
+                          <span className="career-question-card-body">
+                            <span className="career-question-title">{question.text}</span>
+                            <span className="question-tag-row">
+                              <span className="question-tag question-tag-category">
+                                {formatQuestionCategoryLabel(question.category)}
+                              </span>
+                              <span className="question-tag question-tag-muted">{question.subcategory}</span>
+                              <span className="question-tag question-tag-type">{question.type}</span>
+                            </span>
+                            <span className="question-meta-row">
+                              <strong>{formatQuestionDifficulty(question.difficulty)}</strong>
+                              <span className="question-level-pill">
+                                {formatQuestionTargetLevel(question.targetLevels)}
+                              </span>
+                            </span>
+                          </span>
+                          <input
+                            className="career-question-checkbox"
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleCareerQuestion(question.id)}
+                          />
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="career-question-empty">Chưa có câu hỏi nào được map cho ngành này.</p>
+              )}
+
+              <button type="button" className="add-question-card-button" onClick={openNewQuestionDrawer}>
+                <PlusIcon />
+                <span>Thêm câu hỏi mới</span>
+              </button>
+            </>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
+  function renderCvPanel() {
+    return (
+      <div className="cv-panel-content">
+        <section className="applications-panel compact-workspace-section">
+          <div className="status-row">
+            <div>
+              <p className="eyebrow">AMIS applications</p>
+              <h2>{applicationsContext?.total ?? 0} applications</h2>
+              {uploadableApplications.length > 0 ? (
+                <span className="selection-count">
+                  {selectedUploadableApplicationCount} / {uploadableApplications.length} clean CVs selected
+                </span>
+              ) : null}
+            </div>
+            <div className="panel-action-stack">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={selectedUploadableApplicationCount === 0 || cvUploadApplicationId === 'BATCH'}
+                onClick={() => void uploadSelectedApplicationCvsToAmisForm()}
+              >
+                {cvUploadApplicationId === 'BATCH' ? 'Loading CVs...' : 'Load selected CVs'}
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={!amisRecruitmentId || applicationsState === 'LOADING'}
+                onClick={() => void loadAmisApplications(token, amisRecruitmentId)}
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {amisRecruitmentId ? (
+            <p className="muted-text">
+              AMIS RecruitmentID: {amisRecruitmentId}
+              {amisRecruitmentRoundId ? ` - RoundID: ${amisRecruitmentRoundId}` : ''}
+            </p>
+          ) : (
+            <p className="muted-text">Open or save an AMIS recruitment detail to detect RecruitmentID.</p>
+          )}
+
+          {applicationsMessage ? (
+            <p className={applicationsState === 'ERROR' ? 'error-text' : 'muted-text'}>
+              {applicationsMessage}
+            </p>
+          ) : null}
+
+          {applicationsContext && applicationsContext.applications.length > 0 ? (
+            <>
+              {uploadableApplications.length > 0 ? (
+                <div className="application-selection-actions">
+                  <button type="button" className="text-button" onClick={selectAllUploadableApplicationCvs}>
+                    Select all clean CVs
+                  </button>
+                  <button type="button" className="text-button" onClick={clearSelectedApplicationCvs}>
+                    Clear
+                  </button>
+                </div>
+              ) : null}
+              <ul className="application-list">
+                {applicationsContext.applications.map((application) => (
+                  <li key={application.applicationId}>
+                    <label className="application-main">
+                      <input
+                        type="checkbox"
+                        checked={selectedApplicationCvIds.has(application.applicationId)}
+                        disabled={!canUploadApplicationCv(application)}
+                        onChange={() => toggleApplicationCvSelection(application.applicationId)}
+                      />
+                      <span className="application-body">
+                        <strong>{application.candidateName}</strong>
+                        <span>{[application.email, application.mobile].filter(Boolean).join(' - ')}</span>
+                        <small>
+                          {[
+                            application.amisRecruitmentRoundName
+                              ? `Round: ${application.amisRecruitmentRoundName}`
+                              : application.amisRecruitmentRoundId
+                                ? `Round ID: ${application.amisRecruitmentRoundId}`
+                                : null,
+                            application.sourceChannel,
+                            application.attachmentCvName,
+                            application.applyDate ? formatDate(application.applyDate) : null,
+                          ].filter(Boolean).join(' - ')}
+                        </small>
+                        <button
+                          type="button"
+                          className="text-button application-upload-button"
+                          disabled={!canUploadApplicationCv(application) || Boolean(cvUploadApplicationId)}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void uploadApplicationCvToAmisForm(application);
+                          }}
                         >
-                          Open
-                        </a>
+                          {cvUploadApplicationId === application.applicationId ? 'Loading CV...' : 'Load CV into AMIS form'}
+                        </button>
+                      </span>
+                    </label>
+                    <div className="application-status-stack">
+                      <span className="status-badge">{formatStatusText(application.status)}</span>
+                      {application.cvSanitizeStatus ? (
+                        <span className={getCvStatusBadgeClass(application.cvSanitizeStatus)}>
+                          CV {formatStatusText(application.cvSanitizeStatus)}
+                        </span>
                       ) : null}
-                    </span>
+                      {application.cvParseStatus ? (
+                        <span className={getCvStatusBadgeClass(application.cvParseStatus)}>
+                          Parse {formatStatusText(application.cvParseStatus)}
+                        </span>
+                      ) : null}
+                    </div>
                   </li>
                 ))}
               </ul>
-            </section>
+            </>
+          ) : null}
+
+          {applicationsState === 'LOADING' && !applicationsContext ? (
+            <p className="muted-text">Loading applications for this AMIS recruitment...</p>
+          ) : null}
+
+          {applicationsContext && applicationsContext.applications.length === 0 ? (
+            <p className="muted-text">No synced applications for this AMIS recruitment yet.</p>
           ) : null}
         </section>
-      ) : null}
+      </div>
+    );
+  }
+
+  function renderRuntimePanels() {
+    return (
+      <>
+        <section className="capture-panel">
+          <div className="status-row">
+            <span>AMIS diagnostics</span>
+            <strong>{diagnostics.length > 0 ? diagnostics[diagnostics.length - 1]?.type : 'NO_EVENTS'}</strong>
+          </div>
+          {diagnostics.length > 0 ? (
+            <ul className="diagnostic-list">
+              {diagnostics.slice(-6).reverse().map((event, index) => (
+                <li key={`${event.timestamp}-${event.type}-${index}`}>
+                  <strong>{event.type}</strong>
+                  <span>{formatDiagnosticTime(event.timestamp)}</span>
+                  {event.requestUrl ? <small>{event.requestUrl}</small> : null}
+                  {event.details ? <small>{formatDiagnosticDetails(event.details)}</small> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted-text">
+              No content-script event from AMIS yet. Reload the AMIS tab after reloading the extension.
+            </p>
+          )}
+        </section>
+
+        {autoSyncState ? (
+          <section className="capture-panel">
+            <div className="status-row">
+              <span>Auto sync</span>
+              <strong>{autoSyncState.status}</strong>
+            </div>
+            <dl>
+              <div>
+                <dt>Updated</dt>
+                <dd>{autoSyncState.updatedAt}</dd>
+              </div>
+              {autoSyncState.channels ? (
+                <div>
+                  <dt>Channels</dt>
+                  <dd>{autoSyncState.channels.join(', ')}</dd>
+                </div>
+              ) : null}
+            </dl>
+            {autoSyncState.error ? (
+              <p className="error-text">{autoSyncState.error.code}: {autoSyncState.error.message}</p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {facebookProgress ? (
+          <section className="capture-panel">
+            <div className="status-row">
+              <span>Facebook publish</span>
+              <strong>{facebookProgress.status}</strong>
+            </div>
+            <dl>
+              <div>
+                <dt>Progress</dt>
+                <dd>{facebookProgress.currentIndex}/{facebookProgress.total}</dd>
+              </div>
+              {facebookProgress.target ? (
+                <div>
+                  <dt>Target</dt>
+                  <dd>{facebookProgress.target.targetName}</dd>
+                </div>
+              ) : null}
+              <div>
+                <dt>Status</dt>
+                <dd>{facebookProgress.message}</dd>
+              </div>
+            </dl>
+            {facebookProgress.results.length > 0 ? (
+              <ul className="diagnostic-list">
+                {facebookProgress.results.map((item) => (
+                  <li key={`${item.targetName}-${item.status}`}>
+                    <strong>{item.targetName}</strong>
+                    <span>{item.status}</span>
+                    <small>{item.message}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
+
+        {extractionResult ? (
+          <section className="capture-panel">
+            <div className="status-row">
+              <span>{extractionResult.status}</span>
+              <strong>{extractionResult.confidence}</strong>
+            </div>
+            <dl>
+              <div>
+                <dt>Source</dt>
+                <dd>{extractionResult.source}</dd>
+              </div>
+              <div>
+                <dt>URL</dt>
+                <dd>{extractionResult.url}</dd>
+              </div>
+              <div>
+                <dt>Markers</dt>
+                <dd>{extractionResult.evidence.markers.join(', ') || 'None'}</dd>
+              </div>
+            </dl>
+            {extractionResult.warnings.length > 0 ? (
+              <ul className="warning-list">
+                {extractionResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <main className="extension-shell">
+      <section className="extension-window">
+        <header className="extension-header">
+          <div>
+            <h1>VCS Recruitment</h1>
+            {user ? <p>{user.email} - {user.role}</p> : null}
+          </div>
+          <div className="extension-header-actions">
+            {user ? (
+              <button type="button" className="text-button" onClick={logout}>
+                Sign out
+              </button>
+            ) : null}
+            <button type="button" className="extension-close-button" aria-label="Close panel" onClick={() => window.close()}>
+              <CloseIcon />
+            </button>
+          </div>
+        </header>
+
+        {state === 'AUTH_LOADING' ? <p className="muted-text extension-loading">Checking session...</p> : null}
+
+        {state === 'AUTH_REQUIRED' ? (
+          <form className="auth-form extension-auth-form" onSubmit={submitLogin}>
+            <label>
+              Email
+              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" />
+            </label>
+            <label>
+              Password
+              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" />
+            </label>
+            <button type="submit" className="primary-button">Sign in</button>
+            {error ? <p className="error-text">{error}</p> : null}
+          </form>
+        ) : null}
+
+        {user ? (
+          <>
+            <nav className="extension-tabs" aria-label="VCS Recruitment sections">
+              {WORKSPACE_TABS.map((tab) => {
+                const isActive = activeWorkspaceTab === tab.id;
+
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`extension-tab${isActive ? ' is-active' : ''}`}
+                    aria-current={isActive ? 'page' : undefined}
+                    onClick={() => selectWorkspaceTab(tab.id)}
+                  >
+                    {tab.id === 'overview' ? <HomeIcon /> : null}
+                    {tab.id === 'posting' ? <PostingIcon /> : null}
+                    {tab.id === 'cv' ? <CvIcon /> : null}
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            <section className={`workspace-grid is-${visibleWorkspaceTabs.length}-panel`}>
+              {visibleWorkspaceTabs.map((tab) => renderWorkspacePanel(tab))}
+            </section>
+          </>
+        ) : null}
+      </section>
 
       {newQuestionDrawerOpen && careerQuestionContext ? (
         <div className="question-drawer-backdrop" onMouseDown={(event) => {
@@ -2757,6 +2976,68 @@ function WarningIcon({ className }: IconProps) {
   );
 }
 
+function HomeIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M2.5 7.2 8 2.8l5.5 4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4.2 6.8v6h2.6V9.3h2.4v3.5h2.6v-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function PostingIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M5 2.8h5.2L13 5.6v7.6H5V2.8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M10 2.8v3h3M3 5.2h2M3 8h2M3 10.8h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CvIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M5.2 2.5h5.6l1.7 1.8v9.2h-9v-11h1.7Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M10.7 2.7v1.8h1.8M5.7 7h4.6M5.7 9.5h4.6M5.7 12h2.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PinIcon({ className, filled = false }: IconProps & { filled?: boolean }) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="m9.7 1.8 4.5 4.5-2.6.8-2.2 3.5 1.2 1.2-1.1 1.1-2.8-2.8-3.5 3.5-1-1 3.5-3.5-2.8-2.8L4 5.2l1.2 1.2 3.5-2.2.9-2.4Z" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MoreVerticalIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="3.5" r="1" fill="currentColor" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" />
+      <circle cx="8" cy="12.5" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function DownloadIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M8 2.5v6.2m0 0 2.5-2.5M8 8.7 5.5 6.2M3.2 10.5v1.7c0 .7.5 1.2 1.2 1.2h7.2c.7 0 1.2-.5 1.2-1.2v-1.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function InfoExportIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M3.5 2.8h6.2l2.8 2.8v7.6h-9V2.8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M9.6 2.9v2.8h2.8M5.7 8h4.6M5.7 10.5h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function toErrorMessage(error: unknown) {
   if (error instanceof ApiClientError) return `${error.code}: ${error.message}`;
   if (error instanceof Error) return error.message;
@@ -2800,6 +3081,10 @@ function formatStatusText(value: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function formatMetricValue(value: number | null) {
+  return value === null ? '-' : String(value);
 }
 
 function getCvStatusBadgeClass(status: string) {
