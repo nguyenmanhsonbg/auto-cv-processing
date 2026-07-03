@@ -1,12 +1,14 @@
-import type { FacebookPublishPlan } from './types';
+import type { FacebookPublishPlan, FacebookPublishTarget } from './types';
 
 const FRONTEND_SOURCE = 'vcs-recruitment-frontend';
 const EXTENSION_SOURCE = 'vcs-recruitment-extension';
 const AUTH_CHECK_REQUEST = 'VCS_FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const PUBLISH_REQUEST = 'VCS_FRONTEND_FACEBOOK_PUBLISH_REQUEST';
+const GROUP_VERIFY_REQUEST = 'VCS_FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const BRIDGE_RESPONSE = 'VCS_FRONTEND_FACEBOOK_BRIDGE_RESPONSE';
 const BACKGROUND_AUTH_CHECK_REQUEST = 'FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const BACKGROUND_PUBLISH_REQUEST = 'FRONTEND_FACEBOOK_PUBLISH_REQUEST';
+const BACKGROUND_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const BACKGROUND_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const BACKGROUND_PORT = 'frontend-facebook-publish';
 
@@ -29,6 +31,15 @@ window.addEventListener('message', (event) => {
       accessToken: event.data.payload.accessToken,
       plan: event.data.payload.plan,
     });
+    return;
+  }
+
+  if (isGroupVerifyRequest(event.data)) {
+    sendBackgroundPortRequest({
+      type: BACKGROUND_GROUP_VERIFY_REQUEST,
+      requestId: event.data.requestId,
+      target: event.data.payload.target,
+    });
   }
 });
 
@@ -38,10 +49,11 @@ chrome.runtime?.onMessage.addListener((message) => {
 });
 
 function sendBackgroundPortRequest(message: {
-  type: typeof BACKGROUND_AUTH_CHECK_REQUEST | typeof BACKGROUND_PUBLISH_REQUEST;
+  type: typeof BACKGROUND_AUTH_CHECK_REQUEST | typeof BACKGROUND_PUBLISH_REQUEST | typeof BACKGROUND_GROUP_VERIFY_REQUEST;
   requestId: string;
   accessToken?: string;
   plan?: FacebookPublishPlan;
+  target?: FacebookPublishTarget;
 }) {
   const port = chrome.runtime?.connect?.({ name: BACKGROUND_PORT });
   if (!port) {
@@ -130,6 +142,23 @@ function isPublishRequest(value: unknown): value is {
     && isFacebookPublishPlan(payload.plan);
 }
 
+function isGroupVerifyRequest(value: unknown): value is {
+  source: typeof FRONTEND_SOURCE;
+  type: typeof GROUP_VERIFY_REQUEST;
+  requestId: string;
+  payload: {
+    target: FacebookPublishTarget;
+  };
+} {
+  const payload = (value as { payload?: { target?: unknown } } | null)?.payload;
+  return typeof value === 'object'
+    && value !== null
+    && (value as { source?: unknown }).source === FRONTEND_SOURCE
+    && (value as { type?: unknown }).type === GROUP_VERIFY_REQUEST
+    && typeof (value as { requestId?: unknown }).requestId === 'string'
+    && isFacebookPublishTarget(payload?.target);
+}
+
 function isBackgroundEvent(value: unknown): value is {
   type: typeof BACKGROUND_EVENT;
   requestId: string;
@@ -155,4 +184,11 @@ function isFacebookPublishPlan(value: unknown): value is FacebookPublishPlan {
     && Array.isArray((value as { targets?: unknown }).targets)
     && typeof (value as { delay?: unknown }).delay === 'object'
     && (value as { delay?: unknown }).delay !== null;
+}
+
+function isFacebookPublishTarget(value: unknown): value is FacebookPublishTarget {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { targetType?: unknown }).targetType === 'string'
+    && typeof (value as { targetName?: unknown }).targetName === 'string';
 }

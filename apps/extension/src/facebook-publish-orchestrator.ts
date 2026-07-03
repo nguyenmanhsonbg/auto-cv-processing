@@ -29,6 +29,12 @@ interface FacebookLoginCheckResult {
   message: string;
 }
 
+export interface FacebookGroupEligibilityResult {
+  eligibilityStatus: 'UNKNOWN' | 'CAN_POST' | 'CANNOT_POST';
+  eligibilityReason: string;
+  verifiedAt: string;
+}
+
 interface FacebookPagePublishResult {
   status: 'SUCCESS' | 'FAILED' | 'SKIPPED';
   message: string;
@@ -245,6 +251,67 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
     if (closeAfterCheck) {
       await closeTabSafely(tab.id);
     }
+  }
+}
+
+export async function verifyFacebookGroupPostingEligibility(
+  target: FacebookPublishTarget,
+): Promise<FacebookGroupEligibilityResult> {
+  if (target.targetType !== 'GROUP') {
+    return {
+      eligibilityStatus: 'CANNOT_POST',
+      eligibilityReason: `${target.targetType} eligibility verification is not implemented yet.`,
+      verifiedAt: new Date().toISOString(),
+    };
+  }
+
+  if (!target.targetUrl) {
+    return {
+      eligibilityStatus: 'CANNOT_POST',
+      eligibilityReason: 'Facebook group URL is required.',
+      verifiedAt: new Date().toISOString(),
+    };
+  }
+
+  await ensureFacebookSession();
+
+  const tab = await openTab(target.targetUrl, false);
+  try {
+    await waitForTabComplete(tab.id);
+    await sleep(randomDelay(1_500, 3_000));
+    const hiddenResult = await runScript<[], FacebookGroupEligibilityResult>(
+      tab.id,
+      checkFacebookGroupPostingEligibilityInPage,
+      [],
+    );
+    if (hiddenResult.eligibilityStatus !== 'UNKNOWN') {
+      return hiddenResult;
+    }
+
+    await activateTab(tab.id);
+    await sleep(randomDelay(900, 1_500));
+    await waitForTabComplete(tab.id);
+
+    const visibleResult = await runScript<[], FacebookGroupEligibilityResult>(
+      tab.id,
+      checkFacebookGroupPostingEligibilityInPage,
+      [],
+    );
+
+    return visibleResult.eligibilityStatus === 'UNKNOWN'
+      ? {
+        ...visibleResult,
+        eligibilityReason: `${visibleResult.eligibilityReason} Hidden and visible verification could not prove posting eligibility.`,
+      }
+      : visibleResult;
+  } catch (error) {
+    return {
+      eligibilityStatus: 'UNKNOWN',
+      eligibilityReason: toAutomationErrorMessage(error),
+      verifiedAt: new Date().toISOString(),
+    };
+  } finally {
+    await closeTabSafely(tab.id);
   }
 }
 
@@ -655,6 +722,265 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
       ? 'Facebook login detected.'
       : 'Waiting for Facebook login to complete.',
   };
+}
+
+async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGroupEligibilityResult> {
+  const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  const CLICKABLE_SELECTOR = 'button, [role="button"], [tabindex], a, span, div';
+  const POST_COMPOSER_PATTERNS = [
+    /write something/,
+    /create a public post/,
+    /create post/,
+    /start a post/,
+    /what.?s on your mind/,
+    /ban viet gi/,
+    /viet gi/,
+    /tao bai viet/,
+  ];
+  const COMMENT_PATTERNS = [
+    /write a comment/,
+    /add a comment/,
+    /comment as/,
+    /reply/,
+    /binh luan/,
+    /viet binh luan/,
+    /tra loi/,
+    /viet phan hoi/,
+  ];
+  const JOIN_GROUP_PATTERNS = [
+    /^join$/,
+    /^join group$/,
+    /^join this group$/,
+    /^tham gia$/,
+    /^tham gia nhom$/,
+    /request to join/,
+    /yeu cau tham gia/,
+  ];
+  const PENDING_JOIN_PATTERNS = [
+    /^pending$/,
+    /^request pending$/,
+    /^requested$/,
+    /cancel request/,
+    /membership pending/,
+    /^dang cho$/,
+    /dang cho phe duyet/,
+    /da gui yeu cau/,
+  ];
+  const queryAll = (root: Document | Element, selector: string) => (
+    Array.from(root.querySelectorAll(selector))
+  );
+  const isVisible = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.visibility !== 'hidden'
+      && style.display !== 'none';
+  };
+  const elementLabel = (element: Element) => normalize([
+    element.textContent ?? '',
+    element.getAttribute('aria-label') ?? '',
+    element.getAttribute('aria-placeholder') ?? '',
+    element.getAttribute('placeholder') ?? '',
+    element.getAttribute('title') ?? '',
+  ].join(' '));
+  const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
+  const getClickableElement = (element: Element) => (
+    element.closest('button, [role="button"], [tabindex], a') ?? element
+  );
+  const isDisabled = (element: Element) => {
+    const clickable = getClickableElement(element);
+    return clickable.hasAttribute('disabled')
+      || clickable.getAttribute('aria-disabled') === 'true';
+  };
+  const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
+  const isInsideCommentSurface = (element: Element) => {
+    if (isCommentLabel(elementLabel(element))) return true;
+
+    let current = element.parentElement;
+    let depth = 0;
+    while (current && depth < 6) {
+      const label = elementLabel(current);
+      if (matchesAny(label, POST_COMPOSER_PATTERNS)) return false;
+      if (isCommentLabel(label)) return true;
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return false;
+  };
+  const result = (
+    eligibilityStatus: FacebookGroupEligibilityResult['eligibilityStatus'],
+    eligibilityReason: string,
+  ): FacebookGroupEligibilityResult => ({
+    eligibilityStatus,
+    eligibilityReason,
+    verifiedAt: new Date().toISOString(),
+  });
+  const clickElement = async (element: Element) => {
+    const clickable = getClickableElement(element);
+    clickable.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+    if (clickable instanceof HTMLElement) {
+      clickable.focus({ preventScroll: true });
+    }
+    await sleepInPage(150);
+    (clickable as HTMLElement).click();
+  };
+  const findClickable = (
+    root: Document | Element,
+    patterns: RegExp[],
+    options: {
+      enabledOnly?: boolean;
+      excludeCommentSurfaces?: boolean;
+      maxLabelLength?: number;
+      preferViewport?: boolean;
+    } = {},
+  ) => {
+    const matched = queryAll(root, CLICKABLE_SELECTOR)
+      .filter((element) => {
+        if (!isVisible(element)) return false;
+        if (options.enabledOnly && isDisabled(element)) return false;
+        if (options.excludeCommentSurfaces && isInsideCommentSurface(element)) return false;
+        const label = elementLabel(element);
+        if (!label || label.length > (options.maxLabelLength ?? 180)) return false;
+        return matchesAny(label, patterns);
+      });
+    const sorted = options.preferViewport
+      ? matched
+        .map((element) => {
+          const clickable = getClickableElement(element);
+          const rect = clickable.getBoundingClientRect();
+          const label = elementLabel(element);
+          const inViewport = rect.bottom > 0 && rect.top < window.innerHeight;
+          const nearTop = inViewport && rect.top < window.innerHeight * 0.85;
+          const role = clickable.getAttribute('role');
+          const roleScore = clickable.tagName === 'BUTTON' || role === 'button' ? 90 : 0;
+          const conciseLabelScore = label.length <= 80 ? 70 : label.length <= 140 ? 30 : 0;
+          const areaPenalty = Math.min(90, (rect.width * rect.height) / 1600);
+          return {
+            element,
+            score: roleScore
+              + conciseLabelScore
+              + (inViewport ? 100 : 0)
+              + (nearTop ? 40 : 0)
+              - areaPenalty
+              - Math.max(0, rect.top / 100),
+          };
+        })
+        .sort((left, right) => right.score - left.score)
+        .map((item) => item.element)
+      : matched;
+
+    return {
+      element: sorted[0] ?? null,
+      elements: sorted,
+      count: matched.length,
+    };
+  };
+  const findPostEditor = (root: Document | Element) => queryAll(
+    root,
+    '[contenteditable="true"][role="textbox"], [contenteditable="true"]',
+  )
+    .filter((element): element is HTMLElement => element instanceof HTMLElement)
+    .filter((element) => isVisible(element))
+    .filter((element) => !isInsideCommentSurface(element))
+    .find((element) => {
+      const label = elementLabel(element);
+      return matchesAny(label, POST_COMPOSER_PATTERNS) || Boolean(element.closest('[role="dialog"]'));
+    }) ?? null;
+  const waitForPostEditor = async (timeoutMs: number) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const dialogs = queryAll(document, '[role="dialog"]')
+        .filter((element) => isVisible(element))
+        .filter((element) => !isInsideCommentSurface(element));
+      const dialogEditor = dialogs
+        .map((dialog) => findPostEditor(dialog))
+        .find((element): element is HTMLElement => Boolean(element));
+      if (dialogEditor) return dialogEditor;
+
+      const inlineEditor = findPostEditor(document);
+      if (inlineEditor) return inlineEditor;
+
+      await sleepInPage(400);
+    }
+
+    return null;
+  };
+
+  if (/\/login|checkpoint|recover|confirmemail|two_step|login_identify/i.test(window.location.href)) {
+    return result('CANNOT_POST', 'Facebook login or checkpoint is required.');
+  }
+
+  await sleepInPage(1_000);
+  const visibleText = normalize(document.body?.innerText ?? '');
+  if (
+    /content isn.?t available|this content isn.?t available|you can.?t post|not allowed to post/.test(visibleText)
+    || /ban hien khong xem duoc noi dung nay|khong co quyen|khong the dang|noi dung nay hien khong co san/.test(visibleText)
+  ) {
+    return result('CANNOT_POST', 'Current Facebook account cannot access or post to this group.');
+  }
+
+  const pendingJoin = findClickable(document, PENDING_JOIN_PATTERNS, { maxLabelLength: 80 });
+  if (pendingJoin.element) {
+    return result('CANNOT_POST', 'Current Facebook account has a pending join request for this group.');
+  }
+
+  const joinButton = findClickable(document, JOIN_GROUP_PATTERNS, { enabledOnly: true, maxLabelLength: 80 });
+  if (joinButton.element) {
+    return result('CANNOT_POST', 'Current Facebook account has not joined this group.');
+  }
+
+  window.scrollTo({ top: 0, behavior: 'auto' });
+  await sleepInPage(700);
+
+  const existingEditor = await waitForPostEditor(1_000);
+  if (existingEditor) {
+    return result('CAN_POST', 'Current Facebook account can open the group composer.');
+  }
+
+  const composer = findClickable(document, POST_COMPOSER_PATTERNS, {
+    enabledOnly: true,
+    excludeCommentSurfaces: true,
+    maxLabelLength: 180,
+    preferViewport: true,
+  });
+  if (!composer.element) {
+    return result(
+      'UNKNOWN',
+      `Could not verify Facebook group composer automatically. url=${window.location.href}; composerMatches=${composer.count}; bodyLength=${visibleText.length}.`,
+    );
+  }
+
+  const candidates = composer.elements.slice(0, 5);
+  for (const candidate of candidates) {
+    await clickElement(candidate);
+    const editor = await waitForPostEditor(6_000);
+    if (editor) {
+      return result('CAN_POST', 'Current Facebook account can open the group composer.');
+    }
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape',
+      code: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    }));
+    await sleepInPage(500);
+  }
+
+  return result(
+    'CAN_POST',
+    `Current Facebook account can see an enabled group composer. url=${window.location.href}; composerMatches=${composer.count}; testedCandidates=${candidates.length}.`,
+  );
 }
 
 async function prepareFacebookPostInPage(content: string): Promise<FacebookPreparedPostResult> {

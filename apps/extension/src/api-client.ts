@@ -16,6 +16,7 @@ import type {
   SyncAmisCareersResponse,
   SyncAmisJobPostingRequest,
   UpdateFacebookGroupRequest,
+  VerifyFacebookGroupRequest,
 } from './types';
 
 export class ApiClientError extends Error {
@@ -165,6 +166,18 @@ export async function updateFacebookGroup(
 ) {
   return request<FacebookPublishTarget>(`/extension/facebook/groups/${encodeURIComponent(targetId)}`, {
     method: 'PUT',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function verifyFacebookGroup(
+  accessToken: string,
+  targetId: string,
+  payload: VerifyFacebookGroupRequest,
+) {
+  return request<FacebookPublishTarget>(`/extension/facebook/groups/${encodeURIComponent(targetId)}/verify-result`, {
+    method: 'POST',
     accessToken,
     body: payload,
   });

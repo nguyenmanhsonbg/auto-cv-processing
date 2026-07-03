@@ -44,7 +44,11 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/use-toast';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
-import { ensureFacebookBrowserSession, startFacebookExtensionPublish } from '@/lib/facebook-extension-bridge';
+import {
+  ensureFacebookBrowserSession,
+  startFacebookExtensionPublish,
+  verifyFacebookGroupInBrowser,
+} from '@/lib/facebook-extension-bridge';
 import {
   closeJobPosting,
   createFacebookGroup,
@@ -55,12 +59,14 @@ import {
   publishJobPosting,
   updateFacebookGroup,
   updateJobPosting,
+  verifyFacebookGroup,
   type FacebookPublishTarget,
+  type FacebookPublishTargetEligibilityStatus,
   type JobPostingChannelStatus,
   type JobPostingPayload,
   type JobPostingRecord,
 } from '@/lib/recruitment-api';
-import { apiClient } from '@/lib/api-client';
+import { ApiError, apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
 const CHANNEL_OPTIONS = [
@@ -75,6 +81,7 @@ type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
   | 'LOADING_GROUPS'
+  | 'VERIFYING'
   | 'READY'
   | 'ERROR';
 
@@ -160,19 +167,140 @@ function isString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function isDuplicateFacebookGroupError(error: unknown) {
+  return error instanceof ApiError && error.code === 'FACEBOOK_GROUP_ALREADY_EXISTS';
+}
+
+function getFacebookGroupUrlValidationError(
+  value: string,
+  groups: FacebookPublishTarget[],
+  currentTargetId?: string | null,
+) {
+  if (!isFacebookGroupUrlCandidate(value)) {
+    return 'Link URL phải có dạng https://www.facebook.com/groups/{groupId}.';
+  }
+
+  return getDuplicateFacebookGroupUrlError(value, groups, currentTargetId);
+}
+
+function getDuplicateFacebookGroupUrlError(
+  value: string,
+  groups: FacebookPublishTarget[],
+  currentTargetId?: string | null,
+) {
+  const externalId = readFacebookGroupExternalId(value);
+  if (!externalId) return null;
+
+  const existingGroup = groups.find((group) => (
+    normalizeFacebookGroupExternalId(group.targetExternalId) === externalId
+    && group.targetId !== currentTargetId
+  ));
+
+  return existingGroup ? 'Group đã tồn tại.' : null;
+}
+
+function isFacebookGroupUrlCandidate(value: string) {
+  return Boolean(readFacebookGroupExternalId(value));
+}
+
+function readFacebookGroupExternalId(value: string) {
+  try {
+    const url = new URL(value.trim());
+    const hostname = url.hostname.toLowerCase();
+    const isFacebookHost = hostname === 'facebook.com' || hostname.endsWith('.facebook.com');
+    if (!isFacebookHost) return null;
+
+    const pathSegments = url.pathname.split('/').filter(Boolean);
+    const groupsIndex = pathSegments.findIndex((segment) => segment.toLowerCase() === 'groups');
+    const rawExternalId = groupsIndex >= 0 ? pathSegments[groupsIndex + 1] : undefined;
+    return normalizeFacebookGroupExternalId(rawExternalId);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeFacebookGroupExternalId(value: string | null | undefined) {
+  if (!value) return null;
+
+  try {
+    return decodeURIComponent(value).trim().toLowerCase() || null;
+  } catch {
+    return value.trim().toLowerCase() || null;
+  }
+}
+
 function selectedCountAfterRefresh(
   groups: FacebookPublishTarget[],
   currentSelection: string[],
   selectAllWhenEmpty?: boolean,
 ) {
-  const activeIds = groups.map((group) => group.targetId).filter(isString);
-  const retained = currentSelection.filter((targetId) => activeIds.includes(targetId));
+  const selectableIds = groups.filter(isSelectableFacebookGroup).map((group) => group.targetId).filter(isString);
+  const retained = currentSelection.filter((targetId) => selectableIds.includes(targetId));
   if (retained.length > 0) return retained.length;
-  return selectAllWhenEmpty ? activeIds.length : 0;
+  return selectAllWhenEmpty ? selectableIds.length : 0;
 }
 
 function isFacebookBusy(state: FacebookGroupLoadState) {
-  return state === 'CHECKING_LOGIN' || state === 'LOADING_GROUPS';
+  return state === 'CHECKING_LOGIN' || state === 'LOADING_GROUPS' || state === 'VERIFYING';
+}
+
+function isSelectableFacebookGroup(group: FacebookPublishTarget) {
+  return Boolean(
+    group.targetId
+      && group.selectable
+      && group.eligibilityStatus === 'CAN_POST'
+      && !group.quotaExceeded,
+  );
+}
+
+function countSelectableFacebookGroups(groups: FacebookPublishTarget[]) {
+  return groups.filter(isSelectableFacebookGroup).length;
+}
+
+function getFacebookEligibilityLabel(status?: FacebookPublishTargetEligibilityStatus | null) {
+  if (status === 'CAN_POST') return 'Can post';
+  if (status === 'CANNOT_POST') return 'Cannot post';
+  return 'Needs check';
+}
+
+function getFacebookEligibilityClass(status?: FacebookPublishTargetEligibilityStatus | null) {
+  if (status === 'CAN_POST') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (status === 'CANNOT_POST') return 'border-red-200 bg-red-50 text-red-700';
+  return 'border-amber-200 bg-amber-50 text-amber-700';
+}
+
+function getFacebookGroupDisabledReason(group: FacebookPublishTarget) {
+  if (!group.targetId) return 'Facebook group id is missing.';
+  if (group.quotaExceeded) return group.disabledReason || 'Daily publish limit has been reached for this group.';
+  if (group.eligibilityStatus === 'UNKNOWN') {
+    const reason = group.disabledReason || group.eligibilityReason || '';
+    if (isAmbiguousFacebookComposerVerificationReason(reason)) {
+      return 'Check this group again with the current Facebook browser session.';
+    }
+
+    return reason || 'Check this group before publishing.';
+  }
+  if (group.eligibilityStatus === 'CANNOT_POST') {
+    return group.disabledReason || group.eligibilityReason || 'Current Facebook account cannot post to this group.';
+  }
+  return group.disabledReason ?? null;
+}
+
+function getFacebookGroupVerificationMessage(group: FacebookPublishTarget) {
+  const reason = getFacebookGroupDisabledReason(group);
+  if (group.eligibilityStatus === 'UNKNOWN') {
+    return `"${group.targetName}" needs another check before publishing: ${reason}`;
+  }
+
+  return `"${group.targetName}" cannot be used: ${reason}`;
+}
+
+function isAmbiguousFacebookComposerVerificationReason(reason: string) {
+  const normalizedReason = reason.toLowerCase();
+  return normalizedReason.includes('composermatches=')
+    || normalizedReason.includes('hidden and visible verification could not prove posting eligibility')
+    || normalizedReason.includes('could not open facebook group post composer automatically')
+    || normalizedReason.includes('could not verify facebook group composer automatically');
 }
 
 function DetailField({
@@ -208,6 +336,7 @@ export function JobPostingDetailPage() {
   const [facebookSettingsOpen, setFacebookSettingsOpen] = useState(false);
   const [facebookGroupName, setFacebookGroupName] = useState('');
   const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
+  const [facebookGroupUrlError, setFacebookGroupUrlError] = useState<string | null>(null);
   const [editingFacebookGroup, setEditingFacebookGroup] = useState<FacebookPublishTarget | null>(null);
   const [facebookGroupSaving, setFacebookGroupSaving] = useState(false);
   const [facebookPublishStatus, setFacebookPublishStatus] = useState<string | null>(null);
@@ -411,15 +540,15 @@ export function JobPostingDetailPage() {
       const groups = await listFacebookGroups();
       setFacebookGroups(groups);
       setSelectedFacebookGroupIds((current) => {
-        const activeIds = groups.map((group) => group.targetId).filter(isString);
-        const retained = current.filter((targetId) => activeIds.includes(targetId));
+        const selectableIds = groups.filter(isSelectableFacebookGroup).map((group) => group.targetId).filter(isString);
+        const retained = current.filter((targetId) => selectableIds.includes(targetId));
         if (retained.length > 0) return retained;
-        return options.selectAllWhenEmpty ? activeIds : [];
+        return options.selectAllWhenEmpty ? selectableIds : [];
       });
       setFacebookGroupLoadState('READY');
       setFacebookGroupMessage(
         groups.length > 0
-          ? `${selectedCountAfterRefresh(groups, selectedFacebookGroupIds, options.selectAllWhenEmpty)}/${groups.length} allowed Facebook group(s) selected.`
+          ? `${selectedCountAfterRefresh(groups, selectedFacebookGroupIds, options.selectAllWhenEmpty)}/${countSelectableFacebookGroups(groups)} eligible Facebook group(s) selected.`
           : 'No Facebook groups are configured for this account yet.',
       );
     } catch (err) {
@@ -432,6 +561,11 @@ export function JobPostingDetailPage() {
 
   const toggleFacebookGroupSelection = (targetId?: string | null) => {
     if (!targetId) return;
+    const group = facebookGroups.find((item) => item.targetId === targetId);
+    if (group && !isSelectableFacebookGroup(group)) {
+      setFacebookGroupMessage(getFacebookGroupDisabledReason(group));
+      return;
+    }
 
     setSelectedFacebookGroupIds((current) => (
       current.includes(targetId)
@@ -443,6 +577,17 @@ export function JobPostingDetailPage() {
   const submitFacebookGroup = async () => {
     const targetName = facebookGroupName.trim();
     const targetUrl = facebookGroupUrl.trim();
+    const targetUrlError = getFacebookGroupUrlValidationError(
+      targetUrl,
+      facebookGroups,
+      editingFacebookGroup?.targetId ?? null,
+    );
+    if (targetUrlError) {
+      setFacebookGroupUrlError(targetUrlError);
+      setPublishError(null);
+      return;
+    }
+    setFacebookGroupUrlError(null);
     if (!targetName || !targetUrl) {
       setPublishError('Facebook group name and URL are required.');
       return;
@@ -454,17 +599,20 @@ export function JobPostingDetailPage() {
       if (editingFacebookGroup?.targetId) {
         await updateFacebookGroup(editingFacebookGroup.targetId, { targetName, targetUrl });
       } else {
-        const savedGroup = await createFacebookGroup({ targetName, targetUrl });
-        if (savedGroup.targetId) {
-          setSelectedFacebookGroupIds((current) => [...new Set([...current, savedGroup.targetId as string])]);
-        }
+        await createFacebookGroup({ targetName, targetUrl });
       }
       setFacebookGroupName('');
       setFacebookGroupUrl('');
+      setFacebookGroupUrlError(null);
       setEditingFacebookGroup(null);
       await refreshFacebookGroups();
     } catch (err) {
-      setPublishError(getInternalSafeErrorMessage(err));
+      if (isDuplicateFacebookGroupError(err)) {
+        setFacebookGroupUrlError('Group đã tồn tại.');
+        setPublishError(null);
+      } else {
+        setPublishError(getInternalSafeErrorMessage(err));
+      }
     } finally {
       setFacebookGroupSaving(false);
     }
@@ -474,6 +622,7 @@ export function JobPostingDetailPage() {
     setEditingFacebookGroup(group);
     setFacebookGroupName(group.targetName);
     setFacebookGroupUrl(group.targetUrl ?? '');
+    setFacebookGroupUrlError(null);
     setFacebookSettingsOpen(true);
   };
 
@@ -495,10 +644,44 @@ export function JobPostingDetailPage() {
     }
   };
 
+  const checkFacebookGroup = async (group: FacebookPublishTarget) => {
+    if (!group.targetId) return;
+
+    setFacebookGroupLoadState('VERIFYING');
+    setFacebookGroupMessage(`Checking "${group.targetName}" with the current Facebook browser session.`);
+    setPublishError(null);
+
+    try {
+      const result = await verifyFacebookGroupInBrowser(group);
+      const savedGroup = await verifyFacebookGroup(group.targetId, result);
+      const groups = await listFacebookGroups();
+      const selectableIds = new Set(groups.filter(isSelectableFacebookGroup).map((item) => item.targetId).filter(isString));
+      setFacebookGroups(groups);
+      setSelectedFacebookGroupIds((current) => current.filter((targetId) => selectableIds.has(targetId)));
+      setFacebookGroupLoadState('READY');
+      setFacebookGroupMessage(
+        savedGroup.selectable
+          ? `"${savedGroup.targetName}" can be used for publishing (${savedGroup.quotaLabel} today).`
+          : getFacebookGroupVerificationMessage(savedGroup),
+      );
+    } catch (err) {
+      const message = getInternalSafeErrorMessage(err);
+      setFacebookGroupLoadState('ERROR');
+      setFacebookGroupMessage(message);
+      setPublishError(message);
+    }
+  };
+
   const status = jobPosting?.status;
   const closedLike = status === 'CLOSED' || status === 'ARCHIVED';
   const publishedLike = status === 'PUBLISHED';
   const publicSlug = jobPosting?.publicSlug ?? '';
+  const facebookGroupDuplicateUrlError = getDuplicateFacebookGroupUrlError(
+    facebookGroupUrl,
+    facebookGroups,
+    editingFacebookGroup?.targetId ?? null,
+  );
+  const facebookGroupUrlFieldError = facebookGroupDuplicateUrlError ?? facebookGroupUrlError;
 
   return (
     <div className="space-y-6">
@@ -783,26 +966,63 @@ export function JobPostingDetailPage() {
                     <p className="text-xs text-emerald-900">
                       {isFacebookBusy(facebookGroupLoadState) && facebookGroupMessage
                         ? facebookGroupMessage
-                        : `${selectedFacebookGroupIds.length}/${facebookGroups.length} allowed Facebook group(s) selected.`}
+                        : `${selectedFacebookGroupIds.length}/${countSelectableFacebookGroups(facebookGroups)} eligible Facebook group(s) selected.`}
                     </p>
 
                     {facebookGroups.length > 0 ? (
-                      <div className="divide-y divide-emerald-100 rounded-md bg-white">
+                      <div className="max-h-72 divide-y divide-emerald-100 overflow-y-auto rounded-md bg-white">
                         {facebookGroups.map((group) => (
                           <div
                             key={group.targetId ?? group.targetUrl ?? group.targetName}
-                            className="flex items-center justify-between gap-3 px-3 py-2"
+                            className={cn(
+                              'flex items-center justify-between gap-3 px-3 py-2',
+                              !isSelectableFacebookGroup(group) && 'bg-slate-50 text-muted-foreground',
+                            )}
                           >
-                            <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+                            <label className="flex min-w-0 flex-1 items-start gap-2 text-sm">
                               <input
+                                className="mt-1"
                                 type="checkbox"
                                 checked={Boolean(group.targetId && selectedFacebookGroupIds.includes(group.targetId))}
-                                disabled={submitting || !group.targetId}
+                                disabled={submitting || !group.targetId || !isSelectableFacebookGroup(group)}
                                 onChange={() => toggleFacebookGroupSelection(group.targetId)}
                               />
-                              <span className="truncate">{group.targetName}</span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate">{group.targetName}</span>
+                                <span className="mt-1 flex flex-wrap gap-1">
+                                  <Badge variant="outline" className={cn('text-[10px]', getFacebookEligibilityClass(group.eligibilityStatus))}>
+                                    {getFacebookEligibilityLabel(group.eligibilityStatus)}
+                                  </Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      'text-[10px]',
+                                      group.quotaExceeded
+                                        ? 'border-red-200 bg-red-50 text-red-700'
+                                        : 'border-slate-200 bg-slate-50 text-slate-700',
+                                    )}
+                                  >
+                                    {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`} today
+                                  </Badge>
+                                </span>
+                                {getFacebookGroupDisabledReason(group) ? (
+                                  <span className="mt-1 block text-xs text-amber-700">
+                                    {getFacebookGroupDisabledReason(group)}
+                                  </span>
+                                ) : null}
+                              </span>
                             </label>
                             <div className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0"
+                                disabled={submitting || isFacebookBusy(facebookGroupLoadState) || !group.targetId}
+                                onClick={() => void checkFacebookGroup(group)}
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                              </Button>
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -848,6 +1068,7 @@ export function JobPostingDetailPage() {
                               setEditingFacebookGroup(null);
                               setFacebookGroupName('');
                               setFacebookGroupUrl('');
+                              setFacebookGroupUrlError(null);
                             }}
                           >
                             <Plus className="mr-1 h-4 w-4" />
@@ -872,15 +1093,26 @@ export function JobPostingDetailPage() {
                               value={facebookGroupUrl}
                               disabled={facebookGroupSaving}
                               placeholder="https://www.facebook.com/groups/..."
-                              onChange={(event) => setFacebookGroupUrl(event.target.value)}
+                              aria-invalid={Boolean(facebookGroupUrlFieldError)}
+                              className={cn(
+                                facebookGroupUrlFieldError
+                                  && 'border-destructive focus-visible:ring-destructive/30',
+                              )}
+                              onChange={(event) => {
+                                setFacebookGroupUrl(event.target.value);
+                                setFacebookGroupUrlError(null);
+                              }}
                             />
+                            {facebookGroupUrlFieldError ? (
+                              <p className="text-xs font-medium text-destructive">{facebookGroupUrlFieldError}</p>
+                            ) : null}
                           </div>
                         </div>
                         <div className="flex justify-end">
                           <Button
                             type="button"
                             size="sm"
-                            disabled={facebookGroupSaving}
+                            disabled={facebookGroupSaving || Boolean(facebookGroupUrlFieldError)}
                             onClick={() => void submitFacebookGroup()}
                           >
                             {facebookGroupSaving ? (
