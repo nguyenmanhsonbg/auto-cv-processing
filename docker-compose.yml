@@ -27,11 +27,24 @@ services:
       JWT_SECRET: change-me-in-production
       NODE_ENV: development
       PORT: 3000
+      CV_PDF_SANITIZER_MODE: GHOSTSCRIPT_DOCKER
+      CV_GHOSTSCRIPT_DOCKER_IMAGE: auto-cv-processing-ghostscript:latest
+      CV_GHOSTSCRIPT_TIMEOUT_MS: 60000
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - uploads:/app/uploads
+
+  cv-sanitizer:
+    image: auto-cv-processing-ghostscript:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ghostscript-sanitizer
+    profiles:
+      - sanitizer
+    command: ['gs', '--version']
 
   frontend:
     build:

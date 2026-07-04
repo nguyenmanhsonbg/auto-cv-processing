@@ -57,6 +57,10 @@ EXPOSE 3000
 WORKDIR /app/apps/backend
 CMD ["./migrate-and-start.sh"]
 
+FROM alpine:3.20 AS ghostscript-sanitizer
+RUN apk add --no-cache ghostscript
+CMD ["gs", "--version"]
+
 FROM nginx:alpine AS frontend
 COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-builder /app/apps/frontend/dist /usr/share/nginx/html
