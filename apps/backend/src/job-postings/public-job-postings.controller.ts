@@ -14,6 +14,7 @@ import {
   ParseUUIDPipe,
   Post,
   Req,
+  UnprocessableEntityException,
   UploadedFile,
   UseFilters,
   UseInterceptors,
@@ -48,7 +49,13 @@ import {
   ApiErrorResponses,
   apiSuccessEnvelopeSchema,
 } from '../common/swagger/api-envelope.schema';
-import { JobPostingStatus, RecruitmentChannel } from '../recruitment-common';
+import { validateResumeSignals } from '../cv-parsing/resume-validation.util';
+import { FileParserService } from '../file-parser/file-parser.service';
+import {
+  ApplicationStatus,
+  JobPostingStatus,
+  RecruitmentChannel,
+} from '../recruitment-common';
 import { PublicApplyDto } from './dto/public-apply.dto';
 import { JobPostingEntity } from './entities/job-posting.entity';
 import { JobPostingsService } from './job-postings.service';
@@ -73,6 +80,7 @@ interface PublicJobDescriptionSnapshot extends Record<string, unknown> {
 
 type PublicApplyErrorCode =
   | 'CV_SCAN_FAILED'
+  | 'CV_NOT_RESUME'
   | 'DUPLICATE_APPLICATION'
   | 'DUPLICATE_CV_FILE'
   | 'FILE_TOO_LARGE'
@@ -92,6 +100,27 @@ interface PublicApplyError {
 
 const MAX_PUBLIC_APPLY_CV_FILE_SIZE_BYTES = 20 * 1024 * 1024;
 const allowedPublicApplyExtensions = new Set(['.pdf', '.docx', '.xlsx']);
+const PUBLIC_CANDIDATE_CV_UPDATE_ALLOWED_STATUSES = [
+  ApplicationStatus.APPLICATION_CREATED,
+  ApplicationStatus.APPLICATION_VALIDATING,
+  ApplicationStatus.APPLICATION_DUPLICATE_CHECKING,
+  ApplicationStatus.APPLICATION_OVERWRITTEN,
+  ApplicationStatus.CV_UPLOADED,
+  ApplicationStatus.CV_STORED_QUARANTINE,
+  ApplicationStatus.CV_SCAN_REQUESTED,
+  ApplicationStatus.CV_SCAN_PASSED,
+  ApplicationStatus.CV_SCAN_FAILED,
+  ApplicationStatus.CV_SANITIZING,
+  ApplicationStatus.CV_SANITIZED,
+  ApplicationStatus.CV_SANITIZE_FAILED,
+  ApplicationStatus.CV_PARSED,
+  ApplicationStatus.CV_PARSE_FAILED,
+  ApplicationStatus.PROFILE_DUPLICATE_CHECKED,
+  ApplicationStatus.PROFILE_DUPLICATE_NEEDS_REVIEW,
+  ApplicationStatus.MAPPING_REQUESTED,
+  ApplicationStatus.MAPPING_DONE,
+  ApplicationStatus.MAPPING_FAILED,
+] as const;
 
 const publicJobPostingSchema = {
   type: 'object',
@@ -200,6 +229,7 @@ export class PublicJobPostingsController {
     private readonly jobPostingsService: JobPostingsService,
     private readonly applicationsService: ApplicationsService,
     private readonly cvDocumentsService: CvDocumentsService,
+    private readonly fileParserService: FileParserService,
   ) {}
 
   @Get(':slug')
@@ -276,6 +306,7 @@ export class PublicJobPostingsController {
         ipAddress: this.getClientIp(req),
         userAgent: normalizeHeader(req.headers['user-agent']),
       });
+      await this.assertUploadedFileLooksLikeResume(file);
       await this.applicationsService.recordPublicApplyReceived({
         jobPostingId,
         email: candidate.email,
@@ -291,12 +322,10 @@ export class PublicJobPostingsController {
         rawPayload: this.toApplyRawPayload(dto, jobPostingId),
       });
 
-      if (applicationResult.duplicate && !normalizedIdempotencyKey) {
-        await deleteCvQuarantineFile(file.path);
-        throw new ConflictException({
-          code: 'DUPLICATE_APPLICATION',
-          message: 'An application already exists for this job posting.',
-        });
+      const isPublicReapply = applicationResult.duplicate
+        && applicationResult.duplicateReason !== 'IDEMPOTENT_REPLAY';
+      if (isPublicReapply) {
+        this.assertPublicReapplyBelongsToSameCandidate(applicationResult, candidate);
       }
 
       handedToCvUploadService = true;
@@ -307,6 +336,9 @@ export class PublicJobPostingsController {
         reason: dto.note,
         actorId: null,
         idempotencyKey: normalizedIdempotencyKey,
+        allowedApplicationStatuses: isPublicReapply
+          ? PUBLIC_CANDIDATE_CV_UPDATE_ALLOWED_STATUSES
+          : undefined,
       });
 
       return {
@@ -380,6 +412,48 @@ export class PublicJobPostingsController {
     };
   }
 
+  private async assertUploadedFileLooksLikeResume(file: Express.Multer.File) {
+    const parsedData = await this.fileParserService.parseFile(file.path);
+    const rawText = typeof parsedData.rawText === 'string' ? parsedData.rawText : '';
+    const validation = validateResumeSignals(parsedData, rawText);
+
+    if (validation.isLikelyCv) return;
+
+    throw new UnprocessableEntityException({
+      code: 'CV_NOT_RESUME',
+      message: 'Uploaded file is not a valid CV.',
+      details: [
+        {
+          requiredSignals: validation.requiredSignals,
+          foundSignals: validation.foundSignals,
+          reasons: validation.reasons,
+        },
+      ],
+    });
+  }
+
+  private assertPublicReapplyBelongsToSameCandidate(
+    applicationResult: CreateApplicationResult,
+    candidate: { name: string; email: string; phone: string },
+  ) {
+    const existingCandidate = applicationResult.application.candidate
+      ?? applicationResult.candidate;
+
+    const sameName = this.normalizeCandidateName(existingCandidate?.name)
+      === this.normalizeCandidateName(candidate.name);
+    const sameEmail = this.normalizeCandidateEmail(existingCandidate?.email)
+      === this.normalizeCandidateEmail(candidate.email);
+    const samePhone = this.normalizeCandidatePhone(existingCandidate?.phone)
+      === this.normalizeCandidatePhone(candidate.phone);
+
+    if (sameName && sameEmail && samePhone) return;
+
+    throw new ConflictException({
+      code: 'DUPLICATE_APPLICATION',
+      message: 'An application already exists for this job posting.',
+    });
+  }
+
   private applyMeta(idempotencyKey: string | null) {
     return {
       requestId: randomUUID(),
@@ -400,6 +474,23 @@ export class PublicJobPostingsController {
 
   private optionalText(value?: string | null) {
     const normalized = value?.trim();
+    return normalized || null;
+  }
+
+  private normalizeCandidateName(value?: string | null) {
+    return this.optionalText(value)
+      ?.normalize('NFC')
+      .replace(/\s+/g, ' ')
+      .toLocaleLowerCase('vi')
+      ?? null;
+  }
+
+  private normalizeCandidateEmail(value?: string | null) {
+    return this.optionalText(value)?.toLowerCase() ?? null;
+  }
+
+  private normalizeCandidatePhone(value?: string | null) {
+    const normalized = this.optionalText(value)?.replace(/[^\d+]/g, '');
     return normalized || null;
   }
 
@@ -478,6 +569,14 @@ function toPublicApplyError(exception: unknown): PublicApplyError {
     );
   }
 
+  if (code === 'CV_NOT_RESUME') {
+    return buildPublicApplyError(
+      HttpStatus.UNPROCESSABLE_ENTITY,
+      'CV_NOT_RESUME',
+      'Uploaded file does not look like a CV.',
+    );
+  }
+
   if (code === 'IDEMPOTENCY_CONFLICT') {
     return buildPublicApplyError(
       HttpStatus.CONFLICT,
@@ -538,7 +637,11 @@ function toPublicApplyError(exception: unknown): PublicApplyError {
     );
   }
 
-  if (normalizedMessage.includes('terminal application')) {
+  if (
+    code === 'INVALID_STATE_TRANSITION'
+    || normalizedMessage.includes('terminal application')
+    || normalizedMessage.includes('cannot receive candidate cv update')
+  ) {
     return buildPublicApplyError(
       HttpStatus.CONFLICT,
       'INVALID_STATE_TRANSITION',

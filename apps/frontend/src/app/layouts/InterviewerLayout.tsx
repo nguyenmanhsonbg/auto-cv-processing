@@ -63,23 +63,28 @@ function SidebarContent() {
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (!token) {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (!token && !refreshToken) {
       navigate('/login');
       return;
     }
     apiClient.setToken(token);
+    apiClient.setRefreshToken(refreshToken);
     apiClient.get<User>('/auth/me').then((u) => setUser(u)).catch((err) => {
       // Only logout on 401 — network errors (e.g. backend restarting) should not clear the session
       if (err instanceof ApiError && err.status === 401) {
-        localStorage.removeItem('token');
+        apiClient.clearTokens();
         navigate('/login');
       }
     });
   }, [navigate, setUser]);
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    apiClient.setToken(null);
+    const refreshToken = apiClient.getRefreshToken();
+    if (refreshToken) {
+      void apiClient.post('/auth/logout', { refreshToken }).catch(() => undefined);
+    }
+    apiClient.clearTokens();
     navigate('/login');
   };
 

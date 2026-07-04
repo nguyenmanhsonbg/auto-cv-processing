@@ -55,6 +55,11 @@ export interface WorkExperience {
   startYear?: number | null;
   endYear?: number | null;
   role?: string;
+  summary?: string;
+  responsibilities?: string[];
+  achievements?: string[];
+  rawDescription?: string;
+  technologies?: string[];
   projects?: ParsedProject[];
 }
 
@@ -118,6 +123,10 @@ export interface ParsedProject {
   architecture?: string;
   deployment?: string;
   role?: string;
+  description?: string;
+  responsibilities?: string[];
+  achievements?: string[];
+  rawDescription?: string;
 }
 
 export interface Candidate {

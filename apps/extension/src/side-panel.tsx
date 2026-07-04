@@ -23,7 +23,7 @@ import {
   updateFacebookGroup,
   verifyFacebookGroup,
 } from './api-client';
-import { clearAccessToken, getAccessToken, setAccessToken } from './auth-store';
+import { clearAccessToken, getAccessToken, setAuthTokens } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import { CHANNELS } from './config';
 import { updateFacebookChannelStatus } from './facebook-channel-status';
@@ -464,7 +464,10 @@ function SidePanel() {
       if (auth.user.role !== 'ADMIN' && auth.user.role !== 'HR') {
         throw new ApiClientError('FORBIDDEN', 'Only ADMIN and HR can sync postings.', 403);
       }
-      await setAccessToken(auth.accessToken);
+      await setAuthTokens({
+        accessToken: auth.accessToken,
+        refreshToken: auth.refreshToken,
+      });
       setToken(auth.accessToken);
       setUser(auth.user);
       setState('READY');
@@ -690,7 +693,7 @@ function SidePanel() {
           : `AMIS tab did not confirm CV upload. Response: ${JSON.stringify(response ?? null).slice(0, 160)}`);
       }
 
-      setApplicationsMessage(`Loaded ${response.fileCount ?? cleanCvs.length} CV file(s) into AMIS bulk upload form.`);
+      setApplicationsMessage(`Loaded ${response.fileCount ?? cleanCvs.length} CV file(s) into AMIS upload form.`);
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -3957,6 +3960,7 @@ function isUploadAmisCvFileResponse(value: unknown): value is {
   fileName?: string;
   fileNames?: string[];
   fileCount?: number;
+  target?: string;
   error?: string;
 } {
   return typeof value === 'object'

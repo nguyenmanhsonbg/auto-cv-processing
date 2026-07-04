@@ -21,6 +21,8 @@ import {
   StorageZone,
 } from '../recruitment-common';
 import { WorkflowStateService } from '../workflow-state/workflow-state.service';
+import { GeminiCvParserService } from './gemini-cv-parser.service';
+import { validateResumeSignals } from './resume-validation.util';
 
 const DEFAULT_PARSER_VERSION = 'file-parser-v1';
 
@@ -56,6 +58,7 @@ export class CvParsingService {
     private readonly dataSource: DataSource,
     private readonly workflowStateService: WorkflowStateService,
     private readonly fileParserService: FileParserService,
+    private readonly geminiCvParserService: GeminiCvParserService,
   ) {}
 
   async parseCleanCvDocument(input: ParseCleanCvInput) {
@@ -204,14 +207,41 @@ export class CvParsingService {
       throw new Error('EMPTY_PARSED_TEXT');
     }
 
+    const resumeValidation = validateResumeSignals(parsedData, normalizedText);
+    const geminiResult = await this.geminiCvParserService.parseProfile({
+      rawText: normalizedText,
+      parserHints: {
+        ...parsedData,
+        resumeValidation,
+        parserMode,
+      },
+    });
+    const aiMetadata = geminiResult
+      ? {
+          provider: 'gemini',
+          status: 'SUCCESS',
+          model: geminiResult.model,
+          attemptedModels: geminiResult.attemptedModels,
+          parsedAt: new Date().toISOString(),
+        }
+      : {
+          provider: 'gemini',
+          status: 'SKIPPED_OR_FAILED',
+          parsedAt: new Date().toISOString(),
+        };
+
     return {
       parsedData: {
         ...parsedData,
+        ...(geminiResult?.parsedData ?? {}),
+        rawText,
+        resumeValidation,
         parserMode,
+        aiParse: aiMetadata,
       },
       normalizedText,
       normalizedTextHash: this.calculateTextSha256(normalizedText),
-      parserVersion: DEFAULT_PARSER_VERSION,
+      parserVersion: geminiResult?.parserVersion ?? DEFAULT_PARSER_VERSION,
     };
   }
 
@@ -276,6 +306,7 @@ export class CvParsingService {
         parserMode: context.parserMode,
         rawTextLength: parseResult.normalizedText.length,
         extractedFields: this.listExtractedFields(parseResult.parsedData),
+        resumeValidation: parseResult.parsedData.resumeValidation ?? null,
         idempotencyKeyHash: context.idempotencyKeyHash,
       };
 

@@ -8,15 +8,15 @@ export function GoogleCallbackPage() {
 
   useEffect(() => {
     const token = searchParams.get('token');
+    const refreshToken = searchParams.get('refreshToken');
     const error = searchParams.get('error');
 
-    if (error || !token) {
+    if (error || !token || !refreshToken) {
       navigate('/login?error=google_auth_failed');
       return;
     }
 
-    localStorage.setItem('token', token);
-    apiClient.setToken(token);
+    apiClient.setTokens({ accessToken: token, refreshToken });
     navigate('/dashboard');
   }, [navigate, searchParams]);
 

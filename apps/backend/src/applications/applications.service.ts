@@ -63,6 +63,7 @@ export interface CreateApplicationResult {
   applicationSource: ApplicationSourceEntity | null;
   created: boolean;
   duplicate: boolean;
+  duplicateReason?: 'IDEMPOTENT_REPLAY' | 'IDENTITY_MATCH' | 'CANDIDATE_JOB_MATCH';
 }
 
 export interface ListApplicationsParams {
@@ -472,6 +473,7 @@ export class ApplicationsService {
             applicationSource: existingSource,
             created: false,
             duplicate: true,
+            duplicateReason: 'IDEMPOTENT_REPLAY',
           };
         }
       }
@@ -509,6 +511,7 @@ export class ApplicationsService {
           applicationSource,
           created: false,
           duplicate: true,
+          duplicateReason: 'IDENTITY_MATCH',
         };
       }
 
@@ -543,6 +546,7 @@ export class ApplicationsService {
           applicationSource,
           created: false,
           duplicate: true,
+          duplicateReason: 'CANDIDATE_JOB_MATCH',
         };
       }
 

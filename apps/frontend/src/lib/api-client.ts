@@ -1,4 +1,6 @@
 const API_BASE = '/api';
+const ACCESS_TOKEN_STORAGE_KEY = 'token';
+const REFRESH_TOKEN_STORAGE_KEY = 'refreshToken';
 
 export interface ApiRequestOptions {
   headers?: Record<string, string>;
@@ -33,13 +35,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 class ApiClient {
   private token: string | null = null;
+  private refreshToken: string | null = null;
+  private refreshPromise: Promise<boolean> | null = null;
 
   setToken(token: string | null) {
     this.token = token;
   }
 
+  setRefreshToken(token: string | null) {
+    this.refreshToken = token;
+  }
+
+  setTokens(tokens: { accessToken: string; refreshToken?: string | null }) {
+    this.setToken(tokens.accessToken);
+    this.setRefreshToken(tokens.refreshToken ?? null);
+    localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, tokens.accessToken);
+    if (tokens.refreshToken) {
+      localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refreshToken);
+    }
+  }
+
+  clearTokens() {
+    this.setToken(null);
+    this.setRefreshToken(null);
+    localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  }
+
   getToken() {
     return this.token;
+  }
+
+  getRefreshToken() {
+    return this.refreshToken ?? localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
   }
 
   private buildHeaders(options?: ApiRequestOptions, includeJsonContentType = false) {
@@ -102,13 +130,23 @@ class ApiClient {
     body?: unknown,
     options?: ApiRequestOptions,
   ): Promise<T> {
-    const headers = this.buildHeaders(options, true);
+    const bodyPayload = body === undefined ? undefined : JSON.stringify(body);
+    let headers = this.buildHeaders(options, true);
 
-    const res = await fetch(`${API_BASE}${path}`, {
+    let res = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: bodyPayload,
     });
+
+    if (res.status === 401 && this.shouldAttemptRefresh(path) && await this.refreshAccessToken()) {
+      headers = this.buildHeaders(options, true);
+      res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers,
+        body: bodyPayload,
+      });
+    }
 
     if (!res.ok) {
       await this.throwApiError(res, `Request failed: ${res.status}`);
@@ -173,13 +211,22 @@ class ApiClient {
     this.appendUploadFields(formData, options?.extraFields);
     formData.append(fieldName, file);
 
-    const headers = this.buildHeaders(options);
+    let headers = this.buildHeaders(options);
 
-    const res = await fetch(`${API_BASE}${path}`, {
+    let res = await fetch(`${API_BASE}${path}`, {
       method: 'POST',
       headers,
       body: formData,
     });
+
+    if (res.status === 401 && this.shouldAttemptRefresh(path) && await this.refreshAccessToken()) {
+      headers = this.buildHeaders(options);
+      res = await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+    }
 
     if (!res.ok) {
       await this.throwApiError(res, `Upload failed: ${res.status}`);
@@ -200,8 +247,12 @@ class ApiClient {
       for (const [key, val] of Object.entries(extraFields)) formData.append(key, val);
     }
     for (const file of files) formData.append('files', file);
-    const headers = this.buildHeaders(options);
-    const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData });
+    let headers = this.buildHeaders(options);
+    let res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData });
+    if (res.status === 401 && this.shouldAttemptRefresh(path) && await this.refreshAccessToken()) {
+      headers = this.buildHeaders(options);
+      res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData });
+    }
     if (!res.ok) {
       await this.throwApiError(res, `Upload failed: ${res.status}`);
     }
@@ -209,11 +260,59 @@ class ApiClient {
   }
 
   async downloadBlob(path: string, options?: ApiRequestOptions): Promise<Blob> {
-    const headers = this.buildHeaders(options);
+    let headers = this.buildHeaders(options);
 
-    const res = await fetch(`${API_BASE}${path}`, { headers });
+    let res = await fetch(`${API_BASE}${path}`, { headers });
+    if (res.status === 401 && this.shouldAttemptRefresh(path) && await this.refreshAccessToken()) {
+      headers = this.buildHeaders(options);
+      res = await fetch(`${API_BASE}${path}`, { headers });
+    }
     if (!res.ok) await this.throwApiError(res, `Download failed: ${res.status}`);
     return res.blob();
+  }
+
+  private async refreshAccessToken() {
+    if (this.refreshPromise) return this.refreshPromise;
+
+    this.refreshPromise = this.doRefreshAccessToken()
+      .finally(() => {
+        this.refreshPromise = null;
+      });
+    return this.refreshPromise;
+  }
+
+  private shouldAttemptRefresh(path: string) {
+    return !path.startsWith('/auth/login')
+      && !path.startsWith('/auth/refresh')
+      && !path.startsWith('/auth/logout');
+  }
+
+  private async doRefreshAccessToken() {
+    const refreshToken = this.getRefreshToken();
+    if (!refreshToken) return false;
+
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (!res.ok) {
+      this.clearTokens();
+      return false;
+    }
+
+    const data = await res.json() as { accessToken?: string; refreshToken?: string };
+    if (!data.accessToken || !data.refreshToken) {
+      this.clearTokens();
+      return false;
+    }
+
+    this.setTokens({
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+    });
+    return true;
   }
 }
 

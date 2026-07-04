@@ -3,9 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { createHash, randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { UserEntity } from './entities/user.entity';
+import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { RegisterDto, CreateUserDto, UpdateUserDto } from './dto/login.dto';
 import { UserRole, PaginatedResponse } from '@interview-assistant/shared';
 
@@ -14,6 +16,8 @@ export class AuthService implements OnModuleInit {
   constructor(
     @InjectRepository(UserEntity)
     private userRepo: Repository<UserEntity>,
+    @InjectRepository(RefreshTokenEntity)
+    private refreshTokenRepo: Repository<RefreshTokenEntity>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
@@ -93,11 +97,105 @@ export class AuthService implements OnModuleInit {
   }
 
   async login(user: { id: string; email: string; role: string; name: string }) {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const refreshToken = await this.createRefreshToken(user.id);
     return {
-      accessToken: this.jwtService.sign(payload),
+      accessToken: this.signAccessToken(user),
+      refreshToken,
       user: { id: user.id, email: user.email, role: user.role, name: user.name },
     };
+  }
+
+  async refresh(refreshToken: string) {
+    const tokenHash = this.hashRefreshToken(refreshToken);
+    const existingToken = await this.refreshTokenRepo.findOne({
+      where: { tokenHash },
+      relations: { user: true },
+    });
+
+    if (
+      !existingToken ||
+      existingToken.revokedAt ||
+      existingToken.expiresAt.getTime() <= Date.now() ||
+      !existingToken.user
+    ) {
+      if (existingToken && !existingToken.revokedAt) {
+        existingToken.revokedAt = new Date();
+        await this.refreshTokenRepo.save(existingToken);
+      }
+      throw new UnauthorizedException('Refresh token is invalid or expired');
+    }
+
+    const nextRefreshToken = this.generateRefreshToken();
+    const nextTokenHash = this.hashRefreshToken(nextRefreshToken);
+    existingToken.revokedAt = new Date();
+    existingToken.replacedByTokenHash = nextTokenHash;
+
+    const nextTokenEntity = this.refreshTokenRepo.create({
+      userId: existingToken.userId,
+      tokenHash: nextTokenHash,
+      expiresAt: this.getRefreshTokenExpiryDate(),
+      revokedAt: null,
+      replacedByTokenHash: null,
+    });
+    await this.refreshTokenRepo.save([existingToken, nextTokenEntity]);
+
+    return {
+      accessToken: this.signAccessToken(existingToken.user),
+      refreshToken: nextRefreshToken,
+      user: {
+        id: existingToken.user.id,
+        email: existingToken.user.email,
+        role: existingToken.user.role,
+        name: existingToken.user.name,
+      },
+    };
+  }
+
+  async logout(refreshToken?: string | null) {
+    const normalized = refreshToken?.trim();
+    if (!normalized) return { message: 'Logged out' };
+
+    const tokenHash = this.hashRefreshToken(normalized);
+    const existingToken = await this.refreshTokenRepo.findOne({ where: { tokenHash } });
+    if (existingToken && !existingToken.revokedAt) {
+      existingToken.revokedAt = new Date();
+      await this.refreshTokenRepo.save(existingToken);
+    }
+
+    return { message: 'Logged out' };
+  }
+
+  private signAccessToken(user: { id: string; email: string; role: string }) {
+    const payload = { sub: user.id, email: user.email, role: user.role };
+    return this.jwtService.sign(payload);
+  }
+
+  private async createRefreshToken(userId: string) {
+    const refreshToken = this.generateRefreshToken();
+    await this.refreshTokenRepo.save(
+      this.refreshTokenRepo.create({
+        userId,
+        tokenHash: this.hashRefreshToken(refreshToken),
+        expiresAt: this.getRefreshTokenExpiryDate(),
+        revokedAt: null,
+        replacedByTokenHash: null,
+      }),
+    );
+    return refreshToken;
+  }
+
+  private generateRefreshToken() {
+    return `rt_${randomBytes(64).toString('base64url')}`;
+  }
+
+  private hashRefreshToken(refreshToken: string) {
+    return createHash('sha256').update(refreshToken).digest('hex');
+  }
+
+  private getRefreshTokenExpiryDate() {
+    const ttlDays = Number(this.configService.get<string>('JWT_REFRESH_EXPIRES_IN_DAYS', '7'));
+    const safeTtlDays = Number.isFinite(ttlDays) && ttlDays > 0 ? Math.min(ttlDays, 365) : 7;
+    return new Date(Date.now() + safeTtlDays * 24 * 60 * 60 * 1000);
   }
 
   async register(dto: RegisterDto) {

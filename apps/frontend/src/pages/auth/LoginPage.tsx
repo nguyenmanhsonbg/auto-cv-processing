@@ -34,9 +34,8 @@ export function LoginPage() {
   const onSubmit = async (data: LoginForm) => {
     try {
       setError('');
-      const res = await apiClient.post<{ accessToken: string }>('/auth/login', data);
-      localStorage.setItem('token', res.accessToken);
-      apiClient.setToken(res.accessToken);
+      const res = await apiClient.post<{ accessToken: string; refreshToken: string }>('/auth/login', data);
+      apiClient.setTokens(res);
       navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
