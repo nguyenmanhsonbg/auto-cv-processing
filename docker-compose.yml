@@ -27,11 +27,41 @@ services:
       JWT_SECRET: change-me-in-production
       NODE_ENV: development
       PORT: 3000
+      UPLOAD_DIR: /app/apps/backend/uploads
+      CV_QUARANTINE_DIR: /app/apps/backend/storage/cv-quarantine
+      CV_SAFE_DIR: /app/apps/backend/storage/cv-safe
+      CV_PDF_SANITIZER_MODE: HTTP_SERVICE
+      CV_SANITIZER_SERVICE_URL: http://cv-sanitizer:8080
+      CV_GHOSTSCRIPT_TIMEOUT_MS: 60000
     depends_on:
       postgres:
         condition: service_healthy
+      cv-sanitizer:
+        condition: service_healthy
     volumes:
-      - uploads:/app/uploads
+      - uploads:/app/apps/backend/uploads
+      - cv-storage:/app/apps/backend/storage
+
+  cv-sanitizer:
+    image: auto-cv-processing-cv-sanitizer:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cv-sanitizer
+    environment:
+      PORT: 8080
+      CV_QUARANTINE_DIR: /app/apps/backend/storage/cv-quarantine
+      CV_SAFE_DIR: /app/apps/backend/storage/cv-safe
+      CV_GHOSTSCRIPT_TIMEOUT_MS: 60000
+    expose:
+      - '8080'
+    volumes:
+      - cv-storage:/app/apps/backend/storage
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "fetch(''http://127.0.0.1:8080/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   frontend:
     build:
@@ -48,3 +78,4 @@ services:
 volumes:
   pgdata:
   uploads:
+  cv-storage:

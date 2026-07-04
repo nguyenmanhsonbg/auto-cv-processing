@@ -8,6 +8,7 @@ import { WorkflowStateModule } from '../workflow-state/workflow-state.module';
 import { CvSanitizationService } from './cv-sanitization.service';
 import { CLEAN_CV_SANITIZER } from './sanitizer/clean-cv-sanitizer.interface';
 import { GhostscriptDockerPdfSanitizer } from './sanitizer/ghostscript-docker-pdf-sanitizer';
+import { GhostscriptHttpPdfSanitizer } from './sanitizer/ghostscript-http-pdf-sanitizer';
 import { CV_MALWARE_SCANNER } from './scanner/cv-malware-scanner.interface';
 import { StubCvMalwareScanner } from './scanner/stub-cv-malware-scanner';
 
@@ -33,7 +34,14 @@ import { StubCvMalwareScanner } from './scanner/stub-cv-malware-scanner';
     },
     {
       provide: CLEAN_CV_SANITIZER,
-      useClass: GhostscriptDockerPdfSanitizer,
+      useFactory: () => {
+        const mode = (process.env.CV_PDF_SANITIZER_MODE ?? 'GHOSTSCRIPT_DOCKER')
+          .trim()
+          .toUpperCase();
+        if (mode === 'HTTP_SERVICE') return new GhostscriptHttpPdfSanitizer();
+        if (mode === 'GHOSTSCRIPT_DOCKER') return new GhostscriptDockerPdfSanitizer();
+        throw new Error(`Unsupported CV_PDF_SANITIZER_MODE: ${mode}`);
+      },
     },
   ],
   exports: [
