@@ -57,9 +57,12 @@ EXPOSE 3000
 WORKDIR /app/apps/backend
 CMD ["./migrate-and-start.sh"]
 
-FROM alpine:3.20 AS ghostscript-sanitizer
+FROM node:${NODE_VERSION}-alpine AS cv-sanitizer
+WORKDIR /app
 RUN apk add --no-cache ghostscript
-CMD ["gs", "--version"]
+COPY apps/cv-sanitizer/server.js ./server.js
+EXPOSE 8080
+CMD ["node", "server.js"]
 
 FROM nginx:alpine AS frontend
 COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf
