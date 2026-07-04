@@ -57,6 +57,7 @@ type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'S
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv';
+type CvWorkspaceView = 'overview' | 'list';
 type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
@@ -99,6 +100,7 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'posting', label: 'Posting' },
   { id: 'cv', label: 'CV' },
 ];
+type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
 
 function getCareerQuestionSelectionStorageKey(amisCareerId: string) {
   return `${CAREER_QUESTION_SELECTION_PREFIX}${amisCareerId}`;
@@ -108,6 +110,7 @@ function SidePanel() {
   const [state, setState] = useState<PanelState>('AUTH_LOADING');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('overview');
   const [pinnedWorkspaceTab, setPinnedWorkspaceTab] = useState<WorkspaceTab | null>('overview');
+  const [cvWorkspaceView, setCvWorkspaceView] = useState<CvWorkspaceView>('overview');
   const [user, setUser] = useState<ExtensionUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState('');
@@ -165,6 +168,8 @@ function SidePanel() {
   const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
   const [cvUploadApplicationId, setCvUploadApplicationId] = useState<string | null>(null);
   const [selectedApplicationCvIds, setSelectedApplicationCvIds] = useState<Set<string>>(new Set());
+  const [selectedCvApplicationIds, setSelectedCvApplicationIds] = useState<Set<string>>(new Set());
+  const [isCvSyncReviewOpen, setIsCvSyncReviewOpen] = useState(false);
   const lastCareerContextIdRef = useRef<string | null>(null);
   const lastApplicationsFallbackSyncUrlRef = useRef<string | null>(null);
   const activeAmisRecruitmentIdRef = useRef<string | null>(null);
@@ -281,6 +286,9 @@ function SidePanel() {
     if (!applicationsContext) return;
     const currentIds = new Set(applicationsContext.applications.map((application) => application.applicationId));
     setSelectedApplicationCvIds((current) =>
+      new Set(Array.from(current).filter((applicationId) => currentIds.has(applicationId))),
+    );
+    setSelectedCvApplicationIds((current) =>
       new Set(Array.from(current).filter((applicationId) => currentIds.has(applicationId))),
     );
   }, [applicationsContext]);
@@ -2126,129 +2134,432 @@ function SidePanel() {
   function renderCvPanel() {
     return (
       <div className="cv-panel-content">
-        <section className="applications-panel compact-workspace-section">
-          <div className="status-row">
+        {cvWorkspaceView === 'overview' ? renderCvOverviewPanel() : null}
+        {cvWorkspaceView === 'list' ? renderCvCandidateListPanel() : null}
+      </div>
+    );
+  }
+
+  function renderCvOverviewPanel() {
+    const applications = applicationsContext?.applications ?? [];
+    const stats = getCvOverviewStats(applications);
+    const publicUrl = result?.jobPostingId
+      ? `http://localhost:4000/public/job-postings/${result.jobPostingId}`
+      : snapshot
+        ? `https://vcs-portal.vn/jobs/${slugifyForDisplay(snapshot.title)}`
+        : '-';
+
+    return (
+      <section className="cv-overview-screen">
+        <div className="cv-back-title">
+          <button type="button" className="cv-back-button" aria-label="Back">
+            <CloseIcon />
+          </button>
+          <h3>Hồ sơ ứng tuyển</h3>
+        </div>
+
+        <section className="cv-current-job-card">
+          <p className="cv-card-label">Current job</p>
+          <div className="cv-job-title-row">
+            <h4>{snapshot?.title ?? 'Chưa chọn tin tuyển dụng'}</h4>
+            <span className={snapshot ? 'cv-mini-badge is-success' : 'cv-mini-badge is-muted'}>
+              {snapshot ? 'Mapped' : 'No job'}
+            </span>
+          </div>
+          <dl>
             <div>
-              <p className="eyebrow">AMIS applications</p>
-              <h2>{applicationsContext?.total ?? 0} applications</h2>
-              {uploadableApplications.length > 0 ? (
-                <span className="selection-count">
-                  {selectedUploadableApplicationCount} / {uploadableApplications.length} clean CVs selected
-                </span>
-              ) : null}
+              <dt>AMIS ID</dt>
+              <dd>{amisRecruitmentId ?? '-'}</dd>
             </div>
-            <div className="panel-action-stack">
-              <button
-                type="button"
-                className="primary-button"
-                disabled={selectedUploadableApplicationCount === 0 || cvUploadApplicationId === 'BATCH'}
-                onClick={() => void uploadSelectedApplicationCvsToAmisForm()}
-              >
-                {cvUploadApplicationId === 'BATCH' ? 'Loading CVs...' : 'Load selected CVs'}
+            <div>
+              <dt>Public URL</dt>
+              <dd className="cv-public-url">{publicUrl}</dd>
+            </div>
+            <div>
+              <dt>Last synced</dt>
+              <dd>{autoSyncState?.updatedAt ?? '-'}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="cv-overview-block">
+          <p className="cv-section-label">Application overview</p>
+          <div className="cv-stat-grid">
+            <article>
+              <strong>{stats.totalApplied}</strong>
+              <span>Total applied</span>
+              <small>Tổng hồ sơ đã apply</small>
+            </article>
+            <article className="is-success">
+              <strong>{stats.newCount}</strong>
+              <span>New</span>
+              <small>Chưa được HR xử lý</small>
+            </article>
+            <article className="is-warning">
+              <strong>{stats.processingCount}</strong>
+              <span>Processing</span>
+              <small>Đang scan / parse CV</small>
+            </article>
+            <article className="is-danger">
+              <strong>{stats.syncErrorCount}</strong>
+              <span>Sync error</span>
+              <small>Cần retry đồng bộ AMIS</small>
+            </article>
+          </div>
+        </section>
+
+        <section className="cv-overview-block">
+          <p className="cv-section-label">Job status</p>
+          <div className="cv-job-status-list">
+            <span>JD Sync <strong className={snapshot ? 'is-success' : 'is-warning'}>{snapshot ? 'Synced' : 'Pending'}</strong></span>
+            <span>CV Intake <strong className={stats.totalApplied > 0 ? 'is-success' : 'is-warning'}>{stats.totalApplied > 0 ? 'Active' : 'Waiting'}</strong></span>
+            <span>CV Processing <strong className={stats.processingCount > 0 ? 'is-warning' : 'is-success'}>{stats.processingCount > 0 ? `${stats.processingCount} Pending` : 'Ready'}</strong></span>
+            <span>AMIS Candidate Sync <strong className={stats.syncErrorCount > 0 ? 'is-danger' : 'is-warning'}>{stats.syncErrorCount > 0 ? `${stats.syncErrorCount} Failed` : 'Not synced'}</strong></span>
+          </div>
+        </section>
+
+        {applicationsMessage ? (
+          <p className={applicationsState === 'ERROR' ? 'error-text' : 'muted-text'}>{applicationsMessage}</p>
+        ) : null}
+
+        <div className="cv-overview-actions">
+          <button
+            type="button"
+            className="secondary-action-button"
+            disabled={!amisRecruitmentId || applicationsState === 'LOADING'}
+            onClick={() => void loadAmisApplications(token, amisRecruitmentId)}
+          >
+            Refresh
+          </button>
+          <a className="secondary-action-button" href={publicUrl === '-' ? undefined : publicUrl} target="_blank" rel="noreferrer">
+            View public job
+          </a>
+          <button type="button" className="secondary-action-button" onClick={() => selectWorkspaceTab('posting')}>
+            Sync JD
+          </button>
+          <button type="button" className="secondary-action-button" onClick={() => void refreshSelectedCareerContext(token)}>
+            Xem bộ câu hỏi
+          </button>
+        </div>
+
+        <button type="button" className="cv-primary-action" onClick={() => setCvWorkspaceView('list')}>
+          Open applied candidates
+        </button>
+      </section>
+    );
+  }
+
+  function renderCvCandidateListPanel() {
+    const applications = applicationsContext?.applications ?? [];
+    const stats = getCvOverviewStats(applications);
+    const selectedCandidates = getSelectedCvApplications();
+    const allVisibleSelected = applications.length > 0
+      && applications.every((application) => selectedCvApplicationIds.has(application.applicationId));
+
+    return (
+      <section className="cv-list-screen">
+        <div className="cv-list-header">
+          <button type="button" className="cv-back-button" aria-label="Back to CV overview" onClick={() => setCvWorkspaceView('overview')}>
+            <BackIcon />
+          </button>
+          <h3>Danh sách hồ sơ ứng viên</h3>
+          <button type="button" className="cv-close-button" aria-label="Close candidate list" onClick={() => setCvWorkspaceView('overview')}>
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="cv-total-card">
+          <span>Tổng</span>
+          <strong>{stats.totalApplied}</strong>
+        </div>
+
+        <div className="cv-filter-grid">
+          <article className="is-success"><span>Đạt yêu cầu</span><strong>{stats.readyCount}</strong></article>
+          <article className="is-warning"><span>Cần xem xét</span><strong>{stats.reviewCount}</strong></article>
+          <article className="is-danger"><span>Không đạt</span><strong>{stats.failedCount}</strong></article>
+          <article className="is-muted"><span>Chưa trả lời</span><strong>{stats.noAnswerCount}</strong></article>
+        </div>
+
+        <div className="cv-list-toolbar">
+          <span>Danh sách ứng viên</span>
+          <button type="button" className="text-button">Điểm cao nhất</button>
+        </div>
+
+        {uploadableApplications.length > 0 ? (
+          <div className="cv-clean-actions">
+            <span>{selectedUploadableApplicationCount} / {uploadableApplications.length} clean CVs selected</span>
+            <button type="button" className="text-button" onClick={selectAllUploadableApplicationCvs}>
+              Select clean CVs
+            </button>
+            <button type="button" className="text-button" onClick={clearSelectedApplicationCvs}>
+              Clear
+            </button>
+          </div>
+        ) : null}
+
+        {applicationsState === 'LOADING' && applications.length === 0 ? (
+          <p className="muted-text">Loading applications for this AMIS recruitment...</p>
+        ) : null}
+
+        {applications.length > 0 ? (
+          <ul className="cv-candidate-list">
+            {applications.map((application) => {
+              const cvStatus = getApplicationCvDisplayStatus(application);
+              const syncStatus = getApplicationAmisSyncStatus(application);
+              const questionStatus = getApplicationQuestionStatus(application);
+              const score = getApplicationMatchScore(application);
+              const isSelected = selectedCvApplicationIds.has(application.applicationId);
+
+              return (
+                <li key={application.applicationId} className={isSelected ? 'is-selected' : ''}>
+                  <label className="cv-candidate-select">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleCvCandidateSelection(application.applicationId)}
+                    />
+                  </label>
+                  <div className="cv-candidate-card">
+                    <div className="cv-candidate-main">
+                      <span className="cv-avatar">{getCandidateInitials(application.candidateName)}</span>
+                      <div>
+                        <strong>{application.candidateName}</strong>
+                        <span>{[application.email, application.mobile].filter(Boolean).join(' - ') || 'No contact'}</span>
+                      </div>
+                      <span className={`cv-mini-badge ${getQuestionBadgeTone(questionStatus)}`}>{questionStatus}</span>
+                    </div>
+                    <div className="cv-candidate-meta">
+                      <span>Source: {application.sourceChannel ?? 'VCS Portal'}</span>
+                      <span>Applied: {formatDate(application.applyDate ?? application.createdAt) ?? '-'}</span>
+                    </div>
+                    <div className="cv-candidate-status-grid">
+                      <span className={cvStatus.tone}>
+                        <small>CV status</small>
+                        <strong>{cvStatus.label}</strong>
+                      </span>
+                      <span className="is-score">
+                        <small>Score</small>
+                        <strong>{score}</strong>
+                      </span>
+                      <span className={syncStatus.tone}>
+                        <small>AMIS sync</small>
+                        <strong>{syncStatus.label}</strong>
+                      </span>
+                    </div>
+                    <div className="cv-candidate-badge-row">
+                      <span className={getCvStatusBadgeClass(application.cvParseStatus ?? application.cvSanitizeStatus ?? application.status)}>
+                        {formatStatusText(application.cvParseStatus ?? application.cvSanitizeStatus ?? application.status)}
+                      </span>
+                      {canUploadApplicationCv(application) ? (
+                        <button
+                          type="button"
+                          className="text-button"
+                          disabled={Boolean(cvUploadApplicationId)}
+                          onClick={() => toggleApplicationCvSelection(application.applicationId)}
+                        >
+                          {selectedApplicationCvIds.has(application.applicationId) ? 'Bỏ chọn CV sạch' : 'Chọn CV sạch'}
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="cv-candidate-footer">
+                      <small>{getCandidatePipelineHint(application)}</small>
+                      <span className="cv-candidate-footer-actions">
+                        {canUploadApplicationCv(application) ? (
+                          <button
+                            type="button"
+                            className="text-button"
+                            disabled={Boolean(cvUploadApplicationId)}
+                            onClick={() => void uploadApplicationCvToAmisForm(application)}
+                          >
+                            {cvUploadApplicationId === application.applicationId ? 'Loading CV...' : 'Load CV'}
+                          </button>
+                        ) : null}
+                        <button type="button" className="text-button" onClick={() => openCvSyncReview([application.applicationId])}>
+                          Xem chi tiết
+                        </button>
+                      </span>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="empty-panel-state">
+            <strong>Chưa có hồ sơ ứng viên</strong>
+            <span>Mở AMIS recruitment có ứng viên hoặc refresh sau khi autosync chạy.</span>
+          </div>
+        )}
+
+        <div className="cv-list-sticky-actions">
+          <button
+            type="button"
+            className="secondary-action-button"
+            disabled={applicationsState === 'LOADING'}
+            onClick={() => void loadAmisApplications(token, amisRecruitmentId)}
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            className="secondary-action-button"
+            disabled={selectedUploadableApplicationCount === 0 || Boolean(cvUploadApplicationId)}
+            onClick={() => void uploadSelectedApplicationCvsToAmisForm()}
+          >
+            {cvUploadApplicationId === 'BATCH' ? 'Loading CVs...' : 'Load CVs'}
+          </button>
+          <button
+            type="button"
+            className="secondary-action-button"
+            disabled={selectedCandidates.length === 0}
+            onClick={() => openCvSyncReview()}
+          >
+            Sync AMIS
+          </button>
+          <button type="button" className="secondary-action-button" disabled={selectedCandidates.length === 0}>
+            Gửi câu hỏi
+          </button>
+          <button
+            type="button"
+            className="secondary-action-button"
+            disabled={applications.length === 0}
+            onClick={allVisibleSelected ? clearCvCandidateSelection : selectAllCvCandidates}
+          >
+            {allVisibleSelected ? 'Bỏ chọn' : 'Chọn tất cả'}
+          </button>
+          <button type="button" className="cv-reject-button" disabled={selectedCandidates.length === 0}>
+            Từ chối
+          </button>
+          <button type="button" className="cv-accept-button" disabled={selectedCandidates.length === 0} onClick={() => openCvSyncReview()}>
+            Chấp nhận
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  function getSelectedCvApplications(overrideIds?: string[]) {
+    const selectedIds = overrideIds ?? Array.from(selectedCvApplicationIds);
+    const selectedIdSet = new Set(selectedIds);
+    return applicationsContext?.applications.filter((application) => selectedIdSet.has(application.applicationId)) ?? [];
+  }
+
+  function toggleCvCandidateSelection(applicationId: string) {
+    setSelectedCvApplicationIds((current) => {
+      const next = new Set(current);
+      if (next.has(applicationId)) {
+        next.delete(applicationId);
+      } else {
+        next.add(applicationId);
+      }
+      return next;
+    });
+  }
+
+  function selectAllCvCandidates() {
+    setSelectedCvApplicationIds(new Set(applicationsContext?.applications.map((application) => application.applicationId) ?? []));
+  }
+
+  function clearCvCandidateSelection() {
+    setSelectedCvApplicationIds(new Set());
+  }
+
+  function openCvSyncReview(overrideIds?: string[]) {
+    if (overrideIds?.length) {
+      setSelectedCvApplicationIds(new Set(overrideIds));
+    }
+    setIsCvSyncReviewOpen(true);
+  }
+
+  function renderCvSyncReviewModal() {
+    const selectedCandidates = getSelectedCvApplications();
+
+    return (
+      <div className="modal-backdrop cv-sync-review-backdrop" role="presentation">
+        <section className="cv-sync-review-modal" role="dialog" aria-modal="true" aria-labelledby="cv-sync-review-title">
+          <header className="modal-header">
+            <div>
+              <p className="eyebrow">Đồng bộ sang AMIS</p>
+              <h2 id="cv-sync-review-title">Xác nhận dữ liệu trước khi đồng bộ</h2>
+            </div>
+            <button
+              type="button"
+              className="icon-button"
+              title="Đóng"
+              aria-label="Đóng"
+              onClick={() => setIsCvSyncReviewOpen(false)}
+            >
+              <CloseIcon />
+            </button>
+          </header>
+
+          <div className="cv-sync-review-body">
+            <section className="cv-sync-review-summary">
+              <article>
+                <span>Tổng hồ sơ đã chọn</span>
+                <strong>{selectedCandidates.length}</strong>
+              </article>
+              <article>
+                <span>CV đính kèm</span>
+                <strong>{selectedCandidates.filter(canUploadApplicationCv).length}</strong>
+              </article>
+            </section>
+
+            <section className="cv-sync-review-target">
+              <p className="cv-section-label">Target AMIS job</p>
+              <dl>
+                <div>
+                  <dt>AMIS Recruitment ID</dt>
+                  <dd>{amisRecruitmentId ?? '-'}</dd>
+                </div>
+                <div>
+                  <dt>AMIS Job Title</dt>
+                  <dd>{snapshot?.title ?? '-'}</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section className="cv-sync-review-target">
+              <p className="cv-section-label">Selected candidates</p>
+              {selectedCandidates.length > 0 ? (
+                <ul className="cv-sync-candidate-list">
+                  {selectedCandidates.slice(0, 4).map((candidate) => (
+                    <li key={candidate.applicationId}>
+                      <span>{candidate.candidateName}</span>
+                      <strong>{getApplicationCvDisplayStatus(candidate).label}</strong>
+                    </li>
+                  ))}
+                  {selectedCandidates.length > 4 ? (
+                    <li>
+                      <span>Khác</span>
+                      <strong>+{selectedCandidates.length - 4}</strong>
+                    </li>
+                  ) : null}
+                </ul>
+              ) : (
+                <p className="muted-text">Chọn ít nhất một ứng viên trước khi đồng bộ.</p>
+              )}
+            </section>
+
+            <div className="cv-sync-warning">
+              <WarningIcon />
+              <p>Lưu ý quan trọng: đây là màn review/confirm UI. Hành động gọi API đồng bộ AMIS thật sẽ được nối ở bước sau.</p>
+            </div>
+
+            <div className="form-actions">
+              <button type="button" className="text-button" onClick={() => setIsCvSyncReviewOpen(false)}>
+                Hủy bỏ
               </button>
               <button
                 type="button"
-                className="ghost-button"
-                disabled={!amisRecruitmentId || applicationsState === 'LOADING'}
-                onClick={() => void loadAmisApplications(token, amisRecruitmentId)}
+                className="primary-button compact-button"
+                disabled={selectedCandidates.length === 0}
+                onClick={() => setIsCvSyncReviewOpen(false)}
               >
-                Refresh
+                Xác nhận review
               </button>
             </div>
           </div>
-
-          {amisRecruitmentId ? (
-            <p className="muted-text">
-              AMIS RecruitmentID: {amisRecruitmentId}
-              {amisRecruitmentRoundId ? ` - RoundID: ${amisRecruitmentRoundId}` : ''}
-            </p>
-          ) : (
-            <p className="muted-text">Open or save an AMIS recruitment detail to detect RecruitmentID.</p>
-          )}
-
-          {applicationsMessage ? (
-            <p className={applicationsState === 'ERROR' ? 'error-text' : 'muted-text'}>
-              {applicationsMessage}
-            </p>
-          ) : null}
-
-          {applicationsContext && applicationsContext.applications.length > 0 ? (
-            <>
-              {uploadableApplications.length > 0 ? (
-                <div className="application-selection-actions">
-                  <button type="button" className="text-button" onClick={selectAllUploadableApplicationCvs}>
-                    Select all clean CVs
-                  </button>
-                  <button type="button" className="text-button" onClick={clearSelectedApplicationCvs}>
-                    Clear
-                  </button>
-                </div>
-              ) : null}
-              <ul className="application-list">
-                {applicationsContext.applications.map((application) => (
-                  <li key={application.applicationId}>
-                    <label className="application-main">
-                      <input
-                        type="checkbox"
-                        checked={selectedApplicationCvIds.has(application.applicationId)}
-                        disabled={!canUploadApplicationCv(application)}
-                        onChange={() => toggleApplicationCvSelection(application.applicationId)}
-                      />
-                      <span className="application-body">
-                        <strong>{application.candidateName}</strong>
-                        <span>{[application.email, application.mobile].filter(Boolean).join(' - ')}</span>
-                        <small>
-                          {[
-                            application.amisRecruitmentRoundName
-                              ? `Round: ${application.amisRecruitmentRoundName}`
-                              : application.amisRecruitmentRoundId
-                                ? `Round ID: ${application.amisRecruitmentRoundId}`
-                                : null,
-                            application.sourceChannel,
-                            application.attachmentCvName,
-                            application.applyDate ? formatDate(application.applyDate) : null,
-                          ].filter(Boolean).join(' - ')}
-                        </small>
-                        <button
-                          type="button"
-                          className="text-button application-upload-button"
-                          disabled={!canUploadApplicationCv(application) || Boolean(cvUploadApplicationId)}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void uploadApplicationCvToAmisForm(application);
-                          }}
-                        >
-                          {cvUploadApplicationId === application.applicationId ? 'Loading CV...' : 'Load CV into AMIS form'}
-                        </button>
-                      </span>
-                    </label>
-                    <div className="application-status-stack">
-                      <span className="status-badge">{formatStatusText(application.status)}</span>
-                      {application.cvSanitizeStatus ? (
-                        <span className={getCvStatusBadgeClass(application.cvSanitizeStatus)}>
-                          CV {formatStatusText(application.cvSanitizeStatus)}
-                        </span>
-                      ) : null}
-                      {application.cvParseStatus ? (
-                        <span className={getCvStatusBadgeClass(application.cvParseStatus)}>
-                          Parse {formatStatusText(application.cvParseStatus)}
-                        </span>
-                      ) : null}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-
-          {applicationsState === 'LOADING' && !applicationsContext ? (
-            <p className="muted-text">Loading applications for this AMIS recruitment...</p>
-          ) : null}
-
-          {applicationsContext && applicationsContext.applications.length === 0 ? (
-            <p className="muted-text">No synced applications for this AMIS recruitment yet.</p>
-          ) : null}
         </section>
       </div>
     );
@@ -2437,6 +2748,8 @@ function SidePanel() {
           </>
         ) : null}
       </section>
+
+      {isCvSyncReviewOpen ? renderCvSyncReviewModal() : null}
 
       {newQuestionDrawerOpen && careerQuestionContext ? (
         <div className="question-drawer-backdrop" onMouseDown={(event) => {
@@ -2985,6 +3298,14 @@ function HomeIcon({ className }: IconProps) {
   );
 }
 
+function BackIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function PostingIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
@@ -3081,6 +3402,124 @@ function formatStatusText(value: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function getCvOverviewStats(applications: ExtensionApplication[]) {
+  const totalApplied = applications.length;
+  const newCount = applications.filter((application) =>
+    normalizeStatus(application.status).includes('NEW')
+    || normalizeStatus(application.status).includes('APPLIED')
+    || normalizeStatus(application.status).includes('RECEIVED'),
+  ).length;
+  const processingCount = applications.filter((application) => {
+    const statuses = [
+      application.status,
+      application.cvScanStatus,
+      application.cvSanitizeStatus,
+      application.cvParseStatus,
+    ].map(normalizeStatus);
+    return statuses.some((status) =>
+      status.includes('PENDING')
+      || status.includes('PROCESS')
+      || status.includes('PARSING')
+      || status.includes('SCANNING')
+      || status.includes('SANITIZING'),
+    );
+  }).length;
+  const failedCount = applications.filter((application) =>
+    [application.cvScanStatus, application.cvSanitizeStatus, application.cvParseStatus]
+      .map(normalizeStatus)
+      .some((status) => status.includes('FAIL') || status.includes('ERROR')),
+  ).length;
+  const readyCount = applications.filter(canUploadApplicationCv).length;
+  const reviewCount = Math.max(totalApplied - readyCount - failedCount, 0);
+  const syncErrorCount = failedCount;
+
+  return {
+    totalApplied,
+    newCount,
+    processingCount,
+    syncErrorCount,
+    readyCount,
+    reviewCount,
+    failedCount,
+    noAnswerCount: applications.filter((application) => getApplicationQuestionStatus(application) === 'Chưa trả lời').length,
+  };
+}
+
+function getApplicationCvDisplayStatus(application: ExtensionApplication) {
+  const parseStatus = normalizeStatus(application.cvParseStatus);
+  const sanitizeStatus = normalizeStatus(application.cvSanitizeStatus);
+  const scanStatus = normalizeStatus(application.cvScanStatus);
+
+  if (parseStatus.includes('PARSED')) return { label: 'Parsed', tone: 'is-success' };
+  if (sanitizeStatus.includes('SANITIZED')) return { label: 'Clean ready', tone: 'is-success' };
+  if (scanStatus.includes('FAILED') || sanitizeStatus.includes('FAILED') || parseStatus.includes('FAILED')) {
+    return { label: 'Parse failed', tone: 'is-danger' };
+  }
+  if (scanStatus.includes('PENDING') || sanitizeStatus.includes('PENDING') || parseStatus.includes('PARSING')) {
+    return { label: 'Scanning', tone: 'is-warning' };
+  }
+
+  return { label: application.attachmentCvName ? 'Uploaded' : 'Missing CV', tone: application.attachmentCvName ? 'is-warning' : 'is-danger' };
+}
+
+function getApplicationAmisSyncStatus(application: ExtensionApplication) {
+  const cvStatus = getApplicationCvDisplayStatus(application);
+  if (cvStatus.tone === 'is-danger') return { label: 'Failed', tone: 'is-danger' };
+  if (canUploadApplicationCv(application)) return { label: 'Not synced', tone: 'is-warning' };
+  return { label: 'Pending', tone: 'is-muted' };
+}
+
+function getApplicationQuestionStatus(application: ExtensionApplication) {
+  const score = getApplicationMatchScore(application);
+  if (score >= 88) return 'Answered';
+  if (score >= 72) return 'Not sent';
+  return 'Chưa trả lời';
+}
+
+function getQuestionBadgeTone(status: string) {
+  if (status === 'Answered') return 'is-success';
+  if (status === 'Not sent') return 'is-warning';
+  return 'is-muted';
+}
+
+function getApplicationMatchScore(application: ExtensionApplication) {
+  const seed = `${application.applicationId}${application.candidateName}${application.email ?? ''}`;
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) % 9973;
+  }
+  return 45 + (hash % 51);
+}
+
+function getCandidatePipelineHint(application: ExtensionApplication) {
+  const cvStatus = getApplicationCvDisplayStatus(application);
+  if (cvStatus.tone === 'is-danger') return 'Cần kiểm tra CV';
+  if (canUploadApplicationCv(application)) return 'Ready for HR review';
+  if (application.attachmentCvName) return 'Processing CV...';
+  return 'Missing CV attachment';
+}
+
+function getCandidateInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'CV';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function normalizeStatus(value?: string | null) {
+  return value?.toUpperCase().trim() ?? '';
+}
+
+function slugifyForDisplay(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'job-posting';
 }
 
 function formatMetricValue(value: number | null) {
