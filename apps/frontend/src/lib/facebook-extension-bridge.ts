@@ -1,9 +1,15 @@
-import type { FacebookPublishPlan, FacebookPublishProgress } from '@/lib/recruitment-api';
+import type {
+  FacebookPublishPlan,
+  FacebookPublishProgress,
+  FacebookPublishTarget,
+  VerifyFacebookGroupPayload,
+} from '@/lib/recruitment-api';
 
 const FRONTEND_SOURCE = 'vcs-recruitment-frontend';
 const EXTENSION_SOURCE = 'vcs-recruitment-extension';
 const AUTH_CHECK_REQUEST = 'VCS_FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const PUBLISH_REQUEST = 'VCS_FRONTEND_FACEBOOK_PUBLISH_REQUEST';
+const GROUP_VERIFY_REQUEST = 'VCS_FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const BRIDGE_RESPONSE = 'VCS_FRONTEND_FACEBOOK_BRIDGE_RESPONSE';
 
 interface BridgeResponse {
@@ -42,8 +48,17 @@ export function startFacebookExtensionPublish(
   });
 }
 
+export function verifyFacebookGroupInBrowser(target: FacebookPublishTarget) {
+  return sendBridgeRequest<VerifyFacebookGroupPayload>({
+    type: GROUP_VERIFY_REQUEST,
+    payload: { target },
+    timeoutMs: 10 * 60_000,
+    isComplete: (event) => event === 'COMPLETED',
+  });
+}
+
 function sendBridgeRequest<T>(options: {
-  type: typeof AUTH_CHECK_REQUEST | typeof PUBLISH_REQUEST;
+  type: typeof AUTH_CHECK_REQUEST | typeof PUBLISH_REQUEST | typeof GROUP_VERIFY_REQUEST;
   payload?: unknown;
   timeoutMs: number;
   isComplete: (event: string) => boolean;

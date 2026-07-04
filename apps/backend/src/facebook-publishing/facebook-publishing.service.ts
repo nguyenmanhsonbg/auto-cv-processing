@@ -10,10 +10,12 @@ import { FacebookPublishTargetEntity } from './entities/facebook-publish-target.
 import {
   CreateFacebookGroupInput,
   ExtensionFacebookPublishPlan,
+  FacebookPublishTargetEligibilityStatus,
   FacebookPublishTargetType,
   FacebookPublishResultStatus,
   ReportFacebookPublishResultInput,
   ResolvedFacebookPublishTarget,
+  UpdateFacebookGroupVerificationInput,
   UpdateFacebookGroupInput,
 } from './facebook-publishing.types';
 
@@ -50,26 +52,52 @@ export class FacebookPublishingService {
   }
 
   async listActiveExtensionGroups(ownerUserId: string): Promise<ResolvedFacebookPublishTarget[]> {
-    const targets = await this.resolveActiveTargets(ownerUserId);
-    return targets.filter((target) => target.targetType === FacebookPublishTargetType.GROUP);
+    const targets = await this.targetsRepo.find({
+      where: {
+        active: true,
+        ownerUserId,
+        type: FacebookPublishTargetType.GROUP,
+      },
+      order: { priority: 'ASC', createdAt: 'ASC' },
+    });
+
+    return this.toResolvedTargets(targets);
   }
 
   async createExtensionGroup(input: CreateFacebookGroupInput): Promise<ResolvedFacebookPublishTarget> {
     const name = this.requireText(input.targetName, 'targetName');
     const groupUrl = this.normalizeFacebookGroupUrl(input.targetUrl);
-    const existingTarget = await this.targetsRepo.findOne({
+    const activeTarget = await this.targetsRepo.findOne({
       where: {
         ownerUserId: input.ownerUserId,
         type: FacebookPublishTargetType.GROUP,
         externalId: groupUrl.externalId,
+        active: true,
       },
     });
+    if (activeTarget) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_GROUP_ALREADY_EXISTS',
+        message: 'Facebook group URL is already configured for this account.',
+      });
+    }
 
-    if (existingTarget) {
-      existingTarget.name = name;
-      existingTarget.url = groupUrl.url;
-      existingTarget.active = true;
-      return this.toResolvedTarget(await this.targetsRepo.save(existingTarget));
+    const inactiveTarget = await this.targetsRepo.findOne({
+      where: {
+        ownerUserId: input.ownerUserId,
+        type: FacebookPublishTargetType.GROUP,
+        externalId: groupUrl.externalId,
+        active: false,
+      },
+    });
+    if (inactiveTarget) {
+      inactiveTarget.name = name;
+      inactiveTarget.url = groupUrl.url;
+      inactiveTarget.active = true;
+      inactiveTarget.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
+      inactiveTarget.eligibilityReason = 'Group has not been verified yet.';
+      inactiveTarget.lastVerifiedAt = null;
+      return this.toResolvedTarget(await this.targetsRepo.save(inactiveTarget));
     }
 
     const priority = await this.getNextGroupPriority(input.ownerUserId);
@@ -81,6 +109,9 @@ export class FacebookPublishingService {
       ownerUserId: input.ownerUserId,
       active: true,
       priority,
+      eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
+      eligibilityReason: 'Group has not been verified yet.',
+      lastVerifiedAt: null,
     });
 
     return this.toResolvedTarget(await this.targetsRepo.save(target));
@@ -109,6 +140,22 @@ export class FacebookPublishingService {
     target.name = name;
     target.externalId = groupUrl.externalId;
     target.url = groupUrl.url;
+    target.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
+    target.eligibilityReason = 'Group has not been verified yet.';
+    target.lastVerifiedAt = null;
+
+    return this.toResolvedTarget(await this.targetsRepo.save(target));
+  }
+
+  async updateExtensionGroupVerification(
+    input: UpdateFacebookGroupVerificationInput,
+  ): Promise<ResolvedFacebookPublishTarget> {
+    const target = await this.findOwnedActiveGroup(input.ownerUserId, input.targetId);
+    const eligibilityStatus = this.normalizeVerificationStatus(input.eligibilityStatus, input.eligibilityReason);
+
+    target.eligibilityStatus = eligibilityStatus;
+    target.eligibilityReason = input.eligibilityReason?.trim() || null;
+    target.lastVerifiedAt = input.verifiedAt ?? new Date();
 
     return this.toResolvedTarget(await this.targetsRepo.save(target));
   }
@@ -192,7 +239,19 @@ export class FacebookPublishingService {
         });
       }
 
-      return selectedTargets.map((target) => this.toResolvedTarget(target));
+      const resolvedTargets = await this.toResolvedTargets(selectedTargets);
+      const unavailableTargets = resolvedTargets.filter((target) => !target.selectable);
+      if (unavailableTargets.length > 0) {
+        throw new BadRequestException({
+          code: 'FACEBOOK_TARGETS_NOT_ELIGIBLE',
+          message: 'One or more selected Facebook groups need verification or have reached the daily publish limit.',
+          details: unavailableTargets.map((target) =>
+            `${target.targetName}: ${target.eligibilityStatus}, quota ${target.quotaLabel}. ${target.disabledReason ?? 'Not selectable.'}`,
+          ),
+        });
+      }
+
+      return resolvedTargets;
     }
 
     const configuredTargets = await this.targetsRepo.find({
@@ -200,17 +259,119 @@ export class FacebookPublishingService {
       order: { priority: 'ASC', createdAt: 'ASC' },
     });
 
-    return configuredTargets.map((target) => this.toResolvedTarget(target));
+    return (await this.toResolvedTargets(configuredTargets)).filter((target) => target.selectable);
   }
 
-  private toResolvedTarget(target: FacebookPublishTargetEntity): ResolvedFacebookPublishTarget {
-    return {
-      targetId: target.id,
-      targetType: target.type,
-      targetName: target.name,
-      targetUrl: target.url,
-      targetExternalId: target.externalId,
-    };
+  private async toResolvedTarget(target: FacebookPublishTargetEntity): Promise<ResolvedFacebookPublishTarget> {
+    return (await this.toResolvedTargets([target]))[0];
+  }
+
+  private async toResolvedTargets(targets: FacebookPublishTargetEntity[]): Promise<ResolvedFacebookPublishTarget[]> {
+    const targetIds = targets.map((target) => target.id).filter(Boolean);
+    const todayCounts = await this.getTodayPublishCounts(targetIds);
+
+    return targets.map((target) => {
+      const todayPublishCount = todayCounts.get(target.id) ?? 0;
+      const dailyPublishLimit = this.normalizeDailyPublishLimit(target.dailyPublishLimit);
+      const quotaExceeded = todayPublishCount >= dailyPublishLimit;
+      const eligibilityStatus = this.normalizeVerificationStatus(
+        target.eligibilityStatus ?? FacebookPublishTargetEligibilityStatus.UNKNOWN,
+        target.eligibilityReason,
+      );
+      const disabledReason = this.getDisabledReason(target, quotaExceeded, eligibilityStatus);
+
+      return {
+        targetId: target.id,
+        targetType: target.type,
+        targetName: target.name,
+        targetUrl: target.url,
+        targetExternalId: target.externalId,
+        eligibilityStatus,
+        eligibilityReason: target.eligibilityReason,
+        lastVerifiedAt: target.lastVerifiedAt?.toISOString() ?? null,
+        todayPublishCount,
+        dailyPublishLimit,
+        quotaLabel: `${todayPublishCount}/${dailyPublishLimit}`,
+        quotaExceeded,
+        selectable: !disabledReason,
+        disabledReason,
+      };
+    });
+  }
+
+  private getDisabledReason(
+    target: FacebookPublishTargetEntity,
+    quotaExceeded: boolean,
+    eligibilityStatus = target.eligibilityStatus ?? FacebookPublishTargetEligibilityStatus.UNKNOWN,
+  ) {
+    if (eligibilityStatus === FacebookPublishTargetEligibilityStatus.UNKNOWN) {
+      return target.eligibilityReason || 'Group has not been verified yet.';
+    }
+
+    if (eligibilityStatus === FacebookPublishTargetEligibilityStatus.CANNOT_POST) {
+      return target.eligibilityReason || 'Current Facebook account cannot post to this group.';
+    }
+
+    if (quotaExceeded) {
+      return 'Daily publish limit has been reached for this group.';
+    }
+
+    return null;
+  }
+
+  private normalizeDailyPublishLimit(value: number | null | undefined) {
+    const parsedValue = Number(value);
+    return Number.isFinite(parsedValue) && parsedValue > 0 ? Math.floor(parsedValue) : 10;
+  }
+
+  private normalizeVerificationStatus(
+    status: FacebookPublishTargetEligibilityStatus,
+    reason: string | null | undefined,
+  ) {
+    if (status !== FacebookPublishTargetEligibilityStatus.CANNOT_POST) return status;
+
+    const normalizedReason = reason?.trim().toLowerCase() ?? '';
+    const ambiguousAutomationFailure = [
+      'could not find facebook group post composer',
+      'could not open facebook group post composer',
+      'could not verify facebook group composer automatically',
+      'hidden and visible verification could not prove posting eligibility',
+    ].some((pattern) => normalizedReason.includes(pattern));
+
+    return ambiguousAutomationFailure
+      ? FacebookPublishTargetEligibilityStatus.UNKNOWN
+      : status;
+  }
+
+  private async getTodayPublishCounts(targetIds: string[]) {
+    if (targetIds.length === 0) return new Map<string, number>();
+
+    const { start, end } = this.getSaigonDayWindow(new Date());
+    const rows = await this.historiesRepo
+      .createQueryBuilder('history')
+      .select('history.targetId', 'targetId')
+      .addSelect('COUNT(*)', 'count')
+      .where('history.targetId IN (:...targetIds)', { targetIds })
+      .andWhere('history.status = :status', { status: FacebookPublishResultStatus.SUCCESS })
+      .andWhere('history.submittedAt >= :start', { start })
+      .andWhere('history.submittedAt < :end', { end })
+      .groupBy('history.targetId')
+      .getRawMany<{ targetId: string; count: string }>();
+
+    return new Map(rows.map((row) => [row.targetId, Number(row.count)]));
+  }
+
+  private getSaigonDayWindow(now: Date) {
+    const saigonOffsetMs = 7 * 60 * 60 * 1000;
+    const saigonNow = new Date(now.getTime() + saigonOffsetMs);
+    const start = new Date(Date.UTC(
+      saigonNow.getUTCFullYear(),
+      saigonNow.getUTCMonth(),
+      saigonNow.getUTCDate(),
+    ) - saigonOffsetMs);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+
+    return { start, end };
   }
 
   private numberEnv(name: string, defaultValue: number) {

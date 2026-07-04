@@ -12,12 +12,27 @@ export enum FacebookPublishResultStatus {
   SKIPPED = 'SKIPPED',
 }
 
+export enum FacebookPublishTargetEligibilityStatus {
+  UNKNOWN = 'UNKNOWN',
+  CAN_POST = 'CAN_POST',
+  CANNOT_POST = 'CANNOT_POST',
+}
+
 export interface ResolvedFacebookPublishTarget {
   targetId?: string | null;
   targetType: FacebookPublishTargetType;
   targetName: string;
   targetUrl?: string | null;
   targetExternalId?: string | null;
+  eligibilityStatus: FacebookPublishTargetEligibilityStatus;
+  eligibilityReason?: string | null;
+  lastVerifiedAt?: string | null;
+  todayPublishCount: number;
+  dailyPublishLimit: number;
+  quotaLabel: string;
+  quotaExceeded: boolean;
+  selectable: boolean;
+  disabledReason?: string | null;
 }
 
 export interface CreateFacebookGroupInput {
@@ -28,6 +43,14 @@ export interface CreateFacebookGroupInput {
 
 export interface UpdateFacebookGroupInput extends CreateFacebookGroupInput {
   targetId: string;
+}
+
+export interface UpdateFacebookGroupVerificationInput {
+  ownerUserId: string;
+  targetId: string;
+  eligibilityStatus: FacebookPublishTargetEligibilityStatus;
+  eligibilityReason?: string | null;
+  verifiedAt?: Date | null;
 }
 
 export interface ExtensionFacebookPublishPlan {

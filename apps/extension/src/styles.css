@@ -1008,6 +1008,11 @@ dd {
   line-height: 1.3;
 }
 
+.channel-subselection-item.is-disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
 .channel-subselection-item + .channel-subselection-item {
   border-top: 1px solid #f1f5f9;
 }
@@ -1021,6 +1026,18 @@ dd {
 
 .channel-subselection-item span {
   overflow-wrap: anywhere;
+}
+
+.channel-group-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.channel-group-meta {
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .channel-subselection-empty {
@@ -1592,6 +1609,7 @@ dd {
 
 .facebook-group-modal {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   width: min(100%, 420px);
   max-height: calc(100vh - 32px);
   overflow: hidden;
@@ -1628,15 +1646,20 @@ dd {
 .modal-body {
   display: grid;
   gap: 12px;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
   padding: 14px 16px 16px;
 }
 
 .modal-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  background: #ffffff;
 }
 
 .compact-button {
@@ -1667,61 +1690,138 @@ dd {
 }
 
 .facebook-group-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  max-height: clamp(120px, calc(100vh - 360px), 320px);
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
-.facebook-group-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 48px;
+.facebook-group-modal .facebook-group-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  flex: 0 0 auto;
+  align-items: start;
+  column-gap: 8px;
+  row-gap: 5px;
+  min-height: 0;
   border: 1px solid #d8dee9;
   border-radius: 6px;
-  padding: 9px 10px;
+  padding: 8px 9px 9px;
   background: #f8fafc;
 }
 
-.facebook-group-item > div:first-child {
+.facebook-group-modal .facebook-group-item.is-disabled {
+  background: #f8fafc;
+}
+
+.facebook-group-modal .facebook-group-info {
   display: grid;
-  gap: 2px;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.facebook-group-modal .facebook-group-item strong {
+  display: -webkit-box;
+  color: #172033;
+  font-size: 12.5px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.facebook-group-modal .facebook-group-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
 }
 
-.facebook-group-item strong {
-  color: #172033;
-  font-size: 13px;
+.facebook-group-modal .facebook-group-title-row strong {
+  flex: 1 0 100%;
+}
+
+.facebook-group-modal .facebook-group-item span {
+  color: #64748b;
+  font-size: 10.5px;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
-.facebook-group-item span {
-  color: #64748b;
-  font-size: 11px;
+.facebook-group-modal .facebook-group-item .facebook-group-badge {
+  border-radius: 999px;
+  padding: 3px 6px 2px;
+  color: #92400e;
+  background: #fef3c7;
+  font-size: 9.5px;
+  font-weight: 750;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.facebook-group-modal .facebook-group-item .facebook-group-badge.is-success {
+  color: #065f46;
+  background: #d1fae5;
+}
+
+.facebook-group-modal .facebook-group-item .facebook-group-badge.is-danger {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.facebook-group-modal .facebook-group-item .facebook-group-badge.is-neutral {
+  color: #334155;
+  background: #e2e8f0;
+}
+
+.facebook-group-modal .facebook-group-reason {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #b45309;
+  font-size: 10.75px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow: visible;
   overflow-wrap: anywhere;
 }
 
-.facebook-group-item a {
+.facebook-group-modal .facebook-group-item a {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
-.facebook-group-item-actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
+.facebook-group-modal .facebook-group-item-actions {
+  display: grid;
+  grid-template-columns: auto repeat(3, 24px);
+  align-items: start;
+  gap: 4px;
+  width: max-content;
+  max-width: 118px;
 }
 
 .group-icon-button {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border-radius: 6px;
   color: #475569;
   background: #eef2f7;
+}
+
+.group-icon-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .group-icon-button:hover {
@@ -1787,9 +1887,18 @@ dd {
   text-transform: none;
 }
 
+.facebook-group-form input[aria-invalid="true"] {
+  border-color: #ef4444;
+}
+
 .facebook-group-form input:focus {
   border-color: #0f766e;
   outline: 2px solid rgba(15, 118, 110, 0.16);
+}
+
+.facebook-group-form input[aria-invalid="true"]:focus {
+  border-color: #dc2626;
+  outline-color: rgba(220, 38, 38, 0.16);
 }
 
 .facebook-group-form small {
@@ -1797,6 +1906,14 @@ dd {
   font-size: 11px;
   font-style: italic;
   font-weight: 500;
+  line-height: 1.35;
+  text-transform: none;
+}
+
+.field-error {
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 700;
   line-height: 1.35;
   text-transform: none;
 }

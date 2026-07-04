@@ -9,7 +9,10 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { UserEntity } from '../../auth/entities/user.entity';
-import { FacebookPublishTargetType } from '../facebook-publishing.types';
+import {
+  FacebookPublishTargetEligibilityStatus,
+  FacebookPublishTargetType,
+} from '../facebook-publishing.types';
 
 @Entity('facebook_publish_targets')
 @Index('IDX_facebook_publish_targets_type_active', ['type', 'active'])
@@ -39,6 +42,22 @@ export class FacebookPublishTargetEntity {
 
   @Column({ type: 'boolean', default: true })
   active: boolean;
+
+  @Column({
+    name: 'eligibility_status',
+    type: 'varchar',
+    default: FacebookPublishTargetEligibilityStatus.UNKNOWN,
+  })
+  eligibilityStatus: FacebookPublishTargetEligibilityStatus;
+
+  @Column({ name: 'eligibility_reason', type: 'text', nullable: true })
+  eligibilityReason: string | null;
+
+  @Column({ name: 'last_verified_at', type: 'timestamp', nullable: true })
+  lastVerifiedAt: Date | null;
+
+  @Column({ name: 'daily_publish_limit', type: 'integer', default: 10 })
+  dailyPublishLimit: number;
 
   @Column({ type: 'integer', default: 0 })
   priority: number;

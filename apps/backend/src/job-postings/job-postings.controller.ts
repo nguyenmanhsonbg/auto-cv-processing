@@ -281,7 +281,7 @@ export class JobPostingsController {
           externalPostingId: null,
           manualInstruction: hasTargets
             ? 'Facebook publish plan is prepared for browser extension execution.'
-            : 'No active Facebook publish targets are configured.',
+            : 'No eligible Facebook publish targets are configured or available today.',
           publishedAt: null,
           updatedAt: posting.updatedAt?.toISOString(),
         };

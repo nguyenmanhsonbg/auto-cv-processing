@@ -191,6 +191,7 @@ export interface ChannelPostingResult {
 
 export type FacebookPublishTargetType = 'GROUP' | 'FANPAGE';
 export type FacebookPublishResultStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED';
+export type FacebookPublishTargetEligibilityStatus = 'UNKNOWN' | 'CAN_POST' | 'CANNOT_POST';
 export type FacebookPublishProgressStatus =
   | 'LOGIN_REQUIRED'
   | 'WAITING_LOGIN'
@@ -206,6 +207,15 @@ export interface FacebookPublishTarget {
   targetName: string;
   targetUrl?: string | null;
   targetExternalId?: string | null;
+  eligibilityStatus: FacebookPublishTargetEligibilityStatus;
+  eligibilityReason?: string | null;
+  lastVerifiedAt?: string | null;
+  todayPublishCount: number;
+  dailyPublishLimit: number;
+  quotaLabel: string;
+  quotaExceeded: boolean;
+  selectable: boolean;
+  disabledReason?: string | null;
 }
 
 export interface CreateFacebookGroupRequest {
@@ -216,6 +226,12 @@ export interface CreateFacebookGroupRequest {
 export interface UpdateFacebookGroupRequest {
   targetName: string;
   targetUrl: string;
+}
+
+export interface VerifyFacebookGroupRequest {
+  eligibilityStatus: FacebookPublishTargetEligibilityStatus;
+  eligibilityReason?: string | null;
+  verifiedAt?: string | null;
 }
 
 export interface FacebookPublishPlan {

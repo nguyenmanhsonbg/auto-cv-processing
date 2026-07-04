@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ChannelPostingStatus } from '../../recruitment-common';
 import {
+  FacebookPublishTargetEligibilityStatus,
   FacebookPublishTargetType,
   type ExtensionFacebookPublishPlan,
 } from '../../facebook-publishing/facebook-publishing.types';
@@ -65,6 +66,36 @@ export class ExtensionFacebookPublishTargetDto {
 
   @ApiPropertyOptional()
   targetExternalId?: string | null;
+
+  @ApiProperty({
+    enum: FacebookPublishTargetEligibilityStatus,
+    enumName: 'FacebookPublishTargetEligibilityStatus',
+  })
+  eligibilityStatus: FacebookPublishTargetEligibilityStatus;
+
+  @ApiPropertyOptional()
+  eligibilityReason?: string | null;
+
+  @ApiPropertyOptional()
+  lastVerifiedAt?: string | null;
+
+  @ApiProperty()
+  todayPublishCount: number;
+
+  @ApiProperty()
+  dailyPublishLimit: number;
+
+  @ApiProperty()
+  quotaLabel: string;
+
+  @ApiProperty()
+  quotaExceeded: boolean;
+
+  @ApiProperty()
+  selectable: boolean;
+
+  @ApiPropertyOptional()
+  disabledReason?: string | null;
 }
 
 export class ExtensionFacebookPublishDelayDto {

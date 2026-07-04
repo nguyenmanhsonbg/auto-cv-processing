@@ -402,7 +402,7 @@ export class ExtensionIntegrationService {
         if (!facebookPublishPlan || facebookPublishPlan.targets.length === 0) {
           warnings.push({
             code: 'FACEBOOK_TARGETS_NOT_CONFIGURED',
-            message: 'No active Facebook publish targets are configured.',
+            message: 'No eligible Facebook publish targets are configured or available today.',
             channel,
           });
         }
@@ -462,7 +462,7 @@ export class ExtensionIntegrationService {
           manualActionRequired: !hasTargets,
           message: hasTargets
             ? 'Facebook publish plan is prepared for browser extension execution.'
-            : 'No active Facebook publish targets are configured.',
+            : 'No eligible Facebook publish targets are configured or available today.',
           lastSyncAt: posting.updatedAt?.toISOString() ?? null,
         };
       }

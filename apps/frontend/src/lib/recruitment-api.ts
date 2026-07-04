@@ -157,6 +157,7 @@ export interface PublishJobPostingPayload {
 
 export type FacebookPublishTargetType = 'GROUP' | 'FANPAGE';
 export type FacebookPublishResultStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED';
+export type FacebookPublishTargetEligibilityStatus = 'UNKNOWN' | 'CAN_POST' | 'CANNOT_POST';
 
 export interface FacebookPublishTarget {
   targetId?: string | null;
@@ -164,6 +165,15 @@ export interface FacebookPublishTarget {
   targetName: string;
   targetUrl?: string | null;
   targetExternalId?: string | null;
+  eligibilityStatus: FacebookPublishTargetEligibilityStatus;
+  eligibilityReason?: string | null;
+  lastVerifiedAt?: string | null;
+  todayPublishCount: number;
+  dailyPublishLimit: number;
+  quotaLabel: string;
+  quotaExceeded: boolean;
+  selectable: boolean;
+  disabledReason?: string | null;
 }
 
 export interface FacebookPublishPlan {
@@ -206,6 +216,12 @@ export interface JobPostingPublishResponse extends JobPostingRecord {
 export interface FacebookGroupPayload {
   targetName: string;
   targetUrl: string;
+}
+
+export interface VerifyFacebookGroupPayload {
+  eligibilityStatus: FacebookPublishTargetEligibilityStatus;
+  eligibilityReason?: string | null;
+  verifiedAt?: string | null;
 }
 
 export interface JobPostingChannelStatus {
@@ -687,6 +703,15 @@ export function updateFacebookGroup(targetId: string, payload: FacebookGroupPayl
   return apiClient
     .put<ApiEnvelope<FacebookPublishTarget> | FacebookPublishTarget>(
       `/extension/facebook/groups/${encodeURIComponent(targetId)}`,
+      payload,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function verifyFacebookGroup(targetId: string, payload: VerifyFacebookGroupPayload) {
+  return apiClient
+    .post<ApiEnvelope<FacebookPublishTarget> | FacebookPublishTarget>(
+      `/extension/facebook/groups/${encodeURIComponent(targetId)}/verify-result`,
       payload,
     )
     .then(unwrapEnvelope);

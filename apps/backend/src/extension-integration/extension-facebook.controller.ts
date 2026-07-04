@@ -6,7 +6,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
 import { FacebookPublishingService } from '../facebook-publishing/facebook-publishing.service';
-import { CreateFacebookGroupDto, ReportFacebookPublishResultDto, UpdateFacebookGroupDto } from './dto';
+import {
+  CreateFacebookGroupDto,
+  ReportFacebookPublishResultDto,
+  UpdateFacebookGroupDto,
+  VerifyFacebookGroupDto,
+} from './dto';
 
 interface ExtensionFacebookRequest {
   user: {
@@ -74,6 +79,32 @@ export class ExtensionFacebookController {
       targetId,
       targetName: dto.targetName,
       targetUrl: dto.targetUrl,
+    });
+
+    return {
+      success: true,
+      data: group,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  @Post('groups/:targetId/verify-result')
+  @ApiOperation({ summary: 'Update the Facebook group posting eligibility checked by the extension browser session' })
+  @ApiBody({ type: VerifyFacebookGroupDto })
+  @ApiResponse({ status: 200, description: 'Facebook group verification status updated.' })
+  async updateGroupVerification(
+    @Param('targetId') targetId: string,
+    @Body() dto: VerifyFacebookGroupDto,
+    @Request() req: ExtensionFacebookRequest,
+  ) {
+    const group = await this.facebookPublishingService.updateExtensionGroupVerification({
+      ownerUserId: req.user.id,
+      targetId,
+      eligibilityStatus: dto.eligibilityStatus,
+      eligibilityReason: dto.eligibilityReason,
+      verifiedAt: dto.verifiedAt ? new Date(dto.verifiedAt) : null,
     });
 
     return {

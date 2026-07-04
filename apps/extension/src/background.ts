@@ -18,7 +18,11 @@ import { clearAccessToken, getAccessToken } from './auth-store';
 import { getSelectedChannels } from './channel-preferences';
 import { updateFacebookChannelStatus } from './facebook-channel-status';
 import { getSelectedFacebookGroupIds } from './facebook-group-preferences';
-import { ensureFacebookSession, publishFacebookPlan } from './facebook-publish-orchestrator';
+import {
+  ensureFacebookSession,
+  publishFacebookPlan,
+  verifyFacebookGroupPostingEligibility,
+} from './facebook-publish-orchestrator';
 import { saveLastFacebookPublishProgress } from './facebook-publish-store';
 import type {
   AmisDiagnosticEvent,
@@ -26,6 +30,7 @@ import type {
   AmisAutoSyncState,
   ExtensionChannel,
   FacebookPublishPlan,
+  FacebookPublishTarget,
   SyncAmisJobPostingRequest,
 } from './types';
 
@@ -36,6 +41,7 @@ let lastCareerSyncSignature: string | null = null;
 let lastApplicationsSyncSignature: string | null = null;
 const FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST = 'FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const FRONTEND_FACEBOOK_PUBLISH_REQUEST = 'FRONTEND_FACEBOOK_PUBLISH_REQUEST';
+const FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const FRONTEND_FACEBOOK_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const FRONTEND_FACEBOOK_PORT = 'frontend-facebook-publish';
 const activeAutoSyncKeys = new Set<string>();
@@ -69,6 +75,11 @@ chrome.runtime?.onMessage.addListener((message, sender) => {
     return;
   }
 
+  if (isFrontendFacebookGroupVerifyRequest(message)) {
+    void handleFrontendFacebookGroupVerify(message, sender);
+    return;
+  }
+
   if (!isAmisSavedMessage(message)) return;
 
   void handleAmisSaved(message.payload, sender);
@@ -88,6 +99,13 @@ chrome.runtime?.onConnect?.addListener((port) => {
     if (isFrontendFacebookPublishRequest(message)) {
       void runFrontendFacebookPortTask(port, message.requestId, async (emit) => {
         await handleFrontendFacebookPublish(message, emit);
+      });
+      return;
+    }
+
+    if (isFrontendFacebookGroupVerifyRequest(message)) {
+      void runFrontendFacebookPortTask(port, message.requestId, async (emit) => {
+        await handleFrontendFacebookGroupVerify(message, emit);
       });
       return;
     }
@@ -174,6 +192,27 @@ async function handleFrontendFacebookPublish(
   } catch (error) {
     await emit('ERROR', {
       message: error instanceof Error ? error.message : 'Facebook publishing could not be completed.',
+    });
+  }
+}
+
+async function handleFrontendFacebookGroupVerify(
+  request: {
+    requestId: string;
+    target: FacebookPublishTarget;
+  },
+  emitOrSender: FrontendFacebookEventEmitter | ChromeMessageSender,
+) {
+  const emit = toFrontendFacebookEmitter(request.requestId, emitOrSender);
+  try {
+    await emit('VERIFYING', {
+      message: `Checking ${request.target.targetName}.`,
+    });
+    const result = await verifyFacebookGroupPostingEligibility(request.target);
+    await emit('COMPLETED', result);
+  } catch (error) {
+    await emit('ERROR', {
+      message: error instanceof Error ? error.message : 'Facebook group verification could not be completed.',
     });
   }
 }
@@ -732,6 +771,18 @@ function isFrontendFacebookPublishRequest(value: unknown): value is {
     && isFacebookPublishPlan((value as { plan?: unknown }).plan);
 }
 
+function isFrontendFacebookGroupVerifyRequest(value: unknown): value is {
+  type: typeof FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST;
+  requestId: string;
+  target: FacebookPublishTarget;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST
+    && typeof (value as { requestId?: unknown }).requestId === 'string'
+    && isFacebookPublishTarget((value as { target?: unknown }).target);
+}
+
 function isFacebookPublishPlan(value: unknown): value is FacebookPublishPlan {
   const delay = (value as { delay?: { minMs?: unknown; maxMs?: unknown } } | null)?.delay;
   return typeof value === 'object'
@@ -741,6 +792,13 @@ function isFacebookPublishPlan(value: unknown): value is FacebookPublishPlan {
     && Array.isArray((value as { targets?: unknown }).targets)
     && typeof delay?.minMs === 'number'
     && typeof delay.maxMs === 'number';
+}
+
+function isFacebookPublishTarget(value: unknown): value is FacebookPublishTarget {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { targetType?: unknown }).targetType === 'string'
+    && typeof (value as { targetName?: unknown }).targetName === 'string';
 }
 
 function isAmisDiagnosticMessage(value: unknown): value is {
