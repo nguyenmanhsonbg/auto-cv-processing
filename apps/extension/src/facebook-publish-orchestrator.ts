@@ -492,7 +492,6 @@ async function publishTargetInFreshTab(
   let closeAfterPublish = true;
   try {
     let latestFailure: FacebookPreparedPostResult | null = null;
-    let activatedForPrepareRetry = false;
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await waitForTabComplete(tab.id);
@@ -513,14 +512,7 @@ async function publishTargetInFreshTab(
         break;
       }
 
-      if (attempt === 0) {
-        await reloadTab(tab.id);
-        continue;
-      }
-
-      if (!activatedForPrepareRetry) {
-        activatedForPrepareRetry = true;
-        await activateTab(tab.id);
+      if (attempt < 2) {
         await sleep(randomDelay(800, 1_500));
         await reloadTab(tab.id);
         continue;
@@ -688,21 +680,13 @@ async function submitPreparedPost(
   if (
     hiddenResult.status === 'SUCCESS'
     || isRecoverableTabAutomationFailure(hiddenResult.message)
-    || !shouldRetryVisibleSubmitFailure(hiddenResult.message)
+    || !shouldRetryBackgroundSubmitFailure(hiddenResult.message)
   ) {
     return hiddenResult;
   }
 
-  try {
-    await activateTab(tabId);
-    await sleep(randomDelay(500, 1_200));
-    return clickAndWaitForSubmission(tabId, submitButton, content);
-  } catch (error) {
-    return {
-      status: 'FAILED',
-      message: toAutomationErrorMessage(error),
-    };
-  }
+  await sleep(randomDelay(500, 1_200));
+  return clickAndWaitForSubmission(tabId, submitButton, content);
 }
 
 async function clickAndWaitForSubmission(
@@ -782,7 +766,7 @@ async function enrichFacebookPublishResultWithPostUrl(
   };
 }
 
-function shouldRetryVisibleSubmitFailure(message: string) {
+function shouldRetryBackgroundSubmitFailure(message: string) {
   return /did not complete|submit click|target closed|target page|cannot access|remained available|not triggered|not activated|resolve.*post button|ready before submit/i.test(message);
 }
 
@@ -2322,6 +2306,7 @@ async function checkFacebookPostReviewStatusInPage(
       && pageLooksLikeLoadedPost()
       && !hasPendingCue(text)
       && input.expectedPathType !== 'pending_posts'
+      && currentPostUrl?.pathType === 'posts'
     ) {
       return {
         facebookReviewStatus: 'POSTED',
@@ -2401,11 +2386,17 @@ async function captureSubmittedFacebookPostUrlInPage(
     ].filter((sample) => sample.length >= 4);
   };
   const samples = [...new Set(makeContentSamples())];
-  const containsSubmittedContent = (element: Element) => {
-    if (samples.length === 0) return false;
+  const getSubmittedContentMatchLength = (element: Element) => {
+    if (samples.length === 0) return 0;
 
     const text = normalize(element.textContent ?? '');
-    return text.length >= 4 && samples.some((sample) => text.includes(sample) || sample.includes(text.slice(0, 80)));
+    if (text.length < 4) return 0;
+
+    return samples.reduce((bestLength, sample) => (
+      text.includes(sample) || sample.includes(text.slice(0, 80))
+        ? Math.max(bestLength, sample.length)
+        : bestLength
+    ), 0);
   };
   const hasPendingCue = (element: Element) => (
     /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet|admin approval/.test(
@@ -2427,7 +2418,10 @@ async function captureSubmittedFacebookPostUrlInPage(
     document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]'),
   )
     .filter((element) => isVisible(element))
-    .filter((element) => containsSubmittedContent(element) || (hasPendingCue(element) && containsSubmittedContent(element)));
+    .filter((element) => {
+      const matchLength = getSubmittedContentMatchLength(element);
+      return matchLength >= 16 || (matchLength >= 4 && hasPendingCue(element));
+    });
   const findPostUrlInCard = (card: Element) => {
     const links = Array.from(card.querySelectorAll('a[href]'));
     for (const link of links) {
