@@ -1824,6 +1824,10 @@ dd {
   height: 14px;
 }
 
+.group-icon-button.is-loading svg {
+  animation: group-icon-spin 0.9s linear infinite;
+}
+
 .group-icon-button:hover {
   color: #0f766e;
   background: #d1fae5;
@@ -1957,6 +1961,12 @@ dd {
 .icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+@keyframes group-icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .delete-confirm-body {

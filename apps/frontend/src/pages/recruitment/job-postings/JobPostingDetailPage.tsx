@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -240,8 +240,16 @@ function selectedCountAfterRefresh(
   return selectAllWhenEmpty ? selectableIds.length : 0;
 }
 
+function replaceFacebookGroup(groups: FacebookPublishTarget[], updatedGroup: FacebookPublishTarget) {
+  const updatedId = updatedGroup.targetId;
+  const index = updatedId ? groups.findIndex((group) => group.targetId === updatedId) : -1;
+  if (index < 0) return [...groups, updatedGroup];
+
+  return groups.map((group, groupIndex) => (groupIndex === index ? updatedGroup : group));
+}
+
 function isFacebookBusy(state: FacebookGroupLoadState) {
-  return state === 'CHECKING_LOGIN' || state === 'LOADING_GROUPS' || state === 'VERIFYING';
+  return state === 'CHECKING_LOGIN' || state === 'LOADING_GROUPS';
 }
 
 function isSelectableFacebookGroup(group: FacebookPublishTarget) {
@@ -333,6 +341,8 @@ export function JobPostingDetailPage() {
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIds] = useState<string[]>([]);
   const [facebookGroupLoadState, setFacebookGroupLoadState] = useState<FacebookGroupLoadState>('IDLE');
   const [facebookGroupMessage, setFacebookGroupMessage] = useState<string | null>(null);
+  const [verifyingFacebookGroupIds, setVerifyingFacebookGroupIds] = useState<string[]>([]);
+  const [queuedFacebookGroupIds, setQueuedFacebookGroupIds] = useState<string[]>([]);
   const [facebookSettingsOpen, setFacebookSettingsOpen] = useState(false);
   const [facebookGroupName, setFacebookGroupName] = useState('');
   const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
@@ -344,6 +354,14 @@ export function JobPostingDetailPage() {
   const [publishError, setPublishError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [closing, setClosing] = useState(false);
+  const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
+  const facebookGroupVerificationQueueRef = useRef<FacebookPublishTarget[]>([]);
+  const facebookGroupVerificationRunningRef = useRef(false);
+  const activeFacebookGroupVerificationIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    facebookGroupsRef.current = facebookGroups;
+  }, [facebookGroups]);
 
   const loadChannels = useCallback(async () => {
     if (!id) return;
@@ -644,31 +662,95 @@ export function JobPostingDetailPage() {
     }
   };
 
-  const checkFacebookGroup = async (group: FacebookPublishTarget) => {
+  const checkFacebookGroup = (group: FacebookPublishTarget) => {
     if (!group.targetId) return;
 
-    setFacebookGroupLoadState('VERIFYING');
-    setFacebookGroupMessage(`Checking "${group.targetName}" with the current Facebook browser session.`);
+    if (
+      activeFacebookGroupVerificationIdRef.current === group.targetId
+      || facebookGroupVerificationQueueRef.current.some((item) => item.targetId === group.targetId)
+    ) {
+      setFacebookGroupLoadState('READY');
+      setFacebookGroupMessage(`"${group.targetName}" is already queued for checking.`);
+      return;
+    }
+
+    facebookGroupVerificationQueueRef.current = [...facebookGroupVerificationQueueRef.current, group];
+    setQueuedFacebookGroupIds(facebookGroupVerificationQueueRef.current.map((item) => item.targetId).filter(isString));
+    setFacebookGroupLoadState('READY');
+    setFacebookGroupMessage(`Queued "${group.targetName}" for checking.`);
     setPublishError(null);
+    void processFacebookGroupVerificationQueue();
+  };
+
+  const processFacebookGroupVerificationQueue = async () => {
+    if (facebookGroupVerificationRunningRef.current) return;
+    facebookGroupVerificationRunningRef.current = true;
+
+    let checkedCount = 0;
+    let issueCount = 0;
+    const queuedAtStart = facebookGroupVerificationQueueRef.current.length;
 
     try {
-      const result = await verifyFacebookGroupInBrowser(group);
-      const savedGroup = await verifyFacebookGroup(group.targetId, result);
-      const groups = await listFacebookGroups();
-      const selectableIds = new Set(groups.filter(isSelectableFacebookGroup).map((item) => item.targetId).filter(isString));
-      setFacebookGroups(groups);
-      setSelectedFacebookGroupIds((current) => current.filter((targetId) => selectableIds.has(targetId)));
-      setFacebookGroupLoadState('READY');
-      setFacebookGroupMessage(
-        savedGroup.selectable
-          ? `"${savedGroup.targetName}" can be used for publishing (${savedGroup.quotaLabel} today).`
-          : getFacebookGroupVerificationMessage(savedGroup),
-      );
-    } catch (err) {
-      const message = getInternalSafeErrorMessage(err);
-      setFacebookGroupLoadState('ERROR');
-      setFacebookGroupMessage(message);
-      setPublishError(message);
+      while (facebookGroupVerificationQueueRef.current.length > 0) {
+        const group = facebookGroupVerificationQueueRef.current[0];
+        facebookGroupVerificationQueueRef.current = facebookGroupVerificationQueueRef.current.slice(1);
+        setQueuedFacebookGroupIds(facebookGroupVerificationQueueRef.current.map((item) => item.targetId).filter(isString));
+
+        if (!group.targetId) continue;
+
+        activeFacebookGroupVerificationIdRef.current = group.targetId;
+        setVerifyingFacebookGroupIds([group.targetId]);
+        setFacebookGroupLoadState('READY');
+        setFacebookGroupMessage(`Checking "${group.targetName}" (${checkedCount + 1}/${Math.max(queuedAtStart, checkedCount + 1)}) with the current Facebook browser session.`);
+
+        try {
+          const result = await verifyFacebookGroupInBrowser(group);
+          const savedGroup = await verifyFacebookGroup(group.targetId, result);
+          const groups = replaceFacebookGroup(facebookGroupsRef.current, savedGroup);
+          facebookGroupsRef.current = groups;
+          setFacebookGroups(groups);
+          const selectableIds = new Set(groups.filter(isSelectableFacebookGroup).map((item) => item.targetId).filter(isString));
+          setSelectedFacebookGroupIds((current) => {
+            const retained = current.filter((targetId) => selectableIds.has(targetId));
+            return retained;
+          });
+          checkedCount += 1;
+          if (!savedGroup.selectable) issueCount += 1;
+          setFacebookGroupMessage(
+            savedGroup.selectable
+              ? `"${savedGroup.targetName}" can be used for publishing (${savedGroup.quotaLabel} today).`
+              : getFacebookGroupVerificationMessage(savedGroup),
+          );
+        } catch (err) {
+          const message = getInternalSafeErrorMessage(err);
+          checkedCount += 1;
+          issueCount += 1;
+          setFacebookGroupLoadState('READY');
+          setFacebookGroupMessage(`Could not check "${group.targetName}": ${message}`);
+          setPublishError(message);
+        } finally {
+          activeFacebookGroupVerificationIdRef.current = null;
+          setVerifyingFacebookGroupIds([]);
+        }
+      }
+
+      if (checkedCount > 0) {
+        setFacebookGroupLoadState('READY');
+        setFacebookGroupMessage(
+          issueCount > 0
+            ? `Checked ${checkedCount} Facebook group(s). ${issueCount} group(s) need attention.`
+            : `Checked ${checkedCount} Facebook group(s). All checked groups can be used if quota allows.`,
+        );
+      }
+    } finally {
+      facebookGroupVerificationRunningRef.current = false;
+      activeFacebookGroupVerificationIdRef.current = null;
+      setVerifyingFacebookGroupIds([]);
+      setQueuedFacebookGroupIds(facebookGroupVerificationQueueRef.current.map((item) => item.targetId).filter(isString));
+
+      if (facebookGroupVerificationQueueRef.current.length > 0) {
+        void processFacebookGroupVerificationQueue();
+      }
     }
   };
 
@@ -676,6 +758,7 @@ export function JobPostingDetailPage() {
   const closedLike = status === 'CLOSED' || status === 'ARCHIVED';
   const publishedLike = status === 'PUBLISHED';
   const publicSlug = jobPosting?.publicSlug ?? '';
+  const facebookGroupVerificationBusy = verifyingFacebookGroupIds.length > 0 || queuedFacebookGroupIds.length > 0;
   const facebookGroupDuplicateUrlError = getDuplicateFacebookGroupUrlError(
     facebookGroupUrl,
     facebookGroups,
@@ -929,7 +1012,7 @@ export function JobPostingDetailPage() {
                   <div className="flex items-center justify-between gap-3 border-b border-emerald-200 px-3 py-2">
                     <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
                       <span>Facebook groups</span>
-                      {isFacebookBusy(facebookGroupLoadState) ? (
+                      {isFacebookBusy(facebookGroupLoadState) || facebookGroupVerificationBusy ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : null}
                     </div>
@@ -939,7 +1022,7 @@ export function JobPostingDetailPage() {
                         variant="ghost"
                         size="sm"
                         className="h-8 px-2 text-emerald-900 hover:bg-emerald-100"
-                        disabled={submitting || isFacebookBusy(facebookGroupLoadState)}
+                        disabled={submitting || isFacebookBusy(facebookGroupLoadState) || facebookGroupVerificationBusy}
                         onClick={() => {
                           void refreshFacebookGroups().catch((err) => {
                             setPublishError(getInternalSafeErrorMessage(err));
@@ -964,14 +1047,23 @@ export function JobPostingDetailPage() {
 
                   <div className="space-y-2 p-3">
                     <p className="text-xs text-emerald-900">
-                      {isFacebookBusy(facebookGroupLoadState) && facebookGroupMessage
+                      {(isFacebookBusy(facebookGroupLoadState) || facebookGroupVerificationBusy) && facebookGroupMessage
                         ? facebookGroupMessage
                         : `${selectedFacebookGroupIds.length}/${countSelectableFacebookGroups(facebookGroups)} eligible Facebook group(s) selected.`}
                     </p>
 
                     {facebookGroups.length > 0 ? (
                       <div className="max-h-72 divide-y divide-emerald-100 overflow-y-auto rounded-md bg-white">
-                        {facebookGroups.map((group) => (
+                        {facebookGroups.map((group) => {
+                          const isGroupChecking = Boolean(group.targetId && verifyingFacebookGroupIds.includes(group.targetId));
+                          const isGroupQueued = Boolean(group.targetId && queuedFacebookGroupIds.includes(group.targetId));
+                          const groupStatusMessage = isGroupChecking
+                            ? 'Checking with the current Facebook browser session...'
+                            : isGroupQueued
+                              ? 'Queued for checking.'
+                              : getFacebookGroupDisabledReason(group);
+
+                          return (
                           <div
                             key={group.targetId ?? group.targetUrl ?? group.targetName}
                             className={cn(
@@ -1005,9 +1097,9 @@ export function JobPostingDetailPage() {
                                     {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`} today
                                   </Badge>
                                 </span>
-                                {getFacebookGroupDisabledReason(group) ? (
+                                {groupStatusMessage ? (
                                   <span className="mt-1 block text-xs text-amber-700">
-                                    {getFacebookGroupDisabledReason(group)}
+                                    {groupStatusMessage}
                                   </span>
                                 ) : null}
                               </span>
@@ -1018,10 +1110,10 @@ export function JobPostingDetailPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 w-7 p-0"
-                                disabled={submitting || isFacebookBusy(facebookGroupLoadState) || !group.targetId}
+                                disabled={submitting || isGroupChecking || isGroupQueued || !group.targetId}
                                 onClick={() => void checkFacebookGroup(group)}
                               >
-                                <RefreshCw className="h-3.5 w-3.5" />
+                                <RefreshCw className={cn('h-3.5 w-3.5', isGroupChecking && 'animate-spin')} />
                               </Button>
                               <Button
                                 type="button"
@@ -1045,7 +1137,8 @@ export function JobPostingDetailPage() {
                               </Button>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="rounded-md border border-dashed border-emerald-300 bg-white p-3 text-sm text-muted-foreground">

@@ -139,6 +139,8 @@ function SidePanel() {
   const [isFacebookSettingsOpen, setIsFacebookSettingsOpen] = useState(false);
   const [facebookSettingsState, setFacebookSettingsState] = useState<'IDLE' | 'LOADING' | 'READY' | 'SAVING' | 'VERIFYING' | 'ERROR'>('IDLE');
   const [facebookSettingsMessage, setFacebookSettingsMessage] = useState<string | null>(null);
+  const [verifyingFacebookGroupIds, setVerifyingFacebookGroupIds] = useState<string[]>([]);
+  const [queuedFacebookGroupIds, setQueuedFacebookGroupIds] = useState<string[]>([]);
   const [facebookGroupModalMode, setFacebookGroupModalMode] = useState<FacebookGroupModalMode>('SETTINGS');
   const [selectedFacebookGroup, setSelectedFacebookGroup] = useState<FacebookPublishTarget | null>(null);
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
@@ -184,11 +186,29 @@ function SidePanel() {
   const applicationsRequestSeqRef = useRef(0);
   const missedRecruitmentContextCountRef = useRef(0);
   const tokenRef = useRef<string | null>(null);
+  const channelsRef = useRef<ExtensionChannel[]>(channels);
+  const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
+  const selectedFacebookGroupIdsRef = useRef<string[]>(selectedFacebookGroupIds);
+  const facebookGroupVerificationQueueRef = useRef<FacebookPublishTarget[]>([]);
+  const facebookGroupVerificationRunningRef = useRef(false);
+  const activeFacebookGroupVerificationIdRef = useRef<string | null>(null);
   const startedFacebookPlanKeys = useRef(new Set<string>());
 
   useEffect(() => {
     tokenRef.current = token;
   }, [token]);
+
+  useEffect(() => {
+    channelsRef.current = channels;
+  }, [channels]);
+
+  useEffect(() => {
+    facebookGroupsRef.current = facebookGroups;
+  }, [facebookGroups]);
+
+  useEffect(() => {
+    selectedFacebookGroupIdsRef.current = selectedFacebookGroupIds;
+  }, [selectedFacebookGroupIds]);
 
   useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
@@ -424,6 +444,7 @@ function SidePanel() {
 
   async function updateSelectedFacebookGroupIds(targetIds: string[]) {
     const uniqueTargetIds = uniqueStrings(targetIds);
+    selectedFacebookGroupIdsRef.current = uniqueTargetIds;
     setSelectedFacebookGroupIdsState(uniqueTargetIds);
     await setSelectedFacebookGroupIds(uniqueTargetIds);
   }
@@ -1302,43 +1323,117 @@ function SidePanel() {
     }
   }
 
-  async function checkFacebookGroupEligibility(group: FacebookPublishTarget) {
-    if (!token || !group.targetId) return;
+  function checkFacebookGroupEligibility(group: FacebookPublishTarget) {
+    if (!tokenRef.current || !group.targetId) return;
 
-    setFacebookSettingsState('VERIFYING');
-    setFacebookSettingsMessage(`Checking "${group.targetName}" with the current Facebook browser session.`);
+    if (
+      activeFacebookGroupVerificationIdRef.current === group.targetId
+      || facebookGroupVerificationQueueRef.current.some((item) => item.targetId === group.targetId)
+    ) {
+      setFacebookSettingsState('READY');
+      setFacebookSettingsMessage(`"${group.targetName}" is already queued for checking.`);
+      return;
+    }
+
+    facebookGroupVerificationQueueRef.current = [...facebookGroupVerificationQueueRef.current, group];
+    setQueuedFacebookGroupIds(facebookGroupVerificationQueueRef.current.map((item) => item.targetId).filter(isString));
+    setFacebookSettingsState('READY');
+    setFacebookSettingsMessage(`Queued "${group.targetName}" for checking.`);
+    void processFacebookGroupVerificationQueue();
+  }
+
+  async function processFacebookGroupVerificationQueue() {
+    if (facebookGroupVerificationRunningRef.current) return;
+    facebookGroupVerificationRunningRef.current = true;
+
+    let checkedCount = 0;
+    let issueCount = 0;
+    const queuedAtStart = facebookGroupVerificationQueueRef.current.length;
 
     try {
-      const eligibility = await verifyFacebookGroupPostingEligibility(group);
-      const savedGroup = await verifyFacebookGroup(token, group.targetId, {
-        eligibilityStatus: eligibility.eligibilityStatus,
-        eligibilityReason: eligibility.eligibilityReason,
-        verifiedAt: eligibility.verifiedAt,
-      });
-      const groups = await getFacebookGroups(token);
-      setFacebookGroups(groups);
-      const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
-      setFacebookSettingsState('READY');
-      setFacebookSettingsMessage(
-        savedGroup.selectable
-          ? `"${savedGroup.targetName}" can be used for publishing (${savedGroup.quotaLabel} today).`
-          : getFacebookGroupVerificationMessage(savedGroup),
-      );
+      while (facebookGroupVerificationQueueRef.current.length > 0) {
+        const group = facebookGroupVerificationQueueRef.current[0];
+        facebookGroupVerificationQueueRef.current = facebookGroupVerificationQueueRef.current.slice(1);
+        setQueuedFacebookGroupIds(facebookGroupVerificationQueueRef.current.map((item) => item.targetId).filter(isString));
 
-      if (channels.includes('FACEBOOK')) {
-        setFacebookGroupLoadState('READY');
-        setFacebookGroupMessage(`${nextSelectedIds.length}/${countSelectableFacebookGroups(groups)} eligible Facebook group(s) selected.`);
+        if (!group.targetId) continue;
+
+        const accessToken = tokenRef.current;
+        if (!accessToken) {
+          setState('AUTH_REQUIRED');
+          setFacebookSettingsState('ERROR');
+          setFacebookSettingsMessage('Sign in to VCS Recruitment before checking Facebook groups.');
+          break;
+        }
+
+        activeFacebookGroupVerificationIdRef.current = group.targetId;
+        setVerifyingFacebookGroupIds([group.targetId]);
+        setFacebookSettingsState('READY');
+        setFacebookSettingsMessage(`Checking "${group.targetName}" (${checkedCount + 1}/${Math.max(queuedAtStart, checkedCount + 1)}) with the current Facebook browser session.`);
+
+        try {
+          const eligibility = await verifyFacebookGroupPostingEligibility(group);
+          const savedGroup = await verifyFacebookGroup(accessToken, group.targetId, {
+            eligibilityStatus: eligibility.eligibilityStatus,
+            eligibilityReason: eligibility.eligibilityReason,
+            verifiedAt: eligibility.verifiedAt,
+          });
+          const groups = replaceFacebookGroup(facebookGroupsRef.current, savedGroup);
+          facebookGroupsRef.current = groups;
+          setFacebookGroups(groups);
+          const nextSelectedIds = await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIdsRef.current);
+          checkedCount += 1;
+          if (!savedGroup.selectable) issueCount += 1;
+          setFacebookSettingsMessage(
+            savedGroup.selectable
+              ? `"${savedGroup.targetName}" can be used for publishing (${savedGroup.quotaLabel} today).`
+              : getFacebookGroupVerificationMessage(savedGroup),
+          );
+
+          if (channelsRef.current.includes('FACEBOOK')) {
+            setFacebookGroupLoadState('READY');
+            setFacebookGroupMessage(`${nextSelectedIds.length}/${countSelectableFacebookGroups(groups)} eligible Facebook group(s) selected.`);
+          }
+        } catch (err) {
+          if (err instanceof ApiClientError && err.status === 401) {
+            facebookGroupVerificationQueueRef.current = [];
+            setQueuedFacebookGroupIds([]);
+            await clearAccessToken();
+            setToken(null);
+            setUser(null);
+            setState('AUTH_REQUIRED');
+            setFacebookSettingsState('ERROR');
+            setFacebookSettingsMessage('Authentication expired. Sign in again before checking Facebook groups.');
+            return;
+          }
+
+          checkedCount += 1;
+          issueCount += 1;
+          setFacebookSettingsState('READY');
+          setFacebookSettingsMessage(`Could not check "${group.targetName}": ${toErrorMessage(err)}`);
+        } finally {
+          activeFacebookGroupVerificationIdRef.current = null;
+          setVerifyingFacebookGroupIds([]);
+        }
       }
-    } catch (err) {
-      if (err instanceof ApiClientError && err.status === 401) {
-        await clearAccessToken();
-        setToken(null);
-        setUser(null);
-        setState('AUTH_REQUIRED');
-        return;
+
+      if (checkedCount > 0) {
+        setFacebookSettingsState('READY');
+        setFacebookSettingsMessage(
+          issueCount > 0
+            ? `Checked ${checkedCount} Facebook group(s). ${issueCount} group(s) need attention.`
+            : `Checked ${checkedCount} Facebook group(s). All checked groups can be used if quota allows.`,
+        );
       }
-      setFacebookSettingsState('ERROR');
-      setFacebookSettingsMessage(toErrorMessage(err));
+    } finally {
+      facebookGroupVerificationRunningRef.current = false;
+      activeFacebookGroupVerificationIdRef.current = null;
+      setVerifyingFacebookGroupIds([]);
+      setQueuedFacebookGroupIds(facebookGroupVerificationQueueRef.current.map((item) => item.targetId).filter(isString));
+
+      if (facebookGroupVerificationQueueRef.current.length > 0) {
+        void processFacebookGroupVerificationQueue();
+      }
     }
   }
 
@@ -3075,7 +3170,16 @@ function SidePanel() {
               ) : (
                 <div className="facebook-group-list">
                   {facebookGroups.length > 0 ? (
-                    facebookGroups.map((group) => (
+                    facebookGroups.map((group) => {
+                      const isGroupChecking = Boolean(group.targetId && verifyingFacebookGroupIds.includes(group.targetId));
+                      const isGroupQueued = Boolean(group.targetId && queuedFacebookGroupIds.includes(group.targetId));
+                      const groupStatusMessage = isGroupChecking
+                        ? 'Checking with the current Facebook browser session...'
+                        : isGroupQueued
+                          ? 'Queued for checking.'
+                          : getFacebookGroupDisabledReason(group);
+
+                      return (
                       <article
                         key={group.targetId ?? group.targetExternalId ?? group.targetUrl ?? group.targetName}
                         className={`facebook-group-item${!isSelectableFacebookGroup(group) ? ' is-disabled' : ''}`}
@@ -3100,10 +3204,10 @@ function SidePanel() {
                           ) : null}
                           <button
                             type="button"
-                            className="group-icon-button"
-                            title="Check posting eligibility"
+                            className={`group-icon-button${isGroupChecking ? ' is-loading' : ''}`}
+                            title={isGroupQueued ? 'Queued for posting eligibility check' : 'Check posting eligibility'}
                             aria-label={`Check posting eligibility for ${group.targetName}`}
-                            disabled={facebookSettingsState === 'SAVING' || facebookSettingsState === 'VERIFYING' || !group.targetId}
+                            disabled={facebookSettingsState === 'SAVING' || isGroupChecking || isGroupQueued || !group.targetId}
                             onClick={() => void checkFacebookGroupEligibility(group)}
                           >
                             <RefreshIcon />
@@ -3127,11 +3231,12 @@ function SidePanel() {
                             <TrashIcon />
                           </button>
                         </div>
-                        {getFacebookGroupDisabledReason(group) ? (
-                          <p className="facebook-group-reason">{getFacebookGroupDisabledReason(group)}</p>
+                        {groupStatusMessage ? (
+                          <p className="facebook-group-reason">{groupStatusMessage}</p>
                         ) : null}
                       </article>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="facebook-group-empty">
                       <strong>Chưa có nhóm nào</strong>
@@ -3382,6 +3487,14 @@ function toFacebookGroupUiItem(group: FacebookPublishTarget) {
     selectable: isSelectableFacebookGroup(group),
     disabledReason: getFacebookGroupDisabledReason(group),
   };
+}
+
+function replaceFacebookGroup(groups: FacebookPublishTarget[], updatedGroup: FacebookPublishTarget) {
+  const updatedId = updatedGroup.targetId;
+  const index = updatedId ? groups.findIndex((group) => group.targetId === updatedId) : -1;
+  if (index < 0) return [...groups, updatedGroup];
+
+  return groups.map((group, groupIndex) => (groupIndex === index ? updatedGroup : group));
 }
 
 function isSelectableFacebookGroup(group: FacebookPublishTarget) {
