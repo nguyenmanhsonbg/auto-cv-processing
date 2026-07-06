@@ -650,8 +650,11 @@ function SidePanel() {
 
   async function uploadSelectedApplicationCvsToAmisForm() {
     if (!applicationsContext) return;
+    const selectedCvIds = selectedApplicationCvIds.size > 0
+      ? selectedApplicationCvIds
+      : selectedCvApplicationIds;
     const selectedApplications = applicationsContext.applications.filter((application) =>
-      selectedApplicationCvIds.has(application.applicationId),
+      selectedCvIds.has(application.applicationId),
     );
     await uploadApplicationCvsToAmisForm(selectedApplications);
   }
@@ -2374,6 +2377,10 @@ function SidePanel() {
     const selectedCandidates = getSelectedCvApplications();
     const allVisibleSelected = applications.length > 0
       && applications.every((application) => selectedCvApplicationIds.has(application.applicationId));
+    const selectedCandidateUploadableCount = selectedCandidates.filter(canUploadApplicationCv).length;
+    const batchUploadableCount = selectedUploadableApplicationCount > 0
+      ? selectedUploadableApplicationCount
+      : selectedCandidateUploadableCount;
 
     return (
       <section className="cv-list-screen">
@@ -2406,12 +2413,20 @@ function SidePanel() {
 
         {uploadableApplications.length > 0 ? (
           <div className="cv-clean-actions">
-            <span>{selectedUploadableApplicationCount} / {uploadableApplications.length} clean CVs selected</span>
+            <span>{batchUploadableCount} / {uploadableApplications.length} clean CVs selected</span>
             <button type="button" className="text-button" onClick={selectAllUploadableApplicationCvs}>
               Select clean CVs
             </button>
             <button type="button" className="text-button" onClick={clearSelectedApplicationCvs}>
               Clear
+            </button>
+            <button
+              type="button"
+              className="secondary-action-button cv-load-selected-button"
+              disabled={batchUploadableCount === 0 || Boolean(cvUploadApplicationId)}
+              onClick={() => void uploadSelectedApplicationCvsToAmisForm()}
+            >
+              {cvUploadApplicationId === 'BATCH' ? 'Loading CVs...' : 'Load selected CVs'}
             </button>
           </div>
         ) : null}
@@ -2522,7 +2537,7 @@ function SidePanel() {
           <button
             type="button"
             className="secondary-action-button"
-            disabled={selectedUploadableApplicationCount === 0 || Boolean(cvUploadApplicationId)}
+            disabled={batchUploadableCount === 0 || Boolean(cvUploadApplicationId)}
             onClick={() => void uploadSelectedApplicationCvsToAmisForm()}
           >
             {cvUploadApplicationId === 'BATCH' ? 'Loading CVs...' : 'Load CVs'}

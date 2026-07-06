@@ -40,7 +40,7 @@ services:
         condition: service_healthy
     volumes:
       - uploads:/app/apps/backend/uploads
-      - cv-storage:/app/apps/backend/storage
+      - ./storage:/app/apps/backend/storage
 
   cv-sanitizer:
     image: auto-cv-processing-cv-sanitizer:latest
@@ -55,8 +55,11 @@ services:
       CV_GHOSTSCRIPT_TIMEOUT_MS: 60000
     expose:
       - '8080'
+    ports:
+      - '8080:8080'
     volumes:
-      - cv-storage:/app/apps/backend/storage
+      - ./storage:/app/apps/backend/storage
+      - ./apps/cv-sanitizer/server.js:/app/server.js:ro
     healthcheck:
       test: ['CMD-SHELL', 'node -e "fetch(''http://127.0.0.1:8080/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
       interval: 5s
@@ -78,4 +81,3 @@ services:
 volumes:
   pgdata:
   uploads:
-  cv-storage:

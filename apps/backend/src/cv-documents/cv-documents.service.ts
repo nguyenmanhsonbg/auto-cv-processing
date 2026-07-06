@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -93,6 +94,8 @@ export interface CleanCvFileAccessResult {
 
 @Injectable()
 export class CvDocumentsService {
+  private readonly logger = new Logger(CvDocumentsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly workflowStateService: WorkflowStateService,
@@ -788,11 +791,18 @@ export class CvDocumentsService {
   private scheduleSanitizeAfterScanPass(cvDocument: CvDocumentEntity) {
     if (cvDocument.scanStatus !== CvScanStatus.PASSED) return;
 
+    this.logger.log(
+      `CV sanitize scheduled after scan pass applicationId=${cvDocument.applicationId} cvDocumentId=${cvDocument.id}`,
+    );
     setImmediate(() => {
       void this.cvSanitizationService.sanitizeCvDocument({
         applicationId: cvDocument.applicationId,
         cvDocumentId: cvDocument.id,
-      }).catch(() => undefined);
+      }).catch((error) => {
+        this.logger.error(
+          `CV sanitize scheduled job failed applicationId=${cvDocument.applicationId} cvDocumentId=${cvDocument.id} message=${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      });
     });
   }
 

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -64,6 +65,8 @@ interface CleanArtifact {
 
 @Injectable()
 export class CvSanitizationService {
+  private readonly logger = new Logger(CvSanitizationService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly workflowStateService: WorkflowStateService,
@@ -77,25 +80,37 @@ export class CvSanitizationService {
     const context = await this.prepareSanitize(input);
 
     if (context.cleanCvDocument) {
+      this.logger.log(
+        `CV sanitize skipped; clean CV already exists applicationId=${context.cleanCvDocument.applicationId} originalCvDocumentId=${context.originalCvDocument.id} cleanCvDocumentId=${context.cleanCvDocument.id}`,
+      );
       this.scheduleParseAfterSanitizeSuccess(context.cleanCvDocument);
       return context.cleanCvDocument;
     }
 
     try {
       outputFilePath = this.buildSafeOutputFilePath();
+      const outputStoragePath = toCvSafeStorageKey(outputFilePath);
+      this.logger.log(
+        `CV sanitize started applicationId=${context.originalCvDocument.applicationId} cvDocumentId=${context.originalCvDocument.id} sourceMimeType=${context.originalCvDocument.mimeType}`,
+      );
       const sanitizeResult = await this.cleanCvSanitizer.sanitize({
         applicationId: context.originalCvDocument.applicationId,
         cvDocumentId: context.originalCvDocument.id,
         originalFileHash: context.originalCvDocument.originalFileHash ?? '',
         sourceFilePath: context.sourceFilePath,
+        sourceStoragePath: context.originalCvDocument.storagePath,
         sourceMimeType: context.originalCvDocument.mimeType,
         outputFilePath,
+        outputStoragePath,
       });
 
       if (
         sanitizeResult.status !== CleanCvSanitizeStatus.SANITIZED ||
         !sanitizeResult.outputFilePath
       ) {
+        this.logger.warn(
+          `CV sanitize failed applicationId=${context.originalCvDocument.applicationId} cvDocumentId=${context.originalCvDocument.id} sanitizer=${sanitizeResult.sanitizer} reasonCode=${sanitizeResult.reasonCode ?? 'UNKNOWN'} durationMs=${sanitizeResult.durationMs}`,
+        );
         await deleteCvSafeFile(outputFilePath);
         await this.markSanitizeFailed(
           context.originalCvDocument.id,
@@ -112,12 +127,19 @@ export class CvSanitizationService {
         cleanArtifact,
         context.idempotencyKeyHash,
       );
+      this.logger.log(
+        `CV sanitize succeeded applicationId=${cleanCvDocument.applicationId} originalCvDocumentId=${context.originalCvDocument.id} cleanCvDocumentId=${cleanCvDocument.id} sanitizer=${sanitizeResult.sanitizer} durationMs=${sanitizeResult.durationMs} cleanFileSize=${cleanArtifact.fileSize}`,
+      );
       this.scheduleParseAfterSanitizeSuccess(cleanCvDocument);
       return cleanCvDocument;
     } catch (error) {
       if (outputFilePath) {
         await deleteCvSafeFile(outputFilePath);
       }
+
+      this.logger.error(
+        `CV sanitize error applicationId=${context.originalCvDocument.applicationId} cvDocumentId=${context.originalCvDocument.id} message=${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
 
       if (
         error instanceof BadRequestException ||
@@ -488,10 +510,17 @@ export class CvSanitizationService {
     }
 
     setImmediate(() => {
+      this.logger.log(
+        `CV parse scheduled after sanitize applicationId=${cvDocument.applicationId} cleanCvDocumentId=${cvDocument.id}`,
+      );
       void this.cvParsingService.parseCleanCvDocument({
         applicationId: cvDocument.applicationId,
         cvDocumentId: cvDocument.id,
-      }).catch(() => undefined);
+      }).catch((error) => {
+        this.logger.error(
+          `CV parse failed after sanitize applicationId=${cvDocument.applicationId} cleanCvDocumentId=${cvDocument.id} message=${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      });
     });
   }
 

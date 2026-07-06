@@ -17,6 +17,7 @@ interface SanitizeServiceResponse {
   sanitizedAt?: string;
   durationMs?: number;
   outputFilePath?: string | null;
+  outputStoragePath?: string | null;
   outputMimeType?: string | null;
   reasonCode?: string | null;
 }
@@ -37,7 +38,8 @@ export class GhostscriptHttpPdfSanitizer implements CleanCvSanitizer {
 
     try {
       const response = await this.callService(serviceUrl, input);
-      if (response.status !== CleanCvSanitizeStatus.SANITIZED || !response.outputFilePath) {
+      const outputFilePath = this.resolveBackendOutputFilePath(input, response);
+      if (response.status !== CleanCvSanitizeStatus.SANITIZED || !outputFilePath) {
         return this.failed(startedAt, response.reasonCode || 'SANITIZER_SERVICE_FAILED');
       }
 
@@ -46,7 +48,7 @@ export class GhostscriptHttpPdfSanitizer implements CleanCvSanitizer {
         sanitizer: response.sanitizer || SANITIZER_NAME,
         sanitizedAt: response.sanitizedAt ? new Date(response.sanitizedAt) : new Date(),
         durationMs: response.durationMs ?? Date.now() - startedAt,
-        outputFilePath: response.outputFilePath,
+        outputFilePath,
         outputMimeType: response.outputMimeType || PDF_MIME_TYPE,
         reasonCode: response.reasonCode ?? null,
       };
@@ -71,8 +73,10 @@ export class GhostscriptHttpPdfSanitizer implements CleanCvSanitizer {
           cvDocumentId: input.cvDocumentId,
           originalFileHash: input.originalFileHash,
           sourceFilePath: input.sourceFilePath,
+          sourceStoragePath: input.sourceStoragePath,
           sourceMimeType: input.sourceMimeType,
           outputFilePath: input.outputFilePath,
+          outputStoragePath: input.outputStoragePath,
         }),
         signal: controller.signal,
       });
@@ -89,6 +93,19 @@ export class GhostscriptHttpPdfSanitizer implements CleanCvSanitizer {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private resolveBackendOutputFilePath(
+    input: CleanCvSanitizeInput,
+    response: SanitizeServiceResponse,
+  ) {
+    if (response.outputStoragePath) {
+      return response.outputStoragePath === input.outputStoragePath
+        ? input.outputFilePath
+        : null;
+    }
+
+    return response.outputFilePath ?? null;
   }
 
   private getServiceUrl() {

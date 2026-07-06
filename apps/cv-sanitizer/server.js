@@ -34,6 +34,9 @@ const server = http.createServer(async (req, res) => {
     await writeJson(res, 404, { status: 'FAILED', reasonCode: 'NOT_FOUND' });
   } catch (error) {
     const statusCode = error.statusCode || 500;
+    logSanitize('error', 'error', {
+      reasonCode: error.reasonCode || 'SANITIZER_INTERNAL_ERROR',
+    });
     await writeJson(res, statusCode, {
       status: 'FAILED',
       reasonCode: error.reasonCode || 'SANITIZER_INTERNAL_ERROR',
@@ -48,27 +51,63 @@ server.listen(PORT, '0.0.0.0', () => {
 async function sanitizePdf(payload) {
   const startedAt = Date.now();
   const sourceMimeType = requireText(payload.sourceMimeType, 'sourceMimeType');
-  const sourceFilePath = requireText(payload.sourceFilePath, 'sourceFilePath');
-  const outputFilePath = requireText(payload.outputFilePath, 'outputFilePath');
+  const applicationId = optionalText(payload.applicationId) || 'unknown';
+  const cvDocumentId = optionalText(payload.cvDocumentId) || 'unknown';
 
   if (sourceMimeType !== PDF_MIME_TYPE) {
+    logSanitize('warn', 'rejected', {
+      applicationId,
+      cvDocumentId,
+      reasonCode: 'UNSUPPORTED_SANITIZER_INPUT',
+      sourceMimeType,
+      durationMs: Date.now() - startedAt,
+    });
     return failed(startedAt, 'UNSUPPORTED_SANITIZER_INPUT');
   }
 
-  const sourcePath = assertWithinRoot(sourceFilePath, quarantineRoot, 'SOURCE_PATH_NOT_ALLOWED');
-  const outputPath = assertWithinRoot(outputFilePath, safeRoot, 'OUTPUT_PATH_NOT_ALLOWED');
+  logSanitize('info', 'started', {
+    applicationId,
+    cvDocumentId,
+    sourceStoragePath: optionalText(payload.sourceStoragePath),
+    outputStoragePath: optionalText(payload.outputStoragePath),
+  });
+
+  const sourcePath = resolveSanitizerPath({
+    storagePath: optionalText(payload.sourceStoragePath),
+    filePath: optionalText(payload.sourceFilePath),
+    root: quarantineRoot,
+    storagePrefix: 'quarantine',
+    missingReasonCode: 'MISSING_SOURCE_PATH',
+    invalidReasonCode: 'SOURCE_PATH_NOT_ALLOWED',
+  });
+  const outputPath = resolveSanitizerPath({
+    storagePath: optionalText(payload.outputStoragePath),
+    filePath: optionalText(payload.outputFilePath),
+    root: safeRoot,
+    storagePrefix: 'safe',
+    missingReasonCode: 'MISSING_OUTPUT_PATH',
+    invalidReasonCode: 'OUTPUT_PATH_NOT_ALLOWED',
+  });
 
   await stat(sourcePath);
   await mkdir(path.dirname(outputPath), { recursive: true });
 
   await runGhostscript(sourcePath, outputPath, getTimeoutMs());
+  const durationMs = Date.now() - startedAt;
+  logSanitize('info', 'succeeded', {
+    applicationId,
+    cvDocumentId,
+    outputStoragePath: optionalText(payload.outputStoragePath),
+    durationMs,
+  });
 
   return {
     status: 'SANITIZED',
     sanitizer: 'ghostscript-http-pdf-sanitizer-service',
     sanitizedAt: new Date().toISOString(),
-    durationMs: Date.now() - startedAt,
+    durationMs,
     outputFilePath: outputPath,
+    outputStoragePath: optionalText(payload.outputStoragePath),
     outputMimeType: PDF_MIME_TYPE,
     reasonCode: null,
   };
@@ -159,11 +198,69 @@ function failed(startedAt, reasonCode) {
   };
 }
 
+function logSanitize(level, event, metadata) {
+  const safeMetadata = Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => value !== null && value !== undefined),
+  );
+  const line = JSON.stringify({
+    event: `cv_sanitize_${event}`,
+    ...safeMetadata,
+  });
+
+  if (level === 'warn') {
+    console.warn(line);
+    return;
+  }
+  if (level === 'error') {
+    console.error(line);
+    return;
+  }
+
+  console.log(line);
+}
+
 function requireText(value, fieldName) {
   if (typeof value !== 'string' || value.trim() === '') {
     throw toError(`MISSING_${fieldName.toUpperCase()}`, 400);
   }
   return value.trim();
+}
+
+function optionalText(value) {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+function resolveSanitizerPath({
+  storagePath,
+  filePath,
+  root,
+  storagePrefix,
+  missingReasonCode,
+  invalidReasonCode,
+}) {
+  if (storagePath) {
+    return resolveStoragePath(storagePath, root, storagePrefix, invalidReasonCode);
+  }
+
+  if (filePath) {
+    return assertWithinRoot(filePath, root, invalidReasonCode);
+  }
+
+  throw toError(missingReasonCode, 400);
+}
+
+function resolveStoragePath(storagePath, root, storagePrefix, reasonCode) {
+  const prefix = `${storagePrefix}/`;
+  if (!storagePath.startsWith(prefix)) {
+    throw toError(reasonCode, 400);
+  }
+
+  const relativePath = storagePath.slice(prefix.length);
+  if (!isSafeRelativeStoragePath(relativePath)) {
+    throw toError(reasonCode, 400);
+  }
+
+  return assertWithinRoot(path.resolve(root, relativePath), root, reasonCode);
 }
 
 function resolveRoot(value, fallback) {
@@ -183,6 +280,17 @@ function assertWithinRoot(filePath, root, reasonCode) {
   }
 
   return resolved;
+}
+
+function isSafeRelativeStoragePath(value) {
+  if (!value || value.includes('\0') || path.isAbsolute(value)) return false;
+
+  return value.split('/').every((segment) => (
+    Boolean(segment) &&
+    segment !== '.' &&
+    segment !== '..' &&
+    !segment.includes('\\')
+  ));
 }
 
 function normalizeForComparison(value) {

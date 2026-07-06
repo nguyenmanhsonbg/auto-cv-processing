@@ -10,8 +10,10 @@ export interface CleanCvSanitizeInput {
   cvDocumentId: string;
   originalFileHash: string;
   sourceFilePath: string;
+  sourceStoragePath: string;
   sourceMimeType: string;
   outputFilePath: string;
+  outputStoragePath: string;
 }
 
 export interface CleanCvSanitizeResult {
