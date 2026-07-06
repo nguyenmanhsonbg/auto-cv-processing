@@ -20,6 +20,7 @@ import { NotificationModule } from './notification/notification.module';
 import { PositionsModule } from './positions/positions.module';
 import { QuestionsModule } from './questions/questions.module';
 import { SessionsModule } from './sessions/sessions.module';
+import { FormSessionsModule } from './form-sessions/form-sessions.module';
 import { SubmissionsModule } from './submissions/submissions.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { WebSocketModule } from './websocket/websocket.module';
@@ -62,6 +63,7 @@ import { WebSocketModule } from './websocket/websocket.module';
     CandidatesModule,
     QuestionsModule,
     SessionsModule,
+    FormSessionsModule,
     EvaluationsModule,
     SubmissionsModule,
     ExportModule,

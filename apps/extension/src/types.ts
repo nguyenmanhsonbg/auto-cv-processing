@@ -148,6 +148,7 @@ export interface SyncAmisJobPostingRequest {
   snapshot: AmisJobSnapshot;
   channels: ExtensionChannel[];
   facebookTargetIds?: string[];
+  selectedQuestionIds?: string[];
   metadata?: Record<string, unknown>;
 }
 

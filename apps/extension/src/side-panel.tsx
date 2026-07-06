@@ -35,6 +35,7 @@ import {
 } from './facebook-publish-orchestrator';
 import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { createMockAmisSyncRequest } from './mock-amis';
+import { saveSelectedJobQuestionContext } from './selected-job-question-store';
 import type {
   AmisDiagnosticEvent,
   AmisAutoSyncState,
@@ -846,8 +847,10 @@ function SidePanel() {
       );
 
       setSelectedCareerQuestionIds(new Set(selectedQuestionIds));
+      void persistSelectedJobQuestionContextForActiveTab(context, selectedQuestionIds);
     } catch {
       setSelectedCareerQuestionIds(new Set());
+      void persistSelectedJobQuestionContextForActiveTab(context, []);
     }
   }
 
@@ -863,8 +866,30 @@ function SidePanel() {
 
   function updateSelectedCareerQuestions(nextQuestionIds: Set<string>) {
     setSelectedCareerQuestionIds(nextQuestionIds);
+    const questionIds = Array.from(nextQuestionIds);
     if (careerQuestionContext) {
-      void persistSelectedCareerQuestions(careerQuestionContext.career.amisCareerId, Array.from(nextQuestionIds));
+      void persistSelectedCareerQuestions(careerQuestionContext.career.amisCareerId, questionIds);
+      void persistSelectedJobQuestionContextForActiveTab(careerQuestionContext, questionIds);
+    }
+  }
+
+  async function persistSelectedJobQuestionContextForActiveTab(
+    context: AmisCareerQuestionContext,
+    questionIds: string[],
+  ) {
+    try {
+      const activeTab = await getActiveTab();
+      if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) return;
+
+      await saveSelectedJobQuestionContext({
+        tabId: activeTab.id,
+        pageUrl: activeTab.url,
+        amisCareerId: context.career.amisCareerId,
+        careerName: context.career.name,
+        questionIds,
+      });
+    } catch {
+      // Background auto-sync can still fall back to category-based question generation.
     }
   }
 
@@ -1543,12 +1568,16 @@ function SidePanel() {
       snapshot,
       channels,
       ...(channels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
+      ...(selectedCareerQuestionIds.size > 0
+        ? { selectedQuestionIds: Array.from(selectedCareerQuestionIds) }
+        : {}),
       metadata: {
         capturedAt: new Date().toISOString(),
         captureSource: extractionResult?.source ?? 'MOCK',
         captureConfidence: extractionResult?.confidence,
         extractionWarnings: extractionResult?.warnings,
         extractionEvidence: extractionResult?.evidence,
+        selectedQuestionCount: selectedCareerQuestionIds.size,
       },
     };
 

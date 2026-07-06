@@ -24,6 +24,7 @@ import {
   verifyFacebookGroupPostingEligibility,
 } from './facebook-publish-orchestrator';
 import { saveLastFacebookPublishProgress } from './facebook-publish-store';
+import { getSelectedJobQuestionIdsForTab } from './selected-job-question-store';
 import type {
   AmisDiagnosticEvent,
   AmisExtractionResult,
@@ -306,9 +307,15 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     }
 
     try {
+      const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(sender.tab?.id);
       const result = await syncAndPublishAmisJob(
         accessToken,
-        buildSyncPayload({ ...enrichedCapture, amisRecruitmentId, snapshot }, channels, facebookTargetIds),
+        buildSyncPayload(
+          { ...enrichedCapture, amisRecruitmentId, snapshot },
+          channels,
+          facebookTargetIds,
+          selectedQuestionIds,
+        ),
       );
 
       if (channels.includes('FACEBOOK') && result.facebookPublishPlan) {
@@ -547,6 +554,7 @@ function buildSyncPayload(
   capture: Required<Pick<AmisExtractionResult, 'amisRecruitmentId' | 'snapshot'>> & AmisExtractionResult,
   channels: ExtensionChannel[],
   facebookTargetIds: string[],
+  selectedQuestionIds: string[] = [],
 ): SyncAmisJobPostingRequest {
   return {
     sourceSystem: 'AMIS',
@@ -556,6 +564,7 @@ function buildSyncPayload(
     snapshot: capture.snapshot,
     channels,
     ...(channels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
+    ...(selectedQuestionIds.length ? { selectedQuestionIds } : {}),
     metadata: {
       autoSync: true,
       trigger: 'AMIS_SAVE_RECRUITMENT_RESPONSE',
@@ -564,6 +573,7 @@ function buildSyncPayload(
       captureConfidence: capture.confidence,
       extractionWarnings: capture.warnings,
       extractionEvidence: capture.evidence,
+      selectedQuestionCount: selectedQuestionIds.length,
     },
   };
 }
