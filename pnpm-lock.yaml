@@ -71,6 +71,9 @@ importers:
       dotenv:
         specifier: ^17.3.1
         version: 17.3.1
+      ejs:
+        specifier: ^3.1.10
+        version: 3.1.10
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -98,6 +101,9 @@ importers:
       node-telegram-bot-api:
         specifier: ^0.67.0
         version: 0.67.0(request@2.88.2)
+      nodemailer:
+        specifier: ^9.0.3
+        version: 9.0.3
       passport:
         specifier: ^0.7.0
         version: 0.7.0
@@ -171,6 +177,9 @@ importers:
       '@types/node-telegram-bot-api':
         specifier: ^0.64.14
         version: 0.64.14
+      '@types/nodemailer':
+        specifier: ^8.0.1
+        version: 8.0.1
       '@types/passport-google-oauth20':
         specifier: ^2.0.17
         version: 2.0.17
@@ -3487,6 +3496,12 @@ packages:
     resolution: {integrity: sha512-jp2P3tQMSxWugkCUKLRPVUpGaL5MVFwF8RDuSRztfwgN1wmqJeMSbKlnEtQqU8UrhTmzEmZdu2I6v2dpp7XIxw==}
     dependencies:
       undici-types: 7.18.2
+
+  /@types/nodemailer@8.0.1:
+    resolution: {integrity: sha512-PxpaInm8V1JQDd4j0ds5HfvWQk8JupS1C0Picb96QJsrrRDjBH+DlK7L4ZdNSqNULhiZRQHc40nLVShaGxXAMw==}
+    dependencies:
+      '@types/node': 25.5.0
+    dev: true
 
   /@types/oauth@0.9.6:
     resolution: {integrity: sha512-H9TRCVKBNOhZZmyHLqFt9drPM9l+ShWiqqJijU1B8P3DX3ub84NjxDuy+Hjrz+fEca5Kwip3qPMKNyiLgNJtIA==}
@@ -7560,6 +7575,11 @@ packages:
     transitivePeerDependencies:
       - request
       - supports-color
+    dev: false
+
+  /nodemailer@9.0.3:
+    resolution: {integrity: sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw==}
+    engines: {node: '>=6.0.0'}
     dev: false
 
   /normalize-path@3.0.0:

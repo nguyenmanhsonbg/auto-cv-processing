@@ -39,6 +39,7 @@ import {
   CreateApplicationResult,
 } from '../applications/applications.service';
 import { CvDocumentsService } from '../cv-documents/cv-documents.service';
+import { FormSessionsService } from '../form-sessions/form-sessions.service';
 import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
 import {
   buildCvQuarantineFileName,
@@ -230,6 +231,7 @@ export class PublicJobPostingsController {
     private readonly applicationsService: ApplicationsService,
     private readonly cvDocumentsService: CvDocumentsService,
     private readonly fileParserService: FileParserService,
+    private readonly formSessionsService: FormSessionsService,
   ) {}
 
   @Get(':slug')
@@ -339,6 +341,11 @@ export class PublicJobPostingsController {
         allowedApplicationStatuses: isPublicReapply
           ? PUBLIC_CANDIDATE_CV_UPDATE_ALLOWED_STATUSES
           : undefined,
+      });
+
+      // Automatically generate a questionnaire form session and send email to candidate in background
+      this.formSessionsService.generateFormSession(applicationResult.application.id).catch((err) => {
+        this.formSessionsService['logger'].error(`Failed to auto-generate form session on candidate apply: ${err.message}`);
       });
 
       return {

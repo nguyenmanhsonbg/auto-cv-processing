@@ -1,0 +1,40 @@
+<div style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+  <h2 style="color: #333;">Chào <%= candidateName %>,</h2>
+
+  <p>
+    Cảm ơn bạn đã nộp hồ sơ ứng tuyển vào vị trí
+    <strong><%= jobTitle %></strong> tại VCS.
+  </p>
+
+  <p>
+    Để phục vụ cho quá trình đánh giá chuyên môn sơ bộ, vui lòng hoàn thành bài trả lời khảo sát gồm 5 câu hỏi nhanh theo đường dẫn dưới đây:
+  </p>
+
+  <div style="text-align: center; margin: 30px 0;">
+    <a href="<%= formUrl %>" style="display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">
+      Bắt đầu bài khảo sát
+    </a>
+  </div>
+
+  <p style="color: #ef4444; font-weight: bold;">* Lưu ý quan trọng:</p>
+  <ul>
+    <li>
+      Đường dẫn này chỉ có hiệu lực đến
+      <strong><%= expiresAtFormatted %></strong>
+      (hết hạn sau <%= expirationMinutes %> phút kể từ khi email này được gửi).
+    </li>
+    <li>
+      Bạn nên sắp xếp thời gian làm bài liên tục, tránh tải lại trang hoặc đóng tab để không làm mất tiến trình làm bài.
+    </li>
+  </ul>
+
+  <p>
+    Nếu gặp bất kỳ sự cố kỹ thuật nào, vui lòng phản hồi lại email này để nhận trợ giúp.
+  </p>
+
+  <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+
+  <p style="font-size: 12px; color: #888; text-align: center;">
+    Đây là email tự động từ Hệ thống Hỗ trợ Tuyển dụng VCS. Vui lòng không trả lời trực tiếp email này nếu không có thắc mắc.
+  </p>
+</div>

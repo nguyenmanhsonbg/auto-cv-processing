@@ -24,6 +24,7 @@ import { JobPostingEntity } from './entities/job-posting.entity';
 import { JobPostingsController } from './job-postings.controller';
 import { JobPostingsService } from './job-postings.service';
 import { PublicJobPostingsController } from './public-job-postings.controller';
+import { FormSessionsModule } from '../form-sessions/form-sessions.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { PublicJobPostingsController } from './public-job-postings.controller';
     CvDocumentsModule,
     FacebookPublishingModule,
     FileParserModule,
+    FormSessionsModule,
     TypeOrmModule.forFeature([
       AiScreeningResultEntity,
       ApplicationEntity,

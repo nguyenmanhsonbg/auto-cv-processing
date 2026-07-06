@@ -23,6 +23,7 @@ import {
   CvSanitizeStatus,
   CvScanStatus,
   StorageZone,
+  TERMINAL_APPLICATION_STATUSES,
 } from '../recruitment-common';
 import { WorkflowStateService } from '../workflow-state/workflow-state.service';
 import {
@@ -237,17 +238,13 @@ export class CvSanitizationService {
         requestedByActorId,
       };
 
-      await this.workflowStateService.recordStatusTransition(
-        {
-          applicationId,
-          toStatus: ApplicationStatus.CV_SANITIZING,
-          eventType: 'CV_SANITIZING',
-          actorType: requestedByActorId ? 'USER' : 'SYSTEM',
-          actorId: requestedByActorId,
-          metadata,
-        },
-        manager,
-      );
+      await this.recordSanitizeStarted(manager, {
+        applicationId,
+        fromStatus: application.status,
+        actorType: requestedByActorId ? 'USER' : 'SYSTEM',
+        actorId: requestedByActorId,
+        metadata,
+      });
 
       await this.recordAuditLog(manager, {
         applicationId,
@@ -342,18 +339,12 @@ export class CvSanitizationService {
         idempotencyKeyHash,
       };
 
-      await this.workflowStateService.recordStatusTransition(
-        {
-          applicationId: savedClean.applicationId,
-          expectedFromStatus: ApplicationStatus.CV_SANITIZING,
-          toStatus: ApplicationStatus.CV_SANITIZED,
-          eventType: 'CV_SANITIZED',
-          actorType: 'SYSTEM',
-          actorId: null,
-          metadata,
-        },
-        manager,
-      );
+      await this.recordSanitizeOutcome(manager, {
+        applicationId: savedClean.applicationId,
+        toStatus: ApplicationStatus.CV_SANITIZED,
+        eventType: 'CV_SANITIZED',
+        metadata,
+      });
 
       await this.recordAuditLog(manager, {
         applicationId: savedClean.applicationId,
@@ -393,18 +384,12 @@ export class CvSanitizationService {
         idempotencyKeyHash,
       };
 
-      await this.workflowStateService.recordStatusTransition(
-        {
-          applicationId: savedOriginal.applicationId,
-          expectedFromStatus: ApplicationStatus.CV_SANITIZING,
-          toStatus: ApplicationStatus.CV_SANITIZE_FAILED,
-          eventType: 'CV_SANITIZE_FAILED',
-          actorType: 'SYSTEM',
-          actorId: null,
-          metadata,
-        },
-        manager,
-      );
+      await this.recordSanitizeOutcome(manager, {
+        applicationId: savedOriginal.applicationId,
+        toStatus: ApplicationStatus.CV_SANITIZE_FAILED,
+        eventType: 'CV_SANITIZE_FAILED',
+        metadata,
+      });
 
       await this.recordAuditLog(manager, {
         applicationId: savedOriginal.applicationId,
@@ -553,7 +538,102 @@ export class CvSanitizationService {
     return [
       ApplicationStatus.CV_SCAN_PASSED,
       ApplicationStatus.CV_SANITIZE_FAILED,
-    ].includes(status);
+    ].includes(status) || !TERMINAL_APPLICATION_STATUSES.includes(
+      status as (typeof TERMINAL_APPLICATION_STATUSES)[number],
+    );
+  }
+
+  private async recordSanitizeStarted(
+    manager: EntityManager,
+    input: {
+      applicationId: string;
+      fromStatus: ApplicationStatus;
+      actorType: string;
+      actorId?: string | null;
+      metadata: Record<string, unknown>;
+    },
+  ) {
+    if (
+      input.fromStatus === ApplicationStatus.CV_SCAN_PASSED ||
+      input.fromStatus === ApplicationStatus.CV_SANITIZE_FAILED
+    ) {
+      await this.workflowStateService.recordStatusTransition(
+        {
+          applicationId: input.applicationId,
+          expectedFromStatus: input.fromStatus,
+          toStatus: ApplicationStatus.CV_SANITIZING,
+          eventType: 'CV_SANITIZING',
+          actorType: input.actorType,
+          actorId: input.actorId,
+          metadata: input.metadata,
+        },
+        manager,
+      );
+      return;
+    }
+
+    await this.workflowStateService.recordEvent(
+      {
+        applicationId: input.applicationId,
+        fromStatus: input.fromStatus,
+        toStatus: input.fromStatus,
+        eventType: 'CV_SANITIZING',
+        actorType: input.actorType,
+        actorId: input.actorId,
+        metadata: {
+          ...input.metadata,
+          applicationStatusPreserved: input.fromStatus,
+        },
+      },
+      manager,
+    );
+  }
+
+  private async recordSanitizeOutcome(
+    manager: EntityManager,
+    input: {
+      applicationId: string;
+      toStatus: ApplicationStatus.CV_SANITIZED | ApplicationStatus.CV_SANITIZE_FAILED;
+      eventType: 'CV_SANITIZED' | 'CV_SANITIZE_FAILED';
+      metadata: Record<string, unknown>;
+    },
+  ) {
+    const application = await manager.getRepository(ApplicationEntity).findOne({
+      where: { id: input.applicationId },
+    });
+    if (!application) throw new BadRequestException('Application not found');
+
+    if (application.status === ApplicationStatus.CV_SANITIZING) {
+      await this.workflowStateService.recordStatusTransition(
+        {
+          applicationId: input.applicationId,
+          expectedFromStatus: ApplicationStatus.CV_SANITIZING,
+          toStatus: input.toStatus,
+          eventType: input.eventType,
+          actorType: 'SYSTEM',
+          actorId: null,
+          metadata: input.metadata,
+        },
+        manager,
+      );
+      return;
+    }
+
+    await this.workflowStateService.recordEvent(
+      {
+        applicationId: input.applicationId,
+        fromStatus: application.status,
+        toStatus: application.status,
+        eventType: input.eventType,
+        actorType: 'SYSTEM',
+        actorId: null,
+        metadata: {
+          ...input.metadata,
+          applicationStatusPreserved: application.status,
+        },
+      },
+      manager,
+    );
   }
 
   private async recordAuditLog(

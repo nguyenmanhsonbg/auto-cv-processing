@@ -7,6 +7,7 @@ const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
 const BACKGROUND_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
 const BACKGROUND_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
 const BRIDGE_INSTALLED_KEY = '__VCS_AMIS_BRIDGE_INSTALLED__';
+const RECRUITMENT_CONTEXT_OBSERVER_INSTALLED_KEY = '__VCS_AMIS_RECRUITMENT_CONTEXT_OBSERVER_INSTALLED__';
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
 const FETCH_AMIS_CAREERS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_CAREERS';
 const FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
@@ -14,6 +15,7 @@ const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
+const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_CAREER_DATA_PAGING_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/Career/data_paging';
 const AMIS_CAREER_SORT = 'W3sic2VsZWN0b3IiOiAiVXNhZ2VTdGF0dXMiLCAiZGVzYyI6ICJmYWxzZSJ9LHsic2VsZWN0b3IiOiAiQ2FyZWVyTmFtZSIsICJkZXNjIjogImZhbHNlIn1d';
 const RECRUITMENT_CONTEXT_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -97,7 +99,10 @@ interface QuillContainer extends HTMLElement {
   __quill?: QuillLike;
 }
 
-const bridgeWindow = window as Window & { [BRIDGE_INSTALLED_KEY]?: boolean };
+const bridgeWindow = window as Window & {
+  [BRIDGE_INSTALLED_KEY]?: boolean;
+  [RECRUITMENT_CONTEXT_OBSERVER_INSTALLED_KEY]?: boolean;
+};
 const wasBridgeInstalled = bridgeWindow[BRIDGE_INSTALLED_KEY] === true;
 
 if (!wasBridgeInstalled) {
@@ -192,6 +197,11 @@ if (!wasBridgeInstalled) {
   });
 
   installSelectedCareerObserver();
+}
+
+if (!bridgeWindow[RECRUITMENT_CONTEXT_OBSERVER_INSTALLED_KEY]) {
+  bridgeWindow[RECRUITMENT_CONTEXT_OBSERVER_INSTALLED_KEY] = true;
+  installRecruitmentContextObserver();
 }
 
 sendDiagnostic({
@@ -369,6 +379,47 @@ function installSelectedCareerObserver() {
   window.addEventListener('focus', publishIfChanged);
   document.addEventListener('change', publishIfChanged, true);
   document.addEventListener('input', publishIfChanged, true);
+  document.addEventListener('click', () => window.setTimeout(publishIfChanged, 300), true);
+}
+
+function installRecruitmentContextObserver() {
+  let lastSignature = '';
+  let timeoutId: number | undefined;
+
+  const publishIfChanged = () => {
+    window.clearTimeout(timeoutId);
+    timeoutId = window.setTimeout(() => {
+      const context = getRecruitmentContextFromPage();
+      const amisRecruitmentId = 'amisRecruitmentId' in context ? context.amisRecruitmentId : null;
+      const amisRecruitmentRoundId = 'amisRecruitmentRoundId' in context ? context.amisRecruitmentRoundId : null;
+      const sourceUrl = 'sourceUrl' in context ? context.sourceUrl : null;
+      const signature = JSON.stringify({
+        ok: context.ok,
+        pageUrl: context.pageUrl,
+        pageKind: context.pageKind ?? null,
+        amisRecruitmentId,
+        amisRecruitmentRoundId,
+        sourceUrl,
+      });
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+
+      void chrome.runtime?.sendMessage?.({
+        type: RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE,
+        payload: {
+          ...context,
+          timestamp: new Date().toISOString(),
+        },
+      }).catch(() => undefined);
+    }, 250);
+  };
+
+  publishIfChanged();
+  const intervalId = window.setInterval(publishIfChanged, 1000);
+  window.addEventListener('beforeunload', () => window.clearInterval(intervalId), { once: true });
+  window.addEventListener('focus', publishIfChanged);
+  window.addEventListener('hashchange', publishIfChanged);
+  window.addEventListener('popstate', publishIfChanged);
   document.addEventListener('click', () => window.setTimeout(publishIfChanged, 300), true);
 }
 
