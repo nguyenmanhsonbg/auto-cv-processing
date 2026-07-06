@@ -183,6 +183,16 @@ export class SyncAmisJobPostingDto {
   @IsUUID('4', { each: true })
   facebookTargetIds?: string[];
 
+  @ApiPropertyOptional({
+    isArray: true,
+    type: String,
+    description: 'Selected question ids to bind to this AMIS job posting questionnaire.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  selectedQuestionIds?: string[];
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()

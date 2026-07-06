@@ -27,8 +27,14 @@ export function createExtensionRequestHash(input: {
   }));
 }
 
-export function createAmisSnapshotHash(snapshot: AmisJobSnapshotDto): string {
-  return sha256Hex(stableStringify(stripSnapshotVolatileFields(snapshot)));
+export function createAmisSnapshotHash(
+  snapshot: AmisJobSnapshotDto,
+  selectedQuestionIds: string[] = [],
+): string {
+  return sha256Hex(stableStringify(stripSnapshotVolatileFields({
+    snapshot,
+    selectedQuestionIds,
+  })));
 }
 
 function stripSnapshotVolatileFields(value: unknown): unknown {

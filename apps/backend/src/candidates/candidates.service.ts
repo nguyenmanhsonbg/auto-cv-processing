@@ -201,17 +201,190 @@ export class CandidatesService {
   async remove(id: string, scope?: { userId: string; isAdmin: boolean }): Promise<void> {
     const candidate = await this.findOne(id, scope);
 
-    try {
-      await this.candidateRepo.remove(candidate);
-    } catch (error: any) {
-      // Check if it's a foreign key constraint error
-      if (error?.code === '23503' || error?.message?.includes('foreign key constraint')) {
-        throw new BadRequestException(
-          'Cannot delete candidate with active sessions. Please delete or reassign the sessions first.',
-        );
+    await this.candidateRepo.manager.transaction(async (manager) => {
+      // 1. Find all interview sessions for this candidate
+      const sessions = await manager.createQueryBuilder()
+        .select('s.id', 'id')
+        .from('interview_sessions', 's')
+        .where('s."candidateId" = :id', { id })
+        .getRawMany();
+      const sessionIds = sessions.map(s => s.id);
+
+      // 2. Find all applications for this candidate
+      const apps = await manager.createQueryBuilder()
+        .select('a.id', 'id')
+        .from('applications', 'a')
+        .where('a.candidate_id = :id', { id })
+        .getRawMany();
+      const appIds = apps.map(a => a.id);
+
+      // 3. Delete session-dependent entities
+      if (sessionIds.length > 0) {
+        // Delete anti cheat events
+        await manager.createQueryBuilder()
+          .delete()
+          .from('anti_cheat_events')
+          .where('"sessionId" IN (:...sessionIds)', { sessionIds })
+          .execute();
+
+        // Delete session survey questions
+        await manager.createQueryBuilder()
+          .delete()
+          .from('session_survey_questions')
+          .where('"sessionId" IN (:...sessionIds)', { sessionIds })
+          .execute();
+
+        // Delete code submissions (relying on session questions)
+        const sessionQuestions = await manager.createQueryBuilder()
+          .select('sq.id', 'id')
+          .from('session_questions', 'sq')
+          .where('sq."sessionId" IN (:...sessionIds)', { sessionIds })
+          .getRawMany();
+        const sqIds = sessionQuestions.map(sq => sq.id);
+
+        if (sqIds.length > 0) {
+          await manager.createQueryBuilder()
+            .delete()
+            .from('code_submissions')
+            .where('"sessionQuestionId" IN (:...sqIds)', { sqIds })
+            .execute();
+        }
+
+        // Delete session questions
+        await manager.createQueryBuilder()
+          .delete()
+          .from('session_questions')
+          .where('"sessionId" IN (:...sessionIds)', { sessionIds })
+          .execute();
+
+        // Delete evaluations
+        await manager.createQueryBuilder()
+          .delete()
+          .from('evaluations')
+          .where('"sessionId" IN (:...sessionIds)', { sessionIds })
+          .execute();
+
+        // Delete interview sessions
+        await manager.createQueryBuilder()
+          .delete()
+          .from('interview_sessions')
+          .where('id IN (:...sessionIds)', { sessionIds })
+          .execute();
       }
-      throw error;
-    }
+
+      // 4. Delete application-dependent entities
+      if (appIds.length > 0) {
+        // Nullify currentCvDocumentId in applications to prevent circular dependency RESTRICT
+        await manager.createQueryBuilder()
+          .update('applications')
+          .set({ currentCvDocumentId: null })
+          .where('id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete audit logs
+        await manager.createQueryBuilder()
+          .delete()
+          .from('audit_logs')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete workflow events
+        await manager.createQueryBuilder()
+          .delete()
+          .from('workflow_events')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete form answers
+        await manager.createQueryBuilder()
+          .delete()
+          .from('form_answers')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete form sessions
+        await manager.createQueryBuilder()
+          .delete()
+          .from('form_sessions')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete ai screening results
+        await manager.createQueryBuilder()
+          .delete()
+          .from('ai_screening_results')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete hr reviews
+        await manager.createQueryBuilder()
+          .delete()
+          .from('hr_reviews')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete mapping results
+        await manager.createQueryBuilder()
+          .delete()
+          .from('mapping_results')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete duplicate checks
+        await manager.createQueryBuilder()
+          .delete()
+          .from('duplicate_checks')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete application sources
+        await manager.createQueryBuilder()
+          .delete()
+          .from('application_sources')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete parsed profiles
+        await manager.createQueryBuilder()
+          .delete()
+          .from('parsed_profiles')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete cv documents
+        await manager.createQueryBuilder()
+          .delete()
+          .from('cv_documents')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete applications
+        await manager.createQueryBuilder()
+          .delete()
+          .from('applications')
+          .where('id IN (:...appIds)', { appIds })
+          .execute();
+      }
+
+      // 5. Clean up any remaining records pointing directly to candidate_id
+      await manager.createQueryBuilder()
+        .delete()
+        .from('parsed_profiles')
+        .where('candidate_id = :id', { id })
+        .execute();
+
+      await manager.createQueryBuilder()
+        .delete()
+        .from('cv_documents')
+        .where('candidate_id = :id', { id })
+        .execute();
+
+      // Delete candidate_assignees join table records
+      await manager.query('DELETE FROM candidate_assignees WHERE "candidateId" = $1', [id]);
+
+      // 6. Delete the candidate itself
+      await manager.remove(candidate);
+    });
   }
 
   async assign(

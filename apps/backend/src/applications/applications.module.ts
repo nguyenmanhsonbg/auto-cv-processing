@@ -15,6 +15,8 @@ import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
 import { LevelEntity } from '../levels/entities/level.entity';
 import { MappingResultEntity } from '../mapping/entities/mapping-result.entity';
 import { PositionEntity } from '../positions/entities/position.entity';
+import { QuestionSetEntity } from '../questions/entities/question-set.entity';
+import { QuestionSetItemEntity } from '../questions/entities/question-set-item.entity';
 import { WorkflowEventEntity } from '../workflow-state/entities/workflow-event.entity';
 import { WorkflowStateModule } from '../workflow-state/workflow-state.module';
 import { ApplicationsController } from './applications.controller';
@@ -45,6 +47,8 @@ import { ApplicationsService } from './applications.service';
       LevelEntity,
       MappingResultEntity,
       ParsedProfileEntity,
+      QuestionSetEntity,
+      QuestionSetItemEntity,
       UserEntity,
       WorkflowEventEntity,
     ]),

@@ -12,6 +12,7 @@ import { FormSessionStatus } from '../../recruitment-common';
 import { AiScreeningResultEntity } from '../../ai-screening/entities/ai-screening-result.entity';
 import { ApplicationEntity } from '../../applications/entities/application.entity';
 import { FormAnswerEntity } from './form-answer.entity';
+import { QuestionSetEntity } from '../../questions/entities/question-set.entity';
 
 @Entity('form_sessions')
 @Index('UQ_form_sessions_token_hash', ['tokenHash'], { unique: true })
@@ -32,6 +33,10 @@ export class FormSessionEntity {
 
   @Column({ name: 'question_set_id', type: 'uuid' })
   questionSetId: string;
+
+  @ManyToOne(() => QuestionSetEntity, (set) => set.formSessions, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'question_set_id' })
+  questionSet: QuestionSetEntity;
 
   @Column({ name: 'token_hash', type: 'varchar' })
   tokenHash: string;

@@ -84,7 +84,10 @@ export class ExtensionIntegrationService {
       body: normalizedDto,
       sourceSystem: normalizedDto.sourceSystem,
     });
-    const snapshotHash = createAmisSnapshotHash(normalizedDto.snapshot);
+    const snapshotHash = createAmisSnapshotHash(
+      normalizedDto.snapshot,
+      normalizedDto.selectedQuestionIds,
+    );
 
     const keyDecision = await this.idempotencyService.assertKeyCanBeUsed({
       idempotencyKey: context.idempotencyKey,
@@ -215,6 +218,7 @@ export class ExtensionIntegrationService {
         status: JobPostingStatus.PUBLISHED,
         openAt: now,
         closeAt,
+        formQuestionIds: dto.selectedQuestionIds?.length ? dto.selectedQuestionIds : null,
         createdById: createdBy.id,
       }),
     );
@@ -287,6 +291,7 @@ export class ExtensionIntegrationService {
     posting.status = JobPostingStatus.PUBLISHED;
     if (!posting.openAt) posting.openAt = now;
     posting.closeAt = closeAt;
+    posting.formQuestionIds = dto.selectedQuestionIds?.length ? dto.selectedQuestionIds : null;
     await manager.getRepository(JobPostingEntity).save(posting);
 
     await this.updateExternalReferenceSyncMetadata(
@@ -533,8 +538,15 @@ export class ExtensionIntegrationService {
       },
       channels,
       facebookTargetIds: this.normalizeFacebookTargetIds(dto.facebookTargetIds, channels),
+      selectedQuestionIds: this.normalizeSelectedQuestionIds(dto.selectedQuestionIds),
       metadata: this.safeMetadata(dto.metadata),
     };
+  }
+
+  private normalizeSelectedQuestionIds(value?: string[]) {
+    if (!Array.isArray(value)) return undefined;
+    const questionIds = [...new Set(value.map((item) => this.optionalText(item)).filter(Boolean))] as string[];
+    return questionIds.length ? questionIds : undefined;
   }
 
   private normalizeCareerItems(items: SyncAmisCareerItemDto[]): SyncAmisCareerItemDto[] {

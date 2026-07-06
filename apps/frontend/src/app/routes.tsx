@@ -28,6 +28,7 @@ import { RecruitmentRouteGuard } from '@/components/recruitment/RecruitmentRoute
 import { PublicJobDetailPage } from '@/pages/public/PublicJobDetailPage';
 import { PublicJobApplyPage } from '@/pages/public/PublicJobApplyPage';
 import { PublicApplyResultPage } from '@/pages/public/PublicApplyResultPage';
+import { CandidateFormPage } from '@/pages/public/CandidateFormPage';
 import { JobDescriptionListPage } from '@/pages/recruitment/job-descriptions/JobDescriptionListPage';
 import { JobDescriptionDetailPage } from '@/pages/recruitment/job-descriptions/JobDescriptionDetailPage';
 import { JobPostingListPage } from '@/pages/recruitment/job-postings/JobPostingListPage';
@@ -46,6 +47,7 @@ export function AppRoutes() {
         <Route path="/jobs/:slug/apply" element={<PublicJobApplyPage />} />
         {/* Optional route. Public status API/policy needs confirmation before production use. */}
         <Route path="/apply/:applicationId/status" element={<PublicApplyResultPage />} />
+        <Route path="/form/:token" element={<CandidateFormPage />} />
         <Route path="/" element={<InterviewerLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />

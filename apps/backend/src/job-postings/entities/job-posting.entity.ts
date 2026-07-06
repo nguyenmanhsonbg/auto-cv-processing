@@ -58,6 +58,9 @@ export class JobPostingEntity {
   @Column({ name: 'close_at', type: 'timestamp', nullable: true })
   closeAt: Date | null;
 
+  @Column({ name: 'form_question_ids', type: 'jsonb', nullable: true })
+  formQuestionIds: string[] | null;
+
   @Column({ name: 'created_by_id', type: 'uuid' })
   createdById: string;
 
