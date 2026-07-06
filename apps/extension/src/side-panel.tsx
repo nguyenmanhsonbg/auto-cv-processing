@@ -80,8 +80,10 @@ const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
+const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 const CAREER_QUESTION_SELECTION_PREFIX = 'vcs:selected-career-questions:';
+const MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS = 3;
 const TARGET_LEVEL_OPTIONS = [
   { value: 'ENTRY', label: 'Entry Level' },
   { value: 'EXPERIENCED', label: 'Experienced' },
@@ -181,7 +183,10 @@ function SidePanel() {
   const lastCareerContextIdRef = useRef<string | null>(null);
   const lastApplicationsFallbackSyncUrlRef = useRef<string | null>(null);
   const activeAmisRecruitmentIdRef = useRef<string | null>(null);
+  const activeSnapshotRecruitmentIdRef = useRef<string | null>(null);
   const applicationsRequestSeqRef = useRef(0);
+  const postingSnapshotRefreshSeqRef = useRef(0);
+  const postingSnapshotRefreshAttemptsRef = useRef(new Map<string, number>());
   const missedRecruitmentContextCountRef = useRef(0);
   const tokenRef = useRef<string | null>(null);
   const startedFacebookPlanKeys = useRef(new Set<string>());
@@ -204,9 +209,9 @@ function SidePanel() {
   }, []);
 
   useEffect(() => {
-    chrome.runtime?.onMessage.addListener((message) => {
+    chrome.runtime?.onMessage.addListener((message, sender) => {
       if (isAutoSyncUpdateMessage(message)) {
-        applyAutoSyncState(message.payload);
+        void applyAutoSyncUpdateMessage(message.payload);
         return;
       }
 
@@ -223,6 +228,14 @@ function SidePanel() {
         return;
       }
 
+      if (isRecruitmentContextChangedMessage(message)) {
+        void refreshAmisRecruitmentContextFromActiveTab({
+          silent: true,
+          sourceTabId: sender.tab?.id,
+        });
+        return;
+      }
+
       if (isFacebookPublishProgressUpdateMessage(message)) {
         setFacebookProgress(message.payload);
         setFacebookRunning(
@@ -236,17 +249,7 @@ function SidePanel() {
       }
 
       if (isApplicationsSyncedMessage(message)) {
-        if (
-          activeAmisRecruitmentIdRef.current &&
-          activeAmisRecruitmentIdRef.current !== message.payload.amisRecruitmentId
-        ) {
-          return;
-        }
-
-        setActiveAmisRecruitmentContext(message.payload.amisRecruitmentId, amisRecruitmentRoundId);
-        if (tokenRef.current) {
-          void loadAmisApplications(tokenRef.current, message.payload.amisRecruitmentId, { silent: true });
-        }
+        void applyApplicationsSyncedMessage(message);
       }
     });
   }, []);
@@ -564,9 +567,11 @@ function SidePanel() {
     }
   }
 
-  async function refreshAmisRecruitmentContextFromActiveTab(options: { silent?: boolean } = {}) {
+  async function refreshAmisRecruitmentContextFromActiveTab(options: { silent?: boolean; sourceTabId?: number } = {}) {
     try {
       const activeTab = await getActiveTab();
+      if (options.sourceTabId !== undefined && activeTab.id !== options.sourceTabId) return;
+
       if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
         missedRecruitmentContextCountRef.current = 0;
         setActiveAmisRecruitmentContext(null, null);
@@ -606,7 +611,12 @@ function SidePanel() {
       }
 
       missedRecruitmentContextCountRef.current = 0;
-      setActiveAmisRecruitmentContext(context.amisRecruitmentId, context.amisRecruitmentRoundId ?? null);
+      const contextChanged = setActiveAmisRecruitmentContext(context.amisRecruitmentId, context.amisRecruitmentRoundId ?? null);
+      await refreshPostingSnapshotForActiveContext(context.amisRecruitmentId, activeTab, {
+        force: contextChanged,
+        silent: true,
+        sourceUrl: context.sourceUrl ?? activeTab.url,
+      });
 
       if (tokenRef.current && context.sourceUrl && lastApplicationsFallbackSyncUrlRef.current !== context.sourceUrl) {
         await syncAmisApplicationsFromAmisTab(tokenRef.current, activeTab.id, context.sourceUrl);
@@ -642,6 +652,51 @@ function SidePanel() {
     lastApplicationsFallbackSyncUrlRef.current = sourceUrl;
     setActiveAmisRecruitmentContext(result.amisRecruitmentId, activeAmisRecruitmentIdRef.current === result.amisRecruitmentId ? amisRecruitmentRoundId : null);
     await loadAmisApplications(accessToken, result.amisRecruitmentId, { silent: true });
+  }
+
+  async function applyApplicationsSyncedMessage(message: {
+    payload: {
+      amisRecruitmentId: string;
+      jobPostingId: string;
+      syncedCount: number;
+    };
+  }) {
+    if (
+      activeAmisRecruitmentIdRef.current &&
+      activeAmisRecruitmentIdRef.current !== message.payload.amisRecruitmentId
+    ) {
+      await refreshAmisRecruitmentContextFromActiveTab({ silent: true });
+      if (
+        activeAmisRecruitmentIdRef.current &&
+        activeAmisRecruitmentIdRef.current !== message.payload.amisRecruitmentId
+      ) {
+        return;
+      }
+    }
+
+    setActiveAmisRecruitmentContext(message.payload.amisRecruitmentId, amisRecruitmentRoundId);
+    if (tokenRef.current) {
+      void loadAmisApplications(tokenRef.current, message.payload.amisRecruitmentId, { silent: true });
+    }
+  }
+
+  async function applyAutoSyncUpdateMessage(latestState: AmisAutoSyncState) {
+    const stateRecruitmentId = getAutoSyncStateRecruitmentId(latestState);
+    if (
+      activeAmisRecruitmentIdRef.current &&
+      stateRecruitmentId &&
+      activeAmisRecruitmentIdRef.current !== stateRecruitmentId
+    ) {
+      await refreshAmisRecruitmentContextFromActiveTab({ silent: true });
+      if (
+        activeAmisRecruitmentIdRef.current &&
+        activeAmisRecruitmentIdRef.current !== stateRecruitmentId
+      ) {
+        return;
+      }
+    }
+
+    applyAutoSyncState(latestState, { force: true });
   }
 
   async function uploadApplicationCvToAmisForm(application: AmisApplicationsForRecruitment['applications'][number]) {
@@ -734,7 +789,11 @@ function SidePanel() {
     setSelectedApplicationCvIds(new Set());
   }
 
-  function setActiveAmisRecruitmentContext(recruitmentId: string | null, recruitmentRoundId: string | null) {
+  function setActiveAmisRecruitmentContext(
+    recruitmentId: string | null,
+    recruitmentRoundId: string | null,
+    options: { clearPosting?: boolean } = {},
+  ) {
     const normalizedRecruitmentId = normalizeOptionalText(recruitmentId);
     const normalizedRoundId = normalizeOptionalText(recruitmentRoundId);
     const previousRecruitmentId = activeAmisRecruitmentIdRef.current;
@@ -749,7 +808,115 @@ function SidePanel() {
       setApplicationsContext(null);
       setApplicationsMessage(null);
       setApplicationsState(normalizedRecruitmentId ? 'LOADING' : 'IDLE');
+      if (options.clearPosting === false) {
+        postingSnapshotRefreshSeqRef.current += 1;
+        activeSnapshotRecruitmentIdRef.current = null;
+      } else {
+        clearPostingStateForRecruitmentChange();
+      }
     }
+
+    return previousRecruitmentId !== normalizedRecruitmentId;
+  }
+
+  function clearPostingStateForRecruitmentChange() {
+    postingSnapshotRefreshSeqRef.current += 1;
+    activeSnapshotRecruitmentIdRef.current = null;
+    setSnapshot(null);
+    setExtractionResult(null);
+    setResult(null);
+    setAutoSyncState(null);
+    setAmisUrl(undefined);
+    setError(null);
+    setState((current) => (
+      current === 'AUTH_LOADING' || current === 'AUTH_REQUIRED' ? current : 'READY'
+    ));
+  }
+
+  async function refreshPostingSnapshotForActiveContext(
+    recruitmentId: string,
+    activeTab: ChromeTab,
+    options: { force?: boolean; silent?: boolean; sourceUrl?: string } = {},
+  ) {
+    const normalizedRecruitmentId = normalizeOptionalText(recruitmentId);
+    if (!normalizedRecruitmentId) return;
+    if (!options.force && activeSnapshotRecruitmentIdRef.current === normalizedRecruitmentId) return;
+
+    const refreshSeq = ++postingSnapshotRefreshSeqRef.current;
+    if (await applyStoredPostingSnapshotForRecruitment(normalizedRecruitmentId, refreshSeq)) return;
+
+    if (!chrome.scripting || !activeTab.id || !activeTab.url?.startsWith('https://amisapp.misa.vn/')) return;
+
+    const sourceUrl = options.sourceUrl ?? activeTab.url;
+    const attemptKey = `${normalizedRecruitmentId}:${activeTab.id}:${sourceUrl}`;
+    const attempts = postingSnapshotRefreshAttemptsRef.current.get(attemptKey) ?? 0;
+    if (!options.force && attempts >= MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS) return;
+    postingSnapshotRefreshAttemptsRef.current.set(attemptKey, attempts + 1);
+
+    try {
+      const injectionResults = await chrome.scripting.executeScript<[], AmisExtractionResult>({
+        target: { tabId: activeTab.id },
+        func: extractAmisJobFromPage,
+      });
+      const extraction = injectionResults[0]?.result;
+      if (
+        !extraction ||
+        refreshSeq !== postingSnapshotRefreshSeqRef.current ||
+        activeAmisRecruitmentIdRef.current !== normalizedRecruitmentId
+      ) {
+        return;
+      }
+
+      if (isExtractionForRecruitment(extraction, normalizedRecruitmentId)) {
+        postingSnapshotRefreshAttemptsRef.current.delete(attemptKey);
+        applyExtractionResult(extraction);
+        setState('READY');
+        return;
+      }
+
+      if (!options.silent) {
+        setExtractionResult(extraction);
+        setError(`Active AMIS page did not expose a snapshot for recruitment ${normalizedRecruitmentId}.`);
+      }
+    } catch (err) {
+      if (!options.silent) setError(toErrorMessage(err));
+    }
+  }
+
+  async function applyStoredPostingSnapshotForRecruitment(recruitmentId: string, refreshSeq: number) {
+    const latestState = await getLastAutoSyncState().catch(() => null);
+    if (
+      latestState &&
+      getAutoSyncStateRecruitmentId(latestState) === recruitmentId &&
+      latestState.capture &&
+      isExtractionForRecruitment(latestState.capture, recruitmentId)
+    ) {
+      if (
+        refreshSeq !== postingSnapshotRefreshSeqRef.current ||
+        activeAmisRecruitmentIdRef.current !== recruitmentId
+      ) {
+        return true;
+      }
+
+      applyAutoSyncState(latestState, { force: true });
+      return true;
+    }
+
+    const capture = await getLastAmisCapture().catch(() => null);
+    if (capture && isExtractionForRecruitment(capture, recruitmentId)) {
+      if (
+        refreshSeq !== postingSnapshotRefreshSeqRef.current ||
+        activeAmisRecruitmentIdRef.current !== recruitmentId
+      ) {
+        return true;
+      }
+
+      applyExtractionResult(capture);
+      setState('READY');
+      return true;
+    }
+
+    return false;
   }
 
   async function refreshSelectedCareerContext(
@@ -1096,21 +1263,39 @@ function SidePanel() {
   }
 
   function applyExtractionResult(extraction: AmisExtractionResult) {
+    const extractionRecruitmentId = extraction.detected && extraction.snapshot
+      ? normalizeOptionalText(extraction.amisRecruitmentId)
+      : null;
+    setActiveAmisRecruitmentContext(
+      extractionRecruitmentId,
+      activeAmisRecruitmentIdRef.current === extractionRecruitmentId ? amisRecruitmentRoundId : null,
+      { clearPosting: false },
+    );
     setExtractionResult(extraction);
     setAmisUrl(extraction.url);
     setResult(null);
     setError(null);
-
     if (extraction.detected && extraction.snapshot) {
+      activeSnapshotRecruitmentIdRef.current = extractionRecruitmentId;
       setSnapshot(extraction.snapshot);
-      setAmisRecruitmentId(extraction.amisRecruitmentId ?? null);
     } else {
+      activeSnapshotRecruitmentIdRef.current = null;
       setSnapshot(null);
-      setAmisRecruitmentId(null);
     }
   }
 
-  function applyAutoSyncState(latestState: AmisAutoSyncState) {
+  function applyAutoSyncState(latestState: AmisAutoSyncState, options: { force?: boolean } = {}) {
+    const stateRecruitmentId = getAutoSyncStateRecruitmentId(latestState);
+    const activeRecruitmentId = activeAmisRecruitmentIdRef.current;
+    if (
+      !options.force &&
+      activeRecruitmentId &&
+      stateRecruitmentId &&
+      activeRecruitmentId !== stateRecruitmentId
+    ) {
+      return;
+    }
+
     setAutoSyncState(latestState);
     if (latestState.channels) setChannels(latestState.channels);
     if (latestState.capture) applyExtractionResult(latestState.capture);
@@ -2265,8 +2450,16 @@ function SidePanel() {
   function renderCvOverviewPanel() {
     const applications = applicationsContext?.applications ?? [];
     const stats = getCvOverviewStats(applications);
-    const publicUrl = result?.jobPostingId
-      ? `http://localhost:4000/public/job-postings/${result.jobPostingId}`
+    const currentJobPostingId = result?.amisRecruitmentId === amisRecruitmentId
+      ? result.jobPostingId
+      : applicationsContext?.amisRecruitmentId === amisRecruitmentId
+        ? applicationsContext.jobPostingId
+        : null;
+    const currentJobTitle = snapshot?.title
+      ?? (amisRecruitmentId ? `AMIS recruitment ${amisRecruitmentId}` : 'Chưa chọn tin tuyển dụng');
+    const hasCurrentJobMapping = Boolean(snapshot || currentJobPostingId);
+    const publicUrl = currentJobPostingId
+      ? `http://localhost:4000/public/job-postings/${currentJobPostingId}`
       : snapshot
         ? `https://vcs-portal.vn/jobs/${slugifyForDisplay(snapshot.title)}`
         : '-';
@@ -2283,9 +2476,9 @@ function SidePanel() {
         <section className="cv-current-job-card">
           <p className="cv-card-label">Current job</p>
           <div className="cv-job-title-row">
-            <h4>{snapshot?.title ?? 'Chưa chọn tin tuyển dụng'}</h4>
-            <span className={snapshot ? 'cv-mini-badge is-success' : 'cv-mini-badge is-muted'}>
-              {snapshot ? 'Mapped' : 'No job'}
+            <h4>{currentJobTitle}</h4>
+            <span className={hasCurrentJobMapping ? 'cv-mini-badge is-success' : 'cv-mini-badge is-muted'}>
+              {hasCurrentJobMapping ? 'Mapped' : 'No job'}
             </span>
           </div>
           <dl>
@@ -2333,7 +2526,7 @@ function SidePanel() {
         <section className="cv-overview-block">
           <p className="cv-section-label">Job status</p>
           <div className="cv-job-status-list">
-            <span>JD Sync <strong className={snapshot ? 'is-success' : 'is-warning'}>{snapshot ? 'Synced' : 'Pending'}</strong></span>
+            <span>JD Sync <strong className={hasCurrentJobMapping ? 'is-success' : 'is-warning'}>{hasCurrentJobMapping ? 'Synced' : 'Pending'}</strong></span>
             <span>CV Intake <strong className={stats.totalApplied > 0 ? 'is-success' : 'is-warning'}>{stats.totalApplied > 0 ? 'Active' : 'Waiting'}</strong></span>
             <span>CV Processing <strong className={stats.processingCount > 0 ? 'is-warning' : 'is-success'}>{stats.processingCount > 0 ? `${stats.processingCount} Pending` : 'Ready'}</strong></span>
             <span>AMIS Candidate Sync <strong className={stats.syncErrorCount > 0 ? 'is-danger' : 'is-warning'}>{stats.syncErrorCount > 0 ? `${stats.syncErrorCount} Failed` : 'Not synced'}</strong></span>
@@ -3911,6 +4104,27 @@ function isSelectedCareerChangedMessage(value: unknown): value is {
     && typeof (payload as { careerName?: unknown }).careerName === 'string';
 }
 
+function isRecruitmentContextChangedMessage(value: unknown): value is {
+  type: typeof RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE;
+  payload: {
+    ok: boolean;
+    pageUrl: string;
+    pageKind?: string;
+    amisRecruitmentId?: string;
+    amisRecruitmentRoundId?: string;
+    sourceUrl?: string;
+    timestamp: string;
+  };
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const payload = (value as { payload?: unknown }).payload;
+  return (value as { type?: unknown }).type === RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE
+    && typeof payload === 'object'
+    && payload !== null
+    && typeof (payload as { ok?: unknown }).ok === 'boolean'
+    && typeof (payload as { pageUrl?: unknown }).pageUrl === 'string';
+}
+
 function isFacebookPublishProgressUpdateMessage(value: unknown): value is {
   type: 'FACEBOOK_PUBLISH_PROGRESS_UPDATED';
   payload: FacebookPublishProgress;
@@ -3940,6 +4154,17 @@ function isApplicationsSyncedMessage(value: unknown): value is {
     && typeof payload === 'object'
     && payload !== null
     && typeof (payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string';
+}
+
+function isExtractionForRecruitment(extraction: AmisExtractionResult, recruitmentId: string) {
+  return extraction.detected
+    && Boolean(extraction.snapshot)
+    && normalizeOptionalText(extraction.amisRecruitmentId) === recruitmentId;
+}
+
+function getAutoSyncStateRecruitmentId(state: AmisAutoSyncState) {
+  return normalizeOptionalText(state.capture?.amisRecruitmentId)
+    ?? normalizeOptionalText(state.result?.amisRecruitmentId);
 }
 
 function isAmisRecruitmentContextResponse(value: unknown): value is {
