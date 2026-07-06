@@ -11,6 +11,10 @@ import type {
   ExtensionQuestion,
   ExtensionSyncResponse,
   ExtensionUser,
+  FacebookPublishHistoriesResponse,
+  FacebookPublishHistoryStatusCheckRequest,
+  FacebookPublishHistoryListItem,
+  FacebookReviewStatus,
   FacebookPublishTarget,
   FacebookPublishResultPayload,
   JobDescriptionSummary,
@@ -182,6 +186,40 @@ export async function reportFacebookPublishResult(
     accessToken,
     body: payload,
   });
+}
+
+export async function listFacebookGroupPublishHistories(
+  accessToken: string,
+  targetId: string,
+  params: { status?: FacebookReviewStatus | 'ALL'; page?: number; limit?: number } = {},
+) {
+  const searchParams = new URLSearchParams();
+  if (params.status && params.status !== 'ALL') searchParams.set('status', params.status);
+  searchParams.set('page', String(params.page ?? 1));
+  searchParams.set('limit', String(params.limit ?? 10));
+
+  return request<FacebookPublishHistoriesResponse>(
+    `/extension/facebook/groups/${encodeURIComponent(targetId)}/publish-histories?${searchParams.toString()}`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
+}
+
+export async function updateFacebookPublishHistoryStatusCheck(
+  accessToken: string,
+  historyId: string,
+  payload: FacebookPublishHistoryStatusCheckRequest,
+) {
+  return request<FacebookPublishHistoryListItem>(
+    `/extension/facebook/publish-histories/${encodeURIComponent(historyId)}/status-check`,
+    {
+      method: 'POST',
+      accessToken,
+      body: payload,
+    },
+  );
 }
 
 export async function getFacebookGroups(accessToken: string) {

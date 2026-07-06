@@ -1,10 +1,18 @@
 import { ApiClientError, reportFacebookPublishResult } from './api-client';
 import { getAccessToken } from './auth-store';
+import {
+  buildFacebookGroupPostUrl,
+  parseFacebookGroupPostUrl,
+  type FacebookGroupPostPathType,
+} from './facebook-post-url';
 import type {
+  FacebookPublishHistoryListItem,
+  FacebookPublishHistoryStatusCheckRequest,
   FacebookPublishPlan,
   FacebookPublishProgress,
   FacebookPublishResultPayload,
   FacebookPublishTarget,
+  FacebookReviewStatus,
 } from './types';
 
 interface FacebookPublishCallbacks {
@@ -39,6 +47,21 @@ interface FacebookPagePublishResult {
   status: 'SUCCESS' | 'FAILED' | 'SKIPPED';
   message: string;
   externalPostId?: string | null;
+  externalPostUrl?: string | null;
+}
+
+interface FacebookPostReviewStatusProbeInput {
+  title?: string | null;
+  contentPreview?: string | null;
+  externalPostUrl?: string | null;
+  expectedPathType?: FacebookGroupPostPathType | null;
+}
+
+interface FacebookPostReviewStatusProbeResult {
+  facebookReviewStatus: FacebookReviewStatus;
+  message: string;
+  externalPostId?: string | null;
+  externalPostUrl?: string | null;
 }
 
 interface FacebookSubmitButtonPoint {
@@ -60,6 +83,15 @@ interface FacebookSubmitButtonPointProbe {
 
 interface FacebookSubmitPreflightResult {
   ready: boolean;
+  message: string;
+}
+
+interface FacebookSubmittedPostUrlCaptureInput {
+  content: string;
+}
+
+interface FacebookSubmittedPostUrlCaptureResult {
+  externalPostUrl?: string | null;
   message: string;
 }
 
@@ -127,6 +159,7 @@ export async function publishFacebookPlan(
     });
 
     const result = await publishTarget(target, plan.content);
+    const externalPost = parseFacebookGroupPostUrl(result.externalPostUrl);
     const payload: FacebookPublishResultPayload = {
       jobPostingId: plan.jobPostingId,
       targetId: target.targetId ?? null,
@@ -135,8 +168,10 @@ export async function publishFacebookPlan(
       targetUrl: target.targetUrl ?? null,
       content: plan.content,
       status: result.status,
+      facebookReviewStatus: getPublishResultReviewStatus(result),
       message: result.message,
-      externalPostId: result.externalPostId ?? null,
+      externalPostId: externalPost?.postId ?? result.externalPostId ?? null,
+      externalPostUrl: externalPost?.url ?? null,
       submittedAt: result.status === 'SUCCESS' ? new Date().toISOString() : null,
     };
 
@@ -315,6 +350,101 @@ export async function verifyFacebookGroupPostingEligibility(
   }
 }
 
+export async function refreshFacebookPostReviewStatus(
+  history: FacebookPublishHistoryListItem,
+): Promise<FacebookPublishHistoryStatusCheckRequest> {
+  const checkedAt = new Date().toISOString();
+  const unresolvedStatus = getUnresolvedFacebookReviewStatus(history);
+  const postUrl = parseFacebookGroupPostUrl(history.externalPostUrl);
+  if (!postUrl) {
+    return {
+      facebookReviewStatus: unresolvedStatus,
+      message: 'Post status could not be checked because this history has no valid Facebook post URL yet.',
+      externalPostId: history.externalPostId ?? null,
+      checkedAt,
+    };
+  }
+
+  try {
+    await ensureFacebookSession();
+  } catch (error) {
+    return {
+      facebookReviewStatus: unresolvedStatus,
+      message: `Post status check skipped: ${toAutomationErrorMessage(error)}`,
+      externalPostId: postUrl.postId,
+      externalPostUrl: postUrl.url,
+      checkedAt,
+    };
+  }
+
+  const postedUrl = buildFacebookGroupPostUrl(postUrl.groupId, postUrl.postId, 'posts');
+  const pendingUrl = buildFacebookGroupPostUrl(postUrl.groupId, postUrl.postId, 'pending_posts');
+  const tab = await openTab(postedUrl, false);
+  try {
+    await waitForTabComplete(tab.id);
+    await sleep(randomDelay(1_500, 3_000));
+
+    const postedResult = await runScript<[FacebookPostReviewStatusProbeInput], FacebookPostReviewStatusProbeResult>(
+      tab.id,
+      checkFacebookPostReviewStatusInPage,
+      [{
+        title: history.title,
+        contentPreview: history.contentPreview ?? null,
+        externalPostUrl: postedUrl,
+        expectedPathType: 'posts',
+      }],
+    );
+
+    if (postedResult.facebookReviewStatus === 'POSTED') {
+      const visiblePostUrl = parseFacebookGroupPostUrl(postedResult.externalPostUrl)?.url ?? postedUrl;
+      return {
+        facebookReviewStatus: 'POSTED',
+        message: postedResult.message,
+        externalPostId: postUrl.postId,
+        externalPostUrl: visiblePostUrl,
+        checkedAt,
+      };
+    }
+
+    await chrome.tabs?.update(tab.id, { url: pendingUrl });
+    await waitForTabComplete(tab.id);
+    await sleep(randomDelay(1_500, 3_000));
+
+    const pendingResult = await runScript<[FacebookPostReviewStatusProbeInput], FacebookPostReviewStatusProbeResult>(
+      tab.id,
+      checkFacebookPostReviewStatusInPage,
+      [{
+        title: history.title,
+        contentPreview: history.contentPreview ?? null,
+        externalPostUrl: pendingUrl,
+        expectedPathType: 'pending_posts',
+      }],
+    );
+    const normalizedPendingUrl = parseFacebookGroupPostUrl(pendingResult.externalPostUrl)?.url ?? pendingUrl;
+    const unresolvedProbe = pendingResult.facebookReviewStatus === 'PENDING_REVIEW'
+      && history.facebookReviewStatus === 'UNKNOWN'
+      && /not visible|not detectable|unavailable|could not/i.test(pendingResult.message);
+
+    return {
+      facebookReviewStatus: unresolvedProbe ? 'UNKNOWN' : pendingResult.facebookReviewStatus,
+      message: pendingResult.message,
+      externalPostId: postUrl.postId,
+      externalPostUrl: normalizedPendingUrl,
+      checkedAt,
+    };
+  } catch (error) {
+    return {
+      facebookReviewStatus: unresolvedStatus,
+      message: `Post status is still pending or not detectable: ${toAutomationErrorMessage(error)}`,
+      externalPostId: postUrl.postId,
+      externalPostUrl: postUrl.url,
+      checkedAt,
+    };
+  } finally {
+    await closeTabSafely(tab.id);
+  }
+}
+
 async function publishTarget(
   target: FacebookPublishTarget,
   content: string,
@@ -425,8 +555,10 @@ async function reportAllTargetsFailed(
       targetUrl: target.targetUrl ?? null,
       content: plan.content,
       status: 'FAILED',
+      facebookReviewStatus: 'UNKNOWN',
       message,
       externalPostId: null,
+      externalPostUrl: null,
       submittedAt: null,
     };
 
@@ -462,6 +594,43 @@ function withReportMessage(
     ...payload,
     message: `${payload.message} (${reportErrorMessage})`,
   };
+}
+
+function getPublishResultReviewStatus(result: FacebookPagePublishResult): FacebookReviewStatus {
+  const postUrl = parseFacebookGroupPostUrl(result.externalPostUrl);
+  if (postUrl?.pathType === 'pending_posts') return 'PENDING_REVIEW';
+  if (postUrl?.pathType === 'posts') return 'POSTED';
+
+  const message = normalizeFacebookAutomationText(result.message);
+  if (result.status === 'SUCCESS') {
+    return /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet/.test(message)
+      ? 'PENDING_REVIEW'
+      : 'POSTED';
+  }
+
+  if (
+    result.status === 'FAILED'
+    && /rejected|declined|not approved|tu choi|khong duoc phe duyet|removed/.test(message)
+  ) {
+    return 'REJECTED';
+  }
+
+  return 'UNKNOWN';
+}
+
+function getUnresolvedFacebookReviewStatus(history: FacebookPublishHistoryListItem): FacebookReviewStatus {
+  return history.facebookReviewStatus === 'UNKNOWN' ? 'UNKNOWN' : 'PENDING_REVIEW';
+}
+
+function normalizeFacebookAutomationText(value: string | null | undefined) {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 async function openTab(url: string, active: boolean) {
@@ -567,17 +736,50 @@ async function clickAndWaitForSubmission(
   }
 
   try {
-    return await runScript<[string], FacebookPagePublishResult>(
+    const submissionResult = await runScript<[string], FacebookPagePublishResult>(
       tabId,
       waitForFacebookSubmissionInPage,
       [content],
     );
+    return enrichFacebookPublishResultWithPostUrl(tabId, content, submissionResult);
   } catch (error) {
     return {
       status: 'FAILED',
       message: toAutomationErrorMessage(error),
     };
   }
+}
+
+async function enrichFacebookPublishResultWithPostUrl(
+  tabId: number,
+  content: string,
+  result: FacebookPagePublishResult,
+): Promise<FacebookPagePublishResult> {
+  if (result.status !== 'SUCCESS') return result;
+
+  const existingPostUrl = parseFacebookGroupPostUrl(result.externalPostUrl);
+  if (existingPostUrl) {
+    return {
+      ...result,
+      externalPostId: existingPostUrl.postId,
+      externalPostUrl: existingPostUrl.url,
+    };
+  }
+
+  const captured = await runScript<[FacebookSubmittedPostUrlCaptureInput], FacebookSubmittedPostUrlCaptureResult>(
+    tabId,
+    captureSubmittedFacebookPostUrlInPage,
+    [{ content }],
+  ).catch(() => null);
+  const capturedPostUrl = parseFacebookGroupPostUrl(captured?.externalPostUrl);
+
+  if (!capturedPostUrl) return result;
+
+  return {
+    ...result,
+    externalPostId: capturedPostUrl.postId,
+    externalPostUrl: capturedPostUrl.url,
+  };
 }
 
 function shouldRetryVisibleSubmitFailure(message: string) {
@@ -1994,6 +2196,312 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
   return {
     ready: true,
     message: 'Facebook post is ready before submit.',
+  };
+}
+
+async function checkFacebookPostReviewStatusInPage(
+  input: FacebookPostReviewStatusProbeInput,
+): Promise<FacebookPostReviewStatusProbeResult> {
+  const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  const bodyText = () => normalize(document.body?.innerText ?? '');
+  const parsePostUrl = (value: string | null | undefined) => {
+    if (!value) return null;
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(value, window.location.href);
+    } catch {
+      return null;
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (hostname !== 'facebook.com' && !hostname.endsWith('.facebook.com')) return null;
+
+    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts)\/(\d+)\/?$/i);
+    if (!match) return null;
+
+    return {
+      pathType: match[2].toLowerCase(),
+      url: parsedUrl.href,
+    };
+  };
+  const hasUnavailableCue = (text: string) => (
+    /content isn't available|this content isn't available|noi dung nay khong hien co|khong tim thay noi dung|page isn't available|trang nay khong kha dung/.test(text)
+  );
+  const hasNoPendingReviewCue = (text: string) => (
+    /chua co bai viet nao de xem xet|khong co bai viet nao dang cho xem xet|no posts to review|no pending posts|no posts pending review/.test(text)
+  );
+  const hasRejectedCue = (text: string) => (
+    /rejected|declined|not approved|was removed|has been removed|tu choi|bi tu choi|khong duoc phe duyet|da bi go/.test(text)
+  );
+  const hasPendingCue = (text: string) => (
+    /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet|admin approval/.test(text)
+  );
+  const makeSearchSamples = () => {
+    const values = [input.title, input.contentPreview]
+      .map((value) => normalize(value ?? ''))
+      .filter((value) => value.length >= 16);
+
+    return values.flatMap((value) => {
+      const compact = value.slice(0, 140);
+      const words = value.split(' ').filter((word) => word.length > 2);
+      const wordSample = words.slice(0, 12).join(' ');
+      return [compact, wordSample].filter((sample) => sample.length >= 16);
+    });
+  };
+  const samples = [...new Set(makeSearchSamples())];
+  const pageLooksLikeLoadedPost = () => {
+    const articleText = Array.from(document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"]'))
+      .map((element) => normalize(element.textContent ?? ''))
+      .find((text) => text.length > 80);
+    return Boolean(articleText);
+  };
+  const containsSubmittedPost = () => {
+    if (samples.length === 0) return false;
+
+    const candidates = [
+      bodyText(),
+      ...Array.from(document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"]'))
+        .map((element) => normalize(element.textContent ?? '')),
+    ];
+
+    return candidates.some((candidate) => (
+      candidate.length >= 40
+      && samples.some((sample) => candidate.includes(sample) || sample.includes(candidate.slice(0, 80)))
+    ));
+  };
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await sleepInPage(attempt === 0 ? 0 : 900);
+    const text = bodyText();
+    const currentPostUrl = parsePostUrl(window.location.href);
+
+    if (input.expectedPathType === 'pending_posts' && hasNoPendingReviewCue(text)) {
+      return {
+        facebookReviewStatus: 'REJECTED',
+        message: 'Facebook shows no pending post to review for this pending post URL.',
+        externalPostUrl: input.externalPostUrl ?? window.location.href,
+      };
+    }
+
+    if (hasRejectedCue(text)) {
+      return {
+        facebookReviewStatus: 'REJECTED',
+        message: 'Facebook shows a clear rejected/removed signal for this post.',
+        externalPostUrl: window.location.href,
+      };
+    }
+
+    if (hasUnavailableCue(text)) {
+      return {
+        facebookReviewStatus: 'PENDING_REVIEW',
+        message: input.expectedPathType === 'posts'
+          ? 'Approved post URL is not visible yet; pending URL will be checked next.'
+          : 'Post is not visible yet or the content is unavailable to this account.',
+        externalPostUrl: input.externalPostUrl ?? null,
+      };
+    }
+
+    if (containsSubmittedPost() && (input.expectedPathType !== 'pending_posts' || currentPostUrl?.pathType === 'posts')) {
+      return {
+        facebookReviewStatus: 'POSTED',
+        message: 'Post is now visible in the Facebook group.',
+        externalPostUrl: window.location.href,
+      };
+    }
+
+    if (
+      input.externalPostUrl
+      && pageLooksLikeLoadedPost()
+      && !hasPendingCue(text)
+      && input.expectedPathType !== 'pending_posts'
+    ) {
+      return {
+        facebookReviewStatus: 'POSTED',
+        message: 'Facebook post URL loaded and the post appears visible.',
+        externalPostUrl: window.location.href,
+      };
+    }
+
+    if (hasPendingCue(text)) {
+      return {
+        facebookReviewStatus: 'PENDING_REVIEW',
+        message: 'Facebook still indicates that this post is pending approval.',
+        externalPostUrl: input.externalPostUrl ?? null,
+      };
+    }
+
+    window.scrollBy({ top: Math.max(420, window.innerHeight * 0.7), behavior: 'auto' });
+  }
+
+  return {
+    facebookReviewStatus: 'PENDING_REVIEW',
+    message: 'Post is still pending or not detectable in the current Facebook page.',
+    externalPostUrl: input.externalPostUrl ?? null,
+  };
+}
+
+async function captureSubmittedFacebookPostUrlInPage(
+  input: FacebookSubmittedPostUrlCaptureInput,
+): Promise<FacebookSubmittedPostUrlCaptureResult> {
+  const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parsePostUrl = (value: string | null | undefined) => {
+    if (!value) return null;
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(value, window.location.href);
+    } catch {
+      return null;
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (hostname !== 'facebook.com' && !hostname.endsWith('.facebook.com')) return null;
+
+    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts)\/(\d+)\/?$/i);
+    if (!match) return null;
+
+    return parsedUrl.href;
+  };
+  const isVisible = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.visibility !== 'hidden'
+      && style.display !== 'none';
+  };
+  const makeContentSamples = () => {
+    const normalizedContent = normalize(input.content);
+    if (!normalizedContent) return [];
+
+    const lines = normalizedContent
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter((line) => line.length >= 4);
+    const words = normalizedContent.split(' ').filter((word) => word.length > 2);
+    return [
+      normalizedContent.slice(0, 140),
+      lines[0]?.slice(0, 120) ?? '',
+      words.slice(0, 14).join(' '),
+    ].filter((sample) => sample.length >= 4);
+  };
+  const samples = [...new Set(makeContentSamples())];
+  const containsSubmittedContent = (element: Element) => {
+    if (samples.length === 0) return false;
+
+    const text = normalize(element.textContent ?? '');
+    return text.length >= 4 && samples.some((sample) => text.includes(sample) || sample.includes(text.slice(0, 80)));
+  };
+  const hasPendingCue = (element: Element) => (
+    /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet|admin approval/.test(
+      normalize(element.textContent ?? ''),
+    )
+  );
+  const isTimestampLike = (element: Element) => {
+    const text = normalize(element.textContent ?? '');
+    const label = normalize([
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('title') ?? '',
+    ].join(' '));
+    const value = `${text} ${label}`.trim();
+    return /vua xong|just now|^\d+\s*(m|min|mins|minute|minutes|phut)$|^\d+\s*(s|sec|secs|second|seconds|giay)$/.test(value);
+  };
+  const findSubmittedPostCards = () => Array.from(
+    document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]'),
+  )
+    .filter((element) => isVisible(element))
+    .filter((element) => containsSubmittedContent(element) || (hasPendingCue(element) && containsSubmittedContent(element)));
+  const findPostUrlInCard = (card: Element) => {
+    const links = Array.from(card.querySelectorAll('a[href]'));
+    for (const link of links) {
+      const href = link.getAttribute('href');
+      const postUrl = parsePostUrl(href);
+      if (postUrl) return postUrl;
+    }
+
+    return null;
+  };
+  const clickTimestampInCard = async (card: Element) => {
+    const candidates = Array.from(card.querySelectorAll('a[href], [role="link"], [role="button"], button, span, div'))
+      .filter((element) => isVisible(element))
+      .filter(isTimestampLike);
+
+    for (const candidate of candidates) {
+      const clickable = candidate.closest('a[href], [role="link"], [role="button"], button, [tabindex]') ?? candidate;
+      const href = clickable instanceof HTMLAnchorElement ? clickable.href : clickable.getAttribute('href');
+      const hrefPostUrl = parsePostUrl(href);
+      if (hrefPostUrl) return hrefPostUrl;
+
+      const beforeUrl = window.location.href;
+      try {
+        (clickable instanceof HTMLElement ? clickable : candidate as HTMLElement).click();
+      } catch {
+        continue;
+      }
+
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        await sleepInPage(250);
+        const currentPostUrl = parsePostUrl(window.location.href);
+        if (currentPostUrl) return currentPostUrl;
+        if (window.location.href !== beforeUrl) break;
+      }
+    }
+
+    return null;
+  };
+
+  const currentPostUrl = parsePostUrl(window.location.href);
+  if (currentPostUrl) {
+    return {
+      externalPostUrl: currentPostUrl,
+      message: 'Current Facebook URL already contains a group post id.',
+    };
+  }
+
+  const deadline = Date.now() + 12_000;
+  while (Date.now() < deadline) {
+    const cards = findSubmittedPostCards();
+    for (const card of cards) {
+      const existingUrl = findPostUrlInCard(card);
+      if (existingUrl) {
+        return {
+          externalPostUrl: existingUrl,
+          message: 'Captured Facebook group post URL from the submitted post card.',
+        };
+      }
+
+      const clickedUrl = await clickTimestampInCard(card);
+      if (clickedUrl) {
+        return {
+          externalPostUrl: clickedUrl,
+          message: 'Captured Facebook group post URL by opening the submitted post timestamp.',
+        };
+      }
+    }
+
+    window.scrollBy({ top: -Math.max(360, window.innerHeight * 0.5), behavior: 'auto' });
+    await sleepInPage(700);
+  }
+
+  return {
+    externalPostUrl: null,
+    message: 'Submitted post URL was not available from the Facebook page.',
   };
 }
 

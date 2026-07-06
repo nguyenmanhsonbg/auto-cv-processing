@@ -11,6 +11,7 @@ import {
 import { JobPostingEntity } from '../../job-postings/entities/job-posting.entity';
 import {
   FacebookPublishResultStatus,
+  FacebookReviewStatus,
   FacebookPublishTargetType,
 } from '../facebook-publishing.types';
 import { FacebookPublishTargetEntity } from './facebook-publish-target.entity';
@@ -18,6 +19,7 @@ import { FacebookPublishTargetEntity } from './facebook-publish-target.entity';
 @Entity('facebook_publish_histories')
 @Index('IDX_facebook_publish_histories_job_posting', ['jobPostingId'])
 @Index('IDX_facebook_publish_histories_status', ['status'])
+@Index('IDX_facebook_publish_histories_review_status', ['facebookReviewStatus'])
 export class FacebookPublishHistoryEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -57,14 +59,33 @@ export class FacebookPublishHistoryEntity {
   @Column({ type: 'varchar', default: FacebookPublishResultStatus.PENDING })
   status: FacebookPublishResultStatus;
 
+  @Column({
+    name: 'facebook_review_status',
+    type: 'varchar',
+    default: FacebookReviewStatus.UNKNOWN,
+  })
+  facebookReviewStatus: FacebookReviewStatus;
+
+  @Column({ type: 'text', nullable: true })
+  message: string | null;
+
   @Column({ name: 'error_reason', type: 'text', nullable: true })
   errorReason: string | null;
 
   @Column({ name: 'external_post_id', type: 'varchar', nullable: true })
   externalPostId: string | null;
 
+  @Column({ name: 'external_post_url', type: 'text', nullable: true })
+  externalPostUrl: string | null;
+
   @Column({ name: 'submitted_at', type: 'timestamp', nullable: true })
   submittedAt: Date | null;
+
+  @Column({ name: 'last_status_checked_at', type: 'timestamp', nullable: true })
+  lastStatusCheckedAt: Date | null;
+
+  @Column({ name: 'last_status_check_message', type: 'text', nullable: true })
+  lastStatusCheckMessage: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt: Date;

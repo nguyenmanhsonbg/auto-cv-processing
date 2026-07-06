@@ -15,12 +15,14 @@ import {
   getAmisCareerQuestionContext,
   getCurrentUser,
   getFacebookGroups,
+  listFacebookGroupPublishHistories,
   listJobDescriptions,
   listAmisCareers,
   login,
   syncAmisApplications,
   syncAndPublishAmisJob,
   updateFacebookGroup,
+  updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
 } from './api-client';
 import { clearAccessToken, getAccessToken, setAuthTokens } from './auth-store';
@@ -31,6 +33,7 @@ import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './face
 import {
   ensureFacebookSession,
   publishFacebookPlan,
+  refreshFacebookPostReviewStatus,
   verifyFacebookGroupPostingEligibility,
 } from './facebook-publish-orchestrator';
 import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from './facebook-publish-store';
@@ -50,11 +53,13 @@ import type {
   ExtensionChannel,
   ExtensionSyncResponse,
   ExtensionUser,
+  FacebookPublishHistoriesResponse,
+  FacebookPublishHistoryListItem,
   FacebookPublishPlan,
   FacebookPublishProgress,
-  FacebookPublishResultPayload,
   FacebookPublishTarget,
   FacebookPublishTargetEligibilityStatus,
+  FacebookReviewStatus,
   JobDescriptionSummary,
   SyncAmisJobPostingRequest,
 } from './types';
@@ -65,7 +70,8 @@ type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv';
 type CvWorkspaceView = 'overview' | 'list';
-type FacebookPostHistoryFilter = 'ALL' | 'POSTED' | 'PENDING_REVIEW' | 'REJECTED';
+type FacebookPostHistoryFilter = 'ALL' | FacebookReviewStatus;
+type FacebookPostHistoryLoadState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
@@ -81,14 +87,6 @@ interface FacebookHistoryGroup {
   name: string;
   url?: string | null;
   externalId?: string | null;
-}
-
-interface FacebookPostHistoryItem {
-  key: string;
-  date: string | null;
-  title: string;
-  reviewStatus: Exclude<FacebookPostHistoryFilter, 'ALL'>;
-  message: string;
 }
 
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
@@ -124,6 +122,7 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'cv', label: 'CV' },
 ];
 const FACEBOOK_HISTORY_PAGE_SIZE = 5;
+const FACEBOOK_HISTORY_REFRESH_BATCH_SIZE = 50;
 const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'POSTED', label: 'Đã đăng' },
@@ -170,6 +169,11 @@ function SidePanel() {
   const [selectedFacebookHistoryGroup, setSelectedFacebookHistoryGroup] = useState<FacebookHistoryGroup | null>(null);
   const [facebookHistoryFilter, setFacebookHistoryFilter] = useState<FacebookPostHistoryFilter>('ALL');
   const [facebookHistoryPage, setFacebookHistoryPage] = useState(1);
+  const [facebookHistoryData, setFacebookHistoryData] = useState<FacebookPublishHistoriesResponse | null>(null);
+  const [facebookHistoryLoadState, setFacebookHistoryLoadState] = useState<FacebookPostHistoryLoadState>('IDLE');
+  const [facebookHistoryMessage, setFacebookHistoryMessage] = useState<string | null>(null);
+  const [refreshingFacebookHistoryIds, setRefreshingFacebookHistoryIds] = useState<string[]>([]);
+  const [isRefreshingFacebookHistoryGroup, setIsRefreshingFacebookHistoryGroup] = useState(false);
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
   const [facebookGroupName, setFacebookGroupName] = useState('');
   const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
@@ -1282,12 +1286,211 @@ function SidePanel() {
     setSelectedFacebookHistoryGroup(group);
     setFacebookHistoryFilter('ALL');
     setFacebookHistoryPage(1);
+    setFacebookHistoryData(null);
+    setFacebookHistoryLoadState('IDLE');
+    setFacebookHistoryMessage(null);
+    void loadFacebookPostHistory(group, 'ALL', 1);
   }
 
   function closeFacebookPostHistory() {
     setSelectedFacebookHistoryGroup(null);
     setFacebookHistoryFilter('ALL');
     setFacebookHistoryPage(1);
+    setFacebookHistoryData(null);
+    setFacebookHistoryLoadState('IDLE');
+    setFacebookHistoryMessage(null);
+    setRefreshingFacebookHistoryIds([]);
+    setIsRefreshingFacebookHistoryGroup(false);
+  }
+
+  async function loadFacebookPostHistory(
+    group = selectedFacebookHistoryGroup,
+    filter = facebookHistoryFilter,
+    page = facebookHistoryPage,
+  ) {
+    if (!group) return;
+
+    if (!group.id) {
+      setFacebookHistoryLoadState('ERROR');
+      setFacebookHistoryMessage('Không thể tải lịch sử vì nhóm Facebook chưa có mã định danh.');
+      return;
+    }
+
+    const accessToken = tokenRef.current;
+    if (!accessToken) {
+      setFacebookHistoryLoadState('ERROR');
+      setFacebookHistoryMessage('Sign in to VCS Recruitment before viewing Facebook post history.');
+      setState('AUTH_REQUIRED');
+      return;
+    }
+
+    setFacebookHistoryLoadState('LOADING');
+    setFacebookHistoryMessage(null);
+
+    try {
+      const data = await listFacebookGroupPublishHistories(accessToken, group.id, {
+        status: filter,
+        page,
+        limit: FACEBOOK_HISTORY_PAGE_SIZE,
+      });
+      if (data.total > 0 && data.items.length === 0 && page > data.totalPages) {
+        await loadFacebookPostHistory(group, filter, data.totalPages);
+        return;
+      }
+      setFacebookHistoryData(data);
+      setFacebookHistoryPage(data.page);
+      setFacebookHistoryLoadState('READY');
+      setFacebookHistoryMessage(null);
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        setFacebookHistoryLoadState('ERROR');
+        setFacebookHistoryMessage('Authentication expired. Sign in again before viewing Facebook history.');
+        return;
+      }
+
+      setFacebookHistoryLoadState('ERROR');
+      setFacebookHistoryMessage(toErrorMessage(err));
+    }
+  }
+
+  async function changeFacebookHistoryFilter(filter: FacebookPostHistoryFilter) {
+    setFacebookHistoryFilter(filter);
+    setFacebookHistoryPage(1);
+    await loadFacebookPostHistory(selectedFacebookHistoryGroup, filter, 1);
+  }
+
+  async function changeFacebookHistoryPage(page: number) {
+    const pageCount = Math.max(1, facebookHistoryData?.totalPages ?? 1);
+    const nextPage = Math.min(pageCount, Math.max(1, page));
+    setFacebookHistoryPage(nextPage);
+    await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, nextPage);
+  }
+
+  async function refreshFacebookHistoryItem(item: FacebookPublishHistoryListItem) {
+    const accessToken = tokenRef.current;
+    if (!accessToken) {
+      setState('AUTH_REQUIRED');
+      setFacebookHistoryMessage('Sign in to VCS Recruitment before refreshing Facebook post status.');
+      return;
+    }
+
+    setRefreshingFacebookHistoryIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id]);
+    setFacebookHistoryMessage(`Đang refresh trạng thái bài "${item.title}".`);
+
+    try {
+      const statusCheck = await refreshFacebookPostReviewStatus(item);
+      await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
+      await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, facebookHistoryPage);
+      setFacebookHistoryMessage(statusCheck.message ?? 'Đã refresh trạng thái bài đăng.');
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        setFacebookHistoryMessage('Authentication expired. Sign in again before refreshing Facebook history.');
+        return;
+      }
+
+      setFacebookHistoryMessage(toErrorMessage(err));
+    } finally {
+      setRefreshingFacebookHistoryIds((ids) => ids.filter((id) => id !== item.id));
+    }
+  }
+
+  async function refreshFacebookHistoryGroupStatuses() {
+    const group = selectedFacebookHistoryGroup;
+    const accessToken = tokenRef.current;
+    if (!group?.id) {
+      setFacebookHistoryMessage('Không thể refresh vì nhóm Facebook chưa có mã định danh.');
+      return;
+    }
+
+    if (!accessToken) {
+      setState('AUTH_REQUIRED');
+      setFacebookHistoryMessage('Sign in to VCS Recruitment before refreshing Facebook post status.');
+      return;
+    }
+
+    setIsRefreshingFacebookHistoryGroup(true);
+    setFacebookHistoryMessage('Đang lấy danh sách bài cần kiểm tra lại.');
+
+    try {
+      const itemsToRefresh = await loadRefreshableFacebookHistoryItems(accessToken, group.id);
+      if (itemsToRefresh.length === 0) {
+        setFacebookHistoryMessage('Không có bài đang chờ duyệt hoặc chưa rõ trạng thái để kiểm tra lại.');
+        return;
+      }
+
+      let postedCount = 0;
+      let rejectedCount = 0;
+      let unresolvedCount = 0;
+      let issueCount = 0;
+
+      for (let index = 0; index < itemsToRefresh.length; index += 1) {
+        const item = itemsToRefresh[index];
+        setRefreshingFacebookHistoryIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id]);
+        setFacebookHistoryMessage(`Đang kiểm tra ${index + 1}/${itemsToRefresh.length}: ${item.title}`);
+
+        try {
+          const statusCheck = await refreshFacebookPostReviewStatus(item);
+          await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
+          if (statusCheck.facebookReviewStatus === 'POSTED') postedCount += 1;
+          else if (statusCheck.facebookReviewStatus === 'REJECTED') rejectedCount += 1;
+          else unresolvedCount += 1;
+        } catch (err) {
+          if (err instanceof ApiClientError && err.status === 401) {
+            await clearAccessToken();
+            setToken(null);
+            setUser(null);
+            setState('AUTH_REQUIRED');
+            setFacebookHistoryMessage('Authentication expired. Sign in again before refreshing Facebook history.');
+            return;
+          }
+
+          issueCount += 1;
+        } finally {
+          setRefreshingFacebookHistoryIds((ids) => ids.filter((id) => id !== item.id));
+        }
+      }
+
+      await loadFacebookPostHistory(group, facebookHistoryFilter, facebookHistoryPage);
+      setFacebookHistoryMessage(
+        `Đã kiểm tra ${itemsToRefresh.length} bài. ${postedCount} đã đăng, ${rejectedCount} bị từ chối, ${unresolvedCount} chưa xác định/chờ duyệt${issueCount ? `, ${issueCount} lỗi` : ''}.`,
+      );
+    } catch (err) {
+      setFacebookHistoryMessage(toErrorMessage(err));
+    } finally {
+      setIsRefreshingFacebookHistoryGroup(false);
+      setRefreshingFacebookHistoryIds([]);
+    }
+  }
+
+  async function loadRefreshableFacebookHistoryItems(accessToken: string, targetId: string) {
+    const statuses: FacebookReviewStatus[] = ['PENDING_REVIEW', 'UNKNOWN'];
+    const items: FacebookPublishHistoryListItem[] = [];
+
+    for (const status of statuses) {
+      let page = 1;
+      let totalPages = 1;
+
+      do {
+        const response = await listFacebookGroupPublishHistories(accessToken, targetId, {
+          status,
+          page,
+          limit: FACEBOOK_HISTORY_REFRESH_BATCH_SIZE,
+        });
+        items.push(...response.items);
+        totalPages = response.totalPages;
+        page += 1;
+      } while (page <= totalPages);
+    }
+
+    return [...new Map(items.map((item) => [item.id, item])).values()];
   }
 
   function closeFacebookGroupActionModal() {
@@ -1807,21 +2010,23 @@ function SidePanel() {
   function renderFacebookPostHistoryModal() {
     if (!selectedFacebookHistoryGroup) return null;
 
-    const allItems = buildFacebookPostHistoryItems(
-      selectedFacebookHistoryGroup,
-      facebookProgress?.results ?? [],
-      snapshot?.title,
-    );
-    const summary = summarizeFacebookPostHistory(allItems);
-    const filteredItems = facebookHistoryFilter === 'ALL'
-      ? allItems
-      : allItems.filter((item) => item.reviewStatus === facebookHistoryFilter);
-    const pageCount = Math.max(1, Math.ceil(filteredItems.length / FACEBOOK_HISTORY_PAGE_SIZE));
+    const summary = facebookHistoryData?.summary ?? {
+      total: 0,
+      posted: 0,
+      pendingReview: 0,
+      rejected: 0,
+      unknown: 0,
+    };
+    const pageItems = facebookHistoryData?.items ?? [];
+    const pageCount = Math.max(1, facebookHistoryData?.totalPages ?? 1);
     const currentPage = Math.min(facebookHistoryPage, pageCount);
-    const startIndex = (currentPage - 1) * FACEBOOK_HISTORY_PAGE_SIZE;
-    const pageItems = filteredItems.slice(startIndex, startIndex + FACEBOOK_HISTORY_PAGE_SIZE);
-    const visibleStart = filteredItems.length === 0 ? 0 : startIndex + 1;
-    const visibleEnd = Math.min(startIndex + pageItems.length, filteredItems.length);
+    const totalItems = facebookHistoryData?.total ?? 0;
+    const visibleStart = totalItems === 0 ? 0 : ((currentPage - 1) * FACEBOOK_HISTORY_PAGE_SIZE) + 1;
+    const visibleEnd = Math.min(visibleStart + pageItems.length - 1, totalItems);
+    const isLoadingHistory = facebookHistoryLoadState === 'LOADING';
+    const isHistoryBusy = isLoadingHistory || isRefreshingFacebookHistoryGroup;
+    const refreshableCount = summary.pendingReview + summary.unknown;
+    const paginationItems = buildPostHistoryPaginationItems(currentPage, pageCount);
 
     return (
       <div className="modal-backdrop post-history-backdrop" role="presentation">
@@ -1836,15 +2041,28 @@ function SidePanel() {
               <HistoryIcon />
               <h2 id="facebook-post-history-title">Lịch sử đăng bài - {selectedFacebookHistoryGroup.name}</h2>
             </div>
-            <button
-              type="button"
-              className="icon-button"
-              title="Đóng"
-              aria-label="Đóng lịch sử đăng bài"
-              onClick={closeFacebookPostHistory}
-            >
-              <CloseIcon />
-            </button>
+            <div className="post-history-header-actions">
+              <button
+                type="button"
+                className={`post-history-refresh-all-button${isRefreshingFacebookHistoryGroup ? ' is-loading' : ''}`}
+                title="Refresh trạng thái các bài đang chờ duyệt hoặc chưa rõ"
+                disabled={isHistoryBusy || refreshableCount === 0}
+                onClick={() => void refreshFacebookHistoryGroupStatuses()}
+              >
+                <RefreshIcon />
+                <span>{isRefreshingFacebookHistoryGroup ? 'Đang kiểm tra' : 'Refresh trạng thái'}</span>
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                title="Đóng"
+                aria-label="Đóng lịch sử đăng bài"
+                disabled={isRefreshingFacebookHistoryGroup}
+                onClick={closeFacebookPostHistory}
+              >
+                <CloseIcon />
+              </button>
+            </div>
           </header>
 
           <div className="post-history-body">
@@ -1875,16 +2093,20 @@ function SidePanel() {
                     key={filter.value}
                     type="button"
                     className={facebookHistoryFilter === filter.value ? 'is-active' : ''}
-                    onClick={() => {
-                      setFacebookHistoryFilter(filter.value);
-                      setFacebookHistoryPage(1);
-                    }}
+                    disabled={isHistoryBusy}
+                    onClick={() => void changeFacebookHistoryFilter(filter.value)}
                   >
                     {filter.label}
                   </button>
                 ))}
               </div>
             </div>
+
+            {facebookHistoryMessage ? (
+              <div className={`post-history-message ${facebookHistoryLoadState === 'ERROR' ? 'is-error' : ''}`}>
+                {facebookHistoryMessage}
+              </div>
+            ) : null}
 
             <div className="post-history-table-card">
               <table>
@@ -1893,28 +2115,77 @@ function SidePanel() {
                     <th>Ngày</th>
                     <th>Tiêu đề bài đăng</th>
                     <th>Trạng thái</th>
+                    <th>Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pageItems.length > 0 ? pageItems.map((item) => (
-                    <tr key={item.key}>
-                      <td>{formatDate(item.date ?? undefined) ?? '-'}</td>
+                  {pageItems.length > 0 ? pageItems.map((item) => {
+                    const isRefreshing = refreshingFacebookHistoryIds.includes(item.id);
+                    const facebookUrl = item.externalPostUrl ?? item.targetUrl ?? null;
+                    const canRefreshItem = isRefreshableFacebookHistoryItem(item);
+                    return (
+                    <tr key={item.id}>
+                      <td>{formatDate(item.submittedAt ?? item.createdAt ?? undefined) ?? '-'}</td>
                       <td>
                         <span>{item.title}</span>
                         {item.message ? <small>{item.message}</small> : null}
+                        {!item.message && item.contentPreview ? <small>{item.contentPreview}</small> : null}
+                        {item.lastStatusCheckedAt ? (
+                          <small>Checked: {formatDate(item.lastStatusCheckedAt) ?? item.lastStatusCheckedAt}</small>
+                        ) : null}
                       </td>
                       <td>
-                        <span className={`post-history-status is-${item.reviewStatus.toLowerCase().replace('_', '-')}`}>
-                          {getFacebookHistoryStatusLabel(item.reviewStatus)}
+                        <span className={`post-history-status is-${item.facebookReviewStatus.toLowerCase().replace('_', '-')}`}>
+                          {getFacebookHistoryStatusLabel(item.facebookReviewStatus)}
                         </span>
                       </td>
+                      <td>
+                        <div className="post-history-actions">
+                          {facebookUrl ? (
+                            <button
+                              type="button"
+                              className="post-history-action-button"
+                              title={item.externalPostUrl ? 'Mở bài viết Facebook' : 'Mở group Facebook'}
+                              aria-label={item.externalPostUrl ? `Mở bài viết ${item.title}` : `Mở group của ${item.title}`}
+                              disabled={isHistoryBusy}
+                              onClick={() => window.open(facebookUrl, '_blank', 'noopener,noreferrer')}
+                            >
+                              <ExternalLinkIcon />
+                            </button>
+                          ) : null}
+                          {canRefreshItem ? (
+                          <button
+                            type="button"
+                            className={`post-history-action-button is-refresh${isRefreshing ? ' is-loading' : ''}`}
+                            title="Refresh trạng thái bài đăng"
+                            aria-label={`Refresh trạng thái bài đăng ${item.title}`}
+                            disabled={isHistoryBusy}
+                            onClick={() => void refreshFacebookHistoryItem(item)}
+                          >
+                            <RefreshIcon />
+                          </button>
+                        ) : (
+                          !facebookUrl ? <span className="post-history-no-action">-</span> : null
+                        )}
+                        </div>
+                      </td>
                     </tr>
-                  )) : (
+                    );
+                  }) : isLoadingHistory ? (
                     <tr>
-                      <td colSpan={3}>
+                      <td colSpan={4}>
                         <div className="post-history-empty">
-                          <strong>Chưa có dữ liệu lịch sử</strong>
-                          <span>Lịch sử chi tiết sẽ hiển thị sau khi backend cung cấp API theo dõi bài đã đăng.</span>
+                          <strong>Đang tải lịch sử</strong>
+                          <span>Đang lấy dữ liệu bài đăng Facebook từ backend.</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <td colSpan={4}>
+                        <div className="post-history-empty">
+                          <strong>{facebookHistoryLoadState === 'ERROR' ? 'Không tải được lịch sử' : 'Chưa có dữ liệu lịch sử'}</strong>
+                          <span>{facebookHistoryLoadState === 'ERROR' ? (facebookHistoryMessage ?? 'Vui lòng thử lại sau.') : 'Các bài đã auto đăng vào group này sẽ hiển thị tại đây.'}</span>
                         </div>
                       </td>
                     </tr>
@@ -1924,23 +2195,60 @@ function SidePanel() {
 
               <div className="post-history-pagination">
                 <span>
-                  Hiển thị <strong>{visibleStart}</strong> đến <strong>{visibleEnd}</strong> trong <strong>{filteredItems.length}</strong> kết quả
+                  Hiển thị <strong>{visibleStart}</strong> đến <strong>{visibleEnd}</strong> trong <strong>{totalItems}</strong> kết quả
                 </span>
                 <div>
                   <button
                     type="button"
-                    disabled={currentPage <= 1}
-                    onClick={() => setFacebookHistoryPage((page) => Math.max(1, page - 1))}
+                    title="Trang đầu"
+                    aria-label="Trang đầu"
+                    disabled={currentPage <= 1 || isHistoryBusy}
+                    onClick={() => void changeFacebookHistoryPage(1)}
+                  >
+                    <DoubleBackIcon />
+                  </button>
+                  <button
+                    type="button"
+                    title="Trang trước"
+                    aria-label="Trang trước"
+                    disabled={currentPage <= 1 || isHistoryBusy}
+                    onClick={() => void changeFacebookHistoryPage(currentPage - 1)}
                   >
                     <BackIcon />
                   </button>
-                  <strong>{currentPage}</strong>
+                  {paginationItems.map((item) => (
+                    typeof item === 'number' ? (
+                      <button
+                        key={item}
+                        type="button"
+                        className={item === currentPage ? 'is-active' : ''}
+                        aria-current={item === currentPage ? 'page' : undefined}
+                        disabled={isHistoryBusy || item === currentPage}
+                        onClick={() => void changeFacebookHistoryPage(item)}
+                      >
+                        {item}
+                      </button>
+                    ) : (
+                      <span key={item} className="post-history-page-ellipsis">...</span>
+                    )
+                  ))}
                   <button
                     type="button"
-                    disabled={currentPage >= pageCount}
-                    onClick={() => setFacebookHistoryPage((page) => Math.min(pageCount, page + 1))}
+                    title="Trang sau"
+                    aria-label="Trang sau"
+                    disabled={currentPage >= pageCount || isHistoryBusy}
+                    onClick={() => void changeFacebookHistoryPage(currentPage + 1)}
                   >
                     <ChevronRightIcon />
+                  </button>
+                  <button
+                    type="button"
+                    title="Trang cuối"
+                    aria-label="Trang cuối"
+                    disabled={currentPage >= pageCount || isHistoryBusy}
+                    onClick={() => void changeFacebookHistoryPage(pageCount)}
+                  >
+                    <DoubleChevronRightIcon />
                   </button>
                 </div>
               </div>
@@ -3697,6 +4005,49 @@ function getChannelPostingStatusClass(channel: ChannelPostingResult) {
   return 'is-warning';
 }
 
+type PostHistoryPaginationItem = number | 'ellipsis-left' | 'ellipsis-right';
+
+function buildPostHistoryPaginationItems(currentPage: number, pageCount: number): PostHistoryPaginationItem[] {
+  if (pageCount <= 7) {
+    return Array.from({ length: pageCount }, (_, index) => index + 1);
+  }
+
+  const items: PostHistoryPaginationItem[] = [1];
+  const start = currentPage <= 4
+    ? 2
+    : currentPage >= pageCount - 3
+      ? pageCount - 4
+      : currentPage - 1;
+  const end = currentPage <= 4
+    ? 5
+    : currentPage >= pageCount - 3
+      ? pageCount - 1
+      : currentPage + 1;
+
+  if (start > 2) {
+    items.push('ellipsis-left');
+  } else {
+    for (let page = 2; page < start; page += 1) items.push(page);
+  }
+
+  for (let page = start; page <= end; page += 1) {
+    items.push(page);
+  }
+
+  if (end < pageCount - 1) {
+    items.push('ellipsis-right');
+  } else {
+    for (let page = end + 1; page < pageCount; page += 1) items.push(page);
+  }
+
+  items.push(pageCount);
+  return items;
+}
+
+function isRefreshableFacebookHistoryItem(item: FacebookPublishHistoryListItem) {
+  return item.facebookReviewStatus === 'PENDING_REVIEW' || item.facebookReviewStatus === 'UNKNOWN';
+}
+
 function toFacebookGroupUiItem(group: FacebookPublishTarget) {
   return {
     key: group.targetId ?? group.targetExternalId ?? group.targetUrl ?? group.targetName,
@@ -3719,68 +4070,11 @@ function replaceFacebookGroup(groups: FacebookPublishTarget[], updatedGroup: Fac
   return groups.map((group, groupIndex) => (groupIndex === index ? updatedGroup : group));
 }
 
-function buildFacebookPostHistoryItems(
-  group: FacebookHistoryGroup,
-  results: FacebookPublishResultPayload[],
-  fallbackTitle?: string,
-): FacebookPostHistoryItem[] {
-  return results
-    .filter((result) => isFacebookHistoryResultForGroup(result, group))
-    .map((result, index) => ({
-      key: `${result.jobPostingId}:${result.targetId ?? result.targetUrl ?? result.targetName}:${result.submittedAt ?? index}`,
-      date: result.submittedAt ?? null,
-      title: getFacebookHistoryPostTitle(result, fallbackTitle),
-      reviewStatus: getFacebookHistoryReviewStatus(result),
-      message: result.message,
-    }));
-}
-
-function isFacebookHistoryResultForGroup(result: FacebookPublishResultPayload, group: FacebookHistoryGroup) {
-  if (group.id && result.targetId === group.id) return true;
-  if (group.url && result.targetUrl === group.url) return true;
-  return normalizeFacebookHistoryText(result.targetName) === normalizeFacebookHistoryText(group.name);
-}
-
-function summarizeFacebookPostHistory(items: FacebookPostHistoryItem[]) {
-  return {
-    total: items.length,
-    posted: items.filter((item) => item.reviewStatus === 'POSTED').length,
-    pendingReview: items.filter((item) => item.reviewStatus === 'PENDING_REVIEW').length,
-    rejected: items.filter((item) => item.reviewStatus === 'REJECTED').length,
-  };
-}
-
-function getFacebookHistoryPostTitle(result: FacebookPublishResultPayload, fallbackTitle?: string) {
-  const firstContentLine = result.content
-    ?.split('\n')
-    .map((line) => line.trim())
-    .find(Boolean);
-  const title = firstContentLine || fallbackTitle || result.jobPostingId;
-  return title.length > 96 ? `${title.slice(0, 93)}...` : title;
-}
-
-function getFacebookHistoryReviewStatus(result: FacebookPublishResultPayload): Exclude<FacebookPostHistoryFilter, 'ALL'> {
-  const message = normalizeFacebookHistoryText(result.message);
-  if (result.status === 'FAILED' || result.status === 'SKIPPED') return 'REJECTED';
-  if (/pending|waiting for approval|cho duyet|cho phe duyet|dang cho/.test(message)) return 'PENDING_REVIEW';
-  return 'POSTED';
-}
-
 function getFacebookHistoryStatusLabel(status: Exclude<FacebookPostHistoryFilter, 'ALL'>) {
   if (status === 'PENDING_REVIEW') return 'Chờ duyệt';
   if (status === 'REJECTED') return 'Bị từ chối';
+  if (status === 'UNKNOWN') return 'Không rõ';
   return 'Đã đăng';
-}
-
-function normalizeFacebookHistoryText(value: string | null | undefined) {
-  return (value ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function isSelectableFacebookGroup(group: FacebookPublishTarget) {
@@ -3959,10 +4253,26 @@ function BackIcon({ className }: IconProps) {
   );
 }
 
+function DoubleBackIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M8.5 3.5 4 8l4.5 4.5M12 3.5 7.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function ChevronRightIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="m6 3.5 4.5 4.5L6 12.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DoubleChevronRightIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M4 3.5 8.5 8 4 12.5M7.5 3.5 12 8l-4.5 4.5" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -4016,6 +4326,15 @@ function InfoExportIcon({ className }: IconProps) {
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="M3.5 2.8h6.2l2.8 2.8v7.6h-9V2.8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
       <path d="M9.6 2.9v2.8h2.8M5.7 8h4.6M5.7 10.5h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M6.2 4H3.8c-.7 0-1.2.5-1.2 1.2v7c0 .7.5 1.2 1.2 1.2h7c.7 0 1.2-.5 1.2-1.2V9.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8.2 2.8h5v5M7.6 8.4l5.2-5.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

@@ -190,7 +190,8 @@ export interface ChannelPostingResult {
 }
 
 export type FacebookPublishTargetType = 'GROUP' | 'FANPAGE';
-export type FacebookPublishResultStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED';
+export type FacebookPublishResultStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
+export type FacebookReviewStatus = 'POSTED' | 'PENDING_REVIEW' | 'REJECTED' | 'UNKNOWN';
 export type FacebookPublishTargetEligibilityStatus = 'UNKNOWN' | 'CAN_POST' | 'CANNOT_POST';
 export type FacebookPublishProgressStatus =
   | 'LOGIN_REQUIRED'
@@ -252,8 +253,10 @@ export interface FacebookPublishResultPayload {
   targetUrl?: string | null;
   content?: string | null;
   status: FacebookPublishResultStatus;
+  facebookReviewStatus?: FacebookReviewStatus | null;
   message: string;
   externalPostId?: string | null;
+  externalPostUrl?: string | null;
   submittedAt?: string | null;
 }
 
@@ -264,6 +267,53 @@ export interface FacebookPublishProgress {
   target?: FacebookPublishTarget;
   message: string;
   results: FacebookPublishResultPayload[];
+}
+
+export interface FacebookPublishHistorySummary {
+  total: number;
+  posted: number;
+  pendingReview: number;
+  rejected: number;
+  unknown: number;
+}
+
+export interface FacebookPublishHistoryListItem {
+  id: string;
+  jobPostingId: string;
+  title: string;
+  contentPreview?: string | null;
+  targetId?: string | null;
+  targetName: string;
+  targetUrl?: string | null;
+  targetExternalId?: string | null;
+  publishStatus: FacebookPublishResultStatus;
+  facebookReviewStatus: FacebookReviewStatus;
+  message?: string | null;
+  errorReason?: string | null;
+  submittedAt?: string | null;
+  lastStatusCheckedAt?: string | null;
+  lastStatusCheckMessage?: string | null;
+  externalPostId?: string | null;
+  externalPostUrl?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface FacebookPublishHistoriesResponse {
+  summary: FacebookPublishHistorySummary;
+  items: FacebookPublishHistoryListItem[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface FacebookPublishHistoryStatusCheckRequest {
+  facebookReviewStatus: FacebookReviewStatus;
+  message?: string | null;
+  externalPostUrl?: string | null;
+  externalPostId?: string | null;
+  checkedAt?: string | null;
 }
 
 export interface ExtensionSyncResponse {

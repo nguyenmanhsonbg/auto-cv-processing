@@ -12,6 +12,13 @@ export enum FacebookPublishResultStatus {
   SKIPPED = 'SKIPPED',
 }
 
+export enum FacebookReviewStatus {
+  POSTED = 'POSTED',
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  REJECTED = 'REJECTED',
+  UNKNOWN = 'UNKNOWN',
+}
+
 export enum FacebookPublishTargetEligibilityStatus {
   UNKNOWN = 'UNKNOWN',
   CAN_POST = 'CAN_POST',
@@ -69,8 +76,10 @@ export interface FacebookPublishResultItem {
   targetUrl?: string | null;
   targetId?: string | null;
   status: FacebookPublishResultStatus;
+  facebookReviewStatus?: FacebookReviewStatus | null;
   message: string;
   externalPostId?: string | null;
+  externalPostUrl?: string | null;
 }
 
 export interface FacebookPublishSummary {
@@ -92,7 +101,27 @@ export interface ReportFacebookPublishResultInput {
   targetUrl?: string | null;
   content?: string | null;
   status: FacebookPublishResultStatus;
+  facebookReviewStatus?: FacebookReviewStatus | null;
   message: string;
   externalPostId?: string | null;
+  externalPostUrl?: string | null;
   submittedAt?: Date | null;
+}
+
+export interface ListFacebookPublishHistoriesInput {
+  ownerUserId: string;
+  targetId: string;
+  facebookReviewStatus?: FacebookReviewStatus | null;
+  page?: number | null;
+  limit?: number | null;
+}
+
+export interface UpdateFacebookPublishHistoryStatusCheckInput {
+  ownerUserId: string;
+  historyId: string;
+  facebookReviewStatus: FacebookReviewStatus;
+  message?: string | null;
+  externalPostUrl?: string | null;
+  externalPostId?: string | null;
+  checkedAt?: Date | null;
 }

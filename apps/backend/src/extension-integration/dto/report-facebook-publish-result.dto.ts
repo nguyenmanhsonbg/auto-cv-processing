@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import {
   FacebookPublishResultStatus,
+  FacebookReviewStatus,
   FacebookPublishTargetType,
 } from '../../facebook-publishing/facebook-publishing.types';
 
@@ -46,6 +47,11 @@ export class ReportFacebookPublishResultDto {
   @IsEnum(FacebookPublishResultStatus)
   status: FacebookPublishResultStatus;
 
+  @ApiPropertyOptional({ enum: FacebookReviewStatus, enumName: 'FacebookReviewStatus' })
+  @IsOptional()
+  @IsEnum(FacebookReviewStatus)
+  facebookReviewStatus?: FacebookReviewStatus | null;
+
   @ApiProperty()
   @IsString()
   @MaxLength(4000)
@@ -56,6 +62,12 @@ export class ReportFacebookPublishResultDto {
   @IsString()
   @MaxLength(255)
   externalPostId?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  externalPostUrl?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()

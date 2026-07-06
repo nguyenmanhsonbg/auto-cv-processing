@@ -1,13 +1,15 @@
 import { UserRole } from '@interview-assistant/shared';
-import { Body, Controller, Delete, Get, Param, Post, Put, Request, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
+import { FacebookReviewStatus } from '../facebook-publishing/facebook-publishing.types';
 import { FacebookPublishingService } from '../facebook-publishing/facebook-publishing.service';
 import {
   CreateFacebookGroupDto,
+  FacebookPublishHistoryStatusCheckDto,
   ReportFacebookPublishResultDto,
   UpdateFacebookGroupDto,
   VerifyFacebookGroupDto,
@@ -131,6 +133,36 @@ export class ExtensionFacebookController {
     };
   }
 
+  @Get('groups/:targetId/publish-histories')
+  @ApiOperation({ summary: 'List Facebook publish histories for a configured group' })
+  @ApiQuery({ name: 'status', required: false, enum: FacebookReviewStatus })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Facebook publish histories returned.' })
+  async listGroupPublishHistories(
+    @Param('targetId') targetId: string,
+    @Query('status') status: FacebookReviewStatus | undefined,
+    @Query('page') page: string | undefined,
+    @Query('limit') limit: string | undefined,
+    @Request() req: ExtensionFacebookRequest,
+  ) {
+    const result = await this.facebookPublishingService.listExtensionGroupPublishHistories({
+      ownerUserId: req.user.id,
+      targetId,
+      facebookReviewStatus: this.normalizeReviewStatusQuery(status),
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+
+    return {
+      success: true,
+      data: result,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
   @Post('publish-results')
   @ApiOperation({ summary: 'Report a browser-extension Facebook publish result' })
   @ApiBody({ type: ReportFacebookPublishResultDto })
@@ -151,8 +183,11 @@ export class ExtensionFacebookController {
         targetName: history.targetName,
         targetUrl: history.targetUrl,
         status: history.status,
+        facebookReviewStatus: history.facebookReviewStatus,
+        message: history.message,
         errorReason: history.errorReason,
         externalPostId: history.externalPostId,
+        externalPostUrl: history.externalPostUrl,
         submittedAt: history.submittedAt?.toISOString() ?? null,
         createdAt: history.createdAt?.toISOString() ?? null,
       },
@@ -160,5 +195,38 @@ export class ExtensionFacebookController {
         timestamp: new Date().toISOString(),
       },
     };
+  }
+
+  @Post('publish-histories/:historyId/status-check')
+  @ApiOperation({ summary: 'Update a Facebook publish history moderation status after extension refresh' })
+  @ApiBody({ type: FacebookPublishHistoryStatusCheckDto })
+  @ApiResponse({ status: 200, description: 'Facebook publish history status updated.' })
+  async updatePublishHistoryStatusCheck(
+    @Param('historyId') historyId: string,
+    @Body() dto: FacebookPublishHistoryStatusCheckDto,
+    @Request() req: ExtensionFacebookRequest,
+  ) {
+    const history = await this.facebookPublishingService.updateExtensionPublishHistoryStatusCheck({
+      ownerUserId: req.user.id,
+      historyId,
+      facebookReviewStatus: dto.facebookReviewStatus,
+      message: dto.message,
+      externalPostUrl: dto.externalPostUrl,
+      externalPostId: dto.externalPostId,
+      checkedAt: dto.checkedAt ? new Date(dto.checkedAt) : null,
+    });
+
+    return {
+      success: true,
+      data: history,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  private normalizeReviewStatusQuery(status: FacebookReviewStatus | undefined) {
+    if (!status) return null;
+    return Object.values(FacebookReviewStatus).includes(status) ? status : null;
   }
 }

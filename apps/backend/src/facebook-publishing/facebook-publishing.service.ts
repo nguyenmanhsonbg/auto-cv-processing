@@ -10,13 +10,16 @@ import { FacebookPublishTargetEntity } from './entities/facebook-publish-target.
 import {
   CreateFacebookGroupInput,
   ExtensionFacebookPublishPlan,
+  FacebookReviewStatus,
   FacebookPublishTargetEligibilityStatus,
   FacebookPublishTargetType,
   FacebookPublishResultStatus,
+  ListFacebookPublishHistoriesInput,
   ReportFacebookPublishResultInput,
   ResolvedFacebookPublishTarget,
   UpdateFacebookGroupVerificationInput,
   UpdateFacebookGroupInput,
+  UpdateFacebookPublishHistoryStatusCheckInput,
 } from './facebook-publishing.types';
 
 @Injectable()
@@ -189,8 +192,15 @@ export class FacebookPublishingService {
       targetUrl: input.targetUrl ?? null,
       content,
       status: input.status,
+      facebookReviewStatus: this.resolveFacebookReviewStatus(
+        input.status,
+        input.message,
+        input.facebookReviewStatus,
+      ),
+      message: input.message,
       errorReason: input.status === FacebookPublishResultStatus.SUCCESS ? null : input.message,
       externalPostId: input.externalPostId ?? null,
+      externalPostUrl: input.externalPostUrl ?? null,
       submittedAt: input.status === FacebookPublishResultStatus.SUCCESS
         ? input.submittedAt ?? new Date()
         : null,
@@ -208,6 +218,189 @@ export class FacebookPublishingService {
     }
 
     return savedHistory;
+  }
+
+  async listExtensionGroupPublishHistories(input: ListFacebookPublishHistoriesInput) {
+    const target = await this.findOwnedActiveGroup(input.ownerUserId, input.targetId);
+    const page = this.normalizePage(input.page);
+    const limit = this.normalizeLimit(input.limit);
+    const skip = (page - 1) * limit;
+
+    const baseQuery = this.historiesRepo
+      .createQueryBuilder('history')
+      .leftJoinAndSelect('history.jobPosting', 'jobPosting')
+      .leftJoinAndSelect('history.target', 'target')
+      .where('history.targetId = :targetId', { targetId: target.id });
+
+    if (input.facebookReviewStatus) {
+      baseQuery.andWhere('history.facebookReviewStatus = :facebookReviewStatus', {
+        facebookReviewStatus: input.facebookReviewStatus,
+      });
+    }
+
+    const [histories, total] = await baseQuery
+      .orderBy('history.submittedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('history.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      summary: await this.getGroupPublishHistorySummary(target.id),
+      items: histories.map((history) => this.toPublishHistoryListItem(history)),
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
+  async updateExtensionPublishHistoryStatusCheck(input: UpdateFacebookPublishHistoryStatusCheckInput) {
+    const history = await this.historiesRepo
+      .createQueryBuilder('history')
+      .leftJoinAndSelect('history.jobPosting', 'jobPosting')
+      .leftJoinAndSelect('history.target', 'target')
+      .where('history.id = :historyId', { historyId: input.historyId })
+      .andWhere('target.ownerUserId = :ownerUserId', { ownerUserId: input.ownerUserId })
+      .getOne();
+
+    if (!history) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_PUBLISH_HISTORY_NOT_FOUND',
+        message: 'Facebook publish history not found for this account.',
+      });
+    }
+
+    const message = input.message?.trim() || null;
+    history.facebookReviewStatus = input.facebookReviewStatus;
+    history.lastStatusCheckedAt = input.checkedAt ?? new Date();
+    history.lastStatusCheckMessage = message;
+    if (message) history.message = message;
+
+    if (input.externalPostUrl !== undefined) {
+      history.externalPostUrl = input.externalPostUrl?.trim() || null;
+    }
+    if (input.externalPostId !== undefined) {
+      history.externalPostId = input.externalPostId?.trim() || null;
+    }
+
+    return this.toPublishHistoryListItem(await this.historiesRepo.save(history));
+  }
+
+  private async getGroupPublishHistorySummary(targetId: string) {
+    const rows = await this.historiesRepo
+      .createQueryBuilder('history')
+      .select('history.facebookReviewStatus', 'facebookReviewStatus')
+      .addSelect('COUNT(*)', 'count')
+      .where('history.targetId = :targetId', { targetId })
+      .groupBy('history.facebookReviewStatus')
+      .getRawMany<{ facebookReviewStatus: FacebookReviewStatus | null; count: string }>();
+
+    const summary = {
+      total: 0,
+      posted: 0,
+      pendingReview: 0,
+      rejected: 0,
+      unknown: 0,
+    };
+
+    for (const row of rows) {
+      const count = Number(row.count);
+      summary.total += count;
+      if (row.facebookReviewStatus === FacebookReviewStatus.POSTED) summary.posted += count;
+      else if (row.facebookReviewStatus === FacebookReviewStatus.PENDING_REVIEW) summary.pendingReview += count;
+      else if (row.facebookReviewStatus === FacebookReviewStatus.REJECTED) summary.rejected += count;
+      else summary.unknown += count;
+    }
+
+    return summary;
+  }
+
+  private toPublishHistoryListItem(history: FacebookPublishHistoryEntity) {
+    const content = history.content ?? '';
+    const title = history.jobPosting?.title || this.extractTitleFromContent(content, history.jobPostingId);
+
+    return {
+      id: history.id,
+      jobPostingId: history.jobPostingId,
+      title,
+      contentPreview: this.toContentPreview(content),
+      targetId: history.targetId,
+      targetName: history.targetName,
+      targetUrl: history.targetUrl,
+      targetExternalId: history.target?.externalId ?? null,
+      publishStatus: history.status,
+      facebookReviewStatus: history.facebookReviewStatus ?? FacebookReviewStatus.UNKNOWN,
+      message: history.message ?? history.errorReason,
+      errorReason: history.errorReason,
+      submittedAt: history.submittedAt?.toISOString() ?? null,
+      lastStatusCheckedAt: history.lastStatusCheckedAt?.toISOString() ?? null,
+      lastStatusCheckMessage: history.lastStatusCheckMessage,
+      externalPostId: history.externalPostId,
+      externalPostUrl: history.externalPostUrl,
+      createdAt: history.createdAt?.toISOString() ?? null,
+      updatedAt: history.updatedAt?.toISOString() ?? null,
+    };
+  }
+
+  private resolveFacebookReviewStatus(
+    publishStatus: FacebookPublishResultStatus,
+    message: string | null | undefined,
+    explicitStatus?: FacebookReviewStatus | null,
+  ) {
+    if (explicitStatus) return explicitStatus;
+
+    const normalizedMessage = this.normalizeText(message);
+    if (publishStatus === FacebookPublishResultStatus.SUCCESS) {
+      return /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet/.test(normalizedMessage)
+        ? FacebookReviewStatus.PENDING_REVIEW
+        : FacebookReviewStatus.POSTED;
+    }
+
+    if (
+      publishStatus === FacebookPublishResultStatus.FAILED
+      && /rejected|declined|not approved|tu choi|khong duoc phe duyet|bi go|removed/.test(normalizedMessage)
+    ) {
+      return FacebookReviewStatus.REJECTED;
+    }
+
+    return FacebookReviewStatus.UNKNOWN;
+  }
+
+  private normalizePage(value: number | null | undefined) {
+    const parsedValue = Number(value);
+    return Number.isFinite(parsedValue) && parsedValue > 0 ? Math.floor(parsedValue) : 1;
+  }
+
+  private normalizeLimit(value: number | null | undefined) {
+    const parsedValue = Number(value);
+    if (!Number.isFinite(parsedValue)) return 10;
+    return Math.min(50, Math.max(1, Math.floor(parsedValue)));
+  }
+
+  private extractTitleFromContent(content: string, fallback: string) {
+    const firstLine = content
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean);
+    const title = firstLine || fallback;
+    return title.length > 120 ? `${title.slice(0, 117)}...` : title;
+  }
+
+  private toContentPreview(content: string) {
+    const preview = content.replace(/\s+/g, ' ').trim();
+    return preview.length > 180 ? `${preview.slice(0, 177)}...` : preview;
+  }
+
+  private normalizeText(value: string | null | undefined) {
+    return (value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private async resolveActiveTargets(
