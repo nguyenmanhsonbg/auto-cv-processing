@@ -19,6 +19,7 @@ import {
   CvParseStatus,
   CvSanitizeStatus,
   StorageZone,
+  TERMINAL_APPLICATION_STATUSES,
 } from '../recruitment-common';
 import { WorkflowStateService } from '../workflow-state/workflow-state.service';
 import { GeminiCvParserService } from './gemini-cv-parser.service';
@@ -310,18 +311,13 @@ export class CvParsingService {
         idempotencyKeyHash: context.idempotencyKeyHash,
       };
 
-      await this.workflowStateService.recordStatusTransition(
-        {
-          applicationId: cleanCvDocument.applicationId,
-          expectedFromStatus: context.applicationStatus,
-          toStatus: ApplicationStatus.CV_PARSED,
-          eventType: 'CV_PARSED',
-          actorType: 'SYSTEM',
-          actorId: null,
-          metadata,
-        },
-        manager,
-      );
+      await this.recordParseOutcome(manager, {
+        applicationId: cleanCvDocument.applicationId,
+        expectedFromStatus: context.applicationStatus,
+        toStatus: ApplicationStatus.CV_PARSED,
+        eventType: 'CV_PARSED',
+        metadata,
+      });
 
       await this.recordAuditLog(manager, {
         applicationId: cleanCvDocument.applicationId,
@@ -369,18 +365,13 @@ export class CvParsingService {
         idempotencyKeyHash: context.idempotencyKeyHash,
       };
 
-      await this.workflowStateService.recordStatusTransition(
-        {
-          applicationId: cleanCvDocument.applicationId,
-          expectedFromStatus: context.applicationStatus,
-          toStatus: ApplicationStatus.CV_PARSE_FAILED,
-          eventType: 'CV_PARSE_FAILED',
-          actorType: 'SYSTEM',
-          actorId: null,
-          metadata,
-        },
-        manager,
-      );
+      await this.recordParseOutcome(manager, {
+        applicationId: cleanCvDocument.applicationId,
+        expectedFromStatus: context.applicationStatus,
+        toStatus: ApplicationStatus.CV_PARSE_FAILED,
+        eventType: 'CV_PARSE_FAILED',
+        metadata,
+      });
 
       await this.recordAuditLog(manager, {
         applicationId: cleanCvDocument.applicationId,
@@ -448,7 +439,63 @@ export class CvParsingService {
     return [
       ApplicationStatus.CV_SANITIZED,
       ApplicationStatus.CV_PARSE_FAILED,
-    ].includes(status);
+    ].includes(status) || !TERMINAL_APPLICATION_STATUSES.includes(
+      status as (typeof TERMINAL_APPLICATION_STATUSES)[number],
+    );
+  }
+
+  private async recordParseOutcome(
+    manager: EntityManager,
+    input: {
+      applicationId: string;
+      expectedFromStatus: ApplicationStatus;
+      toStatus: ApplicationStatus.CV_PARSED | ApplicationStatus.CV_PARSE_FAILED;
+      eventType: 'CV_PARSED' | 'CV_PARSE_FAILED';
+      metadata: Record<string, unknown>;
+    },
+  ) {
+    const application = await manager.getRepository(ApplicationEntity).findOne({
+      where: { id: input.applicationId },
+    });
+    if (!application) throw new BadRequestException('Application not found');
+
+    if (
+      application.status === input.expectedFromStatus &&
+      (
+        input.expectedFromStatus === ApplicationStatus.CV_SANITIZED ||
+        input.expectedFromStatus === ApplicationStatus.CV_PARSE_FAILED
+      )
+    ) {
+      await this.workflowStateService.recordStatusTransition(
+        {
+          applicationId: input.applicationId,
+          expectedFromStatus: input.expectedFromStatus,
+          toStatus: input.toStatus,
+          eventType: input.eventType,
+          actorType: 'SYSTEM',
+          actorId: null,
+          metadata: input.metadata,
+        },
+        manager,
+      );
+      return;
+    }
+
+    await this.workflowStateService.recordEvent(
+      {
+        applicationId: input.applicationId,
+        fromStatus: application.status,
+        toStatus: application.status,
+        eventType: input.eventType,
+        actorType: 'SYSTEM',
+        actorId: null,
+        metadata: {
+          ...input.metadata,
+          applicationStatusPreserved: application.status,
+        },
+      },
+      manager,
+    );
   }
 
   private toParseException(reasonCode: string) {
