@@ -52,6 +52,7 @@ import type {
   ExtensionUser,
   FacebookPublishPlan,
   FacebookPublishProgress,
+  FacebookPublishResultPayload,
   FacebookPublishTarget,
   FacebookPublishTargetEligibilityStatus,
   JobDescriptionSummary,
@@ -64,6 +65,7 @@ type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv';
 type CvWorkspaceView = 'overview' | 'list';
+type FacebookPostHistoryFilter = 'ALL' | 'POSTED' | 'PENDING_REVIEW' | 'REJECTED';
 type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
@@ -73,6 +75,21 @@ type FacebookGroupLoadState =
   | 'ERROR';
 type FacebookGroupModalMode = 'SETTINGS' | 'EDIT' | 'DELETE';
 type ApplicationsState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
+
+interface FacebookHistoryGroup {
+  id: string | null;
+  name: string;
+  url?: string | null;
+  externalId?: string | null;
+}
+
+interface FacebookPostHistoryItem {
+  key: string;
+  date: string | null;
+  title: string;
+  reviewStatus: Exclude<FacebookPostHistoryFilter, 'ALL'>;
+  message: string;
+}
 
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
 const FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
@@ -105,6 +122,13 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'overview', label: 'Tổng Quan' },
   { id: 'posting', label: 'Posting' },
   { id: 'cv', label: 'CV' },
+];
+const FACEBOOK_HISTORY_PAGE_SIZE = 5;
+const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label: string }> = [
+  { value: 'ALL', label: 'Tất cả' },
+  { value: 'POSTED', label: 'Đã đăng' },
+  { value: 'PENDING_REVIEW', label: 'Chờ duyệt' },
+  { value: 'REJECTED', label: 'Bị từ chối' },
 ];
 type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
 
@@ -143,6 +167,9 @@ function SidePanel() {
   const [queuedFacebookGroupIds, setQueuedFacebookGroupIds] = useState<string[]>([]);
   const [facebookGroupModalMode, setFacebookGroupModalMode] = useState<FacebookGroupModalMode>('SETTINGS');
   const [selectedFacebookGroup, setSelectedFacebookGroup] = useState<FacebookPublishTarget | null>(null);
+  const [selectedFacebookHistoryGroup, setSelectedFacebookHistoryGroup] = useState<FacebookHistoryGroup | null>(null);
+  const [facebookHistoryFilter, setFacebookHistoryFilter] = useState<FacebookPostHistoryFilter>('ALL');
+  const [facebookHistoryPage, setFacebookHistoryPage] = useState(1);
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
   const [facebookGroupName, setFacebookGroupName] = useState('');
   const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
@@ -1251,6 +1278,18 @@ function SidePanel() {
     setEditFacebookGroupUrlError(null);
   }
 
+  function openFacebookPostHistory(group: FacebookHistoryGroup) {
+    setSelectedFacebookHistoryGroup(group);
+    setFacebookHistoryFilter('ALL');
+    setFacebookHistoryPage(1);
+  }
+
+  function closeFacebookPostHistory() {
+    setSelectedFacebookHistoryGroup(null);
+    setFacebookHistoryFilter('ALL');
+    setFacebookHistoryPage(1);
+  }
+
   function closeFacebookGroupActionModal() {
     setFacebookGroupModalMode('SETTINGS');
     setSelectedFacebookGroup(null);
@@ -1765,6 +1804,159 @@ function SidePanel() {
     );
   }
 
+  function renderFacebookPostHistoryModal() {
+    if (!selectedFacebookHistoryGroup) return null;
+
+    const allItems = buildFacebookPostHistoryItems(
+      selectedFacebookHistoryGroup,
+      facebookProgress?.results ?? [],
+      snapshot?.title,
+    );
+    const summary = summarizeFacebookPostHistory(allItems);
+    const filteredItems = facebookHistoryFilter === 'ALL'
+      ? allItems
+      : allItems.filter((item) => item.reviewStatus === facebookHistoryFilter);
+    const pageCount = Math.max(1, Math.ceil(filteredItems.length / FACEBOOK_HISTORY_PAGE_SIZE));
+    const currentPage = Math.min(facebookHistoryPage, pageCount);
+    const startIndex = (currentPage - 1) * FACEBOOK_HISTORY_PAGE_SIZE;
+    const pageItems = filteredItems.slice(startIndex, startIndex + FACEBOOK_HISTORY_PAGE_SIZE);
+    const visibleStart = filteredItems.length === 0 ? 0 : startIndex + 1;
+    const visibleEnd = Math.min(startIndex + pageItems.length, filteredItems.length);
+
+    return (
+      <div className="modal-backdrop post-history-backdrop" role="presentation">
+        <section
+          className="post-history-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="facebook-post-history-title"
+        >
+          <header className="post-history-header">
+            <div className="post-history-title">
+              <HistoryIcon />
+              <h2 id="facebook-post-history-title">Lịch sử đăng bài - {selectedFacebookHistoryGroup.name}</h2>
+            </div>
+            <button
+              type="button"
+              className="icon-button"
+              title="Đóng"
+              aria-label="Đóng lịch sử đăng bài"
+              onClick={closeFacebookPostHistory}
+            >
+              <CloseIcon />
+            </button>
+          </header>
+
+          <div className="post-history-body">
+            <div className="post-history-summary-grid">
+              <article className="post-history-metric is-total">
+                <span>Tổng số bài</span>
+                <strong>{summary.total}</strong>
+              </article>
+              <article className="post-history-metric is-posted">
+                <span>Đã đăng</span>
+                <strong>{summary.posted}</strong>
+              </article>
+              <article className="post-history-metric is-pending">
+                <span>Chờ duyệt</span>
+                <strong>{summary.pendingReview}</strong>
+              </article>
+              <article className="post-history-metric is-rejected">
+                <span>Bị từ chối</span>
+                <strong>{summary.rejected}</strong>
+              </article>
+            </div>
+
+            <div className="post-history-filter-row">
+              <span>Lọc theo:</span>
+              <div>
+                {FACEBOOK_HISTORY_FILTERS.map((filter) => (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    className={facebookHistoryFilter === filter.value ? 'is-active' : ''}
+                    onClick={() => {
+                      setFacebookHistoryFilter(filter.value);
+                      setFacebookHistoryPage(1);
+                    }}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="post-history-table-card">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ngày</th>
+                    <th>Tiêu đề bài đăng</th>
+                    <th>Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageItems.length > 0 ? pageItems.map((item) => (
+                    <tr key={item.key}>
+                      <td>{formatDate(item.date ?? undefined) ?? '-'}</td>
+                      <td>
+                        <span>{item.title}</span>
+                        {item.message ? <small>{item.message}</small> : null}
+                      </td>
+                      <td>
+                        <span className={`post-history-status is-${item.reviewStatus.toLowerCase().replace('_', '-')}`}>
+                          {getFacebookHistoryStatusLabel(item.reviewStatus)}
+                        </span>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={3}>
+                        <div className="post-history-empty">
+                          <strong>Chưa có dữ liệu lịch sử</strong>
+                          <span>Lịch sử chi tiết sẽ hiển thị sau khi backend cung cấp API theo dõi bài đã đăng.</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+
+              <div className="post-history-pagination">
+                <span>
+                  Hiển thị <strong>{visibleStart}</strong> đến <strong>{visibleEnd}</strong> trong <strong>{filteredItems.length}</strong> kết quả
+                </span>
+                <div>
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setFacebookHistoryPage((page) => Math.max(1, page - 1))}
+                  >
+                    <BackIcon />
+                  </button>
+                  <strong>{currentPage}</strong>
+                  <button
+                    type="button"
+                    disabled={currentPage >= pageCount}
+                    onClick={() => setFacebookHistoryPage((page) => Math.min(pageCount, page + 1))}
+                  >
+                    <ChevronRightIcon />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <footer className="post-history-footer">
+            <button type="button" className="secondary-button compact-button" onClick={closeFacebookPostHistory}>
+              Đóng
+            </button>
+          </footer>
+        </section>
+      </div>
+    );
+  }
+
   function renderOverviewPanel() {
     const totalPostings = Math.max(
       jobDescriptionPagination?.total ?? 0,
@@ -1994,25 +2186,40 @@ function SidePanel() {
                         ) : null}
                         {visibleFacebookGroups.length > 0 ? (
                           visibleFacebookGroups.map((group, index) => (
-                            <label
+                            <div
                               key={`${group.key}-${index}`}
                               className={`channel-subselection-item${!group.selectable ? ' is-disabled' : ''}`}
                               title={!group.selectable ? group.disabledReason ?? undefined : undefined}
                             >
-                              <input
-                                type="checkbox"
-                                checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
-                                disabled={!group.id || !group.selectable}
-                                onChange={() => toggleFacebookGroupSelection(group.id)}
-                              />
-                              <span className="channel-group-copy">
-                                <span>{group.name}</span>
-                                <span className="channel-group-meta">
-                                  {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                                  {group.quotaLabel ? ` · ${group.quotaLabel} today` : ''}
+                              <label className="channel-group-select">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
+                                  disabled={!group.id || !group.selectable}
+                                  onChange={() => toggleFacebookGroupSelection(group.id)}
+                                />
+                                <span className="channel-group-copy">
+                                  <span>{group.name}</span>
+                                  <span className="channel-group-meta">
+                                    {getFacebookEligibilityLabel(group.eligibilityStatus)}
+                                    {group.quotaLabel ? ` · ${group.quotaLabel} today` : ''}
+                                  </span>
                                 </span>
-                              </span>
-                            </label>
+                              </label>
+                              <button
+                                type="button"
+                                className="channel-group-history-button"
+                                title="Lịch sử đăng bài"
+                                aria-label={`Lịch sử đăng bài ${group.name}`}
+                                onClick={() => openFacebookPostHistory({
+                                  id: group.id,
+                                  name: group.name,
+                                  url: group.url,
+                                })}
+                              >
+                                <HistoryIcon />
+                              </button>
+                            </div>
                           ))
                         ) : (
                           facebookGroupLoadState === 'READY'
@@ -3204,6 +3411,20 @@ function SidePanel() {
                           ) : null}
                           <button
                             type="button"
+                            className="group-icon-button"
+                            title="Lịch sử đăng bài"
+                            aria-label={`Lịch sử đăng bài ${group.targetName}`}
+                            onClick={() => openFacebookPostHistory({
+                              id: group.targetId ?? null,
+                              name: group.targetName,
+                              url: group.targetUrl,
+                              externalId: group.targetExternalId,
+                            })}
+                          >
+                            <HistoryIcon />
+                          </button>
+                          <button
+                            type="button"
                             className={`group-icon-button${isGroupChecking ? ' is-loading' : ''}`}
                             title={isGroupQueued ? 'Queued for posting eligibility check' : 'Check posting eligibility'}
                             aria-label={`Check posting eligibility for ${group.targetName}`}
@@ -3459,6 +3680,7 @@ function SidePanel() {
           ) : null}
         </div>
       ) : null}
+      {selectedFacebookHistoryGroup ? renderFacebookPostHistoryModal() : null}
     </main>
   );
 }
@@ -3495,6 +3717,70 @@ function replaceFacebookGroup(groups: FacebookPublishTarget[], updatedGroup: Fac
   if (index < 0) return [...groups, updatedGroup];
 
   return groups.map((group, groupIndex) => (groupIndex === index ? updatedGroup : group));
+}
+
+function buildFacebookPostHistoryItems(
+  group: FacebookHistoryGroup,
+  results: FacebookPublishResultPayload[],
+  fallbackTitle?: string,
+): FacebookPostHistoryItem[] {
+  return results
+    .filter((result) => isFacebookHistoryResultForGroup(result, group))
+    .map((result, index) => ({
+      key: `${result.jobPostingId}:${result.targetId ?? result.targetUrl ?? result.targetName}:${result.submittedAt ?? index}`,
+      date: result.submittedAt ?? null,
+      title: getFacebookHistoryPostTitle(result, fallbackTitle),
+      reviewStatus: getFacebookHistoryReviewStatus(result),
+      message: result.message,
+    }));
+}
+
+function isFacebookHistoryResultForGroup(result: FacebookPublishResultPayload, group: FacebookHistoryGroup) {
+  if (group.id && result.targetId === group.id) return true;
+  if (group.url && result.targetUrl === group.url) return true;
+  return normalizeFacebookHistoryText(result.targetName) === normalizeFacebookHistoryText(group.name);
+}
+
+function summarizeFacebookPostHistory(items: FacebookPostHistoryItem[]) {
+  return {
+    total: items.length,
+    posted: items.filter((item) => item.reviewStatus === 'POSTED').length,
+    pendingReview: items.filter((item) => item.reviewStatus === 'PENDING_REVIEW').length,
+    rejected: items.filter((item) => item.reviewStatus === 'REJECTED').length,
+  };
+}
+
+function getFacebookHistoryPostTitle(result: FacebookPublishResultPayload, fallbackTitle?: string) {
+  const firstContentLine = result.content
+    ?.split('\n')
+    .map((line) => line.trim())
+    .find(Boolean);
+  const title = firstContentLine || fallbackTitle || result.jobPostingId;
+  return title.length > 96 ? `${title.slice(0, 93)}...` : title;
+}
+
+function getFacebookHistoryReviewStatus(result: FacebookPublishResultPayload): Exclude<FacebookPostHistoryFilter, 'ALL'> {
+  const message = normalizeFacebookHistoryText(result.message);
+  if (result.status === 'FAILED' || result.status === 'SKIPPED') return 'REJECTED';
+  if (/pending|waiting for approval|cho duyet|cho phe duyet|dang cho/.test(message)) return 'PENDING_REVIEW';
+  return 'POSTED';
+}
+
+function getFacebookHistoryStatusLabel(status: Exclude<FacebookPostHistoryFilter, 'ALL'>) {
+  if (status === 'PENDING_REVIEW') return 'Chờ duyệt';
+  if (status === 'REJECTED') return 'Bị từ chối';
+  return 'Đã đăng';
+}
+
+function normalizeFacebookHistoryText(value: string | null | undefined) {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function isSelectableFacebookGroup(group: FacebookPublishTarget) {
@@ -3591,6 +3877,15 @@ function RefreshIcon({ className }: IconProps) {
   );
 }
 
+function HistoryIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M3.2 4.3A5.4 5.4 0 1 1 2.7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.8 2.5v2.3h2.3M8 4.8v3.3l2.2 1.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function BriefcaseIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
@@ -3660,6 +3955,14 @@ function BackIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="m6 3.5 4.5 4.5L6 12.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
