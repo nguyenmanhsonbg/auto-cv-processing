@@ -182,6 +182,7 @@ export class FacebookPublishingService {
     if (!posting) throw new BadRequestException('Job posting not found');
 
     const content = input.content?.trim() || this.contentService.build(posting);
+    const externalPost = this.parseFacebookGroupPostUrl(input.externalPostUrl);
     const history = this.historiesRepo.create({
       jobPostingId: posting.id,
       jobDescriptionId: posting.jobDescriptionId ?? null,
@@ -199,8 +200,8 @@ export class FacebookPublishingService {
       ),
       message: input.message,
       errorReason: input.status === FacebookPublishResultStatus.SUCCESS ? null : input.message,
-      externalPostId: input.externalPostId ?? null,
-      externalPostUrl: input.externalPostUrl ?? null,
+      externalPostId: externalPost?.postId ?? null,
+      externalPostUrl: externalPost?.url ?? null,
       submittedAt: input.status === FacebookPublishResultStatus.SUCCESS
         ? input.submittedAt ?? new Date()
         : null,
@@ -278,9 +279,11 @@ export class FacebookPublishingService {
     if (message) history.message = message;
 
     if (input.externalPostUrl !== undefined) {
-      history.externalPostUrl = input.externalPostUrl?.trim() || null;
+      const externalPost = this.parseFacebookGroupPostUrl(input.externalPostUrl);
+      history.externalPostUrl = externalPost?.url ?? null;
+      history.externalPostId = externalPost?.postId ?? null;
     }
-    if (input.externalPostId !== undefined) {
+    if (input.externalPostUrl === undefined && input.externalPostId !== undefined) {
       history.externalPostId = input.externalPostId?.trim() || null;
     }
 
@@ -645,6 +648,38 @@ export class FacebookPublishingService {
     return {
       externalId,
       url: `https://www.facebook.com/groups/${encodeURIComponent(externalId)}`,
+    };
+  }
+
+  private parseFacebookGroupPostUrl(value: string | null | undefined) {
+    const rawUrl = value?.trim();
+    if (!rawUrl) return null;
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawUrl);
+    } catch {
+      return null;
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const isFacebookHost = hostname === 'facebook.com' || hostname.endsWith('.facebook.com');
+    if (!isFacebookHost) return null;
+
+    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts)\/(\d+)\/?$/i);
+    if (!match) return null;
+
+    const [, rawGroupId, rawPathType, postId] = match;
+    const groupId = this.decodeUrlPathSegment(rawGroupId).trim();
+    const pathType = rawPathType.toLowerCase();
+    if (!groupId || !postId) return null;
+
+    const suffix = pathType === 'posts' ? '/' : '';
+    return {
+      groupId,
+      postId,
+      pathType,
+      url: `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/${pathType}/${postId}${suffix}`,
     };
   }
 

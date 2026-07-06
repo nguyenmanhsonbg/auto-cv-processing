@@ -2286,6 +2286,17 @@ dd {
   background: #f8fafc;
 }
 
+.post-history-action-button.is-post-link {
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.post-history-action-button.is-post-link:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #dbeafe;
+}
+
 .post-history-action-button.is-refresh {
   border-color: #bbf7d0;
   color: #047857;

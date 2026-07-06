@@ -30,6 +30,7 @@ import { getSelectedChannels, setSelectedChannels } from './channel-preferences'
 import { CHANNELS } from './config';
 import { updateFacebookChannelStatus } from './facebook-channel-status';
 import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
+import { getValidFacebookGroupPostUrl } from './facebook-post-url';
 import {
   ensureFacebookSession,
   publishFacebookPlan,
@@ -1422,7 +1423,7 @@ function SidePanel() {
     try {
       const itemsToRefresh = await loadRefreshableFacebookHistoryItems(accessToken, group.id);
       if (itemsToRefresh.length === 0) {
-        setFacebookHistoryMessage('Không có bài đang chờ duyệt hoặc chưa rõ trạng thái để kiểm tra lại.');
+        setFacebookHistoryMessage('Không có bài chờ duyệt/chưa rõ trạng thái nào có link bài viết hợp lệ để kiểm tra lại.');
         return;
       }
 
@@ -1484,7 +1485,7 @@ function SidePanel() {
           page,
           limit: FACEBOOK_HISTORY_REFRESH_BATCH_SIZE,
         });
-        items.push(...response.items);
+        items.push(...response.items.filter(isRefreshableFacebookHistoryItem));
         totalPages = response.totalPages;
         page += 1;
       } while (page <= totalPages);
@@ -2121,7 +2122,7 @@ function SidePanel() {
                 <tbody>
                   {pageItems.length > 0 ? pageItems.map((item) => {
                     const isRefreshing = refreshingFacebookHistoryIds.includes(item.id);
-                    const facebookUrl = item.externalPostUrl ?? item.targetUrl ?? null;
+                    const postUrl = getValidFacebookGroupPostUrl(item.externalPostUrl);
                     const canRefreshItem = isRefreshableFacebookHistoryItem(item);
                     return (
                     <tr key={item.id}>
@@ -2141,14 +2142,14 @@ function SidePanel() {
                       </td>
                       <td>
                         <div className="post-history-actions">
-                          {facebookUrl ? (
+                          {postUrl ? (
                             <button
                               type="button"
-                              className="post-history-action-button"
-                              title={item.externalPostUrl ? 'Mở bài viết Facebook' : 'Mở group Facebook'}
-                              aria-label={item.externalPostUrl ? `Mở bài viết ${item.title}` : `Mở group của ${item.title}`}
+                              className="post-history-action-button is-post-link"
+                              title="Mở bài viết Facebook"
+                              aria-label={`Mở bài viết ${item.title}`}
                               disabled={isHistoryBusy}
-                              onClick={() => window.open(facebookUrl, '_blank', 'noopener,noreferrer')}
+                              onClick={() => window.open(postUrl, '_blank', 'noopener,noreferrer')}
                             >
                               <ExternalLinkIcon />
                             </button>
@@ -2165,7 +2166,7 @@ function SidePanel() {
                             <RefreshIcon />
                           </button>
                         ) : (
-                          !facebookUrl ? <span className="post-history-no-action">-</span> : null
+                          !postUrl ? <span className="post-history-no-action">-</span> : null
                         )}
                         </div>
                       </td>
@@ -4045,7 +4046,10 @@ function buildPostHistoryPaginationItems(currentPage: number, pageCount: number)
 }
 
 function isRefreshableFacebookHistoryItem(item: FacebookPublishHistoryListItem) {
-  return item.facebookReviewStatus === 'PENDING_REVIEW' || item.facebookReviewStatus === 'UNKNOWN';
+  return (
+    (item.facebookReviewStatus === 'PENDING_REVIEW' || item.facebookReviewStatus === 'UNKNOWN')
+    && Boolean(getValidFacebookGroupPostUrl(item.externalPostUrl))
+  );
 }
 
 function toFacebookGroupUiItem(group: FacebookPublishTarget) {

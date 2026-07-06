@@ -741,7 +741,7 @@ async function clickAndWaitForSubmission(
       waitForFacebookSubmissionInPage,
       [content],
     );
-    return enrichFacebookPublishResultWithPostUrl(tabId, content, submissionResult);
+    return await enrichFacebookPublishResultWithPostUrl(tabId, content, submissionResult);
   } catch (error) {
     return {
       status: 'FAILED',
@@ -2419,7 +2419,9 @@ async function captureSubmittedFacebookPostUrlInPage(
       element.getAttribute('title') ?? '',
     ].join(' '));
     const value = `${text} ${label}`.trim();
-    return /vua xong|just now|^\d+\s*(m|min|mins|minute|minutes|phut)$|^\d+\s*(s|sec|secs|second|seconds|giay)$/.test(value);
+    if (!value || value.length > 80) return false;
+
+    return /(^|\s)(vua xong|just now)(\s|$)|^\d+\s*(m|min|mins|minute|minutes|phut)$|^\d+\s*(s|sec|secs|second|seconds|giay)$/.test(value);
   };
   const findSubmittedPostCards = () => Array.from(
     document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]'),
