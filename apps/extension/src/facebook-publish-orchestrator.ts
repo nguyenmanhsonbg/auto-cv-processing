@@ -48,6 +48,8 @@ interface FacebookPagePublishResult {
   message: string;
   externalPostId?: string | null;
   externalPostUrl?: string | null;
+  submitClickDispatched?: boolean;
+  postClickEvidence?: boolean;
 }
 
 interface FacebookPostReviewStatusProbeInput {
@@ -92,6 +94,11 @@ interface FacebookPendingPostUrlRecoveryInput {
   contentPreview?: string | null;
   targetUrl?: string | null;
   targetExternalId?: string | null;
+}
+
+interface FacebookSubmittedPostRecoveryResult {
+  probe: FacebookPostReviewStatusProbeResult | null;
+  postUrl: NonNullable<ReturnType<typeof parseFacebookGroupPostUrl>> | null;
 }
 
 export async function publishFacebookPlan(
@@ -583,13 +590,21 @@ async function publishTarget(
 
   let latestFailure: FacebookPagePublishResult | null = null;
   for (let tabAttempt = 0; tabAttempt < 2; tabAttempt += 1) {
-    const result = await publishTargetInFreshTab(target.targetUrl, target.targetExternalId, content).catch((error) => ({
-      status: 'FAILED' as const,
+    const result: FacebookPagePublishResult = await publishTargetInFreshTab(
+      target.targetUrl,
+      target.targetExternalId,
+      content,
+    ).catch((error): FacebookPagePublishResult => ({
+      status: 'FAILED',
       message: toAutomationErrorMessage(error),
     }));
 
     latestFailure = result;
-    if (result.status !== 'FAILED' || !isRecoverableTabAutomationFailure(result.message)) {
+    if (
+      result.status !== 'FAILED'
+      || result.submitClickDispatched
+      || !isRecoverableTabAutomationFailure(result.message)
+    ) {
       return result;
     }
 
@@ -721,6 +736,13 @@ function getPublishResultReviewStatus(result: FacebookPagePublishResult): Facebo
   const postUrl = parseFacebookGroupPostUrl(result.externalPostUrl);
   if (postUrl?.pathType === 'pending_posts') return 'PENDING_REVIEW';
   if (postUrl?.pathType === 'posts') return 'POSTED';
+
+  if (
+    result.status === 'SUCCESS'
+    && /post url.*not.*captured|post url.*could not.*captured|url still needs recovery|requires url confirmation/.test(message)
+  ) {
+    return 'UNKNOWN';
+  }
 
   if (result.status === 'SUCCESS') {
     return 'POSTED';
@@ -953,6 +975,7 @@ async function submitPreparedPost(
   const hiddenResult = await clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId);
   if (
     hiddenResult.status === 'SUCCESS'
+    || hiddenResult.submitClickDispatched
     || isRecoverableTabAutomationFailure(hiddenResult.message)
     || !shouldRetryBackgroundSubmitFailure(hiddenResult.message)
   ) {
@@ -1004,15 +1027,25 @@ async function clickAndWaitForSubmission(
     return await enrichFacebookPublishResultWithPostUrl(
       tabId,
       content,
-      submissionResult,
+      {
+        ...submissionResult,
+        submitClickDispatched: true,
+      },
       targetUrl,
       targetExternalId,
     );
   } catch (error) {
-    return {
-      status: 'FAILED',
-      message: toAutomationErrorMessage(error),
-    };
+    return enrichFacebookPublishResultWithPostUrl(
+      tabId,
+      content,
+      {
+        status: 'FAILED',
+        message: `Facebook post submission could not be observed after submit click. ${toAutomationErrorMessage(error)}`,
+        submitClickDispatched: true,
+      },
+      targetUrl,
+      targetExternalId,
+    );
   }
 }
 
@@ -1023,18 +1056,58 @@ async function enrichFacebookPublishResultWithPostUrl(
   targetUrl: string | null | undefined,
   targetExternalId: string | null | undefined,
 ): Promise<FacebookPagePublishResult> {
-  if (result.status !== 'SUCCESS') return result;
+  const shouldRecoverPostUrl = result.status === 'SUCCESS'
+    || (result.submitClickDispatched && isPostClickConfirmationFailure(result.message));
+  if (!shouldRecoverPostUrl) return result;
 
   const existingPostUrl = parseFacebookGroupPostUrl(result.externalPostUrl);
   if (existingPostUrl) {
     return {
       ...result,
+      status: 'SUCCESS',
       externalPostId: existingPostUrl.postId,
       externalPostUrl: existingPostUrl.url,
     };
   }
 
-  const captured = await runScript<[FacebookPendingPostUrlRecoveryInput], FacebookPostReviewStatusProbeResult>(
+  const currentPageRecovery = await recoverFacebookSubmittedPostUrlInCurrentPage(
+    tabId,
+    content,
+    targetUrl,
+    targetExternalId,
+  );
+  const currentPageResult = buildFacebookPublishResultFromRecovery(result, currentPageRecovery);
+  if (currentPageResult) return currentPageResult;
+
+  const pendingManagerRecovery = await recoverFacebookSubmittedPostUrlFromPendingManager(
+    tabId,
+    content,
+    targetUrl,
+    targetExternalId,
+  );
+  const pendingManagerResult = buildFacebookPublishResultFromRecovery(result, pendingManagerRecovery);
+  if (pendingManagerResult) return pendingManagerResult;
+
+  if (result.status === 'SUCCESS') {
+    return {
+      ...result,
+      status: 'FAILED',
+      message: `${result.message} However, the submitted post could not be verified in the Facebook group or pending manager.`,
+      externalPostId: null,
+      externalPostUrl: null,
+    };
+  }
+
+  return result;
+}
+
+async function recoverFacebookSubmittedPostUrlInCurrentPage(
+  tabId: number,
+  content: string,
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
+): Promise<FacebookSubmittedPostRecoveryResult> {
+  const recoverInCurrentPage = async () => runScript<[FacebookPendingPostUrlRecoveryInput], FacebookPostReviewStatusProbeResult>(
     tabId,
     recoverFacebookPendingPostUrlInPage,
     [{
@@ -1043,65 +1116,96 @@ async function enrichFacebookPublishResultWithPostUrl(
       targetExternalId: targetExternalId ?? null,
     }],
   ).catch(() => null);
-  const capturedPostUrl = parseFacebookGroupPostUrl(captured?.externalPostUrl);
 
-  if (capturedPostUrl) {
-    return {
-      ...result,
-      externalPostId: capturedPostUrl.postId,
-      externalPostUrl: capturedPostUrl.url,
-      message: captured?.message || result.message,
-    };
-  }
+  let probe = await recoverInCurrentPage();
+  let postUrl = parseFacebookGroupPostUrl(probe?.externalPostUrl);
+  if (postUrl) return { probe, postUrl };
 
-  if (captured?.timestampClickPoint) {
-    await clickTabCoordinatePoint(tabId, captured.timestampClickPoint).catch(() => undefined);
+  if (probe?.timestampClickPoint) {
+    await clickTabCoordinatePoint(tabId, probe.timestampClickPoint).catch(() => undefined);
     const clickedPostUrl = await waitForExpectedFacebookPostUrlInTab(
       tabId,
       targetUrl,
       targetExternalId,
-      8_000,
+      10_000,
     );
     if (clickedPostUrl) {
       return {
-        ...result,
-        externalPostId: clickedPostUrl.postId,
-        externalPostUrl: clickedPostUrl.url,
-        message: 'Confirmed Facebook group post URL by opening the submitted post timestamp.',
+        probe: {
+          ...probe,
+          facebookReviewStatus: clickedPostUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
+          message: 'Confirmed Facebook group post URL by opening the submitted post timestamp.',
+          externalPostId: clickedPostUrl.postId,
+          externalPostUrl: clickedPostUrl.url,
+        },
+        postUrl: clickedPostUrl,
       };
     }
 
     await sleep(randomDelay(700, 1_200));
-    const retryCaptured = await runScript<[FacebookPendingPostUrlRecoveryInput], FacebookPostReviewStatusProbeResult>(
-      tabId,
-      recoverFacebookPendingPostUrlInPage,
-      [{
-        contentPreview: content,
-        targetUrl: targetUrl ?? null,
-        targetExternalId: targetExternalId ?? null,
-      }],
-    ).catch(() => null);
-    const retryPostUrl = parseFacebookGroupPostUrl(retryCaptured?.externalPostUrl);
-    if (retryPostUrl) {
-      return {
-        ...result,
-        externalPostId: retryPostUrl.postId,
-        externalPostUrl: retryPostUrl.url,
-        message: retryCaptured?.message || result.message,
-      };
-    }
+    probe = await recoverInCurrentPage();
+    postUrl = parseFacebookGroupPostUrl(probe?.externalPostUrl);
+    if (postUrl) return { probe, postUrl };
   }
 
+  return { probe, postUrl: null };
+}
+
+async function recoverFacebookSubmittedPostUrlFromPendingManager(
+  tabId: number,
+  content: string,
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
+): Promise<FacebookSubmittedPostRecoveryResult> {
+  const pendingManagerUrl = buildFacebookPendingPostsManagerUrl(targetUrl, targetExternalId);
+  if (!pendingManagerUrl) {
+    return { probe: null, postUrl: null };
+  }
+
+  await chrome.tabs?.update(tabId, { url: pendingManagerUrl });
+  await waitForTabComplete(tabId);
+  await sleep(randomDelay(1_500, 3_000));
+
+  return recoverFacebookSubmittedPostUrlInCurrentPage(tabId, content, targetUrl, targetExternalId);
+}
+
+function buildFacebookPublishResultFromRecovery(
+  result: FacebookPagePublishResult,
+  recovery: FacebookSubmittedPostRecoveryResult,
+): FacebookPagePublishResult | null {
+  if (recovery.postUrl) {
+    return {
+      ...result,
+      status: 'SUCCESS',
+      externalPostId: recovery.postUrl.postId,
+      externalPostUrl: recovery.postUrl.url,
+      message: recovery.probe?.message || result.message,
+      postClickEvidence: true,
+    };
+  }
+
+  const probeMessage = recovery.probe?.message ?? '';
+  const matchedSubmittedPost = recovery.probe
+    && recovery.probe.facebookReviewStatus !== 'UNKNOWN'
+    && /matched|recovered|current facebook url|pending post card|submitted post/i.test(probeMessage);
+  if (!matchedSubmittedPost) return null;
+
   return {
-    status: 'FAILED',
-    message: `Facebook submission could not be confirmed after submit click. ${captured?.message ?? result.message}`,
+    ...result,
+    status: 'SUCCESS',
+    message: `${probeMessage} Post URL could not be captured automatically.`,
     externalPostId: null,
     externalPostUrl: null,
+    postClickEvidence: true,
   };
 }
 
+function isPostClickConfirmationFailure(message: string) {
+  return /could not be confirmed after submit click|could not be observed after submit click|composer closed after submit|post surface changed after submit|post submission did not complete after clicking/i.test(message);
+}
+
 function shouldRetryBackgroundSubmitFailure(message: string) {
-  return /did not complete|submit click|target closed|target page|cannot access|remained available|not triggered|not activated|resolve.*post button|ready before submit/i.test(message);
+  return /target closed|target page|cannot access|not activated|post editor is not open before submit|post content is not present before submit|post button is not ready before submit|could not resolve facebook post button before submit/i.test(message);
 }
 
 async function runScript<Args extends unknown[], Result>(
@@ -3403,20 +3507,21 @@ async function waitForFacebookSubmissionInPage(content: string): Promise<Faceboo
   const readSubmissionMessage = () => {
     const text = normalize(document.body?.innerText ?? '');
     if (
-      /pending|waiting for approval|dang cho.{0,120}phe duyet|cho quan tri vien phe duyet|bai viet.{0,120}cho.{0,120}phe duyet|cho duyet/.test(text)
+      /pending approval|waiting for approval|dang cho.{0,120}phe duyet|cho quan tri vien phe duyet|bai viet.{0,120}cho.{0,120}phe duyet|bai viet.{0,120}dang cho/.test(text)
     ) {
       return 'Submitted to Facebook group: pending approval detected.';
     }
-    if (/submitted|da gui|cam on ban da dang bai/.test(text)) {
+    if (/submitted.{0,80}(facebook|group|post|approval)|da gui.{0,80}(bai|nhom|phe duyet)|cam on ban da dang bai/.test(text)) {
       return 'Submitted to Facebook group.';
     }
 
     return null;
   };
   const startedAt = Date.now();
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 45_000;
   let observedPostContentAfterClick = false;
   let observedSubmitButtonAfterClick = false;
+  let observedPostSurfaceChangeAfterClick = false;
 
   while (Date.now() < deadline) {
     const errorMessage = readSubmissionError();
@@ -3432,23 +3537,34 @@ async function waitForFacebookSubmissionInPage(content: string): Promise<Faceboo
       return {
         status: 'SUCCESS',
         message: submissionMessage,
+        postClickEvidence: true,
       };
     }
 
     const postSurfaceState = readPostSurfaceState();
     observedPostContentAfterClick = observedPostContentAfterClick || postSurfaceState.contentInEditor;
     observedSubmitButtonAfterClick = observedSubmitButtonAfterClick || postSurfaceState.submitButtonFound;
+    observedPostSurfaceChangeAfterClick = observedPostSurfaceChangeAfterClick
+      || (
+        observedPostContentAfterClick
+        && (
+          !postSurfaceState.contentInEditor
+          || !postSurfaceState.submitButtonFound
+          || postSurfaceState.submitButtonDisabled
+        )
+      );
     const elapsedMs = Date.now() - startedAt;
 
     if (!postSurfaceState.hasPostSurface && elapsedMs > 1_200) {
       return {
-        status: 'SUCCESS',
-        message: 'Facebook composer closed after submit; post creation still requires URL confirmation.',
+        status: 'FAILED',
+        message: 'Facebook composer closed after submit; post URL still needs recovery.',
+        postClickEvidence: true,
       };
     }
 
     if (
-      elapsedMs > 5_000
+      elapsedMs > 15_000
       && postSurfaceState.contentInEditor
       && postSurfaceState.submitButtonFound
       && !postSurfaceState.submitButtonDisabled
@@ -3461,6 +3577,14 @@ async function waitForFacebookSubmissionInPage(content: string): Promise<Faceboo
     }
 
     await sleepInPage(500);
+  }
+
+  if (observedPostSurfaceChangeAfterClick) {
+    return {
+      status: 'FAILED',
+      message: 'Facebook post surface changed after submit; post URL still needs recovery.',
+      postClickEvidence: true,
+    };
   }
 
   return {
