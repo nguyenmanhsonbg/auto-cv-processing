@@ -1,5 +1,6 @@
 import { ApiClientError, reportFacebookPublishResult } from './api-client';
 import { getAccessToken } from './auth-store';
+import { summarizeFacebookPublishResults } from './facebook-channel-status';
 import {
   buildFacebookGroupPostUrl,
   parseFacebookGroupPostUrl,
@@ -71,6 +72,12 @@ interface FacebookSubmitButtonPoint {
   clientX: number;
   clientY: number;
   label: string;
+  rect?: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
 }
 
 interface FacebookPreparedPostResult {
@@ -89,11 +96,26 @@ interface FacebookSubmitPreflightResult {
   message: string;
 }
 
+interface FacebookSubmitActivationResult {
+  activated: boolean;
+  message: string;
+  submitButton?: FacebookSubmitButtonPoint | null;
+}
+
+interface FacebookSubmitDiagnosticInput {
+  targetUrl?: string | null;
+  targetExternalId?: string | null;
+  tabActive?: boolean | null;
+  clickPoint?: FacebookSubmitButtonPoint | null;
+  activationMode?: string | null;
+}
+
 interface FacebookPendingPostUrlRecoveryInput {
   title?: string | null;
   contentPreview?: string | null;
   targetUrl?: string | null;
   targetExternalId?: string | null;
+  requireRecent?: boolean | null;
 }
 
 interface FacebookSubmittedPostRecoveryResult {
@@ -204,11 +226,12 @@ export async function publishFacebookPlan(
     }
   }
 
+  const summary = summarizeFacebookPublishResults(results);
   callbacks.onProgress?.({
-    status: 'SUCCESS',
+    status: summary.progressStatus,
     currentIndex: total,
     total,
-    message: 'Facebook publishing completed.',
+    message: summary.message,
     results,
   });
 
@@ -1009,8 +1032,10 @@ async function clickAndWaitForSubmission(
     };
   }
 
+  const tabBeforeClick = await chrome.tabs?.get(tabId).catch(() => null);
+  let clickPoint = submitButton;
   try {
-    await clickTabPoint(tabId, submitButton);
+    clickPoint = await clickTabPoint(tabId, submitButton);
   } catch (error) {
     return {
       status: 'FAILED',
@@ -1019,11 +1044,52 @@ async function clickAndWaitForSubmission(
   }
 
   try {
-    const submissionResult = await runScript<[string], FacebookPagePublishResult>(
+    let submissionResult = await runScript<[string, FacebookSubmitDiagnosticInput], FacebookPagePublishResult>(
       tabId,
       waitForFacebookSubmissionInPage,
-      [content],
+      [content, {
+        targetUrl: targetUrl ?? null,
+        targetExternalId: targetExternalId ?? null,
+        tabActive: (tabBeforeClick as { active?: boolean } | null)?.active ?? null,
+        clickPoint,
+      }],
     );
+    if (shouldUseHiddenTabSubmitActivationFallback(submissionResult.message)) {
+      const activationResult = await runScript<[string], FacebookSubmitActivationResult>(
+        tabId,
+        activateFacebookSubmitButtonInPage,
+        [content],
+      ).catch((error): FacebookSubmitActivationResult => ({
+        activated: false,
+        message: toAutomationErrorMessage(error),
+        submitButton: null,
+      }));
+
+      if (activationResult.activated) {
+        const fallbackResult = await runScript<[string, FacebookSubmitDiagnosticInput], FacebookPagePublishResult>(
+          tabId,
+          waitForFacebookSubmissionInPage,
+          [content, {
+            targetUrl: targetUrl ?? null,
+            targetExternalId: targetExternalId ?? null,
+            tabActive: (tabBeforeClick as { active?: boolean } | null)?.active ?? null,
+            clickPoint: activationResult.submitButton ?? clickPoint,
+            activationMode: 'dom-click-fallback',
+          }],
+        );
+        submissionResult = fallbackResult.status === 'FAILED'
+          ? {
+            ...fallbackResult,
+            message: `${fallbackResult.message}; fallbackActivation="${shortenAutomationMessage(activationResult.message)}"; firstFailure="${shortenAutomationMessage(submissionResult.message)}"`,
+          }
+          : fallbackResult;
+      } else {
+        submissionResult = {
+          ...submissionResult,
+          message: `${submissionResult.message}; fallbackActivationFailed="${shortenAutomationMessage(activationResult.message)}"`,
+        };
+      }
+    }
     return await enrichFacebookPublishResultWithPostUrl(
       tabId,
       content,
@@ -1088,11 +1154,34 @@ async function enrichFacebookPublishResultWithPostUrl(
   const pendingManagerResult = buildFacebookPublishResultFromRecovery(result, pendingManagerRecovery);
   if (pendingManagerResult) return pendingManagerResult;
 
+  if (result.status === 'SUCCESS' && isSimilarButNotRecentRecovery(pendingManagerRecovery.probe)) {
+    const existingPendingRecovery = await recoverFacebookSubmittedPostUrlFromPendingManager(
+      tabId,
+      content,
+      targetUrl,
+      targetExternalId,
+      false,
+    );
+    if (existingPendingRecovery.postUrl) {
+      return {
+        ...result,
+        status: 'SUCCESS',
+        externalPostId: existingPendingRecovery.postUrl.postId,
+        externalPostUrl: existingPendingRecovery.postUrl.url,
+        message: `${existingPendingRecovery.probe?.message || 'Recovered Facebook group post URL from an existing matching pending post.'} Facebook did not expose a recent pending card for this submit; using the existing matching pending post as an idempotent result.`,
+        postClickEvidence: true,
+      };
+    }
+  }
+
   if (result.status === 'SUCCESS') {
+    const recoveryMessage = pendingManagerRecovery.probe?.message
+      || currentPageRecovery.probe?.message
+      || 'No matching verified post URL was found.';
     return {
       ...result,
       status: 'FAILED',
-      message: `${result.message} However, the submitted post could not be verified in the Facebook group or pending manager.`,
+      message: `${result.message} Facebook showed a post-click pending/submitted signal, but the submitted post could not be verified in the target group or pending manager. ${recoveryMessage}`,
       externalPostId: null,
       externalPostUrl: null,
     };
@@ -1106,6 +1195,7 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
   content: string,
   targetUrl: string | null | undefined,
   targetExternalId: string | null | undefined,
+  requireRecent = true,
 ): Promise<FacebookSubmittedPostRecoveryResult> {
   const recoverInCurrentPage = async () => runScript<[FacebookPendingPostUrlRecoveryInput], FacebookPostReviewStatusProbeResult>(
     tabId,
@@ -1114,6 +1204,7 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
       contentPreview: content,
       targetUrl: targetUrl ?? null,
       targetExternalId: targetExternalId ?? null,
+      requireRecent,
     }],
   ).catch(() => null);
 
@@ -1156,17 +1247,32 @@ async function recoverFacebookSubmittedPostUrlFromPendingManager(
   content: string,
   targetUrl: string | null | undefined,
   targetExternalId: string | null | undefined,
+  requireRecent = true,
 ): Promise<FacebookSubmittedPostRecoveryResult> {
   const pendingManagerUrl = buildFacebookPendingPostsManagerUrl(targetUrl, targetExternalId);
   if (!pendingManagerUrl) {
     return { probe: null, postUrl: null };
   }
 
-  await chrome.tabs?.update(tabId, { url: pendingManagerUrl });
-  await waitForTabComplete(tabId);
-  await sleep(randomDelay(1_500, 3_000));
+  let latestRecovery: FacebookSubmittedPostRecoveryResult = { probe: null, postUrl: null };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await chrome.tabs?.update(tabId, { url: pendingManagerUrl });
+    await waitForTabComplete(tabId);
+    await sleep(randomDelay(attempt === 0 ? 2_000 : 3_000, attempt === 0 ? 4_000 : 5_500));
 
-  return recoverFacebookSubmittedPostUrlInCurrentPage(tabId, content, targetUrl, targetExternalId);
+    latestRecovery = await recoverFacebookSubmittedPostUrlInCurrentPage(
+      tabId,
+      content,
+      targetUrl,
+      targetExternalId,
+      requireRecent,
+    );
+    if (latestRecovery.postUrl) return latestRecovery;
+
+    await sleep(randomDelay(900, 1_800));
+  }
+
+  return latestRecovery;
 }
 
 function buildFacebookPublishResultFromRecovery(
@@ -1184,20 +1290,11 @@ function buildFacebookPublishResultFromRecovery(
     };
   }
 
-  const probeMessage = recovery.probe?.message ?? '';
-  const matchedSubmittedPost = recovery.probe
-    && recovery.probe.facebookReviewStatus !== 'UNKNOWN'
-    && /matched|recovered|current facebook url|pending post card|submitted post/i.test(probeMessage);
-  if (!matchedSubmittedPost) return null;
+  return null;
+}
 
-  return {
-    ...result,
-    status: 'SUCCESS',
-    message: `${probeMessage} Post URL could not be captured automatically.`,
-    externalPostId: null,
-    externalPostUrl: null,
-    postClickEvidence: true,
-  };
+function isSimilarButNotRecentRecovery(probe: FacebookPostReviewStatusProbeResult | null | undefined) {
+  return Boolean(probe?.message && /similar pending post cards.*none were recent enough/i.test(probe.message));
 }
 
 function isPostClickConfirmationFailure(message: string) {
@@ -1206,6 +1303,16 @@ function isPostClickConfirmationFailure(message: string) {
 
 function shouldRetryBackgroundSubmitFailure(message: string) {
   return /target closed|target page|cannot access|not activated|post editor is not open before submit|post content is not present before submit|post button is not ready before submit|could not resolve facebook post button before submit/i.test(message);
+}
+
+function shouldUseHiddenTabSubmitActivationFallback(message: string) {
+  return /^FB_SUBMIT_(BUTTON_STILL_READY|CLICK_POINT_STALE):/.test(message)
+    && /visibility=hidden|tabActive=false/.test(message);
+}
+
+function shortenAutomationMessage(message: string, maxLength = 360) {
+  const normalized = message.replace(/\s+/g, ' ').trim();
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 async function runScript<Args extends unknown[], Result>(
@@ -1226,13 +1333,14 @@ async function runScript<Args extends unknown[], Result>(
   return result.result;
 }
 
-async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint) {
+async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint): Promise<FacebookSubmitButtonPoint> {
   if (!chrome.debugger) {
     throw new Error('chrome.debugger API is unavailable for Facebook submit click.');
   }
 
   const target = { tabId };
   await debuggerAttach(target, '1.3');
+  let clickPoint = point;
   try {
     await sleep(randomDelay(250, 450));
     const probedPoint = await runScript<[], FacebookSubmitButtonPointProbe>(
@@ -1243,7 +1351,7 @@ async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint) {
     if (probedPoint && !probedPoint.found) {
       throw new Error('Could not resolve Facebook Post button before submit click.');
     }
-    const clickPoint = probedPoint?.found && probedPoint.submitButton
+    clickPoint = probedPoint?.found && probedPoint.submitButton
       ? probedPoint.submitButton
       : point;
 
@@ -1270,6 +1378,7 @@ async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint) {
       buttons: 0,
       clickCount: 1,
     });
+    return clickPoint;
   } finally {
     await debuggerDetach(target).catch(() => undefined);
   }
@@ -2217,6 +2326,7 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
   clickableButton.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
   await sleepInPage(150);
   const clickPoint = resolveClickPoint(submitButton);
+  const rect = getClickableElement(submitButton).getBoundingClientRect();
 
   return {
     status: 'READY_TO_SUBMIT',
@@ -2225,6 +2335,12 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
       clientX: clickPoint.clientX,
       clientY: clickPoint.clientY,
       label: elementLabel(submitButton),
+      rect: {
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      },
     },
   };
 }
@@ -2385,18 +2501,241 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
 
     if (button) {
       const clickPoint = resolveClickPoint(button);
+      const rect = getClickableElement(button).getBoundingClientRect();
       return {
         found: true,
         submitButton: {
           clientX: clickPoint.clientX,
           clientY: clickPoint.clientY,
           label: elementLabel(button),
+          rect: {
+            left: Math.round(rect.left),
+            top: Math.round(rect.top),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          },
         },
       };
     }
   }
 
   return { found: false };
+}
+
+function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActivationResult {
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  const POST_BUTTON_PATTERNS = [
+    /^post$/,
+    /^dang$/,
+    /^post post$/,
+    /^dang dang$/,
+    /^post to group$/,
+    /^dang bai$/,
+    /^dang tin$/,
+    /^dang len nhom$/,
+    /^dang vao nhom$/,
+  ];
+  const COMMENT_PATTERNS = [
+    /write a comment/,
+    /add a comment/,
+    /comment as/,
+    /reply/,
+    /binh luan/,
+    /viet binh luan/,
+    /tra loi/,
+    /viet phan hoi/,
+  ];
+  const POST_COMPOSER_PATTERNS = [
+    /write something/,
+    /create a public post/,
+    /create post/,
+    /start a post/,
+    /what.?s on your mind/,
+    /ban viet gi/,
+    /viet gi/,
+    /tao bai viet/,
+  ];
+  const queryAll = (root: Document | Element, selector: string) => (
+    Array.from(root.querySelectorAll(selector))
+  );
+  const isVisible = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.visibility !== 'hidden'
+      && style.display !== 'none';
+  };
+  const elementLabel = (element: Element) => normalize([
+    element.textContent ?? '',
+    element.getAttribute('aria-label') ?? '',
+    element.getAttribute('aria-placeholder') ?? '',
+    element.getAttribute('placeholder') ?? '',
+    element.getAttribute('title') ?? '',
+  ].join(' '));
+  const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
+  const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
+  const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
+  const getClickableElement = (element: Element) => (
+    element.closest('button, [role="button"], [tabindex], a') ?? element
+  );
+  const isDisabled = (element: Element) => {
+    const clickable = getClickableElement(element);
+    return clickable.hasAttribute('disabled')
+      || clickable.getAttribute('aria-disabled') === 'true';
+  };
+  const isInsideCommentSurface = (element: Element) => {
+    if (isCommentLabel(elementLabel(element))) return true;
+
+    let current = element.parentElement;
+    let depth = 0;
+    while (current && depth < 8) {
+      const label = elementLabel(current);
+      if (matchesAny(label, POST_COMPOSER_PATTERNS) || isSubmitLabel(label)) return false;
+      if (isCommentLabel(label)) return true;
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return false;
+  };
+  const resolveClickPoint = (element: Element) => {
+    const clickable = getClickableElement(element);
+    const rect = clickable.getBoundingClientRect();
+    const candidates = [
+      [0.5, 0.5],
+      [0.15, 0.5],
+      [0.85, 0.5],
+      [0.5, 0.25],
+      [0.5, 0.75],
+    ];
+
+    for (const [xRatio, yRatio] of candidates) {
+      const clientX = Math.round(rect.left + rect.width * xRatio);
+      const clientY = Math.round(rect.top + rect.height * yRatio);
+      const hit = document.elementFromPoint(clientX, clientY);
+      const hitClickable = hit?.closest?.('button, [role="button"], [tabindex], a');
+      if (hit && (hit === clickable || clickable.contains(hit) || hitClickable === clickable)) {
+        return { clientX, clientY };
+      }
+    }
+
+    return {
+      clientX: Math.round(rect.left + rect.width / 2),
+      clientY: Math.round(rect.top + rect.height / 2),
+    };
+  };
+  const findSubmitButton = () => {
+    const roots = [
+      ...queryAll(document, '[role="dialog"]').filter(isVisible),
+      document,
+    ];
+    for (const root of roots) {
+      const uniqueClickables = new Set<Element>();
+      const button = queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
+        .map((element) => ({
+          source: element,
+          clickable: getClickableElement(element),
+        }))
+        .filter(({ source, clickable }) => {
+          if (uniqueClickables.has(clickable)) return false;
+          uniqueClickables.add(clickable);
+          if (!isVisible(clickable) || isDisabled(clickable) || isInsideCommentSurface(source)) return false;
+          const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
+          return labels.some(isSubmitLabel);
+        })
+        .map(({ source, clickable }) => {
+          const rect = clickable.getBoundingClientRect();
+          const label = elementLabel(clickable) || elementLabel(source);
+          return {
+            element: clickable,
+            score: (/^post$|^dang$/.test(label) ? 120 : 40)
+              + (clickable.closest('[role="dialog"]') ? 70 : 0)
+              + (clickable.tagName === 'BUTTON' || clickable.getAttribute('role') === 'button' ? 60 : 0)
+              + (label.length <= 40 ? 30 : 0)
+              - Math.min(60, (rect.width * rect.height) / 1800),
+          };
+        })
+        .sort((left, right) => right.score - left.score)[0]?.element ?? null;
+      if (button) return button;
+    }
+
+    return null;
+  };
+  const hasSubmittedContentInEditor = () => {
+    const contentSample = normalize(content).slice(0, 24);
+    if (!contentSample) return true;
+
+    return queryAll(document, '[contenteditable="true"][role="textbox"], [contenteditable="true"]')
+      .filter((element): element is HTMLElement => element instanceof HTMLElement)
+      .filter(isVisible)
+      .some((editor) => normalize(editor.innerText || editor.textContent || '').includes(contentSample));
+  };
+  const dispatchMouse = (element: Element, type: string, point: { clientX: number; clientY: number }) => {
+    element.dispatchEvent(new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: point.clientX,
+      clientY: point.clientY,
+      button: 0,
+      buttons: type === 'mouseup' || type === 'click' ? 0 : 1,
+    }));
+  };
+
+  if (!hasSubmittedContentInEditor()) {
+    return {
+      activated: false,
+      message: 'DOM fallback skipped because submitted content is not present in the composer editor.',
+      submitButton: null,
+    };
+  }
+
+  const submitButton = findSubmitButton();
+  if (!submitButton) {
+    return {
+      activated: false,
+      message: 'DOM fallback could not find an enabled Facebook submit button.',
+      submitButton: null,
+    };
+  }
+
+  const clickable = getClickableElement(submitButton);
+  clickable.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+  const point = resolveClickPoint(clickable);
+  const rect = clickable.getBoundingClientRect();
+  if (clickable instanceof HTMLElement) {
+    clickable.focus({ preventScroll: true });
+  }
+
+  dispatchMouse(clickable, 'mouseover', point);
+  dispatchMouse(clickable, 'mousemove', point);
+  dispatchMouse(clickable, 'mousedown', point);
+  dispatchMouse(clickable, 'mouseup', point);
+  dispatchMouse(clickable, 'click', point);
+
+  return {
+    activated: true,
+    message: 'DOM fallback dispatched mouse events to the enabled Facebook submit button.',
+    submitButton: {
+      clientX: point.clientX,
+      clientY: point.clientY,
+      label: elementLabel(clickable) || elementLabel(submitButton),
+      rect: {
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      },
+    },
+  };
 }
 
 function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitPreflightResult {
@@ -2733,20 +3072,25 @@ async function recoverFacebookPendingPostUrlInPage(
     /chua co bai viet nao de xem xet|khong co bai viet nao dang cho xem xet|no posts to review|no pending posts|no posts pending review/.test(text)
   );
   const hasPendingCue = (text: string) => (
-    /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet|admin approval/.test(text)
+    /pending|waiting for approval|awaiting approval|reviewing|under review|cho duyet|cho phe duyet|cho xet duyet|dang cho|dang cho xet duyet|quan tri vien phe duyet|admin approval/.test(text)
   );
   const makeSearchSamples = () => {
     const values = [input.title, input.contentPreview]
-      .map((value) => normalize(value ?? ''))
-      .filter((value) => value.length >= 8);
+      .filter((value): value is string => Boolean(value?.trim()));
 
     return [...new Set(values.flatMap((value) => {
-      const firstLine = value.split(/\n+/)[0]?.trim() ?? '';
-      const words = value.split(' ').filter((word) => word.length > 2);
+      const normalizedValue = normalize(value);
+      const lines = value
+        .split(/\r?\n+/)
+        .map((line) => normalize(line))
+        .filter((line) => line.length >= 8);
+      const firstLine = lines[0] ?? '';
+      const words = normalizedValue.split(' ').filter((word) => word.length > 2);
       return [
-        value.slice(0, 180),
         firstLine.slice(0, 140),
+        normalizedValue.slice(0, 180),
         words.slice(0, 16).join(' '),
+        ...lines.slice(1, 4).map((line) => line.slice(0, 120)),
       ].filter((sample) => sample.length >= 8);
     }))];
   };
@@ -2771,13 +3115,13 @@ async function recoverFacebookPendingPostUrlInPage(
     let best: Element = element;
     let depth = 0;
 
-    while (current && current !== document.body && depth < 10) {
+    while (current && current !== document.body && depth < 16) {
       const rect = current.getBoundingClientRect();
       const text = normalize(current.textContent ?? '');
       const looksLikeCard = rect.width >= 260
         && rect.height >= 70
         && text.length >= 40
-        && text.length <= 6_000;
+        && text.length <= 10_000;
       if (looksLikeCard) best = current;
       if (current.matches('[role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]')) {
         return current;
@@ -2826,7 +3170,14 @@ async function recoverFacebookPendingPostUrlInPage(
       .filter((item) => item.score >= 45)
       .sort((left, right) => right.score - left.score);
 
-    return scored[0]?.card ?? null;
+    const recentScored = input.requireRecent
+      ? scored.filter((item) => hasRecentTimestampCue(item.card))
+      : scored;
+
+    return {
+      card: recentScored[0]?.card ?? null,
+      sawSimilarButNotRecent: Boolean(input.requireRecent && scored.length > 0 && recentScored.length === 0),
+    };
   };
   const findPostUrlInCard = (card: Element) => {
     const links = Array.from(card.querySelectorAll('a[href]'));
@@ -2854,7 +3205,13 @@ async function recoverFacebookPendingPostUrlInPage(
     const value = textOf(element);
     if (!value || value.length > 90) return false;
 
-    return /(^|\s)(vua xong|just now|hom qua|yesterday)(\s|$)|^\d+\s*(s|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut|h|hr|hrs|hour|hours|gio|d|day|days|ngay|w|week|weeks|tuan|mo|month|months|thang|y|yr|year|years|nam)(\s|$)|^\d{1,2}\s*thang\s*\d{1,2}|^\d{1,2}\/\d{1,2}/.test(value);
+    return /(^|\s)(vua xong|just now|now|moments ago|a few seconds ago|few seconds ago|vai giay truoc|vai giay|mot chut truoc|hom qua|yesterday)(\s|$)|^\d+\s*(s|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut|h|hr|hrs|hour|hours|gio|d|day|days|ngay|w|week|weeks|tuan|mo|month|months|thang|y|yr|year|years|nam)(\s|$)|^(one|mot)\s*(m|min|mins|minute|minutes|phut)(\s|$)|^\d{1,2}\s*thang\s*\d{1,2}|^\d{1,2}\/\d{1,2}/.test(value);
+  };
+  const isRecentTimestampLike = (element: Element) => {
+    const value = textOf(element);
+    if (!value || value.length > 90) return false;
+
+    return /(^|\s)(vua xong|just now|now|moments ago|a few seconds ago|few seconds ago|seconds ago|vai giay truoc|vai giay|mot chut truoc)(\s|$)|(^|\s)([0-9]|10)\s*(s|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut)(\s|$)|(^|\s)(one|mot)\s*(m|min|mins|minute|minutes|phut)(\s|$)|(^|\s)(a few|few|vai)\s*(m|min|mins|minute|minutes|phut)\s*(ago|truoc)?(\s|$)/.test(value);
   };
   const elementAttributeText = (element: Element) => normalize([
     element.getAttribute('aria-label') ?? '',
@@ -2911,6 +3268,18 @@ async function recoverFacebookPendingPostUrlInPage(
       || clickable.getAttribute('role') === 'link'
   );
   const isInsideCard = (element: Element, card: Element) => card === element || card.contains(element);
+  const hasRecentTimestampCue = (card: Element) => {
+    const candidates = Array.from(card.querySelectorAll('a[href], [role="link"], [role="button"], button, span, div'))
+      .filter(isVisible);
+
+    return candidates.some((element) => {
+      const clickable = getClickableElement(element);
+      return isInsideCard(clickable, card)
+        && !isBadTimestampCandidate(element, card)
+        && !isBadTimestampCandidate(clickable, card)
+        && (isRecentTimestampLike(element) || isRecentTimestampLike(clickable));
+    });
+  };
   const buildTimestampPoint = (rect: DOMRect): FacebookSubmitButtonPoint => ({
     clientX: Math.round(rect.left + rect.width / 2),
     clientY: Math.round(rect.top + rect.height / 2),
@@ -3052,9 +3421,12 @@ async function recoverFacebookPendingPostUrlInPage(
   }
 
   const deadline = Date.now() + 15_000;
+  let sawSimilarButNotRecent = false;
   while (Date.now() < deadline) {
     const bodyText = normalize(document.body?.innerText ?? '');
-    const matchedCard = findBestCard();
+    const match = findBestCard();
+    sawSimilarButNotRecent = sawSimilarButNotRecent || match.sawSimilarButNotRecent;
+    const matchedCard = match.card;
     if (matchedCard) {
       const existingUrl = findPostUrlInCard(matchedCard);
       if (existingUrl) {
@@ -3102,7 +3474,9 @@ async function recoverFacebookPendingPostUrlInPage(
 
   return {
     facebookReviewStatus: 'UNKNOWN',
-    message: 'Could not find a matching pending post in the group pending posts manager.',
+    message: sawSimilarButNotRecent
+      ? 'Found similar pending post cards, but none were recent enough to confirm this submit.'
+      : 'Could not find a matching pending post in the group pending posts manager.',
     externalPostId: null,
     externalPostUrl: null,
   };
@@ -3258,7 +3632,10 @@ async function checkFacebookPostReviewStatusInPage(
   };
 }
 
-async function waitForFacebookSubmissionInPage(content: string): Promise<FacebookPagePublishResult> {
+async function waitForFacebookSubmissionInPage(
+  content: string,
+  diagnosticInput: FacebookSubmitDiagnosticInput = {},
+): Promise<FacebookPagePublishResult> {
   const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const normalize = (value: string) => value
     .normalize('NFD')
@@ -3268,6 +3645,47 @@ async function waitForFacebookSubmissionInPage(content: string): Promise<Faceboo
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+  const shorten = (value: string | null | undefined, maxLength = 160) => {
+    const normalized = normalize(value ?? '');
+    if (normalized.length <= maxLength) return normalized || 'none';
+    return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
+  };
+  const hashText = (value: string) => {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+    }
+
+    return Math.abs(hash).toString(36);
+  };
+  const rectValue = (element: Element | null | undefined) => {
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return {
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    };
+  };
+  const formatRect = (rect: FacebookSubmitButtonPoint['rect'] | null | undefined) => (
+    rect ? `(${rect.left},${rect.top},${rect.width},${rect.height})` : 'none'
+  );
+  const formatPoint = (point: FacebookSubmitButtonPoint | null | undefined) => (
+    point ? `(${Math.round(point.clientX)},${Math.round(point.clientY)})` : 'none'
+  );
+  const getTargetGroupId = () => {
+    if (diagnosticInput.targetExternalId) return diagnosticInput.targetExternalId;
+    if (!diagnosticInput.targetUrl) return 'unknown';
+
+    try {
+      const parsedUrl = new URL(diagnosticInput.targetUrl, window.location.href);
+      const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)/i);
+      return match?.[1] ? decodeURIComponent(match[1]) : 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  };
   const POST_BUTTON_PATTERNS = [
     /^post$/,
     /^dang$/,
@@ -3490,32 +3908,189 @@ async function waitForFacebookSubmissionInPage(content: string): Promise<Faceboo
       .find((element): element is Element => Boolean(element)) ?? null;
     const contentSample = normalize(content).slice(0, 24);
     const editorText = normalize(editor?.innerText || editor?.textContent || '');
+    const submitButtonLabel = submitButton ? elementLabel(submitButton) : 'none';
+    const submitButtonRect = rectValue(submitButton);
 
     return {
       hasPostSurface: Boolean(editor || submitButton),
       contentInEditor: Boolean(editor && (!contentSample || editorText.includes(contentSample))),
+      editorTextLength: editorText.length,
       submitButtonFound: Boolean(submitButton),
       submitButtonDisabled: submitButton ? isDisabled(submitButton) : false,
+      submitButtonLabel,
+      submitButtonRect,
     };
   };
-  const readSubmissionError = () => {
+  const readBodyErrorCue = () => {
     const text = normalize(document.body?.innerText ?? '');
-    return /something went wrong|try again|couldn.?t post|khong the dang|thu lai/.test(text)
-      ? 'Facebook returned a post submission error.'
-      : null;
+    const match = text.match(/.{0,80}(something went wrong|try again later|try again|couldn.?t post|temporarily blocked|you.?re temporarily blocked|spam|rate limit|khong the dang|thu lai sau|thu lai|tam thoi bi chan|bi chan|gioi han).{0,120}/);
+    return match?.[0] ? shorten(match[0], 220) : null;
   };
-  const readSubmissionMessage = () => {
-    const text = normalize(document.body?.innerText ?? '');
-    if (
-      /pending approval|waiting for approval|dang cho.{0,120}phe duyet|cho quan tri vien phe duyet|bai viet.{0,120}cho.{0,120}phe duyet|bai viet.{0,120}dang cho/.test(text)
-    ) {
-      return 'Submitted to Facebook group: pending approval detected.';
+  const readElementAtClickPoint = () => {
+    const point = diagnosticInput.clickPoint;
+    if (!point) {
+      return {
+        label: 'none',
+        tag: 'none',
+        role: 'none',
+        matchesSubmit: false,
+      };
     }
-    if (/submitted.{0,80}(facebook|group|post|approval)|da gui.{0,80}(bai|nhom|phe duyet)|cam on ban da dang bai/.test(text)) {
-      return 'Submitted to Facebook group.';
+
+    const hit = document.elementFromPoint(point.clientX, point.clientY);
+    const clickable = hit?.closest?.('button, [role="button"], [tabindex], a') ?? hit;
+    const label = clickable ? elementLabel(clickable) || (hit ? elementLabel(hit) : '') : 'none';
+    return {
+      label: shorten(label, 120),
+      tag: clickable?.tagName?.toLowerCase?.() ?? hit?.tagName?.toLowerCase?.() ?? 'none',
+      role: clickable?.getAttribute?.('role') ?? hit?.getAttribute?.('role') ?? 'none',
+      matchesSubmit: Boolean(clickable && isSubmitLabel(label)),
+    };
+  };
+  const readBlockingCue = () => {
+    const elements = queryAll(
+      document,
+      '[role="dialog"], [aria-modal="true"], [role="alert"], [role="status"], [aria-live]',
+    )
+      .filter((element) => isVisible(element))
+      .filter((element) => !isInsideCommentSurface(element));
+
+    for (const element of elements) {
+      const text = elementLabel(element);
+      if (
+        /captcha|security check|checkpoint|confirm your identity|unusual activity|temporarily blocked|try again later|rate limit|spam|login|log in|dang nhap|xac minh|hoat dong bat thuong|tam thoi bi chan|bi chan|gioi han|ma bao mat/.test(text)
+      ) {
+        return shorten(text, 240);
+      }
     }
 
     return null;
+  };
+  const readSubmissionError = () => {
+    const bodyErrorCue = readBodyErrorCue();
+    return bodyErrorCue
+      ? buildSubmitDiagnosticMessage(
+        'FB_SUBMIT_FACEBOOK_ERROR',
+        'Facebook returned a post submission error.',
+        readPostSurfaceState(),
+        { bodyErrorCue },
+      )
+      : null;
+  };
+  const contentSamples = (() => {
+    const normalizedContent = normalize(content);
+    const lines = content
+      .split(/\r?\n+/)
+      .map((line) => normalize(line))
+      .filter((line) => line.length >= 12);
+    const words = normalizedContent.split(' ').filter((word) => word.length > 2);
+
+    return [...new Set([
+      lines[0]?.slice(0, 120) ?? '',
+      normalizedContent.slice(0, 120),
+      words.slice(0, 14).join(' '),
+      ...lines.slice(1, 4).map((line) => line.slice(0, 100)),
+    ].filter((sample) => sample.length >= 12))];
+  })();
+  const textMatchesSubmittedContent = (text: string) => (
+    contentSamples.some((sample) => text.includes(sample) || (sample.length >= 32 && text.includes(sample.slice(0, 32))))
+  );
+  const pendingSubmissionPattern = /pending approval|waiting for approval|awaiting approval|dang cho.{0,120}phe duyet|dang cho.{0,120}xet duyet|cho quan tri vien phe duyet|bai viet.{0,120}cho.{0,120}phe duyet|bai viet.{0,120}dang cho/;
+  const submittedPattern = /submitted.{0,80}(facebook|group|post|approval)|da gui.{0,80}(bai|nhom|phe duyet)|cam on ban da dang bai/;
+  const isCompactLiveSurface = (element: Element, text: string) => {
+    if (text.length < 8 || text.length > 1_800) return false;
+
+    const role = element.getAttribute('role') ?? '';
+    const live = element.getAttribute('aria-live') ?? '';
+    return role === 'alert'
+      || role === 'status'
+      || role === 'dialog'
+      || (Boolean(live) && live !== 'off');
+  };
+  const readSubmissionMessage = () => {
+    const surfaces = queryAll(
+      document,
+      '[role="alert"], [role="status"], [aria-live], [role="dialog"], [role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]',
+    )
+      .filter((element) => isVisible(element))
+      .filter((element) => !isInsideCommentSurface(element));
+
+    for (const surface of surfaces) {
+      const text = elementLabel(surface);
+      const hasContent = textMatchesSubmittedContent(text);
+      const compactLiveSurface = isCompactLiveSurface(surface, text);
+      if (!hasContent && !compactLiveSurface) continue;
+
+      if (pendingSubmissionPattern.test(text)) {
+        return 'Submitted to Facebook group: pending approval detected.';
+      }
+
+      if (submittedPattern.test(text)) {
+        return 'Submitted to Facebook group.';
+      }
+    }
+
+    return null;
+  };
+  const readPendingSignalScope = () => {
+    const surfaces = queryAll(
+      document,
+      '[role="alert"], [role="status"], [aria-live], [role="dialog"], [role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]',
+    )
+      .filter((element) => isVisible(element))
+      .filter((element) => !isInsideCommentSurface(element));
+
+    for (const surface of surfaces) {
+      const text = elementLabel(surface);
+      if (!pendingSubmissionPattern.test(text) && !submittedPattern.test(text)) continue;
+
+      const hasContent = textMatchesSubmittedContent(text);
+      if (hasContent && (surface.getAttribute('role') === 'article' || surface.matches('article, [data-pagelet*="FeedUnit"], div[aria-posinset]'))) {
+        return 'card';
+      }
+
+      if (surface.getAttribute('role') === 'dialog') return hasContent ? 'dialog-with-content' : 'dialog';
+      if (isCompactLiveSurface(surface, text)) return hasContent ? 'toast-with-content' : 'toast';
+    }
+
+    const bodyText = normalize(document.body?.innerText ?? '');
+    return pendingSubmissionPattern.test(bodyText) || submittedPattern.test(bodyText) ? 'body-only' : 'none';
+  };
+  const buildSubmitDiagnosticMessage = (
+    code: string,
+    summary: string,
+    state = readPostSurfaceState(),
+    extra: Record<string, string | number | boolean | null | undefined> = {},
+  ) => {
+    const clickElement = readElementAtClickPoint();
+    const blockingCue = extra.blockingCue ?? readBlockingCue() ?? 'none';
+    const bodyErrorCue = extra.bodyErrorCue ?? readBodyErrorCue() ?? 'none';
+    const pendingSignalScope = readPendingSignalScope();
+    const clickPoint = diagnosticInput.clickPoint ?? null;
+    const contentHash = hashText(normalize(content));
+    const currentUrl = shorten(window.location.href, 180);
+    const fields = [
+      `targetGroupId=${getTargetGroupId()}`,
+      `tabActive=${diagnosticInput.tabActive ?? 'unknown'}`,
+      `activationMode=${diagnosticInput.activationMode ?? 'cdp-mouse'}`,
+      `visibility=${document.visibilityState}`,
+      `focused=${document.hasFocus()}`,
+      `click=${formatPoint(clickPoint)}`,
+      `clickLabel="${shorten(clickPoint?.label, 80)}"`,
+      `clickRect=${formatRect(clickPoint?.rect)}`,
+      `elementAtClick="${clickElement.label}"`,
+      `elementAtClickTag=${clickElement.tag}`,
+      `elementAtClickRole=${clickElement.role}`,
+      `elementAtClickMatchesSubmit=${clickElement.matchesSubmit}`,
+      `after={contentInEditor:${state.contentInEditor},editorTextLength:${state.editorTextLength},submitButtonFound:${state.submitButtonFound},submitButtonDisabled:${state.submitButtonDisabled},submitButtonLabel:"${shorten(state.submitButtonLabel, 80)}",submitButtonRect:${formatRect(state.submitButtonRect)}}`,
+      `pendingSignalScope=${pendingSignalScope}`,
+      `blockingCue="${shorten(String(blockingCue), 220)}"`,
+      `bodyErrorCue="${shorten(String(bodyErrorCue), 220)}"`,
+      `contentHash=${contentHash}`,
+      `currentUrl="${currentUrl}"`,
+    ];
+
+    return `${code}: ${summary} ${fields.join('; ')}`;
   };
   const startedAt = Date.now();
   const deadline = Date.now() + 45_000;
@@ -3554,11 +4129,28 @@ async function waitForFacebookSubmissionInPage(content: string): Promise<Faceboo
         )
       );
     const elapsedMs = Date.now() - startedAt;
+    const blockingCue = readBlockingCue();
+
+    if (blockingCue && elapsedMs > 1_200) {
+      return {
+        status: 'FAILED',
+        message: buildSubmitDiagnosticMessage(
+          'FB_SUBMIT_BLOCKED_BY_DIALOG',
+          'Facebook submit appears blocked by a visible dialog or security cue.',
+          postSurfaceState,
+          { blockingCue },
+        ),
+      };
+    }
 
     if (!postSurfaceState.hasPostSurface && elapsedMs > 1_200) {
       return {
         status: 'FAILED',
-        message: 'Facebook composer closed after submit; post URL still needs recovery.',
+        message: buildSubmitDiagnosticMessage(
+          'FB_SUBMIT_COMPOSER_CLOSED_UNVERIFIED',
+          'Facebook composer closed after submit; post URL still needs recovery.',
+          postSurfaceState,
+        ),
         postClickEvidence: true,
       };
     }
@@ -3570,9 +4162,16 @@ async function waitForFacebookSubmissionInPage(content: string): Promise<Faceboo
       && !postSurfaceState.submitButtonDisabled
       && (observedPostContentAfterClick || observedSubmitButtonAfterClick)
     ) {
+      const clickElement = readElementAtClickPoint();
+      const code = clickElement.matchesSubmit
+        ? 'FB_SUBMIT_BUTTON_STILL_READY'
+        : 'FB_SUBMIT_CLICK_POINT_STALE';
+      const summary = clickElement.matchesSubmit
+        ? 'Facebook submit button remained enabled after click; submit was not triggered.'
+        : 'Facebook click point no longer resolves to the submit button after click; submit was not triggered.';
       return {
         status: 'FAILED',
-        message: 'Facebook submit button remained available after click; submit was not triggered.',
+        message: buildSubmitDiagnosticMessage(code, summary, postSurfaceState),
       };
     }
 
@@ -3582,13 +4181,19 @@ async function waitForFacebookSubmissionInPage(content: string): Promise<Faceboo
   if (observedPostSurfaceChangeAfterClick) {
     return {
       status: 'FAILED',
-      message: 'Facebook post surface changed after submit; post URL still needs recovery.',
+      message: buildSubmitDiagnosticMessage(
+        'FB_SUBMIT_SURFACE_CHANGED_UNVERIFIED',
+        'Facebook post surface changed after submit; post URL still needs recovery.',
+      ),
       postClickEvidence: true,
     };
   }
 
   return {
     status: 'FAILED',
-    message: 'Facebook post submission did not complete after clicking Dang.',
+    message: buildSubmitDiagnosticMessage(
+      'FB_SUBMIT_TIMEOUT',
+      'Facebook post submission did not complete after clicking the submit button.',
+    ),
   };
 }

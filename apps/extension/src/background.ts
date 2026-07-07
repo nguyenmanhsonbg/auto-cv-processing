@@ -16,7 +16,7 @@ import {
 } from './api-client';
 import { clearAccessToken, getAccessToken } from './auth-store';
 import { getSelectedChannels } from './channel-preferences';
-import { updateFacebookChannelStatus } from './facebook-channel-status';
+import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
 import { getSelectedFacebookGroupIds } from './facebook-group-preferences';
 import {
   ensureFacebookSession,
@@ -189,6 +189,11 @@ async function handleFrontendFacebookPublish(
         void emit('PROGRESS', progress);
       },
     });
+    const summary = summarizeFacebookPublishResults(results);
+    if (summary.successCount === 0) {
+      await emit('ERROR', { message: summary.message, results });
+      return;
+    }
     await emit('COMPLETED', { results });
   } catch (error) {
     await emit('ERROR', {
@@ -332,12 +337,19 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
           },
         });
         const resultWithFacebookStatus = updateFacebookChannelStatus(result, facebookResults);
+        const facebookSummary = summarizeFacebookPublishResults(facebookResults);
 
         await saveLastAutoSyncState(buildAutoSyncState({
-          status: 'SUCCESS',
+          status: facebookSummary.successCount > 0 ? 'SUCCESS' : 'ERROR',
           capture: enrichedCapture,
           channels,
           result: resultWithFacebookStatus,
+          error: facebookSummary.successCount > 0
+            ? undefined
+            : {
+                code: 'FACEBOOK_PUBLISH_FAILED',
+                message: facebookSummary.message,
+              },
         }));
         return;
       }

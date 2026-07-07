@@ -201,6 +201,7 @@ export type FacebookPublishProgressStatus =
   | 'REPORTING'
   | 'DELAYING'
   | 'SUCCESS'
+  | 'PARTIAL_SUCCESS'
   | 'ERROR';
 
 export interface FacebookPublishTarget {

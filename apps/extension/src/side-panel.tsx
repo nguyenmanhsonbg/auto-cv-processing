@@ -28,7 +28,7 @@ import {
 import { clearAccessToken, getAccessToken, setAuthTokens } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import { CHANNELS } from './config';
-import { updateFacebookChannelStatus } from './facebook-channel-status';
+import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
 import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
 import { getValidFacebookGroupPostUrl } from './facebook-post-url';
 import {
@@ -2172,8 +2172,15 @@ function SidePanel() {
           void saveLastFacebookPublishProgress(progress);
         },
       });
+      const summary = summarizeFacebookPublishResults(facebookResults);
       setResult((current) => current ? updateFacebookChannelStatus(current, facebookResults) : current);
-      setState('SUCCESS');
+      if (summary.successCount > 0) {
+        setState('SUCCESS');
+        setError(null);
+      } else {
+        setError(summary.message);
+        setState('ERROR');
+      }
     } catch (err) {
       setError(toErrorMessage(err));
       const progress: FacebookPublishProgress = {
