@@ -62,6 +62,7 @@ interface FacebookPostReviewStatusProbeResult {
   message: string;
   externalPostId?: string | null;
   externalPostUrl?: string | null;
+  timestampClickPoint?: FacebookSubmitButtonPoint | null;
 }
 
 interface FacebookSubmitButtonPoint {
@@ -93,6 +94,13 @@ interface FacebookSubmittedPostUrlCaptureInput {
 interface FacebookSubmittedPostUrlCaptureResult {
   externalPostUrl?: string | null;
   message: string;
+}
+
+interface FacebookPendingPostUrlRecoveryInput {
+  title?: string | null;
+  contentPreview?: string | null;
+  targetUrl?: string | null;
+  targetExternalId?: string | null;
 }
 
 export async function publishFacebookPlan(
@@ -357,12 +365,7 @@ export async function refreshFacebookPostReviewStatus(
   const unresolvedStatus = getUnresolvedFacebookReviewStatus(history);
   const postUrl = parseFacebookGroupPostUrl(history.externalPostUrl);
   if (!postUrl) {
-    return {
-      facebookReviewStatus: unresolvedStatus,
-      message: 'Post status could not be checked because this history has no valid Facebook post URL yet.',
-      externalPostId: history.externalPostId ?? null,
-      checkedAt,
-    };
+    return recoverFacebookPendingPostUrlFromGroup(history, checkedAt);
   }
 
   try {
@@ -379,10 +382,52 @@ export async function refreshFacebookPostReviewStatus(
 
   const postedUrl = buildFacebookGroupPostUrl(postUrl.groupId, postUrl.postId, 'posts');
   const pendingUrl = buildFacebookGroupPostUrl(postUrl.groupId, postUrl.postId, 'pending_posts');
-  const tab = await openTab(postedUrl, false);
+  const shouldCheckPendingFirst = postUrl.pathType === 'pending_posts'
+    && history.facebookReviewStatus !== 'POSTED';
+  const tab = await openTab(shouldCheckPendingFirst ? pendingUrl : postedUrl, false);
   try {
     await waitForTabComplete(tab.id);
     await sleep(randomDelay(1_500, 3_000));
+
+    const checkPendingUrl = async () => {
+      const pendingResult = await runScript<[FacebookPostReviewStatusProbeInput], FacebookPostReviewStatusProbeResult>(
+        tab.id,
+        checkFacebookPostReviewStatusInPage,
+        [{
+          title: history.title,
+          contentPreview: history.contentPreview ?? null,
+          externalPostUrl: pendingUrl,
+          expectedPathType: 'pending_posts',
+        }],
+      );
+      const normalizedPendingUrl = parseFacebookGroupPostUrl(pendingResult.externalPostUrl)?.url ?? pendingUrl;
+      const unresolvedProbe = pendingResult.facebookReviewStatus === 'PENDING_REVIEW'
+        && history.facebookReviewStatus === 'UNKNOWN'
+        && /not visible|not detectable|unavailable|could not/i.test(pendingResult.message);
+
+      return {
+        facebookReviewStatus: unresolvedProbe ? 'UNKNOWN' : pendingResult.facebookReviewStatus,
+        message: pendingResult.message,
+        externalPostId: postUrl.postId,
+        externalPostUrl: normalizedPendingUrl,
+        checkedAt,
+      } satisfies FacebookPublishHistoryStatusCheckRequest;
+    };
+
+    if (shouldCheckPendingFirst) {
+      const pendingFirstResult = await checkPendingUrl();
+      if (pendingFirstResult.facebookReviewStatus === 'PENDING_REVIEW') {
+        return pendingFirstResult;
+      }
+
+      if (pendingFirstResult.facebookReviewStatus === 'REJECTED') {
+        return pendingFirstResult;
+      }
+
+      await chrome.tabs?.update(tab.id, { url: postedUrl });
+      await waitForTabComplete(tab.id);
+      await sleep(randomDelay(1_500, 3_000));
+    }
 
     const postedResult = await runScript<[FacebookPostReviewStatusProbeInput], FacebookPostReviewStatusProbeResult>(
       tab.id,
@@ -394,7 +439,6 @@ export async function refreshFacebookPostReviewStatus(
         expectedPathType: 'posts',
       }],
     );
-
     if (postedResult.facebookReviewStatus === 'POSTED') {
       const visiblePostUrl = parseFacebookGroupPostUrl(postedResult.externalPostUrl)?.url ?? postedUrl;
       return {
@@ -410,34 +454,101 @@ export async function refreshFacebookPostReviewStatus(
     await waitForTabComplete(tab.id);
     await sleep(randomDelay(1_500, 3_000));
 
-    const pendingResult = await runScript<[FacebookPostReviewStatusProbeInput], FacebookPostReviewStatusProbeResult>(
-      tab.id,
-      checkFacebookPostReviewStatusInPage,
-      [{
-        title: history.title,
-        contentPreview: history.contentPreview ?? null,
-        externalPostUrl: pendingUrl,
-        expectedPathType: 'pending_posts',
-      }],
-    );
-    const normalizedPendingUrl = parseFacebookGroupPostUrl(pendingResult.externalPostUrl)?.url ?? pendingUrl;
-    const unresolvedProbe = pendingResult.facebookReviewStatus === 'PENDING_REVIEW'
-      && history.facebookReviewStatus === 'UNKNOWN'
-      && /not visible|not detectable|unavailable|could not/i.test(pendingResult.message);
-
-    return {
-      facebookReviewStatus: unresolvedProbe ? 'UNKNOWN' : pendingResult.facebookReviewStatus,
-      message: pendingResult.message,
-      externalPostId: postUrl.postId,
-      externalPostUrl: normalizedPendingUrl,
-      checkedAt,
-    };
+    return await checkPendingUrl();
   } catch (error) {
     return {
       facebookReviewStatus: unresolvedStatus,
       message: `Post status is still pending or not detectable: ${toAutomationErrorMessage(error)}`,
       externalPostId: postUrl.postId,
       externalPostUrl: postUrl.url,
+      checkedAt,
+    };
+  } finally {
+    await closeTabSafely(tab.id);
+  }
+}
+
+async function recoverFacebookPendingPostUrlFromGroup(
+  history: FacebookPublishHistoryListItem,
+  checkedAt: string,
+): Promise<FacebookPublishHistoryStatusCheckRequest> {
+  const unresolvedStatus = getUnresolvedFacebookReviewStatus(history);
+  const pendingManagerUrl = buildFacebookPendingPostsManagerUrl(history.targetUrl, history.targetExternalId);
+  if (!pendingManagerUrl) {
+    return {
+      facebookReviewStatus: unresolvedStatus,
+      message: 'Post status could not be checked because this history has no valid Facebook post URL or group URL yet.',
+      externalPostId: history.externalPostId ?? null,
+      checkedAt,
+    };
+  }
+
+  try {
+    await ensureFacebookSession();
+  } catch (error) {
+    return {
+      facebookReviewStatus: unresolvedStatus,
+      message: `Post status check skipped: ${toAutomationErrorMessage(error)}`,
+      externalPostId: history.externalPostId ?? null,
+      checkedAt,
+    };
+  }
+
+  const tab = await openTab(pendingManagerUrl, false);
+  try {
+    await waitForTabComplete(tab.id);
+    await sleep(randomDelay(1_500, 3_000));
+
+    const recoverInCurrentPage = async () => runScript<[FacebookPendingPostUrlRecoveryInput], FacebookPostReviewStatusProbeResult>(
+      tab.id,
+      recoverFacebookPendingPostUrlInPage,
+      [{
+        title: history.title,
+        contentPreview: history.contentPreview ?? null,
+        targetUrl: history.targetUrl ?? null,
+        targetExternalId: history.targetExternalId ?? null,
+      }],
+    );
+
+    let recoveryResult = await recoverInCurrentPage();
+    const recoveredUrl = parseFacebookGroupPostUrl(recoveryResult.externalPostUrl);
+    if (recoveredUrl) {
+      return {
+        facebookReviewStatus: recoveredUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
+        message: recoveryResult.message,
+        externalPostId: recoveredUrl.postId,
+        externalPostUrl: recoveredUrl.url,
+        checkedAt,
+      };
+    }
+
+    if (recoveryResult.timestampClickPoint) {
+      await clickTabCoordinatePoint(tab.id, recoveryResult.timestampClickPoint).catch(() => undefined);
+      await sleep(randomDelay(1_200, 2_200));
+      recoveryResult = await recoverInCurrentPage();
+      const clickedUrl = parseFacebookGroupPostUrl(recoveryResult.externalPostUrl);
+      if (clickedUrl) {
+        return {
+          facebookReviewStatus: clickedUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
+          message: recoveryResult.message,
+          externalPostId: clickedUrl.postId,
+          externalPostUrl: clickedUrl.url,
+          checkedAt,
+        };
+      }
+    }
+
+    return {
+      facebookReviewStatus: recoveryResult.facebookReviewStatus === 'REJECTED' ? 'REJECTED' : unresolvedStatus,
+      message: recoveryResult.message,
+      externalPostId: history.externalPostId ?? null,
+      checkedAt,
+    };
+  } catch (error) {
+    return {
+      facebookReviewStatus: unresolvedStatus,
+      message: `Pending post URL could not be recovered from the group: ${toAutomationErrorMessage(error)}`,
+      externalPostId: history.externalPostId ?? null,
       checkedAt,
     };
   } finally {
@@ -623,6 +734,38 @@ function normalizeFacebookAutomationText(value: string | null | undefined) {
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function buildFacebookPendingPostsManagerUrl(
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
+) {
+  const groupId = getFacebookGroupIdFromUrl(targetUrl) ?? normalizeFacebookGroupId(targetExternalId);
+  if (!groupId) return null;
+  return `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/my_pending_content`;
+}
+
+function getFacebookGroupIdFromUrl(value: string | null | undefined) {
+  const rawUrl = value?.trim();
+  if (!rawUrl) return null;
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase();
+  if (hostname !== 'facebook.com' && !hostname.endsWith('.facebook.com')) return null;
+
+  const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)/i);
+  return normalizeFacebookGroupId(match?.[1]);
+}
+
+function normalizeFacebookGroupId(value: string | null | undefined) {
+  const normalized = value ? decodeURIComponent(value).trim().replace(/^\/+|\/+$/g, '') : '';
+  return normalized || null;
 }
 
 async function openTab(url: string, active: boolean) {
@@ -828,6 +971,42 @@ async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint) {
       type: 'mouseReleased',
       x: clickPoint.clientX,
       y: clickPoint.clientY,
+      button: 'left',
+      buttons: 0,
+      clickCount: 1,
+    });
+  } finally {
+    await debuggerDetach(target).catch(() => undefined);
+  }
+}
+
+async function clickTabCoordinatePoint(tabId: number, point: FacebookSubmitButtonPoint) {
+  if (!chrome.debugger) {
+    throw new Error('chrome.debugger API is unavailable for Facebook page coordinate click.');
+  }
+
+  const target = { tabId };
+  await debuggerAttach(target, '1.3');
+  try {
+    await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: point.clientX,
+      y: point.clientY,
+    });
+    await sleep(randomDelay(90, 180));
+    await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: point.clientX,
+      y: point.clientY,
+      button: 'left',
+      buttons: 1,
+      clickCount: 1,
+    });
+    await sleep(randomDelay(80, 180));
+    await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: point.clientX,
+      y: point.clientY,
       button: 'left',
       buttons: 0,
       clickCount: 1,
@@ -2180,6 +2359,384 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
   return {
     ready: true,
     message: 'Facebook post is ready before submit.',
+  };
+}
+
+async function recoverFacebookPendingPostUrlInPage(
+  input: FacebookPendingPostUrlRecoveryInput,
+): Promise<FacebookPostReviewStatusProbeResult> {
+  const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parsePostUrl = (value: string | null | undefined) => {
+    if (!value) return null;
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(value, window.location.href);
+    } catch {
+      return null;
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (hostname !== 'facebook.com' && !hostname.endsWith('.facebook.com')) return null;
+
+    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts)\/(\d+)\/?$/i);
+    if (!match) return null;
+
+    const groupId = decodeURIComponent(match[1]).trim();
+    const pathType = match[2].toLowerCase() as FacebookGroupPostPathType;
+    const postId = match[3];
+    const suffix = pathType === 'posts' ? '/' : '';
+    return {
+      groupId,
+      pathType,
+      postId,
+      url: `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/${pathType}/${postId}${suffix}`,
+    };
+  };
+  const getGroupIdFromUrl = (value: string | null | undefined) => {
+    if (!value) return null;
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(value, window.location.href);
+    } catch {
+      return null;
+    }
+
+    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)/i);
+    return match?.[1] ? decodeURIComponent(match[1]).trim() : null;
+  };
+  const expectedGroupIds = [
+    getGroupIdFromUrl(input.targetUrl),
+    input.targetExternalId?.trim() ?? null,
+  ].filter((value): value is string => Boolean(value));
+  const isExpectedPostUrl = (value: ReturnType<typeof parsePostUrl>) => (
+    Boolean(value) && (expectedGroupIds.length === 0 || expectedGroupIds.includes(value?.groupId ?? ''))
+  );
+  const isVisible = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.visibility !== 'hidden'
+      && style.display !== 'none'
+      && rect.bottom >= 0
+      && rect.top <= window.innerHeight + 80;
+  };
+  const textOf = (element: Element) => normalize([
+    element.textContent ?? '',
+    element.getAttribute('aria-label') ?? '',
+    element.getAttribute('title') ?? '',
+  ].join(' '));
+  const hasNoPendingReviewCue = (text: string) => (
+    /chua co bai viet nao de xem xet|khong co bai viet nao dang cho xem xet|no posts to review|no pending posts|no posts pending review/.test(text)
+  );
+  const hasPendingCue = (text: string) => (
+    /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet|admin approval/.test(text)
+  );
+  const makeSearchSamples = () => {
+    const values = [input.title, input.contentPreview]
+      .map((value) => normalize(value ?? ''))
+      .filter((value) => value.length >= 8);
+
+    return [...new Set(values.flatMap((value) => {
+      const firstLine = value.split(/\n+/)[0]?.trim() ?? '';
+      const words = value.split(' ').filter((word) => word.length > 2);
+      return [
+        value.slice(0, 180),
+        firstLine.slice(0, 140),
+        words.slice(0, 16).join(' '),
+      ].filter((sample) => sample.length >= 8);
+    }))];
+  };
+  const samples = makeSearchSamples();
+  const getContentScore = (element: Element) => {
+    if (samples.length === 0) return 0;
+    const text = textOf(element);
+    if (text.length < 8) return 0;
+
+    return samples.reduce((score, sample) => {
+      if (text.includes(sample)) return score + Math.min(240, sample.length * 3);
+      if (sample.length >= 40 && text.includes(sample.slice(0, 40))) return score + 80;
+      if (sample.length >= 24 && text.includes(sample.slice(0, 24))) return score + 40;
+      return score;
+    }, 0);
+  };
+  const getClickableElement = (element: Element) => (
+    element.closest('a[href], [role="link"], [role="button"], button, [tabindex]') ?? element
+  );
+  const getCardRoot = (element: Element) => {
+    let current: Element | null = element;
+    let best: Element = element;
+    let depth = 0;
+
+    while (current && current !== document.body && depth < 10) {
+      const rect = current.getBoundingClientRect();
+      const text = normalize(current.textContent ?? '');
+      const looksLikeCard = rect.width >= 260
+        && rect.height >= 70
+        && text.length >= 40
+        && text.length <= 6_000;
+      if (looksLikeCard) best = current;
+      if (current.matches('[role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]')) {
+        return current;
+      }
+
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return best;
+  };
+  const collectCardCandidates = () => {
+    const cards = new Set<Element>();
+    const explicitCards = Array.from(
+      document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]'),
+    );
+    explicitCards.filter(isVisible).forEach((element) => cards.add(element));
+
+    const textElements = Array.from(document.querySelectorAll('div, span, p'))
+      .filter((element) => isVisible(element))
+      .filter((element) => getContentScore(element) > 0);
+    textElements.forEach((element) => cards.add(getCardRoot(element)));
+
+    const actionElements = Array.from(document.querySelectorAll('button, [role="button"], a, span, div'))
+      .filter((element) => isVisible(element))
+      .filter((element) => /^(chinh sua|edit|xoa|delete)$/.test(textOf(element)));
+    actionElements.forEach((element) => cards.add(getCardRoot(element)));
+
+    return Array.from(cards).filter(isVisible);
+  };
+  const findBestCard = () => {
+    const scored = collectCardCandidates()
+      .map((card) => {
+        const text = textOf(card);
+        const rect = card.getBoundingClientRect();
+        const contentScore = getContentScore(card);
+        const pendingScore = hasPendingCue(text) ? 100 : 0;
+        const actionScore = /chinh sua|edit|xoa|delete/.test(text) ? 25 : 0;
+        const viewportScore = rect.top >= -80 && rect.top <= window.innerHeight ? 30 : 0;
+        const sizePenalty = Math.max(0, (text.length - 2_400) / 120);
+        return {
+          card,
+          score: contentScore + pendingScore + actionScore + viewportScore - sizePenalty,
+        };
+      })
+      .filter((item) => item.score >= 45)
+      .sort((left, right) => right.score - left.score);
+
+    return scored[0]?.card ?? null;
+  };
+  const findPostUrlInCard = (card: Element) => {
+    const links = Array.from(card.querySelectorAll('a[href]'));
+    for (const link of links) {
+      const postUrl = parsePostUrl(link.getAttribute('href'));
+      if (isExpectedPostUrl(postUrl)) return postUrl;
+    }
+
+    return null;
+  };
+  const findContentElement = (card: Element) => {
+    const candidates = Array.from(card.querySelectorAll('div, span, p'))
+      .filter(isVisible)
+      .map((element) => ({
+        element,
+        score: getContentScore(element),
+        textLength: textOf(element).length,
+      }))
+      .filter((item) => item.score > 0 && item.textLength <= 2_500)
+      .sort((left, right) => right.score - left.score || left.textLength - right.textLength);
+
+    return candidates[0]?.element ?? null;
+  };
+  const isTimestampLike = (element: Element) => {
+    const value = textOf(element);
+    if (!value || value.length > 90) return false;
+
+    return /(^|\s)(vua xong|just now|hom qua|yesterday)(\s|$)|^\d+\s*(s|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut|h|hr|hrs|hour|hours|gio|d|day|days|ngay|w|week|weeks|tuan|mo|month|months|thang|y|yr|year|years|nam)(\s|$)|^\d{1,2}\s*thang\s*\d{1,2}|^\d{1,2}\/\d{1,2}/.test(value);
+  };
+  const isBadTimestampCandidate = (element: Element) => {
+    const value = textOf(element);
+    return /chinh sua|edit|xoa|delete|moi nhat truoc|newest|tim hieu them|learn more|quan ly bai viet|manage posts|binh luan|comment|thich|like|gui|send/.test(value);
+  };
+  const getTimestampCandidates = (card: Element) => {
+    const contentElement = findContentElement(card);
+    const contentRect = contentElement?.getBoundingClientRect() ?? null;
+    const domCandidates = Array.from(card.querySelectorAll('a[href], [role="link"], [role="button"], button, span, div'));
+    const visualCandidates = contentRect
+      ? [
+        [contentRect.left + Math.min(92, Math.max(36, contentRect.width * 0.16)), contentRect.top - 18],
+        [contentRect.left + Math.min(132, Math.max(56, contentRect.width * 0.22)), contentRect.top - 24],
+        [contentRect.left + Math.min(180, Math.max(76, contentRect.width * 0.28)), contentRect.top - 16],
+      ].flatMap(([x, y]) => document.elementsFromPoint(x, y))
+        .flatMap((element) => {
+          const clickable = getClickableElement(element);
+          return clickable === element ? [element] : [element, clickable];
+        })
+      : [];
+    const rawCandidates = [...new Set([...domCandidates, ...visualCandidates])]
+      .filter(isVisible)
+      .filter((element) => !isBadTimestampCandidate(element));
+
+    return rawCandidates
+      .map((element) => {
+        const clickable = getClickableElement(element);
+        const rect = (clickable === element ? element : clickable).getBoundingClientRect();
+        const href = clickable instanceof HTMLAnchorElement
+          ? clickable.href
+          : clickable.getAttribute('href');
+        const hrefPostUrl = parsePostUrl(href);
+        const looksTimeLike = isTimestampLike(element) || isTimestampLike(clickable);
+        const verticalGap = contentRect ? contentRect.top - rect.bottom : null;
+        const horizontallyAligned = contentRect
+          ? rect.left < contentRect.right && rect.right > contentRect.left
+          : true;
+        const closeAboveContent = verticalGap !== null
+          && verticalGap >= -8
+          && verticalGap <= 95
+          && horizontallyAligned;
+        const compact = rect.width <= 220 && rect.height <= 34;
+        if (!isExpectedPostUrl(hrefPostUrl) && !looksTimeLike && !(closeAboveContent && compact)) {
+          return null;
+        }
+
+        const point = {
+          clientX: Math.round(rect.left + rect.width / 2),
+          clientY: Math.round(rect.top + rect.height / 2),
+          label: 'Facebook pending post timestamp',
+        };
+        const score = (isExpectedPostUrl(hrefPostUrl) ? 400 : 0)
+          + (looksTimeLike ? 220 : 0)
+          + (closeAboveContent ? 140 : 0)
+          + (compact ? 45 : 0)
+          + (verticalGap !== null ? Math.max(0, 80 - Math.abs(verticalGap - 18)) : 0)
+          - Math.max(0, rect.width - 160) / 4;
+
+        return {
+          element,
+          clickable,
+          hrefPostUrl,
+          point,
+          score,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => right.score - left.score);
+  };
+  const clickTimestampInCard = async (card: Element) => {
+    const candidates = getTimestampCandidates(card);
+    for (const candidate of candidates.slice(0, 5)) {
+      if (isExpectedPostUrl(candidate.hrefPostUrl)) {
+        return {
+          postUrl: candidate.hrefPostUrl,
+          timestampClickPoint: null,
+        };
+      }
+
+      const beforeUrl = window.location.href;
+      try {
+        candidate.clickable.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+        await sleepInPage(160);
+        if (candidate.clickable instanceof HTMLElement) {
+          candidate.clickable.click();
+        } else if (candidate.element instanceof HTMLElement) {
+          candidate.element.click();
+        }
+      } catch {
+        continue;
+      }
+
+      const deadline = Date.now() + 2_500;
+      while (Date.now() < deadline) {
+        await sleepInPage(200);
+        const currentPostUrl = parsePostUrl(window.location.href);
+        if (isExpectedPostUrl(currentPostUrl)) {
+          return {
+            postUrl: currentPostUrl,
+            timestampClickPoint: null,
+          };
+        }
+        if (window.location.href !== beforeUrl && !currentPostUrl) break;
+      }
+    }
+
+    return {
+      postUrl: null,
+      timestampClickPoint: candidates[0]?.point ?? null,
+    };
+  };
+
+  const currentPostUrl = parsePostUrl(window.location.href);
+  const expectedCurrentPostUrl = isExpectedPostUrl(currentPostUrl) ? currentPostUrl : null;
+  if (expectedCurrentPostUrl) {
+    return {
+      facebookReviewStatus: expectedCurrentPostUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
+      message: 'Current Facebook URL already contains the group post id.',
+      externalPostId: expectedCurrentPostUrl.postId,
+      externalPostUrl: expectedCurrentPostUrl.url,
+    };
+  }
+
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const bodyText = normalize(document.body?.innerText ?? '');
+    const matchedCard = findBestCard();
+    if (matchedCard) {
+      const existingUrl = findPostUrlInCard(matchedCard);
+      if (existingUrl) {
+        return {
+          facebookReviewStatus: existingUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
+          message: 'Recovered Facebook group post URL from the matched pending post card.',
+          externalPostId: existingUrl.postId,
+          externalPostUrl: existingUrl.url,
+        };
+      }
+
+      const openedTimestamp = await clickTimestampInCard(matchedCard);
+      if (openedTimestamp.postUrl) {
+        return {
+          facebookReviewStatus: openedTimestamp.postUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
+          message: 'Recovered Facebook group post URL by opening the matched pending post timestamp.',
+          externalPostId: openedTimestamp.postUrl.postId,
+          externalPostUrl: openedTimestamp.postUrl.url,
+        };
+      }
+
+      return {
+        facebookReviewStatus: 'PENDING_REVIEW',
+        message: openedTimestamp.timestampClickPoint
+          ? 'Matched pending post card; trusted timestamp click is required to capture the pending post URL.'
+          : 'Matched pending post card but could not find a timestamp link or click point.',
+        externalPostId: null,
+        externalPostUrl: null,
+        timestampClickPoint: openedTimestamp.timestampClickPoint,
+      };
+    }
+
+    if (hasNoPendingReviewCue(bodyText)) {
+      return {
+        facebookReviewStatus: 'UNKNOWN',
+        message: 'Facebook pending posts manager has no pending posts matching this history.',
+        externalPostId: null,
+        externalPostUrl: null,
+      };
+    }
+
+    window.scrollBy({ top: Math.max(420, window.innerHeight * 0.7), behavior: 'auto' });
+    await sleepInPage(700);
+  }
+
+  return {
+    facebookReviewStatus: 'UNKNOWN',
+    message: 'Could not find a matching pending post in the group pending posts manager.',
+    externalPostId: null,
+    externalPostUrl: null,
   };
 }
 

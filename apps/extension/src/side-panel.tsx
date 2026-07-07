@@ -1589,11 +1589,17 @@ function SidePanel() {
       return;
     }
 
+    const refreshItem = withFacebookHistoryGroupFallback(item, selectedFacebookHistoryGroup);
+    if (!isRefreshableFacebookHistoryItem(refreshItem)) {
+      setFacebookHistoryMessage('Bài này cần URL bài viết hoặc URL group Facebook hợp lệ để refresh trạng thái.');
+      return;
+    }
+
     setRefreshingFacebookHistoryIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id]);
     setFacebookHistoryMessage(`Đang refresh trạng thái bài "${item.title}".`);
 
     try {
-      const statusCheck = await refreshFacebookPostReviewStatus(item);
+      const statusCheck = await refreshFacebookPostReviewStatus(refreshItem);
       await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
       await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, facebookHistoryPage);
       setFacebookHistoryMessage(statusCheck.message ?? 'Đã refresh trạng thái bài đăng.');
@@ -1631,9 +1637,12 @@ function SidePanel() {
     setFacebookHistoryMessage('Đang lấy danh sách bài cần kiểm tra lại.');
 
     try {
-      const itemsToRefresh = await loadRefreshableFacebookHistoryItems(accessToken, group.id);
+      const itemsToRefresh = await loadRefreshableFacebookHistoryItems(accessToken, group);
       if (itemsToRefresh.length === 0) {
-        setFacebookHistoryMessage('Không có bài chờ duyệt/chưa rõ trạng thái nào có link bài viết hợp lệ để kiểm tra lại.');
+        const unresolvedCount = (facebookHistoryData?.summary.pendingReview ?? 0) + (facebookHistoryData?.summary.unknown ?? 0);
+        setFacebookHistoryMessage(unresolvedCount > 0
+          ? 'Có bài chờ duyệt/chưa rõ trạng thái nhưng thiếu cả URL bài viết và URL group hợp lệ để kiểm tra lại.'
+          : 'Không có bài chờ duyệt/chưa rõ trạng thái cần kiểm tra lại.');
         return;
       }
 
@@ -1681,7 +1690,7 @@ function SidePanel() {
     }
   }
 
-  async function loadRefreshableFacebookHistoryItems(accessToken: string, targetId: string) {
+  async function loadRefreshableFacebookHistoryItems(accessToken: string, group: FacebookHistoryGroup) {
     const statuses: FacebookReviewStatus[] = ['PENDING_REVIEW', 'UNKNOWN'];
     const items: FacebookPublishHistoryListItem[] = [];
 
@@ -1690,12 +1699,14 @@ function SidePanel() {
       let totalPages = 1;
 
       do {
-        const response = await listFacebookGroupPublishHistories(accessToken, targetId, {
+        const response = await listFacebookGroupPublishHistories(accessToken, group.id ?? '', {
           status,
           page,
           limit: FACEBOOK_HISTORY_REFRESH_BATCH_SIZE,
         });
-        items.push(...response.items.filter(isRefreshableFacebookHistoryItem));
+        items.push(...response.items
+          .map((item) => withFacebookHistoryGroupFallback(item, group))
+          .filter(isRefreshableFacebookHistoryItem));
         totalPages = response.totalPages;
         page += 1;
       } while (page <= totalPages);
@@ -2337,7 +2348,8 @@ function SidePanel() {
                   {pageItems.length > 0 ? pageItems.map((item) => {
                     const isRefreshing = refreshingFacebookHistoryIds.includes(item.id);
                     const postUrl = getValidFacebookGroupPostUrl(item.externalPostUrl);
-                    const canRefreshItem = isRefreshableFacebookHistoryItem(item);
+                    const refreshItem = withFacebookHistoryGroupFallback(item, selectedFacebookHistoryGroup);
+                    const canRefreshItem = isRefreshableFacebookHistoryItem(refreshItem);
                     return (
                     <tr key={item.id}>
                       <td>{formatDate(item.submittedAt ?? item.createdAt ?? undefined) ?? '-'}</td>
@@ -2346,7 +2358,7 @@ function SidePanel() {
                         {item.message ? <small>{item.message}</small> : null}
                         {!item.message && item.contentPreview ? <small>{item.contentPreview}</small> : null}
                         {item.lastStatusCheckedAt ? (
-                          <small>Checked: {formatDate(item.lastStatusCheckedAt) ?? item.lastStatusCheckedAt}</small>
+                          <small>Đã kiểm tra: {formatFacebookHistoryDateTime(item.lastStatusCheckedAt) ?? item.lastStatusCheckedAt}</small>
                         ) : null}
                       </td>
                       <td>
@@ -4270,8 +4282,24 @@ function buildPostHistoryPaginationItems(currentPage: number, pageCount: number)
 function isRefreshableFacebookHistoryItem(item: FacebookPublishHistoryListItem) {
   return (
     (item.facebookReviewStatus === 'PENDING_REVIEW' || item.facebookReviewStatus === 'UNKNOWN')
-    && Boolean(getValidFacebookGroupPostUrl(item.externalPostUrl))
+    && Boolean(getValidFacebookGroupPostUrl(item.externalPostUrl) || item.targetUrl?.trim())
   );
+}
+
+function withFacebookHistoryGroupFallback(
+  item: FacebookPublishHistoryListItem,
+  group: FacebookHistoryGroup | null,
+): FacebookPublishHistoryListItem {
+  if (!group) return item;
+  if (item.targetUrl?.trim()) return item;
+
+  return {
+    ...item,
+    targetId: item.targetId ?? group.id,
+    targetName: item.targetName || group.name,
+    targetUrl: group.url ?? item.targetUrl,
+    targetExternalId: item.targetExternalId ?? group.externalId,
+  };
 }
 
 function toFacebookGroupUiItem(group: FacebookPublishTarget) {
@@ -4995,6 +5023,20 @@ function formatDate(value: string | undefined) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString();
+}
+
+function formatFacebookHistoryDateTime(value: string | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function buildAmisFormFillPayload(jobDescription: JobDescriptionSummary) {
