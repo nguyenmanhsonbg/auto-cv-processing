@@ -83,6 +83,11 @@ interface ChromeDebugger {
       method: string,
       params?: Record<string, unknown>,
     ) => void): void;
+    removeListener(callback: (
+      source: ChromeDebuggee,
+      method: string,
+      params?: Record<string, unknown>,
+    ) => void): void;
   };
   onDetach: {
     addListener(callback: (

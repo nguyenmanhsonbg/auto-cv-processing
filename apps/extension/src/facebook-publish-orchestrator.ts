@@ -649,7 +649,7 @@ async function publishTargetInFreshTab(
       message: latestFailure?.message ?? 'Facebook post could not be prepared.',
     };
   } finally {
-    await closeTabSafely(tab.id);
+    await closeFacebookPublishTabSafely(tab.id);
   }
 }
 
@@ -872,6 +872,74 @@ async function closeTabSafely(tabId: number) {
     await chrome.tabs?.remove(tabId);
   } catch {
     // The tab may already be closed by the browser or user.
+  }
+}
+
+async function closeFacebookPublishTabSafely(tabId: number) {
+  if (!chrome.debugger) {
+    await closeTabSafely(tabId);
+    return;
+  }
+
+  const target = { tabId };
+  let attached = false;
+  const onDebuggerEvent = (
+    source: ChromeDebuggee,
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    if (source.tabId !== tabId || method !== 'Page.javascriptDialogOpening') return;
+
+    const dialogType = typeof params?.type === 'string' ? params.type : '';
+    const message = typeof params?.message === 'string' ? params.message : '';
+    const shouldAccept = dialogType === 'beforeunload'
+      || /leave site|changes.*not be saved|may not be saved/i.test(message);
+    if (!shouldAccept) return;
+
+    void debuggerSendCommand(target, 'Page.handleJavaScriptDialog', { accept: true })
+      .catch(() => undefined);
+  };
+
+  try {
+    await debuggerAttach(target, '1.3');
+    attached = true;
+    chrome.debugger.onEvent.addListener(onDebuggerEvent);
+    await debuggerSendCommand(target, 'Page.enable', {}).catch(() => undefined);
+
+    const closed = await removeTabWithTimeout(tabId, 2_000);
+    if (closed || !(await isTabAvailable(tabId))) return;
+
+    await debuggerSendCommand(target, 'Page.handleJavaScriptDialog', { accept: true }).catch(() => undefined);
+    await removeTabWithTimeout(tabId, 2_000);
+  } catch {
+    await closeTabSafely(tabId);
+  } finally {
+    try {
+      chrome.debugger.onEvent.removeListener(onDebuggerEvent);
+    } catch {
+      // Listener cleanup is best-effort because the extension context may be tearing down.
+    }
+    if (attached) {
+      await debuggerDetach(target).catch(() => undefined);
+    }
+  }
+}
+
+async function removeTabWithTimeout(tabId: number, timeoutMs: number) {
+  return Promise.race([
+    (chrome.tabs?.remove(tabId) ?? Promise.resolve())
+      .then(() => true)
+      .catch(async () => !(await isTabAvailable(tabId))),
+    sleep(timeoutMs).then(() => false),
+  ]);
+}
+
+async function isTabAvailable(tabId: number) {
+  try {
+    await chrome.tabs?.get(tabId);
+    return true;
+  } catch {
+    return false;
   }
 }
 
