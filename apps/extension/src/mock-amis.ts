@@ -27,7 +27,7 @@ export function createMockAmisSyncRequest(): SyncAmisJobPostingRequest {
       },
       location: 'Ho Chi Minh City',
     },
-    channels: ['VCS_PORTAL'],
+    channels: ['TOPCV'],
     metadata: {
       extensionVersion: '0.1.0',
       capturedAt: new Date().toISOString(),

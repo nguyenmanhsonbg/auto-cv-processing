@@ -4,6 +4,15 @@ interface ChromeStorageArea {
   remove(keys: string | string[]): Promise<void>;
 }
 
+interface ChromeStorageChange {
+  oldValue?: unknown;
+  newValue?: unknown;
+}
+
+interface ChromeStorageChangeEvent {
+  addListener(callback: (changes: Record<string, ChromeStorageChange>, areaName: string) => void): void;
+}
+
 interface ChromeRuntime {
   onInstalled: {
     addListener(callback: () => void): void;
@@ -123,6 +132,7 @@ interface ChromeApi {
   scripting?: ChromeScripting;
   sidePanel?: ChromeSidePanel;
   storage?: {
+    onChanged?: ChromeStorageChangeEvent;
     session?: ChromeStorageArea;
   };
   tabs?: ChromeTabs;

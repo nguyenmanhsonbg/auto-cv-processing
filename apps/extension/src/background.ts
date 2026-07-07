@@ -716,7 +716,7 @@ function buildApplicationsSyncSignature(capture: AmisApplicationsCapture) {
     .map((item) => [
       item.recruitmentId,
       item.recruitmentRoundId,
-      item.candidateId,
+      item.candidateConvertId || item.candidateId,
       item.status ?? '',
       item.attachmentCvId ?? '',
       item.applyDate ?? '',
