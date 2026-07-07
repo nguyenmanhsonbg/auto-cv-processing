@@ -87,15 +87,6 @@ interface FacebookSubmitPreflightResult {
   message: string;
 }
 
-interface FacebookSubmittedPostUrlCaptureInput {
-  content: string;
-}
-
-interface FacebookSubmittedPostUrlCaptureResult {
-  externalPostUrl?: string | null;
-  message: string;
-}
-
 interface FacebookPendingPostUrlRecoveryInput {
   title?: string | null;
   contentPreview?: string | null;
@@ -592,7 +583,7 @@ async function publishTarget(
 
   let latestFailure: FacebookPagePublishResult | null = null;
   for (let tabAttempt = 0; tabAttempt < 2; tabAttempt += 1) {
-    const result = await publishTargetInFreshTab(target.targetUrl, content).catch((error) => ({
+    const result = await publishTargetInFreshTab(target.targetUrl, target.targetExternalId, content).catch((error) => ({
       status: 'FAILED' as const,
       message: toAutomationErrorMessage(error),
     }));
@@ -613,10 +604,10 @@ async function publishTarget(
 
 async function publishTargetInFreshTab(
   targetUrl: string,
+  targetExternalId: string | null | undefined,
   content: string,
 ): Promise<FacebookPagePublishResult> {
   const tab = await openTab(targetUrl, false);
-  let closeAfterPublish = true;
   try {
     let latestFailure: FacebookPreparedPostResult | null = null;
 
@@ -629,8 +620,13 @@ async function publishTargetInFreshTab(
         [content],
       );
       if (preparedPost.status === 'READY_TO_SUBMIT' && preparedPost.submitButton) {
-        const submitResult = await submitPreparedPost(tab.id, preparedPost.submitButton, content);
-        closeAfterPublish = submitResult.status === 'SUCCESS';
+        const submitResult = await submitPreparedPost(
+          tab.id,
+          preparedPost.submitButton,
+          content,
+          targetUrl,
+          targetExternalId,
+        );
         return submitResult;
       }
 
@@ -653,9 +649,7 @@ async function publishTargetInFreshTab(
       message: latestFailure?.message ?? 'Facebook post could not be prepared.',
     };
   } finally {
-    if (closeAfterPublish) {
-      await closeTabSafely(tab.id);
-    }
+    await closeTabSafely(tab.id);
   }
 }
 
@@ -716,15 +710,20 @@ function withReportMessage(
 }
 
 function getPublishResultReviewStatus(result: FacebookPagePublishResult): FacebookReviewStatus {
+  const message = normalizeFacebookAutomationText(result.message);
+  if (
+    result.status === 'SUCCESS'
+    && /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet/.test(message)
+  ) {
+    return 'PENDING_REVIEW';
+  }
+
   const postUrl = parseFacebookGroupPostUrl(result.externalPostUrl);
   if (postUrl?.pathType === 'pending_posts') return 'PENDING_REVIEW';
   if (postUrl?.pathType === 'posts') return 'POSTED';
 
-  const message = normalizeFacebookAutomationText(result.message);
   if (result.status === 'SUCCESS') {
-    return /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet/.test(message)
-      ? 'PENDING_REVIEW'
-      : 'POSTED';
+    return 'POSTED';
   }
 
   if (
@@ -880,8 +879,10 @@ async function submitPreparedPost(
   tabId: number,
   submitButton: FacebookSubmitButtonPoint,
   content: string,
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
 ): Promise<FacebookPagePublishResult> {
-  const hiddenResult = await clickAndWaitForSubmission(tabId, submitButton, content);
+  const hiddenResult = await clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId);
   if (
     hiddenResult.status === 'SUCCESS'
     || isRecoverableTabAutomationFailure(hiddenResult.message)
@@ -891,13 +892,15 @@ async function submitPreparedPost(
   }
 
   await sleep(randomDelay(500, 1_200));
-  return clickAndWaitForSubmission(tabId, submitButton, content);
+  return clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId);
 }
 
 async function clickAndWaitForSubmission(
   tabId: number,
   submitButton: FacebookSubmitButtonPoint,
   content: string,
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
 ): Promise<FacebookPagePublishResult> {
   const preflight = await runScript<[string], FacebookSubmitPreflightResult>(
     tabId,
@@ -930,7 +933,13 @@ async function clickAndWaitForSubmission(
       waitForFacebookSubmissionInPage,
       [content],
     );
-    return await enrichFacebookPublishResultWithPostUrl(tabId, content, submissionResult);
+    return await enrichFacebookPublishResultWithPostUrl(
+      tabId,
+      content,
+      submissionResult,
+      targetUrl,
+      targetExternalId,
+    );
   } catch (error) {
     return {
       status: 'FAILED',
@@ -943,6 +952,8 @@ async function enrichFacebookPublishResultWithPostUrl(
   tabId: number,
   content: string,
   result: FacebookPagePublishResult,
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
 ): Promise<FacebookPagePublishResult> {
   if (result.status !== 'SUCCESS') return result;
 
@@ -955,19 +966,69 @@ async function enrichFacebookPublishResultWithPostUrl(
     };
   }
 
-  const captured = await runScript<[FacebookSubmittedPostUrlCaptureInput], FacebookSubmittedPostUrlCaptureResult>(
+  const captured = await runScript<[FacebookPendingPostUrlRecoveryInput], FacebookPostReviewStatusProbeResult>(
     tabId,
-    captureSubmittedFacebookPostUrlInPage,
-    [{ content }],
+    recoverFacebookPendingPostUrlInPage,
+    [{
+      contentPreview: content,
+      targetUrl: targetUrl ?? null,
+      targetExternalId: targetExternalId ?? null,
+    }],
   ).catch(() => null);
   const capturedPostUrl = parseFacebookGroupPostUrl(captured?.externalPostUrl);
 
-  if (!capturedPostUrl) return result;
+  if (capturedPostUrl) {
+    return {
+      ...result,
+      externalPostId: capturedPostUrl.postId,
+      externalPostUrl: capturedPostUrl.url,
+      message: captured?.message || result.message,
+    };
+  }
+
+  if (captured?.timestampClickPoint) {
+    await clickTabCoordinatePoint(tabId, captured.timestampClickPoint).catch(() => undefined);
+    const clickedPostUrl = await waitForExpectedFacebookPostUrlInTab(
+      tabId,
+      targetUrl,
+      targetExternalId,
+      8_000,
+    );
+    if (clickedPostUrl) {
+      return {
+        ...result,
+        externalPostId: clickedPostUrl.postId,
+        externalPostUrl: clickedPostUrl.url,
+        message: 'Confirmed Facebook group post URL by opening the submitted post timestamp.',
+      };
+    }
+
+    await sleep(randomDelay(700, 1_200));
+    const retryCaptured = await runScript<[FacebookPendingPostUrlRecoveryInput], FacebookPostReviewStatusProbeResult>(
+      tabId,
+      recoverFacebookPendingPostUrlInPage,
+      [{
+        contentPreview: content,
+        targetUrl: targetUrl ?? null,
+        targetExternalId: targetExternalId ?? null,
+      }],
+    ).catch(() => null);
+    const retryPostUrl = parseFacebookGroupPostUrl(retryCaptured?.externalPostUrl);
+    if (retryPostUrl) {
+      return {
+        ...result,
+        externalPostId: retryPostUrl.postId,
+        externalPostUrl: retryPostUrl.url,
+        message: retryCaptured?.message || result.message,
+      };
+    }
+  }
 
   return {
-    ...result,
-    externalPostId: capturedPostUrl.postId,
-    externalPostUrl: capturedPostUrl.url,
+    status: 'FAILED',
+    message: `Facebook submission could not be confirmed after submit click. ${captured?.message ?? result.message}`,
+    externalPostId: null,
+    externalPostUrl: null,
   };
 }
 
@@ -3025,174 +3086,6 @@ async function checkFacebookPostReviewStatusInPage(
   };
 }
 
-async function captureSubmittedFacebookPostUrlInPage(
-  input: FacebookSubmittedPostUrlCaptureInput,
-): Promise<FacebookSubmittedPostUrlCaptureResult> {
-  const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-  const parsePostUrl = (value: string | null | undefined) => {
-    if (!value) return null;
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(value, window.location.href);
-    } catch {
-      return null;
-    }
-
-    const hostname = parsedUrl.hostname.toLowerCase();
-    if (hostname !== 'facebook.com' && !hostname.endsWith('.facebook.com')) return null;
-
-    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts)\/(\d+)\/?$/i);
-    if (!match) return null;
-
-    return parsedUrl.href;
-  };
-  const isVisible = (element: Element) => {
-    const rect = element.getBoundingClientRect();
-    const style = window.getComputedStyle(element);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== 'hidden'
-      && style.display !== 'none';
-  };
-  const makeContentSamples = () => {
-    const normalizedContent = normalize(input.content);
-    if (!normalizedContent) return [];
-
-    const lines = normalizedContent
-      .split(/\n+/)
-      .map((line) => line.trim())
-      .filter((line) => line.length >= 4);
-    const words = normalizedContent.split(' ').filter((word) => word.length > 2);
-    return [
-      normalizedContent.slice(0, 140),
-      lines[0]?.slice(0, 120) ?? '',
-      words.slice(0, 14).join(' '),
-    ].filter((sample) => sample.length >= 4);
-  };
-  const samples = [...new Set(makeContentSamples())];
-  const getSubmittedContentMatchLength = (element: Element) => {
-    if (samples.length === 0) return 0;
-
-    const text = normalize(element.textContent ?? '');
-    if (text.length < 4) return 0;
-
-    return samples.reduce((bestLength, sample) => (
-      text.includes(sample) || sample.includes(text.slice(0, 80))
-        ? Math.max(bestLength, sample.length)
-        : bestLength
-    ), 0);
-  };
-  const hasPendingCue = (element: Element) => (
-    /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet|admin approval/.test(
-      normalize(element.textContent ?? ''),
-    )
-  );
-  const isTimestampLike = (element: Element) => {
-    const text = normalize(element.textContent ?? '');
-    const label = normalize([
-      element.getAttribute('aria-label') ?? '',
-      element.getAttribute('title') ?? '',
-    ].join(' '));
-    const value = `${text} ${label}`.trim();
-    if (!value || value.length > 80) return false;
-
-    return /(^|\s)(vua xong|just now)(\s|$)|^\d+\s*(m|min|mins|minute|minutes|phut)$|^\d+\s*(s|sec|secs|second|seconds|giay)$/.test(value);
-  };
-  const findSubmittedPostCards = () => Array.from(
-    document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]'),
-  )
-    .filter((element) => isVisible(element))
-    .filter((element) => {
-      const matchLength = getSubmittedContentMatchLength(element);
-      return matchLength >= 16 || (matchLength >= 4 && hasPendingCue(element));
-    });
-  const findPostUrlInCard = (card: Element) => {
-    const links = Array.from(card.querySelectorAll('a[href]'));
-    for (const link of links) {
-      const href = link.getAttribute('href');
-      const postUrl = parsePostUrl(href);
-      if (postUrl) return postUrl;
-    }
-
-    return null;
-  };
-  const clickTimestampInCard = async (card: Element) => {
-    const candidates = Array.from(card.querySelectorAll('a[href], [role="link"], [role="button"], button, span, div'))
-      .filter((element) => isVisible(element))
-      .filter(isTimestampLike);
-
-    for (const candidate of candidates) {
-      const clickable = candidate.closest('a[href], [role="link"], [role="button"], button, [tabindex]') ?? candidate;
-      const href = clickable instanceof HTMLAnchorElement ? clickable.href : clickable.getAttribute('href');
-      const hrefPostUrl = parsePostUrl(href);
-      if (hrefPostUrl) return hrefPostUrl;
-
-      const beforeUrl = window.location.href;
-      try {
-        (clickable instanceof HTMLElement ? clickable : candidate as HTMLElement).click();
-      } catch {
-        continue;
-      }
-
-      const deadline = Date.now() + 5_000;
-      while (Date.now() < deadline) {
-        await sleepInPage(250);
-        const currentPostUrl = parsePostUrl(window.location.href);
-        if (currentPostUrl) return currentPostUrl;
-        if (window.location.href !== beforeUrl) break;
-      }
-    }
-
-    return null;
-  };
-
-  const currentPostUrl = parsePostUrl(window.location.href);
-  if (currentPostUrl) {
-    return {
-      externalPostUrl: currentPostUrl,
-      message: 'Current Facebook URL already contains a group post id.',
-    };
-  }
-
-  const deadline = Date.now() + 12_000;
-  while (Date.now() < deadline) {
-    const cards = findSubmittedPostCards();
-    for (const card of cards) {
-      const existingUrl = findPostUrlInCard(card);
-      if (existingUrl) {
-        return {
-          externalPostUrl: existingUrl,
-          message: 'Captured Facebook group post URL from the submitted post card.',
-        };
-      }
-
-      const clickedUrl = await clickTimestampInCard(card);
-      if (clickedUrl) {
-        return {
-          externalPostUrl: clickedUrl,
-          message: 'Captured Facebook group post URL by opening the submitted post timestamp.',
-        };
-      }
-    }
-
-    window.scrollBy({ top: -Math.max(360, window.innerHeight * 0.5), behavior: 'auto' });
-    await sleepInPage(700);
-  }
-
-  return {
-    externalPostUrl: null,
-    message: 'Submitted post URL was not available from the Facebook page.',
-  };
-}
-
 async function waitForFacebookSubmissionInPage(content: string): Promise<FacebookPagePublishResult> {
   const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const normalize = (value: string) => value
@@ -3482,7 +3375,7 @@ async function waitForFacebookSubmissionInPage(content: string): Promise<Faceboo
     if (!postSurfaceState.hasPostSurface && elapsedMs > 1_200) {
       return {
         status: 'SUCCESS',
-        message: 'Submitted to Facebook group.',
+        message: 'Facebook composer closed after submit; post creation still requires URL confirmation.',
       };
     }
 
