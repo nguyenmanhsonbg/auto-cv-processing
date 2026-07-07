@@ -7,6 +7,7 @@ import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { CandidateEntity } from '../candidates/entities/candidate.entity';
 import { CvDocumentsModule } from '../cv-documents/cv-documents.module';
+import { CvParsingModule } from '../cv-parsing/cv-parsing.module';
 import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
 import { ParsedProfileEntity } from '../cv-documents/entities/parsed-profile.entity';
 import { FormAnswerEntity } from '../form-sessions/entities/form-answer.entity';
@@ -30,6 +31,7 @@ import { FormSessionsModule } from '../form-sessions/form-sessions.module';
   imports: [
     ApplicationsModule,
     CvDocumentsModule,
+    CvParsingModule,
     FacebookPublishingModule,
     FileParserModule,
     FormSessionsModule,

@@ -40,6 +40,10 @@ export interface PublicApplyResponse {
   accepted?: boolean;
   applicationId?: string;
   cvDocumentId?: string;
+  originalCvDocumentId?: string;
+  cleanCvDocumentId?: string;
+  currentCvDocumentId?: string;
+  parsedProfileId?: string;
   status?: string;
   processingStatus?: string;
   nextStatus?: string;

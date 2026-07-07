@@ -74,6 +74,15 @@ export interface UploadCvInput {
   actorId?: string | null;
   idempotencyKey?: string | null;
   allowedApplicationStatuses?: readonly ApplicationStatus[];
+  scheduleSanitizeAfterScanPass?: boolean;
+}
+
+export interface SanitizeOriginalCvInput {
+  applicationId: string;
+  originalCvDocumentId: string;
+  actorId?: string | null;
+  idempotencyKey?: string | null;
+  scheduleParseAfterSanitizeSuccess?: boolean;
 }
 
 export interface CleanCvFileAccessInput {
@@ -123,7 +132,9 @@ export class CvDocumentsService {
       }
 
       this.assertCvScanAccepted(cvDocument);
-      this.scheduleSanitizeAfterScanPass(cvDocument);
+      if (input.scheduleSanitizeAfterScanPass ?? true) {
+        this.scheduleSanitizeAfterScanPass(cvDocument);
+      }
       return cvDocument;
     } catch (error) {
       if (!keepUploadedFile) {
@@ -253,6 +264,16 @@ export class CvDocumentsService {
       mimeType: cvDocument.mimeType,
       fileSize: fileStats.size,
     };
+  }
+
+  async sanitizeOriginalCvAfterScanPass(input: SanitizeOriginalCvInput) {
+    return this.cvSanitizationService.sanitizeCvDocument({
+      applicationId: this.requireText(input.applicationId, 'Application id'),
+      cvDocumentId: this.requireText(input.originalCvDocumentId, 'Original CV document id'),
+      actorId: input.actorId,
+      idempotencyKey: input.idempotencyKey,
+      scheduleParseAfterSanitizeSuccess: input.scheduleParseAfterSanitizeSuccess,
+    });
   }
 
   private async createOriginalCv(input: UploadCvInput) {

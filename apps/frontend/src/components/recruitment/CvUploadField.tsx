@@ -3,10 +3,10 @@ import { FileText, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-export const CV_ACCEPT = '.pdf,.docx,.xlsx';
+export const CV_ACCEPT = '.pdf,application/pdf';
 export const MAX_CV_FILE_SIZE_BYTES = 20 * 1024 * 1024;
 
-const ALLOWED_CV_EXTENSIONS = new Set(['.pdf', '.docx', '.xlsx']);
+const ALLOWED_CV_EXTENSIONS = new Set(['.pdf']);
 
 export function formatFileSize(bytes: number) {
   if (!Number.isFinite(bytes)) return '';
@@ -19,15 +19,15 @@ export function validateCvFile(file: File): string | null {
   const extension = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '';
 
   if (!ALLOWED_CV_EXTENSIONS.has(extension)) {
-    return 'Định dạng CV chưa được hỗ trợ. Vui lòng tải lên PDF, DOCX hoặc XLSX.';
+    return 'Hien tai he thong chi ho tro CV dang PDF de dam bao quet va tao CV sach.';
   }
 
   if (file.size > MAX_CV_FILE_SIZE_BYTES) {
-    return 'File vượt dung lượng cho phép. Vui lòng chọn file nhỏ hơn.';
+    return 'File vuot dung luong cho phep. Vui long chon file nho hon.';
   }
 
   if (file.size <= 0) {
-    return 'CV chưa hợp lệ. Vui lòng chọn file khác.';
+    return 'CV chua hop le. Vui long chon file khac.';
   }
 
   return null;
@@ -76,9 +76,9 @@ export function CvUploadField({
         )}
       >
         <Upload className="mb-3 h-6 w-6 text-muted-foreground" />
-        <span className="text-sm font-medium">Chọn CV để ứng tuyển</span>
+        <span className="text-sm font-medium">Chon CV de ung tuyen</span>
         <span className="mt-1 text-xs text-muted-foreground">
-          Hỗ trợ PDF, DOCX, XLSX. Không hỗ trợ XLS trong giai đoạn này.
+          Ho tro PDF, toi da 20 MB.
         </span>
         <input
           ref={inputRef}

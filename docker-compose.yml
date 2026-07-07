@@ -30,6 +30,10 @@ services:
       UPLOAD_DIR: /app/apps/backend/uploads
       CV_QUARANTINE_DIR: /app/apps/backend/storage/cv-quarantine
       CV_SAFE_DIR: /app/apps/backend/storage/cv-safe
+      CV_SCANNER_PROVIDER: clamav
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+      CV_SCANNER_TIMEOUT_MS: 15000
       CV_PDF_SANITIZER_MODE: HTTP_SERVICE
       CV_SANITIZER_SERVICE_URL: http://cv-sanitizer:8080
       CV_GHOSTSCRIPT_TIMEOUT_MS: 60000
@@ -38,9 +42,31 @@ services:
         condition: service_healthy
       cv-sanitizer:
         condition: service_healthy
+      clamav:
+        condition: service_healthy
     volumes:
       - uploads:/app/apps/backend/uploads
       - ./storage:/app/apps/backend/storage
+
+  clamav:
+    image: clamav/clamav:1.5.3-debian
+    container_name: cv_clamav
+    restart: unless-stopped
+    expose:
+      - '3310'
+    environment:
+      CLAMAV_NO_CLAMD: 'false'
+      CLAMAV_NO_FRESHCLAMD: 'false'
+      FRESHCLAM_CHECKS: '12'
+      CLAMD_STARTUP_TIMEOUT: '300'
+    volumes:
+      - clamav_db:/var/lib/clamav
+    healthcheck:
+      test: ['CMD-SHELL', 'clamdscan --ping=1 >/dev/null 2>&1 || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
 
   cv-sanitizer:
     image: auto-cv-processing-cv-sanitizer:latest
@@ -79,5 +105,6 @@ services:
       - backend
 
 volumes:
+  clamav_db:
   pgdata:
   uploads:

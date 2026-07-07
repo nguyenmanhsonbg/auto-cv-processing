@@ -48,6 +48,7 @@ export interface SanitizeCvDocumentInput {
   force?: boolean;
   actorId?: string | null;
   idempotencyKey?: string | null;
+  scheduleParseAfterSanitizeSuccess?: boolean;
 }
 
 interface SanitizeStartContext {
@@ -84,7 +85,9 @@ export class CvSanitizationService {
       this.logger.log(
         `CV sanitize skipped; clean CV already exists applicationId=${context.cleanCvDocument.applicationId} originalCvDocumentId=${context.originalCvDocument.id} cleanCvDocumentId=${context.cleanCvDocument.id}`,
       );
-      this.scheduleParseAfterSanitizeSuccess(context.cleanCvDocument);
+      if (input.scheduleParseAfterSanitizeSuccess ?? true) {
+        this.scheduleParseAfterSanitizeSuccess(context.cleanCvDocument);
+      }
       return context.cleanCvDocument;
     }
 
@@ -131,7 +134,9 @@ export class CvSanitizationService {
       this.logger.log(
         `CV sanitize succeeded applicationId=${cleanCvDocument.applicationId} originalCvDocumentId=${context.originalCvDocument.id} cleanCvDocumentId=${cleanCvDocument.id} sanitizer=${sanitizeResult.sanitizer} durationMs=${sanitizeResult.durationMs} cleanFileSize=${cleanArtifact.fileSize}`,
       );
-      this.scheduleParseAfterSanitizeSuccess(cleanCvDocument);
+      if (input.scheduleParseAfterSanitizeSuccess ?? true) {
+        this.scheduleParseAfterSanitizeSuccess(cleanCvDocument);
+      }
       return cleanCvDocument;
     } catch (error) {
       if (outputFilePath) {
@@ -213,7 +218,8 @@ export class CvSanitizationService {
       if (!application) throw new BadRequestException('Application not found');
       if (
         !originalCvDocument.isCurrent &&
-        application.currentCvDocumentId !== originalCvDocument.id
+        application.currentCvDocumentId !== originalCvDocument.id &&
+        !this.isSanitizeRetryAfterFailure(application, originalCvDocument)
       ) {
         throw new BadRequestException('Only the current original CV can be sanitized');
       }
@@ -283,7 +289,14 @@ export class CvSanitizationService {
 
       const shouldMarkCleanCurrent = Boolean(
         originalCvDocument.isCurrent ||
-        application.currentCvDocumentId === originalCvDocument.id,
+        application.currentCvDocumentId === originalCvDocument.id ||
+        (
+          !application.currentCvDocumentId &&
+          (
+            application.status === ApplicationStatus.CV_SANITIZING ||
+            application.status === ApplicationStatus.CV_SANITIZE_FAILED
+          )
+        ),
       );
 
       if (shouldMarkCleanCurrent) {
@@ -366,7 +379,18 @@ export class CvSanitizationService {
   ) {
     return this.dataSource.transaction(async (manager) => {
       const originalCvDocument = await this.findOriginalCvById(manager, originalCvDocumentId);
+      const application = await manager.getRepository(ApplicationEntity).findOne({
+        where: { id: originalCvDocument.applicationId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!application) throw new BadRequestException('Application not found');
+
       originalCvDocument.sanitizeStatus = CvSanitizeStatus.FAILED;
+      if (application.currentCvDocumentId === originalCvDocument.id) {
+        application.currentCvDocumentId = null;
+        originalCvDocument.isCurrent = false;
+        await manager.getRepository(ApplicationEntity).save(application);
+      }
       const savedOriginal = await manager.getRepository(CvDocumentEntity).save(originalCvDocument);
       const metadata = {
         applicationId: savedOriginal.applicationId,
@@ -540,6 +564,16 @@ export class CvSanitizationService {
       ApplicationStatus.CV_SANITIZE_FAILED,
     ].includes(status) || !TERMINAL_APPLICATION_STATUSES.includes(
       status as (typeof TERMINAL_APPLICATION_STATUSES)[number],
+    );
+  }
+
+  private isSanitizeRetryAfterFailure(
+    application: ApplicationEntity,
+    originalCvDocument: CvDocumentEntity,
+  ) {
+    return (
+      application.status === ApplicationStatus.CV_SANITIZE_FAILED &&
+      originalCvDocument.sanitizeStatus === CvSanitizeStatus.FAILED
     );
   }
 

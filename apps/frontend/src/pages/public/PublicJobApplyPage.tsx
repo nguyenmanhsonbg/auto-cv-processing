@@ -69,8 +69,8 @@ function isApplyOpen(job: PublicJobPostingDetail) {
 function toSuccessResult(response: PublicApplyResponse): ApplyResultState {
   return {
     type: 'success',
-    title: 'Hồ sơ đã được tiếp nhận',
-    message: 'Hồ sơ đã được tiếp nhận và đang được xử lý.',
+    title: 'Ung tuyen thanh cong',
+    message: 'CV cua ban da duoc kiem tra an toan va tiep nhan.',
     applicationId: response.applicationId,
   };
 }
@@ -92,7 +92,7 @@ export function PublicJobApplyPage() {
 
     async function loadJob() {
       if (!slug) {
-        setJobError('Không tìm thấy tin tuyển dụng.');
+        setJobError('Khong tim thay tin tuyen dung.');
         setLoadingJob(false);
         return;
       }
@@ -106,7 +106,7 @@ export function PublicJobApplyPage() {
       } catch (err) {
         if (!active) return;
         if (err instanceof ApiError && err.status === 404) {
-          setJobError('Không tìm thấy tin tuyển dụng hoặc tin đã ngừng nhận hồ sơ.');
+          setJobError('Khong tim thay tin tuyen dung hoac tin da ngung nhan ho so.');
         } else {
           setJobError(getPublicSafeErrorMessage(err));
         }
@@ -134,24 +134,24 @@ export function PublicJobApplyPage() {
     const nextErrors: Partial<Record<keyof ApplyFormState | 'cvFile', string>> = {};
 
     if (!form.fullName.trim()) {
-      nextErrors.fullName = 'Vui lòng nhập họ tên.';
+      nextErrors.fullName = 'Vui long nhap ho ten.';
     }
     if (!form.email.trim()) {
-      nextErrors.email = 'Vui lòng nhập email.';
+      nextErrors.email = 'Vui long nhap email.';
     } else if (!isEmail(form.email.trim())) {
-      nextErrors.email = 'Email chưa hợp lệ.';
+      nextErrors.email = 'Email chua hop le.';
     }
     if (!form.phone.trim()) {
-      nextErrors.phone = 'Vui lòng nhập số điện thoại.';
+      nextErrors.phone = 'Vui long nhap so dien thoai.';
     }
     if (!cvFile) {
-      nextErrors.cvFile = 'Vui lòng tải lên CV.';
+      nextErrors.cvFile = 'Vui long tai len CV.';
     } else {
       const fileError = validateCvFile(cvFile);
       if (fileError) nextErrors.cvFile = fileError;
     }
     if (!form.consent) {
-      nextErrors.consent = 'Vui lòng xác nhận thông tin trước khi gửi hồ sơ.';
+      nextErrors.consent = 'Vui long xac nhan thong tin truoc khi gui ho so.';
     }
 
     setFieldErrors(nextErrors);
@@ -186,7 +186,7 @@ export function PublicJobApplyPage() {
     } catch (err) {
       setResult({
         type: 'error',
-        title: 'Chưa thể gửi hồ sơ',
+        title: 'Chua the gui ho so',
         message: getPublicSafeErrorMessage(err),
       });
     } finally {
@@ -213,13 +213,13 @@ export function PublicJobApplyPage() {
           <CardContent className="flex gap-3 pt-6">
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
             <div className="space-y-2">
-              <h1 className="text-xl font-semibold">Không thể mở form ứng tuyển</h1>
+              <h1 className="text-xl font-semibold">Khong the mo form ung tuyen</h1>
               <p className="text-sm text-muted-foreground">
-                {jobError ?? 'Không có dữ liệu tin tuyển dụng.'}
+                {jobError ?? 'Khong co du lieu tin tuyen dung.'}
               </p>
               {slug && (
                 <Button asChild variant="outline">
-                  <Link to={`/jobs/${slug}`}>Quay lại tin tuyển dụng</Link>
+                  <Link to={`/jobs/${slug}`}>Quay lai tin tuyen dung</Link>
                 </Button>
               )}
             </div>
@@ -234,18 +234,18 @@ export function PublicJobApplyPage() {
       <section className="space-y-6">
         <div className="space-y-2">
           <Link to={`/jobs/${job.publicSlug}`} className="text-sm font-medium text-primary hover:underline">
-            Quay lại tin tuyển dụng
+            Quay lai tin tuyen dung
           </Link>
-          <h1 className="text-3xl font-semibold tracking-tight">Ứng tuyển {job.title}</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Ung tuyen {job.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Hồ sơ được tiếp nhận trước, sau đó hệ thống sẽ kiểm tra bảo mật CV và xử lý tiếp.
+            Ho so chi duoc tiep nhan sau khi CV PDF duoc quet an toan, tao ban CV sach va doc thong tin thanh cong.
           </p>
         </div>
 
         {!applyOpen && (
           <Card className="border-amber-200 bg-amber-50">
             <CardContent className="pt-6 text-sm text-amber-900">
-              Tin tuyển dụng hiện chưa nhận hồ sơ.
+              Tin tuyen dung hien chua nhan ho so.
             </CardContent>
           </Card>
         )}
@@ -268,13 +268,13 @@ export function PublicJobApplyPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Thông tin ứng tuyển</CardTitle>
+            <CardTitle>Thong tin ung tuyen</CardTitle>
           </CardHeader>
           <CardContent>
             <form className="space-y-5" onSubmit={handleSubmit}>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="fullName">Họ tên</Label>
+                  <Label htmlFor="fullName">Ho ten</Label>
                   <Input
                     id="fullName"
                     value={form.fullName}
@@ -303,7 +303,7 @@ export function PublicJobApplyPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="phone">Số điện thoại</Label>
+                  <Label htmlFor="phone">So dien thoai</Label>
                   <Input
                     id="phone"
                     value={form.phone}
@@ -318,13 +318,13 @@ export function PublicJobApplyPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="note">Ghi chú</Label>
+                <Label htmlFor="note">Ghi chu</Label>
                 <Textarea
                   id="note"
                   value={form.note}
                   onChange={(event) => updateForm('note', event.target.value)}
                   disabled={submitting || !applyOpen}
-                  placeholder="Thông tin bổ sung nếu cần"
+                  placeholder="Thong tin bo sung neu can"
                 />
               </div>
 
@@ -348,10 +348,7 @@ export function PublicJobApplyPage() {
                 />
                 <div className="space-y-1">
                   <p className="text-sm">
-                    Tôi xác nhận thông tin đã cung cấp là chính xác và đồng ý để hệ thống xử lý hồ sơ ứng tuyển.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Consent/captcha policy vẫn cần chốt ở batch sau; checkbox này là xác nhận tối thiểu cho FE-2.
+                    Toi xac nhan thong tin da cung cap la chinh xac va dong y de he thong xu ly ho so ung tuyen.
                   </p>
                   {fieldErrors.consent && (
                     <p className="text-sm text-destructive">{fieldErrors.consent}</p>
@@ -359,9 +356,17 @@ export function PublicJobApplyPage() {
                 </div>
               </div>
 
-              <Button type="submit" disabled={submitting || !applyOpen}>
-                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Gửi hồ sơ
+              <Button
+                type="submit"
+                disabled={submitting || !applyOpen}
+                className="max-w-full whitespace-normal text-left"
+              >
+                {submitting && <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />}
+                <span>
+                  {submitting
+                    ? 'Dang tai CV, quet an toan, tao CV sach va doc thong tin CV...'
+                    : 'Gui ho so'}
+                </span>
               </Button>
             </form>
           </CardContent>
@@ -374,14 +379,14 @@ export function PublicJobApplyPage() {
             <CardTitle className="text-lg">{job.title}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            {job.position?.name && <p>Vị trí: {job.position.name}</p>}
+            {job.position?.name && <p>Vi tri: {job.position.name}</p>}
             {(job.level?.displayName ?? job.level?.name) && (
-              <p>Cấp độ: {job.level?.displayName ?? job.level?.name}</p>
+              <p>Cap do: {job.level?.displayName ?? job.level?.name}</p>
             )}
-            {job.location && <p>Địa điểm: {job.location}</p>}
-            {job.workingMode && <p>Hình thức: {job.workingMode}</p>}
+            {job.location && <p>Dia diem: {job.location}</p>}
+            {job.workingMode && <p>Hinh thuc: {job.workingMode}</p>}
             <p>
-              CV được hỗ trợ: PDF, DOCX, XLSX. Không hỗ trợ XLS trong giai đoạn này.
+              CV duoc ho tro: PDF. He thong can tao CV sach thanh cong truoc khi tiep nhan ho so.
             </p>
           </CardContent>
         </Card>
