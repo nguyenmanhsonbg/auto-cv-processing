@@ -549,7 +549,7 @@ async function recoverFacebookPendingPostUrlFromGroup(
         tab.id,
         history.targetUrl,
         history.targetExternalId,
-        8_000,
+        12_000,
       );
       if (clickedPostUrl) {
         return {
@@ -803,6 +803,15 @@ function buildFacebookPendingPostsManagerUrl(
   const groupId = getExpectedFacebookGroupIds(targetUrl, targetExternalId)[0] ?? null;
   if (!groupId) return null;
   return `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/my_pending_content`;
+}
+
+function buildFacebookGroupUrl(
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
+) {
+  const groupId = getExpectedFacebookGroupIds(targetUrl, targetExternalId)[0] ?? null;
+  if (!groupId) return null;
+  return `https://www.facebook.com/groups/${encodeURIComponent(groupId)}`;
 }
 
 async function waitForExpectedFacebookPostUrlInTab(
@@ -1154,36 +1163,44 @@ async function enrichFacebookPublishResultWithPostUrl(
   const pendingManagerResult = buildFacebookPublishResultFromRecovery(result, pendingManagerRecovery);
   if (pendingManagerResult) return pendingManagerResult;
 
-  if (result.status === 'SUCCESS' && isSimilarButNotRecentRecovery(pendingManagerRecovery.probe)) {
-    const existingPendingRecovery = await recoverFacebookSubmittedPostUrlFromPendingManager(
-      tabId,
-      content,
-      targetUrl,
-      targetExternalId,
-      false,
-    );
-    if (existingPendingRecovery.postUrl) {
-      return {
-        ...result,
-        status: 'SUCCESS',
-        externalPostId: existingPendingRecovery.postUrl.postId,
-        externalPostUrl: existingPendingRecovery.postUrl.url,
-        message: `${existingPendingRecovery.probe?.message || 'Recovered Facebook group post URL from an existing matching pending post.'} Facebook did not expose a recent pending card for this submit; using the existing matching pending post as an idempotent result.`,
-        postClickEvidence: true,
-      };
-    }
-  }
+  const fallbackPendingRecovery = await recoverFacebookSubmittedPostUrlFromPendingManager(
+    tabId,
+    content,
+    targetUrl,
+    targetExternalId,
+    false,
+  );
+  const fallbackPendingResult = buildFacebookPublishResultFromRecovery(result, fallbackPendingRecovery);
+  if (fallbackPendingResult) return fallbackPendingResult;
 
-  if (result.status === 'SUCCESS') {
-    const recoveryMessage = pendingManagerRecovery.probe?.message
-      || currentPageRecovery.probe?.message
-      || 'No matching verified post URL was found.';
+  const groupFeedRecovery = await recoverFacebookSubmittedPostUrlFromGroupFeed(
+    tabId,
+    content,
+    targetUrl,
+    targetExternalId,
+  );
+  const groupFeedResult = buildFacebookPublishResultFromRecovery(result, groupFeedRecovery);
+  if (groupFeedResult) return groupFeedResult;
+
+  const recoveryMessage = [
+    fallbackPendingRecovery.probe?.message,
+    groupFeedRecovery.probe?.message,
+    pendingManagerRecovery.probe?.message,
+    currentPageRecovery.probe?.message,
+  ].filter(Boolean).join(' ')
+    || 'No matching verified post URL was found.';
+
+  if (
+    result.status === 'SUCCESS'
+    || (result.submitClickDispatched && result.postClickEvidence && isPostClickConfirmationFailure(result.message))
+  ) {
     return {
       ...result,
-      status: 'FAILED',
-      message: `${result.message} Facebook showed a post-click pending/submitted signal, but the submitted post could not be verified in the target group or pending manager. ${recoveryMessage}`,
+      status: 'SUCCESS',
+      message: `${result.message} Facebook submission appears successful, but the submitted post URL could not be verified. ${recoveryMessage}`,
       externalPostId: null,
       externalPostUrl: null,
+      postClickEvidence: true,
     };
   }
 
@@ -1208,35 +1225,37 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
     }],
   ).catch(() => null);
 
-  let probe = await recoverInCurrentPage();
-  let postUrl = parseFacebookGroupPostUrl(probe?.externalPostUrl);
-  if (postUrl) return { probe, postUrl };
+  let probe: FacebookPostReviewStatusProbeResult | null = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    probe = await recoverInCurrentPage();
+    const postUrl = parseFacebookGroupPostUrl(probe?.externalPostUrl);
+    if (postUrl) return { probe, postUrl };
 
-  if (probe?.timestampClickPoint) {
-    await clickTabCoordinatePoint(tabId, probe.timestampClickPoint).catch(() => undefined);
-    const clickedPostUrl = await waitForExpectedFacebookPostUrlInTab(
-      tabId,
-      targetUrl,
-      targetExternalId,
-      10_000,
-    );
-    if (clickedPostUrl) {
-      return {
-        probe: {
-          ...probe,
-          facebookReviewStatus: clickedPostUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
-          message: 'Confirmed Facebook group post URL by opening the submitted post timestamp.',
-          externalPostId: clickedPostUrl.postId,
-          externalPostUrl: clickedPostUrl.url,
-        },
-        postUrl: clickedPostUrl,
-      };
+    if (probe?.timestampClickPoint) {
+      await clickTabCoordinatePoint(tabId, probe.timestampClickPoint).catch(() => undefined);
+      const clickedPostUrl = await waitForExpectedFacebookPostUrlInTab(
+        tabId,
+        targetUrl,
+        targetExternalId,
+        12_000,
+      );
+      if (clickedPostUrl) {
+        return {
+          probe: {
+            ...probe,
+            facebookReviewStatus: clickedPostUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
+            message: 'Confirmed Facebook group post URL by opening the submitted post timestamp.',
+            externalPostId: clickedPostUrl.postId,
+            externalPostUrl: clickedPostUrl.url,
+          },
+          postUrl: clickedPostUrl,
+        };
+      }
     }
 
-    await sleep(randomDelay(700, 1_200));
-    probe = await recoverInCurrentPage();
-    postUrl = parseFacebookGroupPostUrl(probe?.externalPostUrl);
-    if (postUrl) return { probe, postUrl };
+    if (attempt < 2) {
+      await sleep(randomDelay(700, 1_200));
+    }
   }
 
   return { probe, postUrl: null };
@@ -1272,6 +1291,58 @@ async function recoverFacebookSubmittedPostUrlFromPendingManager(
     await sleep(randomDelay(900, 1_800));
   }
 
+  if (!requireRecent) {
+    return latestRecovery;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await chrome.tabs?.update(tabId, { url: pendingManagerUrl });
+    await waitForTabComplete(tabId);
+    await sleep(randomDelay(3_000, 4_500));
+
+    latestRecovery = await recoverFacebookSubmittedPostUrlInCurrentPage(
+      tabId,
+      content,
+      targetUrl,
+      targetExternalId,
+      false,
+    );
+    if (latestRecovery.postUrl) return latestRecovery;
+
+    await sleep(randomDelay(900, 1_500));
+  }
+
+  return latestRecovery;
+}
+
+async function recoverFacebookSubmittedPostUrlFromGroupFeed(
+  tabId: number,
+  content: string,
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
+): Promise<FacebookSubmittedPostRecoveryResult> {
+  const groupUrl = buildFacebookGroupUrl(targetUrl, targetExternalId);
+  if (!groupUrl) {
+    return { probe: null, postUrl: null };
+  }
+
+  let latestRecovery: FacebookSubmittedPostRecoveryResult = { probe: null, postUrl: null };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await chrome.tabs?.update(tabId, { url: groupUrl });
+    await waitForTabComplete(tabId);
+    await sleep(randomDelay(1_700, 2_700));
+    latestRecovery = await recoverFacebookSubmittedPostUrlInCurrentPage(
+      tabId,
+      content,
+      targetUrl,
+      targetExternalId,
+      false,
+    );
+    if (latestRecovery.postUrl) return latestRecovery;
+
+    await sleep(randomDelay(900, 1_500));
+  }
+
   return latestRecovery;
 }
 
@@ -1293,12 +1364,8 @@ function buildFacebookPublishResultFromRecovery(
   return null;
 }
 
-function isSimilarButNotRecentRecovery(probe: FacebookPostReviewStatusProbeResult | null | undefined) {
-  return Boolean(probe?.message && /similar pending post cards.*none were recent enough/i.test(probe.message));
-}
-
 function isPostClickConfirmationFailure(message: string) {
-  return /could not be confirmed after submit click|could not be observed after submit click|composer closed after submit|post surface changed after submit|post submission did not complete after clicking/i.test(message);
+  return /could not be confirmed after submit click|could not be observed after submit click|composer closed after submit|post surface changed after submit|post submission did not complete after clicking|post click was sent|submitted to facebook group|post was submitted after click/i.test(message);
 }
 
 function shouldRetryBackgroundSubmitFailure(message: string) {
@@ -3173,9 +3240,17 @@ async function recoverFacebookPendingPostUrlInPage(
     const recentScored = input.requireRecent
       ? scored.filter((item) => hasRecentTimestampCue(item.card))
       : scored;
+    const anyTimestampScored = input.requireRecent
+      ? scored.filter((item) => hasAnyTimestampCue(item.card))
+      : [];
+    const candidateList = recentScored.length > 0
+      ? recentScored
+      : anyTimestampScored.length > 0
+        ? anyTimestampScored
+        : scored;
 
     return {
-      card: recentScored[0]?.card ?? null,
+      card: candidateList[0]?.card ?? null,
       sawSimilarButNotRecent: Boolean(input.requireRecent && scored.length > 0 && recentScored.length === 0),
     };
   };
@@ -3201,18 +3276,6 @@ async function recoverFacebookPendingPostUrlInPage(
 
     return candidates[0]?.element ?? null;
   };
-  const isTimestampLike = (element: Element) => {
-    const value = textOf(element);
-    if (!value || value.length > 90) return false;
-
-    return /(^|\s)(vua xong|just now|now|moments ago|a few seconds ago|few seconds ago|vai giay truoc|vai giay|mot chut truoc|hom qua|yesterday)(\s|$)|^\d+\s*(s|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut|h|hr|hrs|hour|hours|gio|d|day|days|ngay|w|week|weeks|tuan|mo|month|months|thang|y|yr|year|years|nam)(\s|$)|^(one|mot)\s*(m|min|mins|minute|minutes|phut)(\s|$)|^\d{1,2}\s*thang\s*\d{1,2}|^\d{1,2}\/\d{1,2}/.test(value);
-  };
-  const isRecentTimestampLike = (element: Element) => {
-    const value = textOf(element);
-    if (!value || value.length > 90) return false;
-
-    return /(^|\s)(vua xong|just now|now|moments ago|a few seconds ago|few seconds ago|seconds ago|vai giay truoc|vai giay|mot chut truoc)(\s|$)|(^|\s)([0-9]|10)\s*(s|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut)(\s|$)|(^|\s)(one|mot)\s*(m|min|mins|minute|minutes|phut)(\s|$)|(^|\s)(a few|few|vai)\s*(m|min|mins|minute|minutes|phut)\s*(ago|truoc)?(\s|$)/.test(value);
-  };
   const elementAttributeText = (element: Element) => normalize([
     element.getAttribute('aria-label') ?? '',
     element.getAttribute('title') ?? '',
@@ -3225,6 +3288,45 @@ async function recoverFacebookPendingPostUrlInPage(
       .join(' '),
     elementAttributeText(element),
   ].join(' '));
+  const getTimestampTextSamples = (element: Element) => {
+    const clickable = getClickableElement(element);
+    const rawSamples = [
+      textOf(element),
+      directTextOf(element),
+      elementAttributeText(element),
+      clickable !== element ? textOf(clickable) : null,
+      clickable !== element ? directTextOf(clickable) : null,
+      clickable !== element ? elementAttributeText(clickable) : null,
+    ]
+      .filter((value): value is string => Boolean(value?.trim()));
+
+    return [...new Set(rawSamples)];
+  };
+  const isTimestampLike = (element: Element) => {
+    const boundary = '(?=\\s|$|[.,;:!?\\)]|\\u2022)';
+    const isTimestampTextLike = (value: string) => (
+      new RegExp(`(^|\\s)(vua xong|just now|now|moments ago|a few seconds ago|few seconds ago|seconds ago|mot chut truoc|hom qua|yesterday|hom nay)${boundary}`).test(value)
+      || new RegExp(`^\\d{1,3}\\s*(s|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut|h|hr|hrs|hour|hours|gio|d|day|days|ngay|w|week|weeks|tuan|mo|month|months|thang|y|yr|year|years|nam)${boundary}`).test(value)
+      || new RegExp(`^(one|mot)\\s*(m|min|mins|minute|minutes|phut)${boundary}`).test(value)
+      || new RegExp(`^\\d{1,2}\\s*thang\\s*\\d{1,2}${boundary}`).test(value)
+      || new RegExp(`^\\d{1,2}\\/\\d{1,2}${boundary}`).test(value)
+    );
+
+    return getTimestampTextSamples(element)
+      .some((value) => value.length <= 160 && isTimestampTextLike(value));
+  };
+  const isRecentTimestampLike = (element: Element) => {
+    const boundary = '(?=\\s|$|[.,;:!?\\)]|\\u2022)';
+    const isRecentTimestampTextLike = (value: string) => (
+      new RegExp(`(^|\\s)(vua xong|just now|now|moments ago|a few seconds ago|few seconds ago|seconds ago|mot chut truoc|hom qua|yesterday|hom nay|today)${boundary}`).test(value)
+      || new RegExp(`(^|\\s)\\d{1,3}\\s*(s|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut|h|hr|hrs|hour|hours|gio|d|day|days|w|week|weeks|tuan|mo|month|months|thang|y|yr|year|years|nam)${boundary}`).test(value)
+      || new RegExp(`(^|\\s)(one|mot)\\s*(m|min|mins|minute|minutes|phut)${boundary}`).test(value)
+      || new RegExp(`(^|\\s)(a few|few|vai)\\s*(m|min|mins|minute|minutes|phut)\\s*(ago|truoc)?${boundary}`).test(value)
+    );
+
+    return getTimestampTextSamples(element)
+      .some((value) => value.length <= 160 && isRecentTimestampTextLike(value));
+  };
   const hasActionMenuText = (value: string) => (
     value.includes('...')
       || /(^|\s)(more|more options|actions?|options?|menu|see more|xem them|khac|tuy chon|chinh sua|edit|xoa|delete|moi nhat truoc|newest|tim hieu them|learn more|quan ly bai viet|manage posts|binh luan|comment|thich|like|gui|send)(\s|$)/.test(value)
@@ -3280,6 +3382,18 @@ async function recoverFacebookPendingPostUrlInPage(
         && (isRecentTimestampLike(element) || isRecentTimestampLike(clickable));
     });
   };
+  const hasAnyTimestampCue = (card: Element) => {
+    const candidates = Array.from(card.querySelectorAll('a[href], [role="link"], [role="button"], button, span, div'))
+      .filter(isVisible);
+
+    return candidates.some((element) => {
+      const clickable = getClickableElement(element);
+      return isInsideCard(clickable, card)
+        && !isBadTimestampCandidate(element, card)
+        && !isBadTimestampCandidate(clickable, card)
+        && (isTimestampLike(element) || isTimestampLike(clickable));
+    });
+  };
   const buildTimestampPoint = (rect: DOMRect): FacebookSubmitButtonPoint => ({
     clientX: Math.round(rect.left + rect.width / 2),
     clientY: Math.round(rect.top + rect.height / 2),
@@ -3289,16 +3403,14 @@ async function recoverFacebookPendingPostUrlInPage(
     hrefPostUrl: ReturnType<typeof parsePostUrl>;
     looksTimeLike: boolean;
     closeAboveContent: boolean;
-    compact: boolean;
     semanticLink: boolean;
     score: number;
   }) => (
     isExpectedPostUrl(input.hrefPostUrl)
       || (
-        input.score >= 250
-          && input.compact
-          && (input.looksTimeLike || input.closeAboveContent)
-          && (input.semanticLink || input.looksTimeLike)
+        input.score >= 210
+          && input.looksTimeLike
+          && (input.semanticLink || input.closeAboveContent)
       )
   );
   const getRectScore = (rect: DOMRect, cardRect: DOMRect, contentRect: DOMRect | null) => {
@@ -3347,6 +3459,8 @@ async function recoverFacebookPendingPostUrlInPage(
         const href = getSemanticHref(element);
         const hrefPostUrl = parsePostUrl(href);
         const looksTimeLike = isTimestampLike(element) || isTimestampLike(clickable);
+        const hasExpectedPostUrl = isExpectedPostUrl(hrefPostUrl);
+        const looksLikeTimeLike = looksTimeLike || hasExpectedPostUrl;
         const verticalGap = contentRect ? contentRect.top - rect.bottom : null;
         const horizontallyAligned = contentRect
           ? rect.left < contentRect.right && rect.right > contentRect.left
@@ -3358,10 +3472,7 @@ async function recoverFacebookPendingPostUrlInPage(
         const compact = rect.width <= 180 && rect.height <= 36;
         const semanticLink = isSemanticLink(element, clickable);
         const rectScore = getRectScore(rect, cardRect, contentRect);
-        if (
-          rectScore < 0
-          || (!isExpectedPostUrl(hrefPostUrl) && !looksTimeLike && !(closeAboveContent && compact))
-        ) {
+        if (!looksLikeTimeLike) {
           return null;
         }
 
@@ -3372,28 +3483,58 @@ async function recoverFacebookPendingPostUrlInPage(
           + (semanticLink ? 80 : 0)
           + rectScore
           - Math.max(0, rect.width - 160) / 4;
-        if (!isAcceptedTimestampCandidate({
+        const accepted = isAcceptedTimestampCandidate({
           hrefPostUrl,
           looksTimeLike,
           closeAboveContent,
-          compact,
           semanticLink,
           score,
-        })) {
+        });
+
+        if (rectScore < 0 && !accepted && !hasExpectedPostUrl) {
           return null;
         }
 
         return {
+          accepted,
           hrefPostUrl,
           point: buildTimestampPoint(rect),
-          score,
+          score: Math.max(score, 0),
         };
-      })
+    })
       .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      .sort((left, right) => right.score - left.score);
+      .filter((item) => item.score >= 60)
+      .sort((left, right) => (
+        (Number(right.accepted) - Number(left.accepted))
+        || (right.score - left.score)
+      ));
   };
   const resolveTimestampInCard = (card: Element) => {
     const candidates = getTimestampCandidates(card);
+    const acceptedCandidates = candidates.filter((candidate) => candidate.accepted);
+    for (const candidate of acceptedCandidates.slice(0, 4)) {
+      if (isExpectedPostUrl(candidate.hrefPostUrl)) {
+        return {
+          postUrl: candidate.hrefPostUrl,
+          timestampClickPoint: candidate.point,
+        };
+      }
+    }
+    if (acceptedCandidates.length > 0 && acceptedCandidates[0]?.point) {
+      return {
+        postUrl: null,
+        timestampClickPoint: acceptedCandidates[0].point,
+      };
+    }
+
+    const fallbackCandidates = candidates.slice(0, 3);
+    if (fallbackCandidates.length > 0 && fallbackCandidates[0].point) {
+      return {
+        postUrl: null,
+        timestampClickPoint: fallbackCandidates[0].point,
+      };
+    }
+
     for (const candidate of candidates.slice(0, 5)) {
       if (isExpectedPostUrl(candidate.hrefPostUrl)) {
         return {
@@ -3686,6 +3827,78 @@ async function waitForFacebookSubmissionInPage(
       return 'unknown';
     }
   };
+  const getExpectedGroupIds = () => {
+    const safeDecode = (value: string | null | undefined) => {
+      if (!value) return null;
+      try {
+        return decodeURIComponent(value).trim().replace(/^\/+|\/+$/g, '');
+      } catch {
+        return value.trim().replace(/^\/+|\/+$/g, '');
+      }
+    };
+    const normalizeGroupId = (value: string | null | undefined) => safeDecode(value);
+
+    const targetId = normalizeGroupId(diagnosticInput.targetExternalId);
+    const targetUrlId = (() => {
+      if (!diagnosticInput.targetUrl) return null;
+      try {
+        const parsedUrl = new URL(diagnosticInput.targetUrl, window.location.href);
+        const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)/i);
+        return match?.[1] ? safeDecode(match[1]) : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    return [targetId, targetUrlId].filter((value): value is string => Boolean(value));
+  };
+  const expectedGroupIds = getExpectedGroupIds();
+  const parsePostUrlFromLocation = (value: string | null | undefined) => {
+    const rawUrl = value?.trim();
+    if (!rawUrl) return null;
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawUrl);
+    } catch {
+      try {
+        parsedUrl = new URL(rawUrl, window.location.href);
+      } catch {
+        return null;
+      }
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (hostname !== 'facebook.com' && !hostname.endsWith('.facebook.com')) return null;
+
+    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts)\/(\d+)\/?$/i);
+    if (!match) return null;
+
+    const safeDecode = (value: string | null | undefined) => {
+      if (!value) return '';
+      try {
+        return decodeURIComponent(value).trim();
+      } catch {
+        return value.trim();
+      }
+    };
+
+    const groupId = safeDecode(match[1]);
+    const pathType = match[2].toLowerCase();
+    const postId = (match[3] ?? '').trim();
+    if (!groupId || !postId) return null;
+
+    const suffix = pathType === 'posts' ? '/' : '';
+    return {
+      groupId,
+      pathType: pathType === 'posts' ? 'posts' : 'pending_posts',
+      postId,
+      url: `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/${pathType}/${postId}${suffix}`,
+    };
+  };
+  const isExpectedSubmitPost = (postUrl: ReturnType<typeof parsePostUrlFromLocation> | null) => (
+    !postUrl ? false : expectedGroupIds.length === 0 || expectedGroupIds.includes(postUrl.groupId)
+  );
   const POST_BUTTON_PATTERNS = [
     /^post$/,
     /^dang$/,
@@ -4097,8 +4310,22 @@ async function waitForFacebookSubmissionInPage(
   let observedPostContentAfterClick = false;
   let observedSubmitButtonAfterClick = false;
   let observedPostSurfaceChangeAfterClick = false;
-
+  let lastPostSurfaceState: ReturnType<typeof readPostSurfaceState> | null = null;
+ 
   while (Date.now() < deadline) {
+    const currentPostUrl = parsePostUrlFromLocation(window.location.href);
+    if (currentPostUrl && isExpectedSubmitPost(currentPostUrl)) {
+      return {
+        status: 'SUCCESS',
+        message: currentPostUrl.pathType === 'posts'
+          ? 'Facebook submission URL was detected after click.'
+          : 'Facebook submission pending URL was detected after click.',
+        externalPostId: currentPostUrl.postId,
+        externalPostUrl: currentPostUrl.url,
+        postClickEvidence: true,
+      };
+    }
+
     const errorMessage = readSubmissionError();
     if (errorMessage) {
       return {
@@ -4117,6 +4344,7 @@ async function waitForFacebookSubmissionInPage(
     }
 
     const postSurfaceState = readPostSurfaceState();
+    lastPostSurfaceState = postSurfaceState;
     observedPostContentAfterClick = observedPostContentAfterClick || postSurfaceState.contentInEditor;
     observedSubmitButtonAfterClick = observedSubmitButtonAfterClick || postSurfaceState.submitButtonFound;
     observedPostSurfaceChangeAfterClick = observedPostSurfaceChangeAfterClick
@@ -4195,5 +4423,10 @@ async function waitForFacebookSubmissionInPage(
       'FB_SUBMIT_TIMEOUT',
       'Facebook post submission did not complete after clicking the submit button.',
     ),
+    postClickEvidence: !lastPostSurfaceState?.hasPostSurface
+      || !lastPostSurfaceState?.submitButtonFound
+      || !lastPostSurfaceState?.contentInEditor
+      || observedPostSurfaceChangeAfterClick
+      || observedPostContentAfterClick,
   };
 }
