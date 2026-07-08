@@ -291,22 +291,9 @@ export class FormSessionsService {
         manager,
       );
 
-      // 6. Mock email notification printed to logs
-      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3001';
+      // 6. Send actual email to candidate
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL');
       const formUrl = `${frontendUrl}/form/${plainToken}`;
-
-      this.logger.log(`
-================================================================================
-[MOCK EMAIL SENT TO CANDIDATE]
-To: ${application.candidate?.email || 'N/A'}
-Candidate Name: ${application.candidate?.name || 'N/A'}
-Job Applied: ${jobPosting.title}
-Questionnaire Link: ${formUrl}
-Expires at: ${expiresAt.toLocaleString('vi-VN')} (5 minutes for testing)
-================================================================================
-      `);
-
-      // Send actual email if candidate has a valid email address
       const candidateEmail = application.candidate?.email;
       if (candidateEmail && candidateEmail.includes('@')) {
         const candidateName = application.candidate?.name || 'Ứng viên';
