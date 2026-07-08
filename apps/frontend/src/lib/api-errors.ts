@@ -107,6 +107,15 @@ export function getApiErrorCode(error: unknown): string | undefined {
 
 export function getPublicSafeErrorMessage(error: unknown): string {
   const code = getApiErrorCode(error);
+  if (code === API_ERROR_CODES.UNSUPPORTED_FILE_TYPE) {
+    return 'Hien tai he thong chi ho tro CV dang PDF de dam bao quet va tao CV sach.';
+  }
+  if (code === API_ERROR_CODES.CV_SANITIZE_FAILED) {
+    return 'CV chua the xu ly an toan. Vui long upload file PDF hop le hoac thu lai sau.';
+  }
+  if (code === API_ERROR_CODES.CV_PARSE_FAILED) {
+    return 'CV chua the xu ly an toan. Vui long upload file PDF hop le hoac thu lai sau.';
+  }
   if (code && PUBLIC_SAFE_MESSAGES[code]) return PUBLIC_SAFE_MESSAGES[code];
 
   return 'Không thể xử lý yêu cầu lúc này. Vui lòng thử lại sau.';

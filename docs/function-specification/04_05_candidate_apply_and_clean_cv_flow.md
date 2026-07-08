@@ -7,7 +7,7 @@ Tai lieu nay mo ta flow hien tai cua hai buoc:
 - Step 4: Ung vien apply CV.
 - Step 5: He thong quet ma doc va tao CV sach.
 
-Pham vi tai lieu dua tren code hien tai trong backend/frontend, khong mo ta flow mong muon chua duoc implement.
+Pham vi tai lieu dua tren code hien tai trong backend/frontend sau khi refine public Candidate Apply + Upload CV flow.
 
 Ngay cap nhat: 2026-07-07.
 
@@ -20,11 +20,11 @@ Ngay cap nhat: 2026-07-07.
 | CV upload field | `apps/frontend/src/components/recruitment/CvUploadField.tsx` | Validate file tren client. |
 | Public job postings controller | `apps/backend/src/job-postings/public-job-postings.controller.ts` | Entry point public apply. |
 | Applications service | `apps/backend/src/applications/applications.service.ts` | Tao application, rate limit, idempotency, duplicate check. |
-| CV documents service | `apps/backend/src/cv-documents/cv-documents.service.ts` | Luu CV goc, hash, validate file, scan malware, schedule sanitize. |
-| CV sanitization service | `apps/backend/src/cv-sanitization/cv-sanitization.service.ts` | Tao CV sach trong safe storage va schedule parse. |
+| CV documents service | `apps/backend/src/cv-documents/cv-documents.service.ts` | Luu CV goc, hash, validate file, scan malware, va cho public apply tat schedule sanitize async. |
+| CV sanitization service | `apps/backend/src/cv-sanitization/cv-sanitization.service.ts` | Tao CV sach trong safe storage; public apply tat schedule parse async de parse sync trong request. |
 | CV sanitizer HTTP service | `apps/cv-sanitizer/server.js` | Chay Ghostscript de rewrite PDF sach. |
 | CV parsing service | `apps/backend/src/cv-parsing/cv-parsing.service.ts` | Parse CV sach sau khi sanitize thanh cong. |
-| File parser | `apps/backend/src/file-parser/file-parser.service.ts` | Parse PDF/DOCX/XLSX de validate CV va parse profile. |
+| File parser | `apps/backend/src/file-parser/file-parser.service.ts` | Parse PDF de validate CV public apply va parse clean profile. |
 
 ## 3. Flow tong quan
 
@@ -39,12 +39,12 @@ Candidate mo public apply page
 -> Backend hash va validate file signature
 -> Backend scan malware dong bo trong request
 -> Neu scan fail/malware: tra loi loi va dung flow
--> Neu scan pass: tra accepted cho candidate
--> Backend schedule sanitize async
+-> Neu scan pass: backend await sanitize trong cung request
 -> Sanitizer tao PDF sach trong safe storage
 -> Backend tao CvDocument CLEAN
--> Backend schedule parse clean CV async
--> Backend tao parsed profile neu parse thanh cong
+-> Backend parse CLEAN CV trong cung request
+-> Backend tao parsed profile va duplicate profile check
+-> Backend tra success cho candidate voi status CV_ACCEPTED
 ```
 
 ## 4. Step 4 - Ung vien apply CV
@@ -75,7 +75,7 @@ Du lieu ung vien nhap:
 `CvUploadField` hien tai chi cho phep:
 
 ```text
-.pdf, .docx, .xlsx
+.pdf
 ```
 
 Gioi han dung luong:
@@ -225,7 +225,7 @@ Neu duplicate theo identity:
 
 ### 4.8. Response thanh cong cho candidate
 
-Sau khi upload CV va scan malware pass, response thanh cong co dang:
+Sau khi upload CV, scan malware pass va sanitize pass, response thanh cong co dang:
 
 ```json
 {
@@ -234,16 +234,19 @@ Sau khi upload CV va scan malware pass, response thanh cong co dang:
     "applicationId": "...",
     "candidateId": "...",
     "jobPostingId": "...",
-    "status": "CV_SCAN_PASSED",
+    "status": "CV_ACCEPTED",
     "processingStatus": "ACCEPTED",
-    "cvDocumentId": "...",
-    "nextStep": "CV_SANITIZE_PENDING",
-    "message": "CV upload accepted. Sanitization and parsing will continue asynchronously."
+    "originalCvDocumentId": "...",
+    "cleanCvDocumentId": "...",
+    "currentCvDocumentId": "...",
+    "parsedProfileId": "...",
+    "nextStep": "CV_JD_MAPPING_PENDING",
+    "message": "CV accepted. Malware scan, sanitization and parsing completed successfully."
   }
 }
 ```
 
-Luu y: Response chi tra thanh cong sau khi scan malware dong bo da pass. Viec tao CV sach va parse CV chay bat dong bo sau do.
+Luu y: Response chi tra thanh cong sau khi clean CV da ton tai trong safe storage, parse CLEAN CV da pass, parsed profile da luu, va duplicate profile check da ghi nhan.
 
 ## 5. Step 5 - Quet ma doc va tao CV sach
 
@@ -261,7 +264,7 @@ Ben trong service, truoc khi tao `CvDocument`, backend validate:
 | --- | --- |
 | Original filename | Ten file client gui duoc normalize, cat toi da 255 ky tu. |
 | Quarantine path | File path phai nam trong `CV_QUARANTINE_DIR`. |
-| Extension | Chi chap nhan `.pdf`, `.docx`, `.xlsx`. |
+| Extension | Public apply chi chap nhan `.pdf`; cac flow noi bo khac co the dung rule upload rieng. |
 | Size | File phai > 0 va <= 20 MB. |
 | Server filename | Filename phai dung pattern do server sinh. |
 | File signature | Magic bytes phai khop dinh dang file. |
@@ -346,21 +349,53 @@ CV_SCANNER_TIMEOUT_MS = 15000
 
 Neu scanner timeout hoac throw error, ket qua duoc map thanh `CV_SCAN_FAILED`.
 
-### 5.4. Scanner hien tai
+### 5.4. Scanner provider hien tai
 
-Provider hien tai trong `CvSanitizationModule` chi support:
+Provider trong `CvSanitizationModule` duoc chon bang:
 
 ```text
-CV_SCANNER_PROVIDER=stub
+CV_SCANNER_PROVIDER
 ```
 
-Neu khong set provider, default la `stub`.
+Gia tri support:
+
+| Provider | Implementation | Muc dich |
+| --- | --- | --- |
+| `clamav` | `ClamAvCvMalwareScanner` | Scanner that, noi toi `clamd` qua TCP. |
+| `stub` | `StubCvMalwareScanner` | Local/dev override khi can fake scanner result. |
+
+`.env` hien tai set:
+
+```text
+CV_SCANNER_PROVIDER=clamav
+CLAMAV_HOST=localhost
+CLAMAV_PORT=3310
+CV_SCANNER_TIMEOUT_MS=15000
+```
+
+Docker Compose set backend noi toi service:
+
+```text
+CV_SCANNER_PROVIDER=clamav
+CLAMAV_HOST=clamav
+CLAMAV_PORT=3310
+```
+
+Service `clamav` dung image:
+
+```text
+clamav/clamav:1.5.3-debian
+```
+
+Healthcheck cua Compose ping `clamd` va co `start_period` de cho database virus load/update truoc khi backend start.
+
+Neu khong set provider, code fallback ve `stub`, nhung public apply runtime nen dung `clamav`.
 
 Stub scanner:
 
 - Kiem tra file co doc duoc khong.
 - Tra ket qua theo env `CV_SCANNER_STUB_RESULT`.
-- `.env` hien tai dang set `CV_SCANNER_STUB_RESULT=PASSED`.
+- Chi nen dung khi `CV_SCANNER_PROVIDER=stub`.
 
 Gia tri hop le:
 
@@ -370,33 +405,33 @@ REJECTED_MALWARE
 FAILED
 ```
 
-Luu y: Chua thay scanner that nhu ClamAV trong code hien tai.
+ClamAV scanner dung giao thuc `INSTREAM`: backend stream file tu quarantine sang `clamd`, khong expose CV goc qua public storage.
 
 ### 5.5. Xu ly ket qua scan
 
 | Scanner result | Application status | CV scan status | API behavior |
 | --- | --- | --- | --- |
-| `PASSED` | `CV_SCAN_PASSED` | `PASSED` | Cho phep response success va schedule sanitize. |
+| `PASSED` | `CV_SCAN_PASSED` | `PASSED` | Public apply tiep tuc await sanitize trong cung request. |
 | `REJECTED_MALWARE` | `CV_REJECTED_MALWARE` | `REJECTED_MALWARE` | Tra `422 MALWARE_DETECTED`. |
 | `FAILED` | `CV_SCAN_FAILED` | `FAILED` | Tra `503 CV_SCAN_FAILED`. |
 
 Neu scan khong pass, backend khong schedule sanitize.
 
-### 5.6. Schedule sanitize async
+### 5.6. Await sanitize trong public apply
 
-Khi scan pass, `CvDocumentsService` goi:
-
-```text
-scheduleSanitizeAfterScanPass()
-```
-
-Ham nay dung `setImmediate()` de goi:
+Public apply goi `uploadOriginalCv()` voi:
 
 ```text
-CvSanitizationService.sanitizeCvDocument()
+scheduleSanitizeAfterScanPass: false
 ```
 
-Sanitize chay bat dong bo, khong block response apply thanh cong cho ung vien.
+Sau khi scan pass, controller await:
+
+```text
+CvDocumentsService.sanitizeOriginalCvAfterScanPass()
+```
+
+Do do public apply chi tra success sau khi `CvSanitizationService.sanitizeCvDocument()` tao clean CV thanh cong. Method schedule async van co the duoc giu cho cac flow khac dung default behavior.
 
 ### 5.7. Dieu kien bat dau sanitize
 
@@ -487,28 +522,23 @@ Output:
 storage/cv-safe/<timestamp>-<uuid>.pdf
 ```
 
-### 5.10. Gioi han quan trong cua sanitizer
+### 5.10. Gioi han PDF-only cua public apply
 
-Mac du upload cho phep:
+Public apply hien tai chi cho phep:
 
 ```text
-.pdf, .docx, .xlsx
+.pdf
 ```
 
-Sanitizer hien tai chi support:
+Ly do: sanitizer hien tai chi support:
 
 ```text
 application/pdf
 ```
 
-Neu CV goc la DOCX hoac XLSX:
+DOCX/XLSX bi reject ngay tai public upload validation voi `UNSUPPORTED_FILE_TYPE`; khong di toi buoc scan/sanitize.
 
-```text
-UNSUPPORTED_SANITIZER_INPUT
--> CV_SANITIZE_FAILED
-```
-
-Khong thay buoc convert DOCX/XLSX sang PDF truoc sanitize trong code hien tai.
+Internal CV upload flow khac van co the giu rule rieng neu can, nhung public apply khong tra success cho file khong the tao clean CV.
 
 ### 5.11. Validate clean artifact
 
@@ -591,14 +621,13 @@ API/manual sanitize endpoint se tra:
 | `UNSUPPORTED_SANITIZER_INPUT` | `422` |
 | Cac loi sanitizer/service khac | `503` |
 
-Trong flow public apply, sanitize chay async nen loi nay duoc ghi log/workflow, khong tra ve truc tiep cho ung vien tai thoi diem submit.
+Trong flow public apply, sanitize chay sync trong request. Neu sanitize fail, ung vien nhan error response ngay va khong nhan `CV_ACCEPTED`.
 
 ## 6. Parse clean CV sau Step 5
 
-Sau khi tao clean CV thanh cong, backend schedule parse async:
+Sau khi tao clean CV thanh cong trong public apply, backend parse sync:
 
 ```text
-scheduleParseAfterSanitizeSuccess()
 -> CvParsingService.parseCleanCvDocument()
 ```
 
@@ -621,6 +650,8 @@ Parse flow:
 8. Tao `parsed_profiles`.
 9. Set `parseStatus = PARSED`.
 10. Chuyen application status sang `CV_PARSED`.
+11. Ghi duplicate profile check theo `normalizedTextHash`.
+12. Chuyen application status sang `PROFILE_DUPLICATE_CHECKED` hoac `PROFILE_DUPLICATE_NEEDS_REVIEW`.
 
 Neu parse fail:
 
@@ -648,6 +679,7 @@ APPLICATION_CREATED
 -> CV_SANITIZING
 -> CV_SANITIZED
 -> CV_PARSED
+-> PROFILE_DUPLICATE_CHECKED
 ```
 
 Nhanh loi:
@@ -657,6 +689,7 @@ CV_SCAN_REQUESTED -> CV_REJECTED_MALWARE
 CV_SCAN_REQUESTED -> CV_SCAN_FAILED
 CV_SANITIZING -> CV_SANITIZE_FAILED
 CV_SANITIZED -> CV_PARSE_FAILED
+CV_PARSED -> PROFILE_DUPLICATE_NEEDS_REVIEW
 ```
 
 ### 7.2. CvDocument status
@@ -691,6 +724,8 @@ parseStatus = PENDING -> PARSING -> PARSED/FAILED
 | `CV_NOT_RESUME` | 422 | File parse duoc nhung khong du tin hieu CV. |
 | `MALWARE_DETECTED` | 422 | Scanner tra `REJECTED_MALWARE`. |
 | `CV_SCAN_FAILED` | 503 | Scanner timeout/fail. |
+| `CV_SANITIZE_FAILED` | 422/503 | Tao clean CV fail; 422 cho input khong support, 503 cho sanitizer/service fail. |
+| `CV_PARSE_FAILED` | 422/503 | Parse clean CV fail; 422 cho CV khong doc duoc/khong du tin hieu, 503 cho parser service fail. |
 | `DUPLICATE_APPLICATION` | 409 | Application da ton tai cho job/candidate khac thong tin re-apply. |
 | `DUPLICATE_CV_FILE` | 409 | Cung file hash da upload cho application. |
 | `IDEMPOTENCY_CONFLICT` | 409 | Cung idempotency key nhung payload/file khac. |
@@ -733,8 +768,11 @@ cleanFileHash exists
 UPLOAD_DIR=./uploads
 CV_QUARANTINE_DIR=../../storage/cv-quarantine
 CV_SAFE_DIR=../../storage/cv-safe
-CV_SCANNER_STUB_RESULT=PASSED
+CV_SCANNER_PROVIDER=clamav
+CLAMAV_HOST=localhost
+CLAMAV_PORT=3310
 CV_SCANNER_TIMEOUT_MS=15000
+CV_SCANNER_STUB_RESULT=PASSED
 CV_PDF_SANITIZER_MODE=HTTP_SERVICE
 CV_SANITIZER_SERVICE_URL=http://localhost:8080
 CV_GHOSTSCRIPT_TIMEOUT_MS=60000
@@ -742,7 +780,8 @@ CV_GHOSTSCRIPT_TIMEOUT_MS=60000
 
 Y nghia:
 
-- Scanner hien tai la stub va dang pass mac dinh.
+- Scanner runtime mac dinh cua `.env` la ClamAV qua `localhost:3310`.
+- `CV_SCANNER_STUB_RESULT` chi co tac dung khi doi `CV_SCANNER_PROVIDER=stub`.
 - Sanitizer can service HTTP local port 8080 dang chay.
 - Clean CV chi tao thanh cong cho PDF vi sanitizer chi support `application/pdf`.
 
@@ -750,11 +789,9 @@ Y nghia:
 
 | Gap | Tac dong |
 | --- | --- |
-| Scanner that chua duoc implement | `CV_SCANNER_STUB_RESULT=PASSED` khong phai quet ma doc that. |
-| Upload cho phep DOCX/XLSX nhung sanitizer chi support PDF | DOCX/XLSX co the pass apply/scan nhung fail `CV_SANITIZE_FAILED`. |
-| Sanitize/parse dung `setImmediate`, chua thay queue/retry worker ben ngoai | Neu process restart giua chung, job async co the mat neu khong co co che resume rieng. |
-| Candidate chi nhan accepted sau scan pass | Loi sanitize/parse async khong hien truc tiep cho candidate trong response submit. |
-| Public apply form consent con text note "policy/captcha batch sau" | Captcha/consent policy day du chua hoan thien trong UI. |
+| ClamAV can warm-up | Docker compose can healthcheck/start period vi database virus can load/update. |
+| Public apply chi nhan PDF | DOCX/XLSX can converter truoc sanitize neu muon mo lai sau nay. |
+| Public apply sync hon | Request cho scan, sanitize va parse nen co the lau hon truoc. |
 
 ## 12. Acceptance criteria cho Step 4-5 hien tai
 
@@ -765,9 +802,9 @@ Flow duoc coi la thanh cong khi:
 3. Original CV duoc luu trong quarantine.
 4. Original CV co `originalFileHash`.
 5. Malware scan pass.
-6. Response public apply tra `CV_SCAN_PASSED` va `CV_SANITIZE_PENDING`.
-7. Clean CV duoc tao trong safe storage.
-8. Clean `CvDocument` co `documentType=CLEAN`, `storageZone=SAFE`, `sanitizeStatus=SANITIZED`, `cleanFileHash`.
-9. Application current CV tro sang clean CV.
-10. Clean CV duoc parse thanh parsed profile, neu parser thanh cong.
-
+6. Clean CV duoc tao trong safe storage.
+7. Clean `CvDocument` co `documentType=CLEAN`, `storageZone=SAFE`, `sanitizeStatus=SANITIZED`, `cleanFileHash`.
+8. Application current CV tro sang clean CV.
+9. Clean CV duoc parse thanh parsed profile.
+10. Duplicate profile check da ghi nhan.
+11. Response public apply tra `CV_ACCEPTED` va `CV_JD_MAPPING_PENDING`.

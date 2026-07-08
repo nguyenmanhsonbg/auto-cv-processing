@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { DataSource, EntityManager } from 'typeorm';
+import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
@@ -18,6 +19,8 @@ import {
   CvDocumentType,
   CvParseStatus,
   CvSanitizeStatus,
+  DuplicateCheckStatus,
+  DuplicateCheckType,
   StorageZone,
   TERMINAL_APPLICATION_STATUSES,
 } from '../recruitment-common';
@@ -337,6 +340,7 @@ export class CvParsingService {
         objectId: savedProfile.id,
         metadata,
       });
+      await this.recordProfileDuplicateCheck(manager, savedProfile);
 
       return savedProfile;
     });
@@ -491,6 +495,92 @@ export class CvParsingService {
         actorId: null,
         metadata: {
           ...input.metadata,
+          applicationStatusPreserved: application.status,
+        },
+      },
+      manager,
+    );
+  }
+
+  private async recordProfileDuplicateCheck(
+    manager: EntityManager,
+    parsedProfile: ParsedProfileEntity,
+  ) {
+    const normalizedTextHash = this.optionalText(parsedProfile.normalizedTextHash);
+    const matchedProfile = normalizedTextHash
+      ? await manager.getRepository(ParsedProfileEntity)
+        .createQueryBuilder('parsedProfile')
+        .where('parsedProfile.normalizedTextHash = :normalizedTextHash', { normalizedTextHash })
+        .andWhere('parsedProfile.id != :parsedProfileId', {
+          parsedProfileId: parsedProfile.id,
+        })
+        .orderBy('parsedProfile.createdAt', 'ASC')
+        .getOne()
+      : null;
+    const duplicateStatus = matchedProfile
+      ? DuplicateCheckStatus.NEEDS_REVIEW
+      : DuplicateCheckStatus.PASSED;
+    const nextApplicationStatus = matchedProfile
+      ? ApplicationStatus.PROFILE_DUPLICATE_NEEDS_REVIEW
+      : ApplicationStatus.PROFILE_DUPLICATE_CHECKED;
+    const metadata = {
+      applicationId: parsedProfile.applicationId,
+      candidateId: parsedProfile.candidateId,
+      parsedProfileId: parsedProfile.id,
+      normalizedTextHash,
+      matchedParsedProfileId: matchedProfile?.id ?? null,
+      matchedApplicationId: matchedProfile?.applicationId ?? null,
+      matchedCandidateId: matchedProfile?.candidateId ?? null,
+      checkType: DuplicateCheckType.PARSED_PROFILE,
+      duplicateStatus,
+    };
+
+    await manager.getRepository(DuplicateCheckEntity).save(
+      manager.getRepository(DuplicateCheckEntity).create({
+        applicationId: parsedProfile.applicationId,
+        checkType: DuplicateCheckType.PARSED_PROFILE,
+        status: duplicateStatus,
+        matchedEntityType: matchedProfile ? 'PARSED_PROFILE' : null,
+        matchedEntityId: matchedProfile?.id ?? null,
+        details: metadata,
+      }),
+    );
+
+    const application = await manager.getRepository(ApplicationEntity).findOne({
+      where: { id: parsedProfile.applicationId },
+    });
+    if (!application) throw new BadRequestException('Application not found');
+
+    if (application.status === ApplicationStatus.CV_PARSED) {
+      await this.workflowStateService.recordStatusTransition(
+        {
+          applicationId: parsedProfile.applicationId,
+          expectedFromStatus: ApplicationStatus.CV_PARSED,
+          toStatus: nextApplicationStatus,
+          eventType: matchedProfile
+            ? 'PROFILE_DUPLICATE_REQUIRES_REVIEW'
+            : 'PROFILE_DUPLICATE_CHECK_DONE',
+          actorType: 'SYSTEM',
+          actorId: null,
+          metadata,
+        },
+        manager,
+      );
+      return;
+    }
+
+    await this.workflowStateService.recordEvent(
+      {
+        applicationId: parsedProfile.applicationId,
+        fromStatus: application.status,
+        toStatus: application.status,
+        eventType: matchedProfile
+          ? 'PROFILE_DUPLICATE_REQUIRES_REVIEW'
+          : 'PROFILE_DUPLICATE_CHECK_DONE',
+        actorType: 'SYSTEM',
+        actorId: null,
+        metadata: {
+          ...metadata,
           applicationStatusPreserved: application.status,
         },
       },

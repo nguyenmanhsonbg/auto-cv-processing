@@ -41,6 +41,7 @@ import {
 import { CvDocumentsService } from '../cv-documents/cv-documents.service';
 import { FormSessionsService } from '../form-sessions/form-sessions.service';
 import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
+import { ParsedProfileEntity } from '../cv-documents/entities/parsed-profile.entity';
 import {
   buildCvQuarantineFileName,
   deleteCvQuarantineFile,
@@ -51,6 +52,7 @@ import {
   apiSuccessEnvelopeSchema,
 } from '../common/swagger/api-envelope.schema';
 import { validateResumeSignals } from '../cv-parsing/resume-validation.util';
+import { CvParsingService } from '../cv-parsing/cv-parsing.service';
 import { FileParserService } from '../file-parser/file-parser.service';
 import {
   ApplicationStatus,
@@ -81,6 +83,8 @@ interface PublicJobDescriptionSnapshot extends Record<string, unknown> {
 
 type PublicApplyErrorCode =
   | 'CV_SCAN_FAILED'
+  | 'CV_SANITIZE_FAILED'
+  | 'CV_PARSE_FAILED'
   | 'CV_NOT_RESUME'
   | 'DUPLICATE_APPLICATION'
   | 'DUPLICATE_CV_FILE'
@@ -100,7 +104,7 @@ interface PublicApplyError {
 }
 
 const MAX_PUBLIC_APPLY_CV_FILE_SIZE_BYTES = 20 * 1024 * 1024;
-const allowedPublicApplyExtensions = new Set(['.pdf', '.docx', '.xlsx']);
+const allowedPublicApplyExtensions = new Set(['.pdf']);
 const PUBLIC_CANDIDATE_CV_UPDATE_ALLOWED_STATUSES = [
   ApplicationStatus.APPLICATION_CREATED,
   ApplicationStatus.APPLICATION_VALIDATING,
@@ -161,13 +165,16 @@ const publicApplySuccessSchema = apiSuccessEnvelopeSchema({
     applicationId: { type: 'string', format: 'uuid' },
     candidateId: { type: 'string', format: 'uuid' },
     jobPostingId: { type: 'string', format: 'uuid' },
-    status: { type: 'string', example: 'CV_SCAN_PASSED' },
+    status: { type: 'string', example: 'CV_ACCEPTED' },
     processingStatus: { type: 'string', example: 'ACCEPTED' },
-    cvDocumentId: { type: 'string', format: 'uuid' },
-    nextStep: { type: 'string', example: 'CV_SANITIZE_PENDING' },
+    originalCvDocumentId: { type: 'string', format: 'uuid' },
+    cleanCvDocumentId: { type: 'string', format: 'uuid' },
+    currentCvDocumentId: { type: 'string', format: 'uuid' },
+    parsedProfileId: { type: 'string', format: 'uuid' },
+    nextStep: { type: 'string', example: 'CV_JD_MAPPING_PENDING' },
     message: {
       type: 'string',
-      example: 'CV upload accepted. Sanitization and parsing will continue asynchronously.',
+      example: 'CV accepted. Malware scan, sanitization and parsing completed successfully.',
     },
   },
 });
@@ -189,7 +196,10 @@ const publicApplyFileInterceptor = FileInterceptor('cvFile', {
     const extension = extname(file.originalname).toLowerCase();
 
     if (!allowedPublicApplyExtensions.has(extension)) {
-      cb(new BadRequestException('Unsupported CV file type'), false);
+      cb(new UnprocessableEntityException({
+        code: 'UNSUPPORTED_FILE_TYPE',
+        message: 'Only PDF CV files are supported for public apply.',
+      }), false);
       return;
     }
 
@@ -230,6 +240,7 @@ export class PublicJobPostingsController {
     private readonly jobPostingsService: JobPostingsService,
     private readonly applicationsService: ApplicationsService,
     private readonly cvDocumentsService: CvDocumentsService,
+    private readonly cvParsingService: CvParsingService,
     private readonly fileParserService: FileParserService,
     private readonly formSessionsService: FormSessionsService,
   ) {}
@@ -279,7 +290,7 @@ export class PublicJobPostingsController {
   })
   @ApiResponse({
     status: 201,
-    description: 'CV upload accepted; malware scan passed and async processing was scheduled.',
+    description: 'CV upload accepted; malware scan and sanitization completed successfully.',
     schema: publicApplySuccessSchema,
   })
   @UseInterceptors(publicApplyFileInterceptor)
@@ -331,7 +342,7 @@ export class PublicJobPostingsController {
       }
 
       handedToCvUploadService = true;
-      const cvDocument = await this.cvDocumentsService.uploadOriginalCv({
+      const originalCvDocument = await this.cvDocumentsService.uploadOriginalCv({
         applicationId: applicationResult.application.id,
         file,
         replaceCurrent: true,
@@ -341,6 +352,20 @@ export class PublicJobPostingsController {
         allowedApplicationStatuses: isPublicReapply
           ? PUBLIC_CANDIDATE_CV_UPDATE_ALLOWED_STATUSES
           : undefined,
+        scheduleSanitizeAfterScanPass: false,
+      });
+      const cleanCvDocument = await this.cvDocumentsService.sanitizeOriginalCvAfterScanPass({
+        applicationId: applicationResult.application.id,
+        originalCvDocumentId: originalCvDocument.id,
+        actorId: null,
+        idempotencyKey: normalizedIdempotencyKey,
+        scheduleParseAfterSanitizeSuccess: false,
+      });
+      const parsedProfile = await this.cvParsingService.parseCleanCvDocument({
+        applicationId: applicationResult.application.id,
+        cvDocumentId: cleanCvDocument.id,
+        actorId: null,
+        idempotencyKey: normalizedIdempotencyKey,
       });
 
       // Automatically generate a questionnaire form session and send email to candidate in background
@@ -350,7 +375,13 @@ export class PublicJobPostingsController {
 
       return {
         success: true,
-        data: this.toApplyResponse(jobPostingId, applicationResult, cvDocument),
+        data: this.toApplyResponse(
+          jobPostingId,
+          applicationResult,
+          originalCvDocument,
+          cleanCvDocument,
+          parsedProfile,
+        ),
         meta: this.applyMeta(normalizedIdempotencyKey),
       };
     } catch (error) {
@@ -394,17 +425,22 @@ export class PublicJobPostingsController {
   private toApplyResponse(
     jobPostingId: string,
     applicationResult: CreateApplicationResult,
-    cvDocument: CvDocumentEntity,
+    originalCvDocument: CvDocumentEntity,
+    cleanCvDocument: CvDocumentEntity,
+    parsedProfile: ParsedProfileEntity,
   ) {
     return {
       applicationId: applicationResult.application.id,
       candidateId: applicationResult.candidate.id,
       jobPostingId,
-      status: 'CV_SCAN_PASSED',
+      status: 'CV_ACCEPTED',
       processingStatus: 'ACCEPTED',
-      cvDocumentId: cvDocument.id,
-      nextStep: 'CV_SANITIZE_PENDING',
-      message: 'CV upload accepted. Sanitization and parsing will continue asynchronously.',
+      originalCvDocumentId: originalCvDocument.id,
+      cleanCvDocumentId: cleanCvDocument.id,
+      currentCvDocumentId: cleanCvDocument.id,
+      parsedProfileId: parsedProfile.id,
+      nextStep: 'CV_JD_MAPPING_PENDING',
+      message: 'CV accepted. Malware scan, sanitization and parsing completed successfully.',
     };
   }
 
@@ -568,6 +604,34 @@ function toPublicApplyError(exception: unknown): PublicApplyError {
     );
   }
 
+  if (
+    code === 'CV_SANITIZE_FAILED'
+    || normalizedMessage.includes('sanitization')
+    || normalizedMessage.includes('sanitize')
+  ) {
+    return buildPublicApplyError(
+      status === HttpStatus.UNPROCESSABLE_ENTITY
+        ? HttpStatus.UNPROCESSABLE_ENTITY
+        : HttpStatus.SERVICE_UNAVAILABLE,
+      'CV_SANITIZE_FAILED',
+      'CV could not be sanitized. Please upload a valid PDF CV or try again later.',
+    );
+  }
+
+  if (
+    code === 'CV_PARSE_FAILED'
+    || normalizedMessage.includes('parsing')
+    || normalizedMessage.includes('parse')
+  ) {
+    return buildPublicApplyError(
+      status === HttpStatus.UNPROCESSABLE_ENTITY
+        ? HttpStatus.UNPROCESSABLE_ENTITY
+        : HttpStatus.SERVICE_UNAVAILABLE,
+      'CV_PARSE_FAILED',
+      'CV could not be processed safely. Please upload a valid PDF CV or try again later.',
+    );
+  }
+
   if (code === 'CV_SCAN_FAILED' || status === HttpStatus.SERVICE_UNAVAILABLE) {
     return buildPublicApplyError(
       HttpStatus.SERVICE_UNAVAILABLE,
@@ -617,16 +681,20 @@ function toPublicApplyError(exception: unknown): PublicApplyError {
   }
 
   if (
-    normalizedMessage.includes('unsupported cv file type')
+    code === 'UNSUPPORTED_FILE_TYPE'
+    || normalizedMessage.includes('only pdf cv files are supported')
+    || normalizedMessage.includes('unsupported cv file type')
     || normalizedMessage.includes('mime type')
     || normalizedMessage.includes('file signature')
     || normalizedMessage.includes('invalid cv filename')
     || normalizedMessage.includes('invalid server cv filename')
   ) {
     return buildPublicApplyError(
-      HttpStatus.BAD_REQUEST,
+      status === HttpStatus.UNPROCESSABLE_ENTITY
+        ? HttpStatus.UNPROCESSABLE_ENTITY
+        : HttpStatus.BAD_REQUEST,
       'UNSUPPORTED_FILE_TYPE',
-      'CV file type is not supported.',
+      'Only PDF CV files are supported.',
     );
   }
 
