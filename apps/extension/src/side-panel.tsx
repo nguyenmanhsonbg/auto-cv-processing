@@ -4774,7 +4774,36 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     'news',
     'saved',
     'settings',
+    'feed',
+    'groups',
+    'group',
+    'join',
   ]);
+
+  const groupNoiseNames = [
+    'bảng feed của bạn',
+    'nhóm của bạn',
+    'lần hoạt động gần nhất',
+    'news feed',
+    'feed của bạn',
+    'your groups',
+    'your joined groups',
+    'joined groups',
+    'groups you joined',
+    'groups youve joined',
+    'Xem tất cả',
+  ];
+
+  const normalizeText = (value: string | null | undefined) => {
+    if (!value) return null;
+    return value.replace(/\s+/g, ' ').trim();
+  };
+
+  const isNoiseGroupName = (value: string) => {
+    const normalized = normalizeText(value)?.toLowerCase();
+    if (!normalized) return true;
+    return groupNoiseNames.some((noise) => normalized === noise || normalized.includes(` ${noise} `) || normalized.endsWith(` ${noise}`) || normalized.startsWith(`${noise} `));
+  };
 
   const decode = (value: string) => {
     try {
@@ -4789,7 +4818,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     return decoded.length > 0 ? decoded : null;
   };
 
-  const extractName = (anchor: HTMLAnchorElement, groupId: string) => {
+  const extractName = (anchor: HTMLAnchorElement) => {
     const rawName = (
       anchor.getAttribute('aria-label')
       || anchor.getAttribute('title')
@@ -4798,7 +4827,10 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
       || ''
     );
     const text = rawName.replace(/\s+/g, ' ').trim();
-    return text.length > 0 ? text.slice(0, 240) : groupId;
+    const normalized = text.trim();
+    if (!normalized) return null;
+    if (isNoiseGroupName(normalized)) return null;
+    return normalized.length > 0 ? normalized.slice(0, 240) : null;
   };
 
   const collect = () => {
@@ -4824,7 +4856,8 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
         continue;
       }
 
-      const targetName = extractName(anchor, groupId);
+      const targetName = extractName(anchor);
+      if (!targetName) continue;
       const targetUrl = `https://www.facebook.com${pathname}`;
       if (!output.has(groupId)) {
         output.set(groupId, { targetName, targetUrl, targetExternalId: groupId });
