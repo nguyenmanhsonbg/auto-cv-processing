@@ -5,5 +5,6 @@ export * from './report-facebook-publish-result.dto';
 export * from './facebook-publish-history-status-check.dto';
 export * from './create-facebook-group.dto';
 export * from './update-facebook-group.dto';
+export * from './discover-facebook-groups.dto';
 export * from './sync-amis-applications.dto';
 export * from './verify-facebook-group.dto';

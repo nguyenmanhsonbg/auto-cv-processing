@@ -9,6 +9,7 @@ import {
   ApiClientError,
   createAmisCareerQuestion,
   createFacebookGroup,
+  discoverFacebookGroups,
   deleteFacebookGroup,
   downloadCleanCvFile,
   getAmisApplicationsForRecruitment,
@@ -54,6 +55,7 @@ import type {
   ExtensionQuestion,
   ExtensionChannel,
   ExtensionSyncResponse,
+  DiscoverFacebookGroupsResponse,
   ExtensionUser,
   FacebookPublishHistoriesResponse,
   FacebookPublishHistoryListItem,
@@ -89,6 +91,16 @@ interface FacebookHistoryGroup {
   name: string;
   url?: string | null;
   externalId?: string | null;
+}
+
+interface DiscoveredFacebookGroupItem {
+  targetName: string;
+  targetUrl: string;
+  targetExternalId: string;
+}
+
+interface FacebookGroupsScanRunResult {
+  groups: DiscoveredFacebookGroupItem[];
 }
 
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
@@ -164,7 +176,9 @@ function SidePanel() {
   const [facebookGroupLoadState, setFacebookGroupLoadState] = useState<FacebookGroupLoadState>('IDLE');
   const [facebookGroupMessage, setFacebookGroupMessage] = useState<string | null>(null);
   const [isFacebookSettingsOpen, setIsFacebookSettingsOpen] = useState(false);
-  const [facebookSettingsState, setFacebookSettingsState] = useState<'IDLE' | 'LOADING' | 'READY' | 'SAVING' | 'VERIFYING' | 'ERROR'>('IDLE');
+  const [facebookSettingsState, setFacebookSettingsState] = useState<
+    'IDLE' | 'LOADING' | 'READY' | 'SAVING' | 'VERIFYING' | 'ERROR' | 'DISCOVERING'
+  >('IDLE');
   const [facebookSettingsMessage, setFacebookSettingsMessage] = useState<string | null>(null);
   const [verifyingFacebookGroupIds, setVerifyingFacebookGroupIds] = useState<string[]>([]);
   const [queuedFacebookGroupIds, setQueuedFacebookGroupIds] = useState<string[]>([]);
@@ -1432,7 +1446,30 @@ function SidePanel() {
       });
 
       setFacebookGroupLoadState('LOADING_GROUPS');
-      setFacebookGroupMessage('Loading allowed Facebook groups from backend.');
+      setFacebookGroupMessage('Đang quét danh sách nhóm đã tham gia trên Facebook...');
+      const discoveredGroups = await collectJoinedFacebookGroupsFromFacebookPage(
+        (message) => {
+          if (message) setFacebookGroupMessage(message);
+        },
+        { ensureSession: false },
+      );
+
+      let discoverySummary: string | null = null;
+      if (discoveredGroups.length > 0) {
+        setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm, đang đồng bộ lên VCS...`);
+        const discoverResult = await discoverFacebookGroups(token, {
+          groups: discoveredGroups.map((item) => ({
+            targetName: item.targetName,
+            targetUrl: item.targetUrl,
+            targetExternalId: item.targetExternalId,
+          })),
+        });
+        discoverySummary = buildFacebookGroupDiscoverMessage(discoverResult);
+      } else {
+        setFacebookGroupMessage('Không đọc được nhóm nào từ danh sách nhóm đã tham gia, sẽ lấy danh sách đã cấu hình hiện có.');
+      }
+
+      setFacebookGroupMessage('Đang tải danh sách nhóm Facebook đã đồng bộ...');
       const groups = await getFacebookGroups(token);
       setFacebookGroups(groups);
       const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
@@ -1440,7 +1477,7 @@ function SidePanel() {
       setFacebookGroupLoadState('READY');
       setFacebookGroupMessage(
         groups.length > 0
-          ? `${selectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`
+          ? `${discoverySummary ? `${discoverySummary}. ` : ''}${selectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`
           : 'No Facebook groups are configured for this account yet.',
       );
       await setSelectedChannels(next);
@@ -1476,6 +1513,39 @@ function SidePanel() {
     setIsFacebookGroupFormOpen(false);
     setFacebookSettingsMessage(null);
     await refreshFacebookGroupsForSettings(token);
+  }
+
+  async function collectJoinedFacebookGroupsFromFacebookPage(
+    onMessage?: (message: string) => void,
+    options: { ensureSession?: boolean } = {},
+  ): Promise<DiscoveredFacebookGroupItem[]> {
+    if (options.ensureSession !== false) {
+      await ensureFacebookSession({
+        onStatus: (event) => {
+          if (onMessage && event.status !== 'READY') {
+            onMessage(event.message);
+          }
+        },
+      });
+    }
+
+    const tab = await chrome.tabs?.create({
+      url: 'https://www.facebook.com/groups/joins/',
+      active: false,
+    });
+    if (!tab?.id) {
+      throw new Error('Không thể mở tab danh sách nhóm Facebook.');
+    }
+
+    try {
+      await waitForTabComplete(tab.id);
+      await sleep(1_000);
+
+      const scanResult = await runScriptInTab<FacebookGroupsScanRunResult>(tab.id, collectFacebookGroupsFromPage);
+      return uniqueDiscoveredGroups(scanResult.groups ?? []);
+    } finally {
+      await closeTabSafely(tab.id);
+    }
   }
 
   function closeFacebookGroupSettings() {
@@ -4670,6 +4740,156 @@ function normalizeFacebookGroupExternalId(value: string | null | undefined) {
 
 function uniqueStrings(value: string[]) {
   return [...new Set(value.map((item) => item.trim()).filter(Boolean))];
+}
+
+function uniqueDiscoveredGroups(groups: DiscoveredFacebookGroupItem[]) {
+  const grouped = new Map<string, DiscoveredFacebookGroupItem>();
+  for (const group of groups) {
+    const key = normalizeFacebookGroupExternalId(group.targetExternalId);
+    if (!key) continue;
+    if (!grouped.has(key)) grouped.set(key, group);
+  }
+  return Array.from(grouped.values());
+}
+
+function buildFacebookGroupDiscoverMessage(result: DiscoverFacebookGroupsResponse) {
+  const parts: string[] = [];
+  if (result.created > 0) parts.push(`đã tạo ${result.created}`);
+  if (result.updated > 0) parts.push(`đã cập nhật ${result.updated}`);
+  if (result.reactivated > 0) parts.push(`đã kích hoạt lại ${result.reactivated}`);
+  if (result.skipped > 0) parts.push(`bỏ qua ${result.skipped}`);
+  if (result.duplicates > 0) parts.push(`trùng ${result.duplicates}`);
+  if (result.conflicts > 0) parts.push(`trùng lặp DB ${result.conflicts}`);
+  const summary = parts.length > 0 ? parts.join(', ') : 'không có thay đổi mới';
+  const issueText = result.errors.length > 0 ? ` Có ${result.errors.length} lỗi cần kiểm tra.` : '';
+  return `Quét xong: ${summary}. Tổng: ${result.valid}/${result.requested} nhóm hợp lệ.${issueText}`;
+}
+
+async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunResult> {
+  const ignoredSegments = new Set([
+    'help',
+    'create',
+    'discover',
+    'directory',
+    'news',
+    'saved',
+    'settings',
+  ]);
+
+  const decode = (value: string) => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
+
+  const normalize = (value: string) => {
+    const decoded = decode(value).trim().toLowerCase();
+    return decoded.length > 0 ? decoded : null;
+  };
+
+  const extractName = (anchor: HTMLAnchorElement, groupId: string) => {
+    const rawName = (
+      anchor.getAttribute('aria-label')
+      || anchor.getAttribute('title')
+      || anchor.textContent
+      || anchor.closest('a')?.getAttribute('title')
+      || ''
+    );
+    const text = rawName.replace(/\s+/g, ' ').trim();
+    return text.length > 0 ? text.slice(0, 240) : groupId;
+  };
+
+  const collect = () => {
+    const output = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string }>();
+    const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+    for (const anchor of anchors) {
+      const href = anchor.getAttribute('href');
+      if (!href) continue;
+
+      let pathname = '';
+      let groupId: string | null = null;
+      try {
+        const parsed = new URL(href, window.location.href);
+        const isFacebookHost = parsed.hostname === 'facebook.com' || parsed.hostname.endsWith('.facebook.com');
+        if (!isFacebookHost) continue;
+
+        const match = parsed.pathname.match(/^\/groups\/([^/?#]+)/i);
+        if (!match) continue;
+        groupId = normalize(match[1]);
+        if (!groupId || ignoredSegments.has(groupId)) continue;
+        pathname = `/groups/${encodeURIComponent(groupId)}`;
+      } catch {
+        continue;
+      }
+
+      const targetName = extractName(anchor, groupId);
+      const targetUrl = `https://www.facebook.com${pathname}`;
+      if (!output.has(groupId)) {
+        output.set(groupId, { targetName, targetUrl, targetExternalId: groupId });
+      }
+    }
+    return output;
+  };
+
+  const wait = () => new Promise<void>((resolveWait) => { setTimeout(resolveWait, 800); });
+  const collected = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string }>(collect());
+  let stableCount = 0;
+  let attempt = 0;
+
+  while (attempt < 24 && stableCount < 4) {
+    const before = collected.size;
+    const now = collect();
+    now.forEach((group, key) => {
+      if (!collected.has(key)) collected.set(key, group);
+    });
+
+    const after = collected.size;
+    attempt += 1;
+    stableCount = after === before ? stableCount + 1 : 0;
+
+    if (stableCount >= 4) break;
+
+    window.scrollTo(0, document.body.scrollHeight);
+    await wait();
+  }
+
+  return {
+    groups: Array.from(collected.values()),
+  };
+}
+
+async function runScriptInTab<Result>(tabId: number, script: () => Result | Promise<Result>) {
+  const results = await chrome.scripting?.executeScript({
+    target: { tabId },
+    func: script,
+  });
+  if (!results?.length) {
+    throw new Error('Không thể chạy script quét nhóm trong tab Facebook.');
+  }
+
+  return results[0].result as Result;
+}
+
+async function closeTabSafely(tabId: number) {
+  try {
+    await chrome.tabs?.remove(tabId);
+  } catch {
+    // Intentionally ignore when tab already closed.
+  }
+}
+
+async function waitForTabComplete(tabId: number, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs?.get(tabId).catch(() => null);
+    if (!tab) break;
+    if (tab.status === 'complete') return;
+    await sleep(350);
+  }
+
+  throw new Error('Timeout khi chờ trang Facebook tải xong.');
 }
 
 function isString(value: unknown): value is string {

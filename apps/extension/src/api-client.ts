@@ -8,6 +8,8 @@ import type {
   AmisCareerQuestionContext,
   CreateAmisCareerQuestionRequest,
   CreateFacebookGroupRequest,
+  DiscoverFacebookGroupsRequest,
+  DiscoverFacebookGroupsResponse,
   ExtensionQuestion,
   ExtensionSyncResponse,
   ExtensionUser,
@@ -259,6 +261,17 @@ export async function createFacebookGroup(
   payload: CreateFacebookGroupRequest,
 ) {
   return request<FacebookPublishTarget>('/extension/facebook/groups', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function discoverFacebookGroups(
+  accessToken: string,
+  payload: DiscoverFacebookGroupsRequest,
+) {
+  return request<DiscoverFacebookGroupsResponse>('/extension/facebook/groups/discover', {
     method: 'POST',
     accessToken,
     body: payload,

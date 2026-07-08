@@ -231,6 +231,34 @@ export interface UpdateFacebookGroupRequest {
   targetUrl: string;
 }
 
+export interface DiscoverFacebookGroupsRequest {
+  groups: Array<{
+    targetName: string;
+    targetUrl: string;
+    targetExternalId?: string | null;
+  }>;
+}
+
+export interface DiscoverFacebookGroupsResponse {
+  requested: number;
+  valid: number;
+  created: number;
+  updated: number;
+  reactivated: number;
+  duplicates: number;
+  skipped: number;
+  conflicts: number;
+  errors: string[];
+  items: Array<{
+    action: 'created' | 'updated' | 'reactivated' | 'reused' | 'conflict' | 'skipped';
+    targetName: string;
+    targetUrl: string;
+    targetExternalId: string | null;
+    targetId: string | null;
+    reason?: string | null;
+  }>;
+}
+
 export interface VerifyFacebookGroupRequest {
   eligibilityStatus: FacebookPublishTargetEligibilityStatus;
   eligibilityReason?: string | null;

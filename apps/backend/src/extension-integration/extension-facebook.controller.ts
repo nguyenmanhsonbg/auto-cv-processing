@@ -10,6 +10,7 @@ import { FacebookPublishingService } from '../facebook-publishing/facebook-publi
 import {
   CreateFacebookGroupDto,
   FacebookPublishHistoryStatusCheckDto,
+  DiscoverFacebookGroupsDto,
   ReportFacebookPublishResultDto,
   UpdateFacebookGroupDto,
   VerifyFacebookGroupDto,
@@ -61,6 +62,25 @@ export class ExtensionFacebookController {
     return {
       success: true,
       data: group,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  @Post('groups/discover')
+  @ApiOperation({ summary: 'Discover and sync Facebook groups from browser scan' })
+  @ApiBody({ type: DiscoverFacebookGroupsDto })
+  @ApiResponse({ status: 200, description: 'Discovered groups synced.' })
+  async discoverGroups(@Body() dto: DiscoverFacebookGroupsDto, @Request() req: ExtensionFacebookRequest) {
+    const result = await this.facebookPublishingService.discoverAndSyncExtensionGroups({
+      ownerUserId: req.user.id,
+      groups: dto.groups,
+    });
+
+    return {
+      success: true,
+      data: result,
       meta: {
         timestamp: new Date().toISOString(),
       },

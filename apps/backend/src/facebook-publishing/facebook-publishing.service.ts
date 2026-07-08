@@ -21,6 +21,16 @@ import {
   UpdateFacebookGroupInput,
   UpdateFacebookPublishHistoryStatusCheckInput,
 } from './facebook-publishing.types';
+import { DiscoverFacebookGroupsResponseDto } from '../extension-integration/dto';
+
+interface DiscoverFacebookGroupsInput {
+  ownerUserId: string;
+  groups: Array<{
+    targetName: string;
+    targetUrl: string;
+    targetExternalId?: string | null;
+  }>;
+}
 
 @Injectable()
 export class FacebookPublishingService {
@@ -118,6 +128,162 @@ export class FacebookPublishingService {
     });
 
     return this.toResolvedTarget(await this.targetsRepo.save(target));
+  }
+
+  async discoverAndSyncExtensionGroups(input: DiscoverFacebookGroupsInput): Promise<DiscoverFacebookGroupsResponseDto> {
+    const requested = input.groups.length;
+    const result: DiscoverFacebookGroupsResponseDto = {
+      requested,
+      valid: 0,
+      created: 0,
+      updated: 0,
+      reactivated: 0,
+      duplicates: 0,
+      skipped: 0,
+      conflicts: 0,
+      errors: [],
+      items: [],
+    };
+
+    const uniqueGroups = new Map<string, { targetName: string; targetUrl: string }>();
+    for (const rawItem of input.groups) {
+      try {
+        const name = this.requireText(rawItem.targetName, 'targetName');
+        const groupUrl = this.normalizeFacebookGroupUrl(rawItem.targetUrl);
+
+        if (!groupUrl.externalId) continue;
+        if (uniqueGroups.has(groupUrl.externalId)) {
+          result.duplicates += 1;
+          result.skipped += 1;
+          result.items.push({
+            action: 'skipped',
+            targetName: name,
+            targetUrl: groupUrl.url,
+            targetExternalId: groupUrl.externalId,
+            targetId: null,
+            reason: 'Duplicate group in discovery payload.',
+          });
+          continue;
+        }
+
+        uniqueGroups.set(groupUrl.externalId, {
+          targetName: name,
+          targetUrl: groupUrl.url,
+        });
+      } catch (error) {
+        result.skipped += 1;
+        const message = error instanceof Error ? error.message : 'Invalid group discovery payload.';
+        result.errors.push(message);
+      }
+    }
+
+    const uniqueItems = Array.from(uniqueGroups.entries()).map(([externalId, item]) => ({
+      targetName: item.targetName,
+      targetUrl: item.targetUrl,
+      externalId,
+    }));
+    let nextPriority = await this.getNextGroupPriority(input.ownerUserId);
+
+    for (const item of uniqueItems) {
+      try {
+        const matches = await this.targetsRepo.find({
+          where: {
+            ownerUserId: input.ownerUserId,
+            type: FacebookPublishTargetType.GROUP,
+            externalId: item.externalId,
+          },
+          order: { createdAt: 'ASC' },
+        });
+
+        if (matches.length > 1) {
+          result.conflicts += 1;
+        }
+
+        const activeTarget = matches.find((target) => target.active);
+        if (activeTarget) {
+          const changed = activeTarget.name !== item.targetName || activeTarget.url !== item.targetUrl;
+          const originalName = activeTarget.name;
+          activeTarget.name = item.targetName;
+          activeTarget.externalId = item.externalId;
+          activeTarget.url = item.targetUrl;
+          if (changed) result.updated += 1;
+
+          const savedTarget = await this.targetsRepo.save(activeTarget);
+          result.valid += 1;
+          result.items.push({
+            action: changed ? 'updated' : 'reused',
+            targetName: savedTarget.name,
+            targetUrl: savedTarget.url ?? item.targetUrl,
+            targetExternalId: savedTarget.externalId,
+            targetId: savedTarget.id,
+            reason: changed ? `Name updated from ${originalName} to ${savedTarget.name}.` : null,
+          });
+          continue;
+        }
+
+        const inactiveTarget = matches.find((target) => !target.active);
+        if (inactiveTarget) {
+          inactiveTarget.active = true;
+          inactiveTarget.name = item.targetName;
+          inactiveTarget.externalId = item.externalId;
+          inactiveTarget.url = item.targetUrl;
+          inactiveTarget.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
+          inactiveTarget.eligibilityReason = 'Group has not been verified yet.';
+          inactiveTarget.lastVerifiedAt = null;
+
+          const savedTarget = await this.targetsRepo.save(inactiveTarget);
+          result.reactivated += 1;
+          result.valid += 1;
+          result.items.push({
+            action: 'reactivated',
+            targetName: savedTarget.name,
+            targetUrl: savedTarget.url ?? item.targetUrl,
+            targetExternalId: savedTarget.externalId,
+            targetId: savedTarget.id,
+          });
+          continue;
+        }
+
+        const createdTarget = this.targetsRepo.create({
+          type: FacebookPublishTargetType.GROUP,
+          name: item.targetName,
+          externalId: item.externalId,
+          url: item.targetUrl,
+          ownerUserId: input.ownerUserId,
+          active: true,
+          priority: nextPriority,
+          eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
+          eligibilityReason: 'Group has not been verified yet.',
+          lastVerifiedAt: null,
+          dailyPublishLimit: 10,
+        });
+        nextPriority += 1;
+        const savedTarget = await this.targetsRepo.save(createdTarget);
+        result.created += 1;
+        result.valid += 1;
+        result.items.push({
+          action: 'created',
+          targetName: savedTarget.name,
+          targetUrl: savedTarget.url ?? item.targetUrl,
+          targetExternalId: savedTarget.externalId,
+          targetId: savedTarget.id,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Could not sync this discovered group.';
+        result.skipped += 1;
+        result.errors.push(`${item.externalId}: ${message}`);
+        result.items.push({
+          action: 'skipped',
+          targetName: item.targetName,
+          targetUrl: item.targetUrl,
+          targetExternalId: item.externalId,
+          targetId: null,
+          reason: message,
+        });
+      }
+    }
+
+    return result;
   }
 
   async updateExtensionGroup(input: UpdateFacebookGroupInput): Promise<ResolvedFacebookPublishTarget> {
