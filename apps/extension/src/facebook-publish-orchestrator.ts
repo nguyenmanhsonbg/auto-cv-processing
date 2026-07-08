@@ -1631,18 +1631,23 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
     if (document.activeElement !== editor && !editor.contains(document.activeElement)) return false;
     if (getPostEditorSafetyMessage(editor)) return false;
 
-    document.execCommand('selectAll', false);
-    document.execCommand('insertText', false, content);
-    editor.dispatchEvent(new InputEvent('input', {
-      bubbles: true,
-      cancelable: true,
-      inputType: 'insertText',
-      data: content,
-    }));
-    await sleepInPage(500);
+    // 1. Clear the editor first to avoid duplicate pasting on retries
+    try {
+      document.execCommand('selectAll', false);
+      document.execCommand('delete', false);
+    } catch {
+      // ignore
+    }
+    if (editor.innerText || editor.textContent) {
+      try {
+        editor.innerHTML = '';
+      } catch {
+        editor.textContent = '';
+      }
+    }
+    await sleepInPage(150);
 
-    if (!expectedSample || currentText().includes(expectedSample)) return true;
-
+    // 2. Primary paste using ClipboardEvent (preserves newlines in Facebook's Lexical/Draft.js)
     try {
       const clipboardData = new DataTransfer();
       clipboardData.setData('text/plain', content);
@@ -1653,11 +1658,29 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
       }));
       await sleepInPage(500);
     } catch {
-      // Facebook's React editor usually accepts execCommand; this is a fallback for blocked paste events.
+      // ignore
     }
 
-    if (currentText().includes(expectedSample)) return true;
+    if (expectedSample && currentText().includes(expectedSample)) return true;
 
+    // 3. Fallback to execCommand insertText (might squish newlines, but is a fallback)
+    try {
+      document.execCommand('selectAll', false);
+      document.execCommand('insertText', false, content);
+      editor.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: content,
+      }));
+      await sleepInPage(500);
+    } catch {
+      // ignore
+    }
+
+    if (expectedSample && currentText().includes(expectedSample)) return true;
+
+    // 4. Ultimate fallback: direct DOM injection
     if (getPostEditorSafetyMessage(editor)) return false;
     editor.textContent = content;
     editor.dispatchEvent(new InputEvent('input', {
