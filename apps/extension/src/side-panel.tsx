@@ -4766,23 +4766,43 @@ function buildFacebookGroupDiscoverMessage(result: DiscoverFacebookGroupsRespons
 }
 
 async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunResult> {
-  const ignoredSegments = new Set([
-    'help',
-    'create',
-    'discover',
-    'directory',
-    'news',
-    'saved',
-    'settings',
-    'feed',
-    'groups',
-    'group',
-    'join',
-  ]);
+  const sleepMs = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-  const groupNoiseNames = [
+  const normalizeText = (value: string | null | undefined) => {
+    if (!value) return null;
+    return value.replace(/\s+/g, ' ').trim();
+  };
+
+  const normalizeForMatch = (value: string | null | undefined) => {
+    const normalized = normalizeText(value)?.toLowerCase();
+    if (!normalized) return null;
+    return normalized.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  };
+
+  const decodePathSegment = (value: string) => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
+
+  const headingKeywords = [
+    'nhóm bạn đã tham gia',
+    'nhóm đã tham gia',
+    'các nhóm của bạn',
+    'your joined groups',
+    'groups you joined',
+    'groups youve joined',
+    'joined groups',
+    'your groups',
+  ];
+
+  const ignoreNameTokens = new Set([
     'bảng feed của bạn',
     'nhóm của bạn',
+    'nhóm của tôi',
+    'nhóm của chúng tôi',
     'news feed',
     'feed của bạn',
     'your groups',
@@ -4792,118 +4812,380 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     'groups youve joined',
     'xem tất cả',
     'see more',
-  ];
+    'xem thêm',
+    'more',
+  ]);
 
-  const noiseSuffixPatterns: RegExp[] = [
-    /lần hoạt động gần nhất.*/i,
+  const nameNoiseSuffixes: RegExp[] = [
+    /\s*—?\s*lần hoạt động gần nhất:?.*/i,
+    /\s*-\s*đã tham gia.*$/i,
     /\s*xem tất cả$/i,
+    /\s*-\s*đã tham gia gần đây.*$/i,
   ];
 
-  const sanitizeGroupName = (rawName: string) => {
+  const ignoredGroupPathSegments = new Set([
+    'help',
+    'create',
+    'discover',
+    'directory',
+    'news',
+    'saved',
+    'settings',
+    'feed',
+    'group',
+    'groups',
+    'join',
+    'join_group',
+    'your_groups',
+    'joined_groups',
+  ]);
+
+  const isVisible = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  };
+
+  const queryAnchors = (root: ParentNode) => Array.from(root.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+
+  const isSectionHeading = (value: string) => {
+    const normalized = normalizeForMatch(value);
+    if (!normalized) return false;
+    return headingKeywords.some((keyword) => {
+      const normalizedKeyword = normalizeForMatch(keyword);
+      if (!normalizedKeyword) return false;
+      return normalized === normalizedKeyword
+        || normalized.startsWith(`${normalizedKeyword} `)
+        || normalized.includes(` ${normalizedKeyword} `)
+        || normalized.endsWith(` ${normalizedKeyword}`);
+    });
+  };
+
+  const isNoiseGroupName = (value: string) => {
+    const normalized = normalizeForMatch(value);
+    if (!normalized) return true;
+    return Array.from(ignoreNameTokens).some((token) => {
+      const normalizedToken = normalizeForMatch(token);
+      if (!normalizedToken) return false;
+      return normalized === normalizedToken
+        || normalized.startsWith(`${normalizedToken} `)
+        || normalized.endsWith(` ${normalizedToken}`)
+        || normalized.includes(` ${normalizedToken} `);
+    });
+  };
+
+  const normalizeGroupId = (value: string | null | undefined) => {
+    if (!value) return null;
+    const decoded = decodePathSegment(value).trim().toLowerCase();
+    if (!decoded.length) return null;
+    return ignoredGroupPathSegments.has(decoded) ? null : decoded;
+  };
+
+  const parseGroupFromUrl = (rawHref: string) => {
+    try {
+      const parsed = new URL(rawHref, window.location.href);
+      const isFacebookHost = parsed.hostname === 'facebook.com' || parsed.hostname.endsWith('.facebook.com');
+      if (!isFacebookHost) return null;
+
+      const match = parsed.pathname.match(/^\/groups\/([^/?#]+)/i);
+      if (!match) return null;
+
+      const targetExternalId = normalizeGroupId(match[1]);
+      if (!targetExternalId) return null;
+
+      return {
+        targetUrl: `https://www.facebook.com/groups/${encodeURIComponent(targetExternalId)}`,
+        targetExternalId,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const sanitizeName = (rawName: string) => {
     let normalized = normalizeText(rawName) ?? '';
-    for (const pattern of noiseSuffixPatterns) {
-      normalized = normalized.replace(pattern, '').trim();
+    for (const suffix of nameNoiseSuffixes) {
+      normalized = normalized.replace(suffix, '').trim();
     }
     return normalized;
   };
 
-  const normalizeText = (value: string | null | undefined) => {
-    if (!value) return null;
-    return value.replace(/\s+/g, ' ').trim();
-  };
-
-  const isNoiseGroupName = (value: string) => {
-    const normalized = normalizeText(value)?.toLowerCase();
-    if (!normalized) return true;
-    return groupNoiseNames.some((noise) => normalized === noise || normalized.includes(` ${noise} `) || normalized.endsWith(` ${noise}`) || normalized.startsWith(`${noise} `));
-  };
-
-  const decode = (value: string) => {
-    try {
-      return decodeURIComponent(value);
-    } catch {
-      return value;
-    }
-  };
-
-  const normalize = (value: string) => {
-    const decoded = decode(value).trim().toLowerCase();
-    return decoded.length > 0 ? decoded : null;
-  };
-
-  const extractName = (anchor: HTMLAnchorElement) => {
+  const getNameFromAnchor = (anchor: HTMLAnchorElement) => {
     const rawName = (
       anchor.getAttribute('aria-label')
       || anchor.getAttribute('title')
       || anchor.textContent
-      || anchor.closest('a')?.getAttribute('title')
       || ''
     );
-    const sanitized = sanitizeGroupName(rawName);
-    const normalized = sanitized.trim();
-    if (!normalized) return null;
-    if (isNoiseGroupName(normalized)) return null;
-    return normalized.length > 0 ? normalized.slice(0, 240) : null;
+    const sanitized = sanitizeName(rawName);
+    if (!sanitized || isNoiseGroupName(sanitized)) return null;
+    return sanitized.slice(0, 240);
   };
 
-  const collect = () => {
-    const output = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string }>();
-    const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
-    for (const anchor of anchors) {
-      const href = anchor.getAttribute('href');
-      if (!href) continue;
+  const collectFromScope = (scope: ParentNode) => {
+    const results = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string; order: number }>();
+    const anchors = queryAnchors(scope);
 
-      let pathname = '';
-      let groupId: string | null = null;
-      try {
-        const parsed = new URL(href, window.location.href);
-        const isFacebookHost = parsed.hostname === 'facebook.com' || parsed.hostname.endsWith('.facebook.com');
-        if (!isFacebookHost) continue;
+    for (let index = 0; index < anchors.length; index += 1) {
+      const anchor = anchors[index];
+      if (!isVisible(anchor)) continue;
 
-        const match = parsed.pathname.match(/^\/groups\/([^/?#]+)/i);
-        if (!match) continue;
-        groupId = normalize(match[1]);
-        if (!groupId || ignoredSegments.has(groupId)) continue;
-        pathname = `/groups/${encodeURIComponent(groupId)}`;
-      } catch {
-        continue;
-      }
+      const parsed = parseGroupFromUrl(anchor.href);
+      if (!parsed) continue;
 
-      const targetName = extractName(anchor);
+      const targetName = getNameFromAnchor(anchor);
       if (!targetName) continue;
-      const targetUrl = `https://www.facebook.com${pathname}`;
-      if (!output.has(groupId)) {
-        output.set(groupId, { targetName, targetUrl, targetExternalId: groupId });
+
+      if (!results.has(parsed.targetExternalId)) {
+        results.set(parsed.targetExternalId, {
+          targetName,
+          targetUrl: parsed.targetUrl,
+          targetExternalId: parsed.targetExternalId,
+          order: index,
+        });
       }
     }
+
+    return results;
+  };
+
+  const evaluateScope = (node: Element | null) => {
+    if (!node || !isVisible(node)) return -Infinity;
+    const anchors = queryAnchors(node);
+    let matched = 0;
+    let unmatched = 0;
+    let candidateDepthPenalty = 0;
+
+    let depthNode: Element | null = node;
+    while (depthNode && depthNode.parentElement) {
+      candidateDepthPenalty += 1;
+      depthNode = depthNode.parentElement;
+    }
+
+    for (const anchor of anchors) {
+      if (!isVisible(anchor)) continue;
+      const parsed = parseGroupFromUrl(anchor.href);
+      if (!parsed) continue;
+      const rawName = getNameFromAnchor(anchor);
+      if (rawName) {
+        matched += 1;
+      } else {
+        unmatched += 1;
+      }
+    }
+
+    return matched * 10 - unmatched * 2 - Math.min(candidateDepthPenalty, 20);
+  };
+
+  const findJoinedSectionRoot = () => {
+    const headingCandidates = Array.from(
+      document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p, a'),
+    ).filter((node) => isSectionHeading(node.textContent ?? ''));
+
+    let best: Element | null = null;
+    let bestScore = -Infinity;
+
+    for (const heading of headingCandidates) {
+      if (!isVisible(heading)) continue;
+      let node: Element | null = heading;
+      for (let depth = 0; depth < 16 && node; depth += 1) {
+        const score = evaluateScope(node);
+        if (score > bestScore) {
+          bestScore = score;
+          best = node;
+        }
+        node = node.parentElement;
+      }
+    }
+
+    if (best) {
+      return best;
+    }
+
+    // Fallback: prefer a right-side navigation block with many group links.
+    const navCandidates = Array.from(
+      document.querySelectorAll('nav, [role=\"navigation\"], [role=\"complementary\"]'),
+    );
+    let fallback: Element | null = null;
+    let fallbackScore = -Infinity;
+    for (const candidate of navCandidates) {
+      const score = evaluateScope(candidate);
+      if (score > fallbackScore) {
+        fallbackScore = score;
+        fallback = candidate;
+      }
+    }
+    return fallback;
+  };
+
+  const pickScrollableHost = (scope: Element | null) => {
+    if (!scope) return null;
+    let current: Element | null = scope;
+    while (current && current !== document.body && current !== document.documentElement) {
+      const style = window.getComputedStyle(current);
+      const overflowY = style.overflowY;
+      if (
+        (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
+        && current.scrollHeight > current.clientHeight + 80
+      ) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+
+    return document.documentElement;
+  };
+
+  const normalizeCanonicalTitle = (raw: string | null | undefined) => {
+    const normalized = normalizeText(raw);
+    if (!normalized) return null;
+    return normalized
+      .replace(/\s*[|-]\s*(facebook|meta).*/i, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  };
+
+  const parseGroupPageCanonicalName = async (groupUrl: string, fallback: string) => {
+    try {
+      const response = await fetch(groupUrl, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!response.ok) return fallback;
+
+      const html = await response.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const rawTitle = (
+        doc.querySelector('meta[property=\"og:title\"]')?.getAttribute('content')
+        || doc.querySelector('meta[name=\"twitter:title\"]')?.getAttribute('content')
+        || doc.querySelector('title')?.textContent
+        || doc.querySelector('h1')?.textContent
+        || ''
+      );
+      const normalized = normalizeCanonicalTitle(rawTitle);
+      if (!normalized || isNoiseGroupName(normalized)) return fallback;
+      return normalized.slice(0, 240);
+    } catch {
+      return fallback;
+    }
+  };
+
+  const shouldResolveCanonicalName = (value: string) => {
+    const normalized = normalizeForMatch(value);
+    if (!normalized) return true;
+    if (normalizeForMatch('xem tất cả') === normalized) return true;
+    if (/^[0-9]+$/.test(normalized)) return true;
+    return false;
+  };
+
+  const sectionRoot = findJoinedSectionRoot();
+  const scanScope: ParentNode = sectionRoot ?? document;
+
+  const collect = () => {
+    const scoped = collectFromScope(scanScope);
+    if (!sectionRoot) return scoped;
+
+    const pageWide = collectFromScope(document);
+    const output = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string; order: number }>(scoped);
+    pageWide.forEach((group, key) => {
+      if (!output.has(key)) output.set(key, group);
+    });
     return output;
   };
 
-  const wait = () => new Promise<void>((resolveWait) => { setTimeout(resolveWait, 800); });
-  const collected = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string }>(collect());
-  let stableCount = 0;
-  let attempt = 0;
+  const collected = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string; order: number }>(collect());
+  const scrollHost = pickScrollableHost(sectionRoot instanceof Element ? sectionRoot : document.documentElement);
 
-  while (attempt < 24 && stableCount < 4) {
-    const before = collected.size;
+  let stablePasses = 0;
+  let attempts = 0;
+  let previousScrollHeight = -1;
+  let previousScrollTop = -1;
+  const maxAttempts = 40;
+
+  while (attempts < maxAttempts && stablePasses < 5) {
+    const beforeSize = collected.size;
     const now = collect();
     now.forEach((group, key) => {
-      if (!collected.has(key)) collected.set(key, group);
+      if (!collected.has(key)) {
+        collected.set(key, group);
+      }
     });
 
-    const after = collected.size;
-    attempt += 1;
-    stableCount = after === before ? stableCount + 1 : 0;
+    const afterSize = collected.size;
+    const sizeChanged = afterSize > beforeSize;
 
-    if (stableCount >= 4) break;
+    attempts += 1;
+    if (!sizeChanged) stablePasses += 1; else stablePasses = 0;
 
-    window.scrollTo(0, document.body.scrollHeight);
-    await wait();
+    if (stablePasses >= 5) break;
+
+    if (scrollHost instanceof HTMLElement) {
+      const beforeScrollTop = scrollHost.scrollTop;
+      const beforeScrollHeight = scrollHost.scrollHeight;
+      scrollHost.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
+      await sleepMs(900);
+
+      const afterScrollHeight = scrollHost.scrollHeight;
+      const afterScrollTop = scrollHost.scrollTop;
+      const moved = afterScrollTop > beforeScrollTop || afterScrollHeight > previousScrollHeight;
+      previousScrollHeight = afterScrollHeight;
+
+      if (!moved && !sizeChanged) {
+        stablePasses += 1;
+      }
+      if (afterScrollTop === previousScrollTop && !sizeChanged) {
+        stablePasses += 1;
+      }
+      previousScrollTop = afterScrollTop;
+
+      continue;
+    }
+
+    const beforeScrollTop = window.scrollY;
+    const beforeScrollHeight = document.documentElement.scrollHeight;
+    window.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
+    await sleepMs(900);
+
+    const moved = window.scrollY > beforeScrollTop || beforeScrollHeight > previousScrollHeight;
+    const afterScrollHeight = document.documentElement.scrollHeight;
+    previousScrollHeight = afterScrollHeight;
+    previousScrollTop = window.scrollY;
+
+    if (!moved && !sizeChanged) stablePasses += 1;
+    if (afterScrollHeight === previousScrollHeight && !sizeChanged) stablePasses += 1;
   }
 
-  return {
-    groups: Array.from(collected.values()),
-  };
+  const uniqueGroups = Array.from(collected.values())
+    .sort((left, right) => left.order - right.order);
+
+  const canonicalized: Array<{ targetName: string; targetUrl: string; targetExternalId: string }> = [];
+  const batchSize = 3;
+  for (let index = 0; index < uniqueGroups.length; index += batchSize) {
+    const batch = uniqueGroups.slice(index, index + batchSize);
+    const resolvedBatch = await Promise.all(
+      batch.map(async (group) => {
+        const canonical = shouldResolveCanonicalName(group.targetName)
+          ? await parseGroupPageCanonicalName(group.targetUrl, group.targetName)
+          : group.targetName;
+        return {
+          targetName: canonical,
+          targetUrl: group.targetUrl,
+          targetExternalId: group.targetExternalId,
+        };
+      }),
+    );
+    canonicalized.push(...resolvedBatch);
+    await sleepMs(180);
+  }
+
+  const finalGroups = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string }>();
+  for (const group of canonicalized) {
+    if (!finalGroups.has(group.targetExternalId)) {
+      finalGroups.set(group.targetExternalId, group);
+    }
+  }
+
+  return { groups: Array.from(finalGroups.values()) };
 }
 
 async function runScriptInTab<Result>(tabId: number, script: () => Result | Promise<Result>) {
