@@ -4783,7 +4783,6 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   const groupNoiseNames = [
     'bảng feed của bạn',
     'nhóm của bạn',
-    'lần hoạt động gần nhất',
     'news feed',
     'feed của bạn',
     'your groups',
@@ -4791,8 +4790,22 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     'joined groups',
     'groups you joined',
     'groups youve joined',
-    'Xem tất cả',
+    'xem tất cả',
+    'see more',
   ];
+
+  const noiseSuffixPatterns: RegExp[] = [
+    /lần hoạt động gần nhất.*/i,
+    /\s*xem tất cả$/i,
+  ];
+
+  const sanitizeGroupName = (rawName: string) => {
+    let normalized = normalizeText(rawName) ?? '';
+    for (const pattern of noiseSuffixPatterns) {
+      normalized = normalized.replace(pattern, '').trim();
+    }
+    return normalized;
+  };
 
   const normalizeText = (value: string | null | undefined) => {
     if (!value) return null;
@@ -4826,8 +4839,8 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
       || anchor.closest('a')?.getAttribute('title')
       || ''
     );
-    const text = rawName.replace(/\s+/g, ' ').trim();
-    const normalized = text.trim();
+    const sanitized = sanitizeGroupName(rawName);
+    const normalized = sanitized.trim();
     if (!normalized) return null;
     if (isNoiseGroupName(normalized)) return null;
     return normalized.length > 0 ? normalized.slice(0, 240) : null;
