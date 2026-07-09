@@ -149,6 +149,7 @@ export interface SyncAmisJobPostingRequest {
   channels: ExtensionChannel[];
   facebookTargetIds?: string[];
   selectedQuestionIds?: string[];
+  facebookContent?: string;
   metadata?: Record<string, unknown>;
 }
 

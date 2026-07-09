@@ -397,6 +397,7 @@ export class ExtensionIntegrationService {
         input.posting,
         input.actorUserId,
         input.dto.facebookTargetIds,
+        input.dto.facebookContent,
       )
       : undefined;
     const warnings: ExtensionSyncWarningDto[] = [];
@@ -539,6 +540,7 @@ export class ExtensionIntegrationService {
       channels,
       facebookTargetIds: this.normalizeFacebookTargetIds(dto.facebookTargetIds, channels),
       selectedQuestionIds: this.normalizeSelectedQuestionIds(dto.selectedQuestionIds),
+      facebookContent: this.optionalText(dto.facebookContent) ?? undefined,
       metadata: this.safeMetadata(dto.metadata),
     };
   }

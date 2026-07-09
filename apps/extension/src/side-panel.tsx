@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
@@ -15,6 +15,8 @@ import {
   getAmisCareerQuestionContext,
   getCurrentUser,
   getFacebookGroups,
+  discoverFacebookGroups,
+  generateFacebookPreviewContent,
   listFacebookGroupPublishHistories,
   listJobDescriptions,
   listAmisCareers,
@@ -36,6 +38,7 @@ import {
   publishFacebookPlan,
   refreshFacebookPostReviewStatus,
   verifyFacebookGroupPostingEligibility,
+  startFacebookGroupDiscovery,
 } from './facebook-publish-orchestrator';
 import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { createMockAmisSyncRequest } from './mock-amis';
@@ -186,6 +189,10 @@ function SidePanel() {
   const [editFacebookGroupName, setEditFacebookGroupName] = useState('');
   const [editFacebookGroupUrl, setEditFacebookGroupUrl] = useState('');
   const [editFacebookGroupUrlError, setEditFacebookGroupUrlError] = useState<string | null>(null);
+  const [facebookContent, setFacebookContent] = useState<string>('');
+  const [facebookContentLoading, setFacebookContentLoading] = useState<boolean>(false);
+  const [facebookContentConfirmed, setFacebookContentConfirmed] = useState<boolean>(false);
+  const [facebookContentError, setFacebookContentError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [jobDescriptionPagination, setJobDescriptionPagination] = useState<ApiPagination | null>(null);
@@ -504,7 +511,8 @@ function SidePanel() {
 
   async function reconcileSelectedFacebookGroups(groups: FacebookPublishTarget[], targetIds = selectedFacebookGroupIds) {
     const selectableGroupIds = new Set(groups.filter(isSelectableFacebookGroup).map((group) => group.targetId).filter(isString));
-    const nextTargetIds = uniqueStrings(targetIds).filter((targetId) => selectableGroupIds.has(targetId));
+    const baseTargetIds = targetIds.length === 0 ? Array.from(selectableGroupIds) : targetIds;
+    const nextTargetIds = uniqueStrings(baseTargetIds).filter((targetId) => selectableGroupIds.has(targetId));
     await updateSelectedFacebookGroupIds(nextTargetIds);
     return nextTargetIds;
   }
@@ -1373,6 +1381,17 @@ function SidePanel() {
     if (extraction.detected && extraction.snapshot) {
       activeSnapshotRecruitmentIdRef.current = extractionRecruitmentId;
       setSnapshot(extraction.snapshot);
+      if (selectedPostingChannels.includes('FACEBOOK') && !facebookContent && token) {
+        setFacebookContentLoading(true);
+        setFacebookContentError(null);
+        generateFacebookPreviewContent(token, { snapshot: extraction.snapshot, mode: 'TEMPLATE' })
+          .then((res) => {
+            setFacebookContent(res.content || '');
+            setFacebookContentConfirmed(false);
+          })
+          .catch((err) => setFacebookContentError(toErrorMessage(err)))
+          .finally(() => setFacebookContentLoading(false));
+      }
     } else {
       activeSnapshotRecruitmentIdRef.current = null;
       setSnapshot(null);
@@ -1392,7 +1411,14 @@ function SidePanel() {
     }
 
     setAutoSyncState(latestState);
-    if (latestState.channels) setChannels(normalizePostingChannels(latestState.channels));
+    if (latestState.channels) {
+      const incoming = normalizePostingChannels(latestState.channels);
+      const next: ExtensionChannel[] = channels.includes('FACEBOOK') && !incoming.includes('FACEBOOK')
+        ? [...incoming, 'FACEBOOK']
+        : incoming;
+      setChannels(next);
+
+    }
     if (latestState.capture) applyExtractionResult(latestState.capture);
     if (latestState.result) setResult(latestState.result);
     if (latestState.error) setError(`${latestState.error.code}: ${latestState.error.message}`);
@@ -1461,6 +1487,9 @@ function SidePanel() {
           : 'No Facebook groups are configured for this account yet.',
       );
       await setSelectedChannels(next);
+      if (!facebookContent && snapshot) {
+        void handleGenerateFacebookContent('TEMPLATE');
+      }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -1474,6 +1503,24 @@ function SidePanel() {
       void setSelectedChannels(rollback);
       setFacebookGroupLoadState('ERROR');
       setFacebookGroupMessage(toErrorMessage(err));
+    }
+  }
+
+  async function handleGenerateFacebookContent(mode: 'TEMPLATE' | 'AI' = 'TEMPLATE') {
+    if (!token || !snapshot) return;
+    setFacebookContentLoading(true);
+    setFacebookContentError(null);
+    try {
+      const response = await generateFacebookPreviewContent(token, {
+        snapshot,
+        mode,
+      });
+      setFacebookContent(response.content || '');
+      setFacebookContentConfirmed(false);
+    } catch (err) {
+      setFacebookContentError(toErrorMessage(err));
+    } finally {
+      setFacebookContentLoading(false);
     }
   }
 
@@ -1851,7 +1898,13 @@ function SidePanel() {
           const groups = replaceFacebookGroup(facebookGroupsRef.current, savedGroup);
           facebookGroupsRef.current = groups;
           setFacebookGroups(groups);
-          const nextSelectedIds = await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIdsRef.current);
+          const nextSelectedIds = await reconcileSelectedFacebookGroups(
+            groups,
+            savedGroup.selectable && savedGroup.targetId
+              ? [...selectedFacebookGroupIdsRef.current, savedGroup.targetId]
+              : selectedFacebookGroupIdsRef.current,
+          );
+
           checkedCount += 1;
           if (!savedGroup.selectable) issueCount += 1;
           setFacebookSettingsMessage(
@@ -1907,7 +1960,54 @@ function SidePanel() {
     }
   }
 
+  async function handleSyncFacebookGroups() {
+    if (!token) return;
+    setFacebookSettingsState('LOADING');
+    setFacebookSettingsMessage('Đang chuẩn bị phiên làm việc Facebook...');
+
+    try {
+      const crawledGroups = await startFacebookGroupDiscovery();
+      if (!crawledGroups || crawledGroups.length === 0) {
+        setFacebookSettingsState('READY');
+        setFacebookSettingsMessage('Không tìm thấy nhóm nào hoặc phiên đăng nhập Facebook đã hết hạn.');
+        return;
+      }
+
+      setFacebookSettingsMessage(`Đã quét được ${crawledGroups.length} nhóm. Đang gửi dữ liệu đồng bộ lên backend...`);
+
+      const result = await discoverFacebookGroups(token, { groups: crawledGroups });
+
+      const groups = await getFacebookGroups(token);
+      facebookGroupsRef.current = groups;
+      setFacebookGroups(groups);
+
+      const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
+
+      setFacebookSettingsState('READY');
+      setFacebookSettingsMessage(
+        `Đồng bộ thành công! Quét ${result.totalScanned} nhóm, tìm thấy ${result.matchedItGroups} nhóm tuyển dụng IT mới/cập nhật.`
+      );
+
+      if (selectedPostingChannels.includes('FACEBOOK')) {
+        const selectableCount = countSelectableFacebookGroups(groups);
+        setFacebookGroupLoadState('READY');
+        setFacebookGroupMessage(`${nextSelectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`);
+      }
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+      setFacebookSettingsState('ERROR');
+      setFacebookSettingsMessage(err instanceof Error ? err.message : 'Lỗi không xác định khi đồng bộ nhóm.');
+    }
+  }
+
   async function submitFacebookGroup(event: React.FormEvent<HTMLFormElement>) {
+
     event.preventDefault();
     if (!token) return;
 
@@ -2094,10 +2194,17 @@ function SidePanel() {
   async function sync() {
     if (!token || !snapshot || !amisRecruitmentId || missingFields.length > 0) return;
     const facebookTargetIds = selectedPostingChannels.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
-    if (selectedPostingChannels.includes('FACEBOOK') && facebookTargetIds.length === 0) {
-      setError('Select at least one Facebook group before publishing.');
-      setState('ERROR');
-      return;
+    if (selectedPostingChannels.includes('FACEBOOK')) {
+      if (facebookTargetIds.length === 0) {
+        setError('Select at least one Facebook group before publishing.');
+        setState('ERROR');
+        return;
+      }
+      if (!facebookContentConfirmed) {
+        setError('Vui lòng Xác nhận nội dung bài đăng Facebook trước khi đăng bài.');
+        setState('ERROR');
+        return;
+      }
     }
 
     const payload: SyncAmisJobPostingRequest = {
@@ -2107,7 +2214,7 @@ function SidePanel() {
       action: 'PUBLISH',
       snapshot,
       channels: selectedPostingChannels,
-      ...(selectedPostingChannels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
+      ...(selectedPostingChannels.includes('FACEBOOK') ? { facebookTargetIds, facebookContent } : {}),
       ...(selectedCareerQuestionIds.size > 0
         ? { selectedQuestionIds: Array.from(selectedCareerQuestionIds) }
         : {}),
@@ -2729,8 +2836,7 @@ function SidePanel() {
               const isSelected = selectedPostingChannels.includes(channel);
               const isFacebookChannel = channel === 'FACEBOOK';
               const isFacebookLoading = isFacebookChannel && isFacebookGroupLoading(facebookGroupLoadState);
-              const showFacebookGroups = isFacebookChannel
-                && (isSelected || facebookGroupLoadState !== 'IDLE' || Boolean(facebookGroupMessage));
+              const showFacebookGroups = isFacebookChannel && isSelected;
 
               return (
                 <div
@@ -2820,6 +2926,88 @@ function SidePanel() {
                           facebookGroupLoadState === 'READY'
                             ? <p className="channel-subselection-empty">No Facebook groups are available.</p>
                             : null
+                        )}
+                      </div>
+                      
+                      {/* AI Content Preview & Edit */}
+                      <div className="channel-subselection-title" style={{ marginTop: '16px' }}>
+                        Nội dung bài đăng Facebook
+                      </div>
+                      {facebookContentError ? (
+                        <p className="error-text" style={{ margin: '4px 0 8px 0', padding: '0 2px', fontSize: '11px', color: '#ef4444' }}>
+                          {facebookContentError}
+                        </p>
+                      ) : null}
+                      <div style={{ marginTop: '8px', padding: '0 2px' }}>
+                        {facebookContentLoading ? (
+                          <div style={{ padding: '12px 10px', color: '#047857', fontSize: '11px', background: '#ecfdf5', borderRadius: '4px', border: '1px dashed #a7f3d0' }}>
+                            Đang tạo nội dung bằng AI...
+                          </div>
+                        ) : (
+                          <>
+                            <textarea
+                              style={{
+                                width: '100%',
+                                minHeight: '140px',
+                                padding: '8px',
+                                border: '1px solid #a7f3d0',
+                                borderRadius: '4px',
+                                fontFamily: 'inherit',
+                                fontSize: '12px',
+                                resize: 'vertical',
+                                backgroundColor: '#ffffff',
+                                color: '#1e293b',
+                                lineHeight: '1.45',
+                              }}
+                               value={facebookContent}
+                               onChange={(e) => {
+                                 setFacebookContent(e.target.value);
+                                 setFacebookContentConfirmed(false);
+                               }}
+                               placeholder="Nội dung bài viết trên Facebook..."
+                            />
+                            <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                style={{
+                                  padding: '5px 10px',
+                                  fontSize: '11px',
+                                  fontWeight: 'bold',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  border: facebookContentConfirmed ? '1px solid #059669' : '1px solid #2563eb',
+                                  backgroundColor: facebookContentConfirmed ? '#ecfdf5' : '#2563eb',
+                                  color: facebookContentConfirmed ? '#047857' : '#ffffff',
+                                  transition: 'all 150ms ease',
+                                }}
+                                onClick={() => setFacebookContentConfirmed(!facebookContentConfirmed)}
+                              >
+                                {facebookContentConfirmed ? '✅ Đã xác nhận' : '👍 Xác nhận nội dung'}
+                              </button>
+                              <button
+                                type="button"
+                                className="text-button"
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: '11px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  color: '#047857',
+                                  border: '1px solid #a7f3d0',
+                                  borderRadius: '4px',
+                                  background: '#ffffff',
+                                  cursor: 'pointer',
+                                }}
+                                onClick={() => handleGenerateFacebookContent('AI')}
+                              >
+                                🪄 {facebookContent ? 'Re-gen bằng AI' : 'Tạo bằng AI'}
+                              </button>
+                            </div>
+                          </>
                         )}
                       </div>
                     </div>
@@ -3853,20 +4041,30 @@ function SidePanel() {
             <div className="modal-body">
               <div className="modal-toolbar">
                 <p className="section-title">Danh sách nhóm</p>
-                {!isFacebookGroupFormOpen ? (
+                <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     type="button"
                     className="secondary-button compact-button"
-                    onClick={() => {
-                      setIsFacebookGroupFormOpen(true);
-                      setFacebookGroupUrlError(null);
-                      setFacebookSettingsMessage(null);
-                      setFacebookSettingsState('READY');
-                    }}
+                    disabled={facebookSettingsState === 'LOADING' || facebookSettingsState === 'SAVING'}
+                    onClick={() => void handleSyncFacebookGroups()}
                   >
-                    Thêm nhóm mới
+                    Đồng bộ từ FB
                   </button>
-                ) : null}
+                  {!isFacebookGroupFormOpen ? (
+                    <button
+                      type="button"
+                      className="secondary-button compact-button"
+                      onClick={() => {
+                        setIsFacebookGroupFormOpen(true);
+                        setFacebookGroupUrlError(null);
+                        setFacebookSettingsMessage(null);
+                        setFacebookSettingsState('READY');
+                      }}
+                    >
+                      Thêm nhóm mới
+                    </button>
+                  ) : null}
+                </div>
               </div>
 
               {facebookSettingsMessage ? (
@@ -5125,7 +5323,7 @@ function parseAmisRecruitmentContextFromUrl(url: string) {
     const path = parsedUrl.pathname;
     const candidatePathMatch = path.match(/\/paging_candidate\/([^/?#]+)/i);
     const jobDetailPathMatch = path.match(/\/recruit\/job\/detail\/(\d{3,})(?:\/|$)/i);
-    const genericRecruitmentMatch = path.match(/\/(?:recruitment|tin-tuyen-dung|job)[^/]*(?:\/|%2F)(\d{3,})/i);
+    const genericRecruitmentMatch = path.match(/\/(?:recruitment|tin-tuyen-dung|job)[^/]*(?:\/[^/]+)*(?:\/|%2F)(\d{3,})/i);
     const queryRecruitmentId = parsedUrl.searchParams.get('recruitmentID')
       ?? parsedUrl.searchParams.get('RecruitmentID')
       ?? parsedUrl.searchParams.get('recruitmentId')

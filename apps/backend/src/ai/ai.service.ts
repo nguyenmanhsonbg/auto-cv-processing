@@ -6,6 +6,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { parse } from 'yaml';
 import { EvaluationEntity } from '../evaluations/entities/evaluation.entity';
 import { QuestionEntity } from '../questions/entities/question.entity';
 import { PROMPT_DEFAULTS } from './ai-prompts.defaults';
@@ -42,6 +45,7 @@ export class AiService {
   // Cache resolved system prompts for the process lifetime — prompts rarely change
   // and each uncached lookup adds a DB round-trip per request.
   private readonly promptCache = new Map<string, { systemPrompt: string; model: ClaudeModel }>();
+  private nextModelIndex = 0;
 
   constructor(
     private readonly config: ConfigService,
@@ -630,5 +634,156 @@ ${JSON.stringify(profileSummary, null, 2)}`;
       this.logger.error(`detectProfileAnomalies failed: ${err}`);
       return null;
     }
+  }
+
+  /**
+   * Generate Facebook post content based on ai-facebook-content-promt.yaml rules and JD input.
+   */
+  async generateFacebookPostContent(jdInput: string): Promise<string> {
+    try {
+      const yamlPath = join(__dirname, '../assets/seed/ai-facebook-content-promt.yaml');
+      const yamlContent = readFileSync(yamlPath, 'utf8');
+      const config = parse(yamlContent);
+
+      const systemPrompt = [
+        config.role || '',
+        `Company Rules:\n${Array.isArray(config.company_rules?.rules) ? config.company_rules.rules.map((r: string) => `- ${r}`).join('\n') : ''}`,
+        `Objective:\n${config.objective?.main || ''}\n${Array.isArray(config.objective?.goals) ? config.objective.goals.map((g: string) => `- ${g}`).join('\n') : ''}`,
+        `Writing Constraints:\n- Language: ${config.writing_constraints?.language || ''}\n- Word Count: ${config.writing_constraints?.word_count || ''}\n- Tone: ${Array.isArray(config.writing_constraints?.tone) ? config.writing_constraints.tone.join(', ') : ''}\n- Platform Fit: ${Array.isArray(config.writing_constraints?.platform_fit) ? config.writing_constraints.platform_fit.join(', ') : ''}`,
+        `Factual Rules:\n${Array.isArray(config.writing_constraints?.factual_rules) ? config.writing_constraints.factual_rules.map((fr: string) => `- ${fr}`).join('\n') : ''}`,
+        `Content Selection:\nPriority Order:\n${Array.isArray(config.content_selection_rules?.priority_order) ? config.content_selection_rules.priority_order.map((po: string) => `- ${po}`).join('\n') : ''}`,
+        `Negative Rules:\n${Array.isArray(config.negative_rules) ? config.negative_rules.map((nr: string) => `- ${nr}`).join('\n') : ''}`,
+        config.final_output_instruction || '',
+      ].join('\n\n');
+
+      const template = config.prompt_template || 'JD:\n"""\n{{JD_INPUT}}\n"""';
+      const userPrompt = template.replace('{{JD_INPUT}}', jdInput);
+
+      const models = this.getModels();
+      const attemptedModels: string[] = [];
+      const startIndex = this.nextModelIndex % models.length;
+      this.nextModelIndex = (this.nextModelIndex + 1) % models.length;
+
+      let result = '';
+      let success = false;
+      let lastError: any = null;
+
+      for (let offset = 0; offset < models.length; offset += 1) {
+        const model = models[(startIndex + offset) % models.length];
+        attemptedModels.push(model);
+
+        try {
+          result = await this.callGemini(systemPrompt, userPrompt, model);
+          success = true;
+          break;
+        } catch (error) {
+          lastError = error;
+          this.logger.warn(
+            `Facebook content generation failed with Gemini model ${model}: ${error instanceof Error ? error.message : error}`,
+          );
+        }
+      }
+
+      if (!success) {
+        throw lastError || new Error(`All Gemini models failed: ${attemptedModels.join(', ')}`);
+      }
+
+      return result.trim();
+    } catch (err) {
+      this.logger.error(`generateFacebookPostContent failed: ${err}`);
+      throw new InternalServerErrorException('Failed to generate Facebook content via AI');
+    }
+  }
+
+  /**
+   * Helper to retrieve configured Gemini models
+   */
+  private getModels(): string[] {
+    const configured = this.config.get<string>('GEMINI_CV_PARSE_MODELS');
+    const DEFAULT_GEMINI_MODELS = [
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-3-flash',
+      'gemini-3.1-flash-lite',
+    ];
+    const GEMINI_MODEL_ALIASES: Record<string, string> = {
+      'gemini 2.5 flash': 'gemini-2.5-flash',
+      'gemini 2.5 flash lite': 'gemini-2.5-flash-lite',
+      'gemini 3 flash': 'gemini-3-flash',
+      'gemini 3.1 flash lite': 'gemini-3.1-flash-lite',
+    };
+
+    const models = configured
+      ?.split(',')
+      .map((model) => {
+        const normalized = model.trim();
+        const aliased = GEMINI_MODEL_ALIASES[normalized.toLowerCase()] ?? normalized;
+        return aliased.replace(/^models\//, '');
+      })
+      .filter(Boolean);
+
+    return models?.length ? models : [...DEFAULT_GEMINI_MODELS];
+  }
+
+  /**
+   * Helper to make a request to Gemini API (generateContent)
+   */
+  private async callGemini(
+    systemInstruction: string,
+    userPrompt: string,
+    model = 'gemini-2.5-flash',
+  ): Promise<string> {
+    const apiKey = this.config.get<string>('GEMINI_API_KEY');
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY is not configured in environment variables');
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: userPrompt,
+              },
+            ],
+          },
+        ],
+        systemInstruction: {
+          parts: [
+            {
+              text: systemInstruction,
+            },
+          ],
+        },
+        generationConfig: {
+          temperature: 0.7,
+        },
+      }),
+    });
+
+    const bodyText = await response.text();
+    if (!response.ok) {
+      throw new Error(`Gemini API error (HTTP ${response.status}): ${bodyText.slice(0, 500)}`);
+    }
+
+    const payload = JSON.parse(bodyText);
+    const text = payload.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part.text ?? '')
+      .join('')
+      .trim();
+
+    if (!text) {
+      throw new Error('Empty response from Gemini');
+    }
+
+    return text;
   }
 }
