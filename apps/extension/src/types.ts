@@ -213,6 +213,7 @@ export interface FacebookPublishTarget {
   eligibilityStatus: FacebookPublishTargetEligibilityStatus;
   eligibilityReason?: string | null;
   lastVerifiedAt?: string | null;
+  lastDiscoveredAt?: string | null;
   todayPublishCount: number;
   dailyPublishLimit: number;
   quotaLabel: string;
@@ -220,6 +221,7 @@ export interface FacebookPublishTarget {
   selectable: boolean;
   disabledReason?: string | null;
 }
+
 
 export interface CreateFacebookGroupRequest {
   targetName: string;

@@ -226,6 +226,7 @@ export class FacebookPublishingService {
       if (target) {
         target.name = group.targetName;
         target.url = group.targetUrl;
+        target.lastDiscoveredAt = new Date();
         if (!target.active && isItRecruitment) {
           target.active = true;
         }
@@ -244,10 +245,12 @@ export class FacebookPublishingService {
           eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
           eligibilityReason: 'Group has not been verified yet.',
           lastVerifiedAt: null,
+          lastDiscoveredAt: new Date(),
         });
         await this.targetsRepo.save(newTarget);
         results.newGroupsAdded++;
       }
+
     }
 
     return results;
@@ -671,6 +674,7 @@ export class FacebookPublishingService {
         eligibilityStatus,
         eligibilityReason: target.eligibilityReason,
         lastVerifiedAt: target.lastVerifiedAt?.toISOString() ?? null,
+        lastDiscoveredAt: target.lastDiscoveredAt?.toISOString() ?? null,
         todayPublishCount,
         dailyPublishLimit,
         quotaLabel: `${todayPublishCount}/${dailyPublishLimit}`,
@@ -678,6 +682,7 @@ export class FacebookPublishingService {
         selectable: !disabledReason,
         disabledReason,
       };
+
     });
   }
 
