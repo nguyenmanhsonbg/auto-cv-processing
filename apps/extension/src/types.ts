@@ -213,6 +213,7 @@ export interface FacebookPublishTarget {
   eligibilityStatus: FacebookPublishTargetEligibilityStatus;
   eligibilityReason?: string | null;
   lastVerifiedAt?: string | null;
+  lastDiscoveredAt?: string | null;
   todayPublishCount: number;
   dailyPublishLimit: number;
   quotaLabel: string;

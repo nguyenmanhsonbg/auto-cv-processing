@@ -56,6 +56,9 @@ export class FacebookPublishTargetEntity {
   @Column({ name: 'last_verified_at', type: 'timestamp', nullable: true })
   lastVerifiedAt: Date | null;
 
+  @Column({ name: 'last_discovered_at', type: 'timestamp', nullable: true })
+  lastDiscoveredAt: Date | null;
+
   @Column({ name: 'daily_publish_limit', type: 'integer', default: 10 })
   dailyPublishLimit: number;
 

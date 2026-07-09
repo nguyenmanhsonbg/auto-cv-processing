@@ -80,6 +80,7 @@ export class FacebookPublishingService {
   async createExtensionGroup(input: CreateFacebookGroupInput): Promise<ResolvedFacebookPublishTarget> {
     const name = this.requireText(input.targetName, 'targetName');
     const groupUrl = this.normalizeFacebookGroupUrl(input.targetUrl);
+    const discoveryTime = new Date();
     const activeTarget = await this.targetsRepo.findOne({
       where: {
         ownerUserId: input.ownerUserId,
@@ -110,6 +111,7 @@ export class FacebookPublishingService {
       inactiveTarget.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
       inactiveTarget.eligibilityReason = 'Group has not been verified yet.';
       inactiveTarget.lastVerifiedAt = null;
+      inactiveTarget.lastDiscoveredAt = discoveryTime;
       return this.toResolvedTarget(await this.targetsRepo.save(inactiveTarget));
     }
 
@@ -125,6 +127,7 @@ export class FacebookPublishingService {
       eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
       eligibilityReason: 'Group has not been verified yet.',
       lastVerifiedAt: null,
+      lastDiscoveredAt: discoveryTime,
     });
 
     return this.toResolvedTarget(await this.targetsRepo.save(target));
@@ -132,6 +135,7 @@ export class FacebookPublishingService {
 
   async discoverAndSyncExtensionGroups(input: DiscoverFacebookGroupsInput): Promise<DiscoverFacebookGroupsResponseDto> {
     const requested = input.groups.length;
+    const discoveryTime = new Date();
     const result: DiscoverFacebookGroupsResponseDto = {
       requested,
       valid: 0,
@@ -206,6 +210,7 @@ export class FacebookPublishingService {
           activeTarget.name = item.targetName;
           activeTarget.externalId = item.externalId;
           activeTarget.url = item.targetUrl;
+          activeTarget.lastDiscoveredAt = discoveryTime;
           if (changed) result.updated += 1;
 
           const savedTarget = await this.targetsRepo.save(activeTarget);
@@ -230,6 +235,7 @@ export class FacebookPublishingService {
           inactiveTarget.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
           inactiveTarget.eligibilityReason = 'Group has not been verified yet.';
           inactiveTarget.lastVerifiedAt = null;
+          inactiveTarget.lastDiscoveredAt = discoveryTime;
 
           const savedTarget = await this.targetsRepo.save(inactiveTarget);
           result.reactivated += 1;
@@ -255,6 +261,7 @@ export class FacebookPublishingService {
           eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
           eligibilityReason: 'Group has not been verified yet.',
           lastVerifiedAt: null,
+          lastDiscoveredAt: discoveryTime,
           dailyPublishLimit: 10,
         });
         nextPriority += 1;
@@ -312,6 +319,7 @@ export class FacebookPublishingService {
     target.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
     target.eligibilityReason = 'Group has not been verified yet.';
     target.lastVerifiedAt = null;
+    target.lastDiscoveredAt = new Date();
 
     return this.toResolvedTarget(await this.targetsRepo.save(target));
   }
@@ -651,6 +659,7 @@ export class FacebookPublishingService {
         eligibilityStatus,
         eligibilityReason: target.eligibilityReason,
         lastVerifiedAt: target.lastVerifiedAt?.toISOString() ?? null,
+        lastDiscoveredAt: target.lastDiscoveredAt?.toISOString() ?? null,
         todayPublishCount,
         dailyPublishLimit,
         quotaLabel: `${todayPublishCount}/${dailyPublishLimit}`,

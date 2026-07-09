@@ -79,6 +79,9 @@ export class ExtensionFacebookPublishTargetDto {
   @ApiPropertyOptional()
   lastVerifiedAt?: string | null;
 
+  @ApiPropertyOptional()
+  lastDiscoveredAt?: string | null;
+
   @ApiProperty()
   todayPublishCount: number;
 

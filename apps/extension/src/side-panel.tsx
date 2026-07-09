@@ -29,7 +29,7 @@ import {
 import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChanges } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import { DEFAULT_POSTING_CHANNELS, POSTING_CHANNELS } from './config';
-import { updateFacebookChannelStatus } from './facebook-channel-status';
+import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
 import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
 import { getValidFacebookGroupPostUrl } from './facebook-post-url';
 import {
@@ -101,6 +101,12 @@ interface DiscoveredFacebookGroupItem {
 
 interface FacebookGroupsScanRunResult {
   groups: DiscoveredFacebookGroupItem[];
+}
+
+interface FacebookGroupsSyncResult {
+  groups: FacebookPublishTarget[];
+  selectedIds: string[];
+  discoverySummary: string | null;
 }
 
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
@@ -495,6 +501,7 @@ function SidePanel() {
       setState('READY');
       await loadJobDescriptions(latestToken);
       await loadLatestAutoSyncState({ silent: true });
+      void syncFacebookGroupsFromBrowser(latestToken, { silent: true });
     } catch {
       await clearAccessToken();
       setState('AUTH_REQUIRED');
@@ -561,6 +568,7 @@ function SidePanel() {
       setState('READY');
       await loadJobDescriptions(auth.accessToken);
       await loadLatestAutoSyncState({ silent: true });
+      void syncFacebookGroupsFromBrowser(auth.accessToken, { silent: true });
     } catch (err) {
       setError(toErrorMessage(err));
       setState('AUTH_REQUIRED');
@@ -1451,52 +1459,20 @@ function SidePanel() {
     const next: ExtensionChannel[] = [...selectedPostingChannels, 'FACEBOOK'];
     setChannels(next);
     setError(null);
-    setFacebookGroupLoadState('CHECKING_LOGIN');
-    setFacebookGroupMessage('Checking Facebook login in this browser.');
 
     try {
-      await ensureFacebookSession({
-        onStatus: (event) => {
-          setFacebookGroupLoadState(event.status === 'READY' ? 'LOADING_GROUPS' : event.status);
-          setFacebookGroupMessage(event.message);
-        },
-      });
-
-      setFacebookGroupLoadState('LOADING_GROUPS');
-      setFacebookGroupMessage('Đang quét danh sách nhóm đã tham gia trên Facebook...');
-      const discoveredGroups = await collectJoinedFacebookGroupsFromFacebookPage(
-        (message) => {
-          if (message) setFacebookGroupMessage(message);
-        },
-        { ensureSession: false },
-      );
-
-      let discoverySummary: string | null = null;
-      if (discoveredGroups.length > 0) {
-        setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm, đang đồng bộ lên VCS...`);
-        const discoverResult = await discoverFacebookGroups(token, {
-          groups: discoveredGroups.map((item) => ({
-            targetName: item.targetName,
-            targetUrl: item.targetUrl,
-            targetExternalId: item.targetExternalId,
-          })),
-        });
-        discoverySummary = buildFacebookGroupDiscoverMessage(discoverResult);
+      const result = await syncFacebookGroupsFromBrowser(token);
+      const groups = result.groups;
+      const selectedIds = result.selectedIds;
+      const discoverySummary = result.discoverySummary;
+      if (groups.length > 0) {
+        setFacebookGroupMessage(
+          discoverySummary ? `${discoverySummary}. ${selectedIds.length}/${countSelectableFacebookGroups(groups)} eligible Facebook group(s) selected.`
+            : `${selectedIds.length}/${countSelectableFacebookGroups(groups)} eligible Facebook group(s) selected.`,
+        );
       } else {
-        setFacebookGroupMessage('Không đọc được nhóm nào từ danh sách nhóm đã tham gia, sẽ lấy danh sách đã cấu hình hiện có.');
+        setFacebookGroupMessage('No Facebook groups are configured for this account yet.');
       }
-
-      setFacebookGroupMessage('Đang tải danh sách nhóm Facebook đã đồng bộ...');
-      const groups = await getFacebookGroups(token);
-      setFacebookGroups(groups);
-      const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
-      const selectableCount = countSelectableFacebookGroups(groups);
-      setFacebookGroupLoadState('READY');
-      setFacebookGroupMessage(
-        groups.length > 0
-          ? `${discoverySummary ? `${discoverySummary}. ` : ''}${selectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`
-          : 'No Facebook groups are configured for this account yet.',
-      );
       await setSelectedChannels(next);
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -1512,6 +1488,73 @@ function SidePanel() {
       setFacebookGroupLoadState('ERROR');
       setFacebookGroupMessage(toErrorMessage(err));
     }
+  }
+
+  async function syncFacebookGroupsFromBrowser(
+    accessToken: string,
+    options: { silent?: boolean } = {},
+  ): Promise<FacebookGroupsSyncResult> {
+    const shouldReport = options.silent !== true;
+    if (shouldReport) {
+      setFacebookGroupLoadState('CHECKING_LOGIN');
+      setFacebookGroupMessage('Checking Facebook login in this browser.');
+    }
+
+    await ensureFacebookSession({
+      onStatus: (event) => {
+        if (!shouldReport) return;
+        setFacebookGroupLoadState(event.status === 'READY' ? 'LOADING_GROUPS' : event.status);
+        setFacebookGroupMessage(event.message);
+      },
+    });
+
+    if (shouldReport) {
+      setFacebookGroupLoadState('LOADING_GROUPS');
+      setFacebookGroupMessage('Đang quét danh sách nhóm đã tham gia trên Facebook...');
+    }
+
+    const discoveredGroups = await collectJoinedFacebookGroupsFromFacebookPage(
+      (message) => {
+        if (shouldReport && message) setFacebookGroupMessage(message);
+      },
+      { ensureSession: false },
+    );
+
+    let discoverySummary: string | null = null;
+    if (discoveredGroups.length > 0) {
+      if (shouldReport) {
+        setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm, đang đồng bộ lên VCS...`);
+      }
+      const discoverResult = await discoverFacebookGroups(accessToken, {
+        groups: discoveredGroups.map((item) => ({
+          targetName: item.targetName,
+          targetUrl: item.targetUrl,
+          targetExternalId: item.targetExternalId,
+        })),
+      });
+      discoverySummary = buildFacebookGroupDiscoverMessage(discoverResult);
+    } else if (shouldReport) {
+      setFacebookGroupMessage('Không đọc được nhóm nào từ danh sách nhóm đã tham gia, sẽ lấy danh sách đã cấu hình hiện có.');
+    }
+
+    if (shouldReport) {
+      setFacebookGroupMessage('Đang tải danh sách nhóm Facebook đã đồng bộ...');
+    }
+    const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken));
+    setFacebookGroups(groups);
+    const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
+    const selectableCount = countSelectableFacebookGroups(groups);
+
+    if (shouldReport) {
+      setFacebookGroupLoadState('READY');
+      setFacebookGroupMessage(
+        groups.length > 0
+          ? `${discoverySummary ? `${discoverySummary}. ` : ''}${selectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`
+          : 'No Facebook groups are configured for this account yet.',
+      );
+    }
+
+    return { groups, selectedIds, discoverySummary };
   }
 
   async function openFacebookGroupSettings(event: React.MouseEvent<HTMLButtonElement>) {
@@ -1848,7 +1891,7 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
 
     try {
-      const groups = await getFacebookGroups(accessToken);
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken));
       setFacebookGroups(groups);
       await reconcileSelectedFacebookGroups(groups);
       setFacebookSettingsState('READY');
@@ -2018,7 +2061,7 @@ function SidePanel() {
 
     try {
       const savedGroup = await createFacebookGroup(token, { targetName, targetUrl });
-      const groups = await getFacebookGroups(token);
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token));
       setFacebookGroups(groups);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setFacebookGroupName('');
@@ -2086,7 +2129,7 @@ function SidePanel() {
 
     try {
       const savedGroup = await updateFacebookGroup(token, selectedFacebookGroup.targetId, { targetName, targetUrl });
-      const groups = await getFacebookGroups(token);
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token));
       setFacebookGroups(groups);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setSelectedFacebookGroup(null);
@@ -2129,7 +2172,7 @@ function SidePanel() {
 
     try {
       const deletedGroup = await deleteFacebookGroup(token, selectedFacebookGroup.targetId);
-      const groups = await getFacebookGroups(token);
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token));
       setFacebookGroups(groups);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIds.filter((targetId) => (
         targetId !== selectedFacebookGroup.targetId
@@ -4396,9 +4439,9 @@ function toFacebookGroupUiItem(group: FacebookPublishTarget) {
 function replaceFacebookGroup(groups: FacebookPublishTarget[], updatedGroup: FacebookPublishTarget) {
   const updatedId = updatedGroup.targetId;
   const index = updatedId ? groups.findIndex((group) => group.targetId === updatedId) : -1;
-  if (index < 0) return [...groups, updatedGroup];
+  if (index < 0) return sortFacebookGroupsByDiscovery([...groups, updatedGroup]);
 
-  return groups.map((group, groupIndex) => (groupIndex === index ? updatedGroup : group));
+  return sortFacebookGroupsByDiscovery(groups.map((group, groupIndex) => (groupIndex === index ? updatedGroup : group)));
 }
 
 function getFacebookHistoryStatusLabel(status: Exclude<FacebookPostHistoryFilter, 'ALL'>) {
@@ -4692,6 +4735,25 @@ function getFacebookGroupUrlValidationError(
   return getDuplicateFacebookGroupUrlError(value, groups, currentTargetId);
 }
 
+function sortFacebookGroupsByDiscovery(groups: FacebookPublishTarget[]) {
+  return [...groups].sort((left, right) => {
+    const leftTime = left.lastDiscoveredAt ? Date.parse(left.lastDiscoveredAt) : NaN;
+    const rightTime = right.lastDiscoveredAt ? Date.parse(right.lastDiscoveredAt) : NaN;
+
+    const hasLeftTime = Number.isFinite(leftTime);
+    const hasRightTime = Number.isFinite(rightTime);
+    if (hasLeftTime && hasRightTime) {
+      if (leftTime !== rightTime) return rightTime - leftTime;
+    } else if (hasLeftTime) {
+      return -1;
+    } else if (hasRightTime) {
+      return 1;
+    }
+
+    return left.targetName.localeCompare(right.targetName);
+  });
+}
+
 function getDuplicateFacebookGroupUrlError(
   value: string,
   groups: FacebookPublishTarget[],
@@ -4817,10 +4879,15 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   ]);
 
   const nameNoiseSuffixes: RegExp[] = [
-    /\s*—?\s*lần hoạt động gần nhất:?.*/i,
-    /\s*-\s*đã tham gia.*$/i,
+    /\s*(?:[-–—|·:•]?\s*)?lần hoạt động gần nhất:?.*/i,
+    /\s*(?:[-–—|·:•]?\s*)?đã tham gia gần đây.*$/i,
+    /\s*(?:[-–—|·:•]?\s*)?đã tham gia.*$/i,
     /\s*xem tất cả$/i,
-    /\s*-\s*đã tham gia gần đây.*$/i,
+    /\s*-?\s*đã tham gia gần đây.*$/i,
+    /\s*\(.*lần hoạt động gần nhất.*\)/i,
+    /\s*[-–—|·:•]?\s*LẦN HOẠT ĐỘNG GẦN NHẤT.*$/i,
+    /\s*[-–—|·:•]?\s*ĐÃ THAM GIA GẦN ĐÂY.*$/i,
+    /\s*[-–—|·:•]?\s*[\w.-]+\s*-\s*\d+\s*năm trước.*$/i,
   ];
 
   const ignoredGroupPathSegments = new Set([
@@ -4840,6 +4907,17 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     'joined_groups',
   ]);
 
+  const revealGroupListButtonPatterns = [
+    /\bxem tất cả\b/i,
+    /\bxem thêm\b/i,
+    /\bsee more\b/i,
+    /\bview more\b/i,
+    /\bshow more\b/i,
+    /\bmore\b/i,
+    /\bxem toàn bộ\b/i,
+    /\ball groups\b/i,
+  ];
+
   const isVisible = (element: Element) => {
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
@@ -4847,6 +4925,73 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   };
 
   const queryAnchors = (root: ParentNode) => Array.from(root.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+
+  const countAllGroupAnchors = (root: ParentNode) => {
+    let total = 0;
+    const anchors = queryAnchors(root);
+    for (const anchor of anchors) {
+      if (parseGroupFromUrl(anchor.href)) total += 1;
+    }
+    return total;
+  };
+
+  const readElementText = (element: Element | null) => {
+    if (!element) return null;
+    return (element.getAttribute('aria-label')
+      || element.getAttribute('title')
+      || element.textContent
+      || ''
+    ).trim();
+  };
+
+  const getNormalizedLabel = (element: Element | null) => {
+    if (!element) return '';
+    return normalizeForMatch(readElementText(element) || '');
+  };
+
+  const isRevealButton = (element: Element) => {
+    const normalizedLabel = getNormalizedLabel(element);
+    if (!normalizedLabel) return false;
+    return revealGroupListButtonPatterns.some((pattern) => pattern.test(normalizedLabel));
+  };
+
+  const clickIfReveal = (element: Element) => {
+    if (!(element instanceof HTMLElement)) return false;
+    if (!isVisible(element)) return false;
+    if (element.getAttribute('aria-disabled') === 'true' || element.getAttribute('disabled') !== null) return false;
+
+    try {
+      element.click();
+      return true;
+    } catch {
+      try {
+        element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  };
+
+  const revealHiddenListItems = (root: ParentNode) => {
+    const candidates = Array.from(root.querySelectorAll('a,button,[role="button"]')) as Element[];
+    let clicked = 0;
+    const clickedKeys = new Set<string>();
+
+    for (const candidate of candidates) {
+      if (!isRevealButton(candidate)) continue;
+
+      const candidateKey = getNormalizedLabel(candidate);
+      if (!candidateKey || clickedKeys.has(candidateKey)) continue;
+      clickedKeys.add(candidateKey);
+
+      if (clickIfReveal(candidate)) {
+        clicked += 1;
+      }
+    }
+
+    return clicked;
+  };
 
   const isSectionHeading = (value: string) => {
     const normalized = normalizeForMatch(value);
@@ -4910,14 +5055,14 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     return normalized;
   };
 
-  const getNameFromAnchor = (anchor: HTMLAnchorElement) => {
+  const getNameFromAnchor = (anchor: HTMLAnchorElement, fallbackTargetExternalId?: string) => {
     const rawName = (
       anchor.getAttribute('aria-label')
       || anchor.getAttribute('title')
       || anchor.textContent
       || ''
     );
-    const sanitized = sanitizeName(rawName);
+    const sanitized = sanitizeName(rawName || fallbackTargetExternalId || '');
     if (!sanitized || isNoiseGroupName(sanitized)) return null;
     return sanitized.slice(0, 240);
   };
@@ -4932,8 +5077,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
 
       const parsed = parseGroupFromUrl(anchor.href);
       if (!parsed) continue;
-
-      const targetName = getNameFromAnchor(anchor);
+      const targetName = getNameFromAnchor(anchor, parsed.targetExternalId);
       if (!targetName) continue;
 
       if (!results.has(parsed.targetExternalId)) {
@@ -4966,12 +5110,9 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
       if (!isVisible(anchor)) continue;
       const parsed = parseGroupFromUrl(anchor.href);
       if (!parsed) continue;
+      matched += 1;
       const rawName = getNameFromAnchor(anchor);
-      if (rawName) {
-        matched += 1;
-      } else {
-        unmatched += 1;
-      }
+      if (!rawName) unmatched += 1;
     }
 
     return matched * 10 - unmatched * 2 - Math.min(candidateDepthPenalty, 20);
@@ -4979,8 +5120,8 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
 
   const findJoinedSectionRoot = () => {
     const headingCandidates = Array.from(
-      document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p, a'),
-    ).filter((node) => isSectionHeading(node.textContent ?? ''));
+      document.querySelectorAll('h1, h2, h3, h4, h5, h6, div, span, p, a, [role=\"heading\"]'),
+    ).filter((node) => isSectionHeading(readElementText(node) || node.textContent || ''));
 
     let best: Element | null = null;
     let bestScore = -Infinity;
@@ -5018,6 +5159,30 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     return fallback;
   };
 
+  const findJoinedSectionRootByDensity = () => {
+    const candidates = Array.from(document.querySelectorAll('div, section, aside, nav, ul, ol'));
+    let best: Element | null = null;
+    let bestScore = -Infinity;
+
+    for (const candidate of candidates) {
+      if (!isVisible(candidate)) continue;
+
+      const rect = candidate.getBoundingClientRect();
+      if (!rect.width || !rect.height) continue;
+
+      const groupAnchors = countAllGroupAnchors(candidate);
+      if (groupAnchors < 5) continue;
+
+      const score = groupAnchors * 10 - Math.abs(rect.width - 360) * 0.25;
+      if (score > bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+
+    return best;
+  };
+
   const pickScrollableHost = (scope: Element | null) => {
     if (!scope) return null;
     let current: Element | null = scope;
@@ -5027,6 +5192,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
       if (
         (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
         && current.scrollHeight > current.clientHeight + 80
+        && countAllGroupAnchors(current) > 0
       ) {
         return current;
       }
@@ -5079,17 +5245,17 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   };
 
   const sectionRoot = findJoinedSectionRoot();
-  const scanScope: ParentNode = sectionRoot ?? document;
+  const fallbackSectionRoot = sectionRoot ? null : findJoinedSectionRootByDensity();
+  const scanScope: ParentNode = sectionRoot ?? fallbackSectionRoot ?? document;
 
   const collect = () => {
-    const scoped = collectFromScope(scanScope);
-    if (!sectionRoot) return scoped;
-
+    const output = collectFromScope(scanScope);
     const pageWide = collectFromScope(document);
-    const output = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string; order: number }>(scoped);
+
     pageWide.forEach((group, key) => {
       if (!output.has(key)) output.set(key, group);
     });
+
     return output;
   };
 
@@ -5110,6 +5276,11 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
         collected.set(key, group);
       }
     });
+
+    const revealClicks = revealHiddenListItems(sectionRoot || document);
+    if (revealClicks > 0) {
+      await sleepMs(900);
+    }
 
     const afterSize = collected.size;
     const sizeChanged = afterSize > beforeSize;
