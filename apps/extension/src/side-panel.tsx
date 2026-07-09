@@ -5279,7 +5279,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
 
     const revealClicks = revealHiddenListItems(sectionRoot || document);
     if (revealClicks > 0) {
-      await sleepMs(900);
+      await sleepMs(1000);
     }
 
     const afterSize = collected.size;
@@ -5294,7 +5294,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
       const beforeScrollTop = scrollHost.scrollTop;
       const beforeScrollHeight = scrollHost.scrollHeight;
       scrollHost.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
-      await sleepMs(900);
+      await sleepMs(1000);
 
       const afterScrollHeight = scrollHost.scrollHeight;
       const afterScrollTop = scrollHost.scrollTop;
@@ -5315,7 +5315,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     const beforeScrollTop = window.scrollY;
     const beforeScrollHeight = document.documentElement.scrollHeight;
     window.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
-    await sleepMs(900);
+    await sleepMs(1000);
 
     const moved = window.scrollY > beforeScrollTop || beforeScrollHeight > previousScrollHeight;
     const afterScrollHeight = document.documentElement.scrollHeight;
