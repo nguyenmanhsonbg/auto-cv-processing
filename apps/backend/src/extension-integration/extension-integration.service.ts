@@ -667,8 +667,10 @@ export class ExtensionIntegrationService {
     recruitmentId: string;
     recruitmentRoundId: string;
     candidateId: string;
+    candidateConvertId?: string;
   }) {
-    return `AMIS:${item.recruitmentId}:${item.recruitmentRoundId}:${item.candidateId}`;
+    const candidateExternalId = this.optionalText(item.candidateConvertId) ?? item.candidateId;
+    return `AMIS:${item.recruitmentId}:${item.recruitmentRoundId}:${candidateExternalId}`;
   }
 
   private resolveAmisApplicationChannel(channelName?: string) {
@@ -725,11 +727,93 @@ export class ExtensionIntegrationService {
     sources: ApplicationSourceEntity[] | undefined,
     amisRecruitmentId: string,
   ) {
-    return sources?.find((source) => {
-      if (!this.isRecord(source.rawPayload)) return false;
-      return source.rawPayload.sourceSystem === ExtensionSourceSystem.AMIS
-        && source.rawPayload.recruitmentId === amisRecruitmentId;
-    }) ?? null;
+    return sources
+      ?.filter((source) => {
+        if (!this.isRecord(source.rawPayload)) return false;
+        return source.rawPayload.sourceSystem === ExtensionSourceSystem.AMIS
+          && source.rawPayload.recruitmentId === amisRecruitmentId;
+      })
+      .sort((left, right) => right.receivedAt.getTime() - left.receivedAt.getTime())[0] ?? null;
+  }
+
+  private findNewestApplicationSource(
+    left: ApplicationSourceEntity | null | undefined,
+    right: ApplicationSourceEntity | null | undefined,
+  ) {
+    if (!left) return right ?? null;
+    if (!right) return left;
+    return right.receivedAt.getTime() > left.receivedAt.getTime() ? right : left;
+  }
+
+  private getApplicationUploadIdPrefix(applicationId: string) {
+    return applicationId.replace(/-/g, '').slice(0, 8).toLowerCase();
+  }
+
+  private extractApplicationIdPrefixFromAmisAttachmentName(attachmentCvName?: string | null) {
+    const normalizedName = this.optionalText(attachmentCvName);
+    if (!normalizedName) return null;
+
+    return normalizedName.match(/-([a-f0-9]{8})(?:\.[a-z0-9]{2,8})?$/i)?.[1]?.toLowerCase() ?? null;
+  }
+
+  private async findApplicationByAmisUploadedCvName(
+    jobPostingId: string,
+    attachmentCvName?: string | null,
+  ) {
+    const applicationIdPrefix = this.extractApplicationIdPrefixFromAmisAttachmentName(attachmentCvName);
+    if (!applicationIdPrefix) return null;
+
+    return this.dataSource.getRepository(ApplicationEntity)
+      .createQueryBuilder('application')
+      .where('application.jobPostingId = :jobPostingId', { jobPostingId })
+      .andWhere("REPLACE(application.id::text, '-', '') LIKE :applicationIdPrefix", {
+        applicationIdPrefix: `${applicationIdPrefix}%`,
+      })
+      .orderBy('application.createdAt', 'ASC')
+      .getOne();
+  }
+
+  private buildAmisApplicationListRows(
+    applications: ApplicationEntity[],
+    amisRecruitmentId: string,
+  ) {
+    const applicationByUploadPrefix = new Map(
+      applications.map((application) => [
+        this.getApplicationUploadIdPrefix(application.id),
+        application,
+      ]),
+    );
+    const sourceOverrides = new Map<string, ApplicationSourceEntity>();
+    const duplicateApplicationIds = new Set<string>();
+
+    for (const application of applications) {
+      const source = this.findAmisApplicationSource(application.sources, amisRecruitmentId);
+      const rawPayload = this.isRecord(source?.rawPayload) ? source.rawPayload : null;
+      const attachmentCvName = typeof rawPayload?.attachmentCvName === 'string'
+        ? rawPayload.attachmentCvName
+        : null;
+      const targetApplicationPrefix = this.extractApplicationIdPrefixFromAmisAttachmentName(attachmentCvName);
+      const targetApplication = targetApplicationPrefix
+        ? applicationByUploadPrefix.get(targetApplicationPrefix)
+        : null;
+
+      if (!source || !targetApplication || targetApplication.id === application.id) continue;
+
+      duplicateApplicationIds.add(application.id);
+      const newestSource = this.findNewestApplicationSource(
+        sourceOverrides.get(targetApplication.id),
+        source,
+      );
+      if (newestSource) sourceOverrides.set(targetApplication.id, newestSource);
+    }
+
+    return applications
+      .filter((application) => !duplicateApplicationIds.has(application.id))
+      .map((application) => ({
+        application,
+        source: sourceOverrides.get(application.id)
+          ?? this.findAmisApplicationSource(application.sources, amisRecruitmentId),
+      }));
   }
 
   private safeAmisCatalogSnapshot(value: unknown) {
@@ -913,8 +997,13 @@ export class ExtensionIntegrationService {
     for (const item of normalizedItems) {
       const sourceChannel = this.resolveAmisApplicationChannel(item.channelName);
       const externalApplicationId = this.buildAmisExternalApplicationId(item);
+      const uploadedApplication = await this.findApplicationByAmisUploadedCvName(
+        jobPostingId,
+        item.attachmentCvName,
+      );
       const result = await this.applicationsService.createFromChannel({
         jobPostingId,
+        ...(uploadedApplication ? { candidateId: uploadedApplication.candidateId } : {}),
         candidate: {
           name: item.candidateName,
           email: item.email ?? null,
@@ -964,13 +1053,16 @@ export class ExtensionIntegrationService {
       relations: ['candidate', 'currentCvDocument', 'sources'],
       order: { createdAt: 'DESC' },
     });
+    const applicationRows = this.buildAmisApplicationListRows(
+      applications,
+      normalizedRecruitmentId,
+    );
 
     return {
       amisRecruitmentId: normalizedRecruitmentId,
       jobPostingId,
-      total: applications.length,
-      applications: applications.map((application) => {
-        const source = this.findAmisApplicationSource(application.sources, normalizedRecruitmentId);
+      total: applicationRows.length,
+      applications: applicationRows.map(({ application, source }) => {
         const rawPayload = this.isRecord(source?.rawPayload) ? source.rawPayload : {};
 
         return {

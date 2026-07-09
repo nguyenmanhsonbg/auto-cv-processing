@@ -207,9 +207,13 @@ export function mapAmisApplicationsResponse(response: unknown): AmisApplicationI
   const rows = extractCandidateRows(response);
   const items = rows.map(mapApplicationRow).filter(Boolean) as AmisApplicationItem[];
   return [...new Map(items.map((item) => [
-    `${item.recruitmentId}:${item.recruitmentRoundId}:${item.candidateId}`,
+    `${item.recruitmentId}:${item.recruitmentRoundId}:${getAmisApplicationIdentityId(item)}`,
     item,
   ])).values()];
+}
+
+function getAmisApplicationIdentityId(item: AmisApplicationItem) {
+  return item.candidateConvertId || item.candidateId;
 }
 
 function extractCandidateRows(value: unknown): unknown[] {

@@ -1,3 +1,5 @@
+import type { ExtensionChannel } from './types';
+
 export const BE_API_BASE_URL =
   (import.meta.env.VITE_BE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '')
   ?? 'http://localhost:3002/api';
@@ -12,3 +14,11 @@ export const CHANNELS = [
   'VIETNAMWORKS',
   'LINKEDIN',
 ] as const;
+
+export const POSTING_CHANNELS = [
+  'FACEBOOK',
+  'TOPCV',
+  'LINKEDIN',
+] as const satisfies readonly ExtensionChannel[];
+
+export const DEFAULT_POSTING_CHANNELS: ExtensionChannel[] = ['TOPCV'];

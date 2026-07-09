@@ -11,19 +11,26 @@ export class FacebookPostContentService {
     const jobDescription = this.asRecord(snapshot?.jobDescription);
     const position = this.asRecord(snapshot?.position);
     const level = this.asRecord(snapshot?.level);
-    const title = posting.title || this.asText(jobDescription?.title) || 'Vi tri tuyen dung';
+    let rawTitle = posting.title || this.asText(jobDescription?.title) || 'Vi tri tuyen dung';
+    rawTitle = rawTitle.trim().replace(/^(tuyển dụng|tuyển)\s+/i, '');
+    const title = rawTitle.toUpperCase();
     const applyUrl = this.buildApplyUrl(posting.publicSlug);
     const fanpageName = this.configService.get<string>('FACEBOOK_DEFAULT_FANPAGE_NAME') || 'VCS Careers';
+    const defaultLocation = 'Tòa Keangnam Landmark 72, Đ. Phạm Hùng, Q. Nam Từ Liêm, Hà Nội';
 
     const lines = [
-      `[VCS] Tuyen dung ${title}`,
+      `🚀 [HN] VIETTEL CYBER SECURITY (VCS) TUYỂN DỤNG ${title}`,
+      'Bạn có kinh nghiệm và mong muốn tham gia các dự án quy mô lớn, môi trường công nghệ chuyên sâu?',
+      'Cơ hội dành cho bạn tại Viettel Cyber Security (VCS)!',
       '',
-      position?.name ? `Vi tri: ${this.asText(position.name)}` : null,
-      level?.displayName || level?.name ? `Cap do: ${this.asText(level.displayName ?? level.name)}` : null,
+      '📌 Vị trí tuyển dụng:',
+      `🔹 ${rawTitle}${level?.displayName || level?.name ? ` – ${this.asText(level.displayName ?? level.name)}` : ''}`,
       '',
-      this.section('Mo ta cong viec', this.asText(jobDescription?.description)),
-      this.section('Yeu cau', this.formatStructured(jobDescription?.requirements)),
-      this.section('Quyen loi', this.formatStructured(jobDescription?.benefits)),
+      this.section('💼 Mô tả công việc', this.asText(jobDescription?.description)),
+      this.section('🎯 Yêu cầu', this.formatStructured(jobDescription?.requirements)),
+      this.section('✨ Quyền lợi', this.formatStructured(jobDescription?.benefits)),
+      `📍 Địa điểm làm việc: ${defaultLocation}`,
+      '',
       `Ung vien quan tam vui long nhan tin Fanpage ${fanpageName} hoac truy cap link ung tuyen: ${applyUrl}`,
     ];
 

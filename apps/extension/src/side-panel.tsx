@@ -26,10 +26,10 @@ import {
   updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
 } from './api-client';
-import { clearAccessToken, getAccessToken, setAuthTokens } from './auth-store';
+import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChanges } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
-import { CHANNELS } from './config';
-import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
+import { DEFAULT_POSTING_CHANNELS, POSTING_CHANNELS } from './config';
+import { updateFacebookChannelStatus } from './facebook-channel-status';
 import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
 import { getValidFacebookGroupPostUrl } from './facebook-post-url';
 import {
@@ -145,6 +145,7 @@ const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label:
   { value: 'PENDING_REVIEW', label: 'Chờ duyệt' },
   { value: 'REJECTED', label: 'Bị từ chối' },
 ];
+const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
 type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
 
 function getCareerQuestionSelectionStorageKey(amisCareerId: string) {
@@ -164,7 +165,7 @@ function SidePanel() {
   const [amisRecruitmentId, setAmisRecruitmentId] = useState<string | null>(null);
   const [amisRecruitmentRoundId, setAmisRecruitmentRoundId] = useState<string | null>(null);
   const [amisUrl, setAmisUrl] = useState<string | undefined>();
-  const [channels, setChannels] = useState<ExtensionChannel[]>(['VCS_PORTAL']);
+  const [channels, setChannels] = useState<ExtensionChannel[]>([...DEFAULT_POSTING_CHANNELS]);
   const [result, setResult] = useState<ExtensionSyncResponse | null>(null);
   const [extractionResult, setExtractionResult] = useState<AmisExtractionResult | null>(null);
   const [autoSyncState, setAutoSyncState] = useState<AmisAutoSyncState | null>(null);
@@ -265,6 +266,14 @@ function SidePanel() {
   useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
   }, [amisRecruitmentId]);
+
+  useEffect(() => subscribeAuthTokenChanges(({ accessToken }) => {
+    setToken(accessToken);
+    if (!accessToken) {
+      setUser(null);
+      setState('AUTH_REQUIRED');
+    }
+  }), []);
 
   useEffect(() => {
     void restoreAuth();
@@ -383,16 +392,17 @@ function SidePanel() {
     setNewQuestionSubcategory((current) => current || firstCategory.subcategories[0]?.name || '');
   }, [careerQuestionContext]);
 
+  const selectedPostingChannels = useMemo(() => normalizePostingChannels(channels), [channels]);
   const missingFields = useMemo(() => {
     const missing: string[] = [];
     if (!amisRecruitmentId) missing.push('AMIS recruitment id');
     if (!snapshot?.title.trim()) missing.push('title');
     if (!snapshot?.description.trim()) missing.push('description');
     if (!snapshot?.requirements.rawText.trim()) missing.push('requirements');
-    if (channels.length === 0) missing.push('channel');
-    if (channels.includes('FACEBOOK') && selectedFacebookGroupIds.length === 0) missing.push('facebook group');
+    if (selectedPostingChannels.length === 0) missing.push('channel');
+    if (selectedPostingChannels.includes('FACEBOOK') && selectedFacebookGroupIds.length === 0) missing.push('facebook group');
     return missing;
-  }, [amisRecruitmentId, channels, selectedFacebookGroupIds.length, snapshot]);
+  }, [amisRecruitmentId, selectedFacebookGroupIds.length, selectedPostingChannels, snapshot]);
 
   const visibleWorkspaceTabs = useMemo<WorkspaceTab[]>(() => {
     if (pinnedWorkspaceTab && pinnedWorkspaceTab !== activeWorkspaceTab) {
@@ -402,7 +412,8 @@ function SidePanel() {
     return [activeWorkspaceTab];
   }, [activeWorkspaceTab, pinnedWorkspaceTab]);
 
-  const allChannelsSelected = channels.length === CHANNELS.length;
+  const selectedPostingChannelCount = selectedPostingChannels.length;
+  const allChannelsSelected = selectedPostingChannelCount === POSTING_CHANNELS.length;
   const selectedNewQuestionCategory = useMemo(
     () => careerQuestionContext?.categories.find((category) => category.name === newQuestionCategory) ?? null,
     [careerQuestionContext, newQuestionCategory],
@@ -473,10 +484,16 @@ function SidePanel() {
         setState('AUTH_REQUIRED');
         return;
       }
-      setToken(storedToken);
+      const latestToken = await getAccessToken();
+      if (!latestToken) {
+        setState('AUTH_REQUIRED');
+        return;
+      }
+
+      setToken(latestToken);
       setUser(currentUser);
       setState('READY');
-      await loadJobDescriptions(storedToken);
+      await loadJobDescriptions(latestToken);
       await loadLatestAutoSyncState({ silent: true });
     } catch {
       await clearAccessToken();
@@ -485,7 +502,7 @@ function SidePanel() {
   }
 
   async function restoreSelectedChannels() {
-    setChannels(await getSelectedChannels());
+    setChannels(normalizePostingChannels(await getSelectedChannels()));
   }
 
   async function restoreSelectedFacebookGroups() {
@@ -519,7 +536,7 @@ function SidePanel() {
       ? selectedFacebookGroupIds.filter((item) => item !== targetId)
       : [...selectedFacebookGroupIds, targetId];
     void updateSelectedFacebookGroupIds(nextTargetIds);
-    if (channels.includes('FACEBOOK') && facebookGroups.length > 0) {
+    if (selectedPostingChannels.includes('FACEBOOK') && facebookGroups.length > 0) {
       const selectableCount = countSelectableFacebookGroups(facebookGroups);
       setFacebookGroupLoadState('READY');
       setFacebookGroupMessage(`${uniqueStrings(nextTargetIds).length}/${selectableCount} eligible Facebook group(s) selected.`);
@@ -1259,7 +1276,7 @@ function SidePanel() {
     setSnapshot(mock.snapshot);
     setAmisRecruitmentId(mock.amisRecruitmentId);
     setAmisUrl(mock.amisUrl);
-    setChannels(mock.channels);
+    setChannels(normalizePostingChannels(mock.channels));
     setExtractionResult(null);
     setResult(null);
     setError(null);
@@ -1389,7 +1406,7 @@ function SidePanel() {
     }
 
     setAutoSyncState(latestState);
-    if (latestState.channels) setChannels(latestState.channels);
+    if (latestState.channels) setChannels(normalizePostingChannels(latestState.channels));
     if (latestState.capture) applyExtractionResult(latestState.capture);
     if (latestState.result) setResult(latestState.result);
     if (latestState.error) setError(`${latestState.error.code}: ${latestState.error.message}`);
@@ -1406,9 +1423,9 @@ function SidePanel() {
       return;
     }
 
-    const next = channels.includes(channel)
-      ? channels.filter((item) => item !== channel)
-      : [...channels, channel];
+    const next = selectedPostingChannels.includes(channel)
+      ? selectedPostingChannels.filter((item) => item !== channel)
+      : [...selectedPostingChannels, channel];
     setChannels(next);
     void setSelectedChannels(next);
   }
@@ -1416,8 +1433,8 @@ function SidePanel() {
   async function toggleFacebookChannel() {
     if (isFacebookGroupLoading(facebookGroupLoadState)) return;
 
-    if (channels.includes('FACEBOOK')) {
-      const next = channels.filter((item) => item !== 'FACEBOOK');
+    if (selectedPostingChannels.includes('FACEBOOK')) {
+      const next = selectedPostingChannels.filter((item) => item !== 'FACEBOOK');
       setChannels(next);
       setFacebookGroupLoadState('IDLE');
       setFacebookGroupMessage(null);
@@ -1431,7 +1448,7 @@ function SidePanel() {
       return;
     }
 
-    const next: ExtensionChannel[] = [...channels, 'FACEBOOK'];
+    const next: ExtensionChannel[] = [...selectedPostingChannels, 'FACEBOOK'];
     setChannels(next);
     setError(null);
     setFacebookGroupLoadState('CHECKING_LOGIN');
@@ -2011,7 +2028,7 @@ function SidePanel() {
       setFacebookSettingsState('READY');
       setFacebookSettingsMessage(`Added "${savedGroup.targetName}". Click Check before using it for publishing.`);
 
-      if (channels.includes('FACEBOOK')) {
+      if (selectedPostingChannels.includes('FACEBOOK')) {
         const selectableCount = countSelectableFacebookGroups(groups);
         setFacebookGroupLoadState('READY');
         setFacebookGroupMessage(`${nextSelectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`);
@@ -2080,7 +2097,7 @@ function SidePanel() {
       setFacebookSettingsState('READY');
       setFacebookSettingsMessage(`Saved "${savedGroup.targetName}". Click Check before using it for publishing.`);
 
-      if (channels.includes('FACEBOOK')) {
+      if (selectedPostingChannels.includes('FACEBOOK')) {
         const selectableCount = countSelectableFacebookGroups(groups);
         setFacebookGroupLoadState('READY');
         setFacebookGroupMessage(`${nextSelectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`);
@@ -2122,7 +2139,7 @@ function SidePanel() {
       setFacebookSettingsState('READY');
       setFacebookSettingsMessage(`Đã xóa nhóm "${deletedGroup.targetName}".`);
 
-      if (channels.includes('FACEBOOK')) {
+      if (selectedPostingChannels.includes('FACEBOOK')) {
         setFacebookGroupLoadState('READY');
         setFacebookGroupMessage(
           groups.length > 0
@@ -2143,7 +2160,7 @@ function SidePanel() {
   }
 
   function selectAllChannels() {
-    const next = [...CHANNELS];
+    const next = [...POSTING_CHANNELS];
     setChannels(next);
     void setSelectedChannels(next);
   }
@@ -2157,8 +2174,8 @@ function SidePanel() {
 
   async function sync() {
     if (!token || !snapshot || !amisRecruitmentId || missingFields.length > 0) return;
-    const facebookTargetIds = channels.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
-    if (channels.includes('FACEBOOK') && facebookTargetIds.length === 0) {
+    const facebookTargetIds = selectedPostingChannels.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
+    if (selectedPostingChannels.includes('FACEBOOK') && facebookTargetIds.length === 0) {
       setError('Select at least one Facebook group before publishing.');
       setState('ERROR');
       return;
@@ -2170,8 +2187,8 @@ function SidePanel() {
       amisUrl,
       action: 'PUBLISH',
       snapshot,
-      channels,
-      ...(channels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
+      channels: selectedPostingChannels,
+      ...(selectedPostingChannels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
       ...(selectedCareerQuestionIds.size > 0
         ? { selectedQuestionIds: Array.from(selectedCareerQuestionIds) }
         : {}),
@@ -2191,7 +2208,7 @@ function SidePanel() {
     try {
       const response = await syncAndPublishAmisJob(token, payload);
       setResult(response);
-      if (response.facebookPublishPlan && channels.includes('FACEBOOK')) {
+      if (response.facebookPublishPlan && selectedPostingChannels.includes('FACEBOOK')) {
         await startFacebookPublish(response.facebookPublishPlan);
       } else {
         setState('SUCCESS');
@@ -2689,6 +2706,10 @@ function SidePanel() {
   function renderPostingPanel() {
     return (
       <div className="posting-detail-content">
+        {renderJobDescriptionPanel()}
+        {renderCareerQuestionPanel()}
+        {renderChannelPanel()}
+
         {snapshot ? (
           <section className="preview recruitment-snapshot-card">
             <div>
@@ -2729,21 +2750,72 @@ function SidePanel() {
           </div>
         )}
 
-        <section className="channel-section">
+        {missingFields.length > 0 ? <p className="warning-text">Missing: {missingFields.join(', ')}</p> : null}
+
+        <button
+          type="button"
+          className="primary-button sync-button"
+          disabled={state === 'EXTRACTING' || state === 'SYNCING' || facebookRunning || missingFields.length > 0}
+          onClick={sync}
+        >
+          {facebookRunning ? 'Publishing Facebook...' : state === 'SYNCING' ? 'Syncing...' : 'SYNC AND PUBLISH'}
+        </button>
+
+        {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
+
+        {result ? (
+          <section className="result-panel publish-result-panel">
+            <div>
+              <p className="eyebrow">RESULT</p>
+              <h2>{result.resultCode}</h2>
+            </div>
+            <ul className="result-list">
+              {result.channelPostings.map((channel) => (
+                <li key={channel.channel} className="result-item">
+                  <span className="result-channel-name">{formatChannelLabel(channel.channel)}</span>
+                  <span className="result-actions">
+                    <strong className={`result-status ${getChannelPostingStatusClass(channel)}`}>
+                      {channel.status}
+                    </strong>
+                    {channel.publishedUrl ? (
+                      <a className="result-open-link" href={channel.publishedUrl} target="_blank" rel="noreferrer">
+                        Open
+                      </a>
+                    ) : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {renderRuntimePanels()}
+      </div>
+    );
+  }
+
+  function renderChannelPanel() {
+    return (
+      <section className="channel-section">
           <div className="section-heading-row">
             <p className="section-title">Channels</p>
             <div className="channel-select-actions">
               <button type="button" className="text-button" disabled={allChannelsSelected} onClick={selectAllChannels}>
                 All
               </button>
-              <button type="button" className="text-button" disabled={channels.length === 0} onClick={clearChannels}>
+              <button
+                type="button"
+                className="text-button"
+                disabled={selectedPostingChannelCount === 0}
+                onClick={clearChannels}
+              >
                 Clear
               </button>
             </div>
           </div>
           <div className="channel-list">
-            {CHANNELS.map((channel) => {
-              const isSelected = channels.includes(channel);
+            {POSTING_CHANNELS.map((channel) => {
+              const isSelected = selectedPostingChannels.includes(channel);
               const isFacebookChannel = channel === 'FACEBOOK';
               const isFacebookLoading = isFacebookChannel && isFacebookGroupLoading(facebookGroupLoadState);
               const showFacebookGroups = isFacebookChannel
@@ -2762,7 +2834,7 @@ function SidePanel() {
                         disabled={isFacebookLoading}
                         onChange={() => void toggleChannel(channel)}
                       />
-                      <span>{channel}</span>
+                      <span>{formatChannelLabel(channel)}</span>
                     </label>
                     <span className="channel-actions">
                       {showFacebookGroups ? (
@@ -2845,107 +2917,7 @@ function SidePanel() {
               );
             })}
           </div>
-        </section>
-
-        {missingFields.length > 0 ? <p className="warning-text">Missing: {missingFields.join(', ')}</p> : null}
-
-        <button
-          type="button"
-          className="primary-button sync-button"
-          disabled={state === 'EXTRACTING' || state === 'SYNCING' || facebookRunning || missingFields.length > 0}
-          onClick={sync}
-        >
-          {facebookRunning ? 'Publishing Facebook...' : state === 'SYNCING' ? 'Syncing...' : 'SYNC AND PUBLISH'}
-        </button>
-
-        {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
-
-        {result ? (
-          <section className="result-panel publish-result-panel">
-            <div>
-              <p className="eyebrow">RESULT</p>
-              <h2>{result.resultCode}</h2>
-            </div>
-            <ul className="result-list">
-              {result.channelPostings.map((channel) => (
-                <li key={channel.channel} className="result-item">
-                  <span className="result-channel-name">{channel.channel}</span>
-                  <span className="result-actions">
-                    <strong className={`result-status ${getChannelPostingStatusClass(channel)}`}>
-                      {channel.status}
-                    </strong>
-                    {channel.publishedUrl ? (
-                      <a className="result-open-link" href={channel.publishedUrl} target="_blank" rel="noreferrer">
-                        Open
-                      </a>
-                    ) : null}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        {renderPostingSupportPanels()}
-      </div>
-    );
-  }
-
-  function renderPostingSupportPanels() {
-    return (
-      <>
-        <section className="extension-tools-panel">
-          <div className="section-heading-row">
-            <p className="section-title">AMIS tools</p>
-          </div>
-          <div className="button-grid">
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={state === 'EXTRACTING' || state === 'SYNCING'}
-              onClick={() => void loadLatestAutoSyncState()}
-            >
-              Load latest auto sync
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={state === 'EXTRACTING' || state === 'SYNCING'}
-              onClick={() => void loadLatestAmisCapture()}
-            >
-              Load latest AMIS save
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
-              disabled={state === 'EXTRACTING' || state === 'SYNCING'}
-              onClick={() => void extractFromCurrentTab()}
-            >
-              {state === 'EXTRACTING' ? 'Extracting...' : 'Fallback DOM extract'}
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
-              disabled={state === 'EXTRACTING' || state === 'SYNCING'}
-              onClick={loadMockSnapshot}
-            >
-              Load mock snapshot
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
-              disabled={state === 'EXTRACTING' || state === 'SYNCING'}
-              onClick={() => void loadDiagnostics()}
-            >
-              Refresh diagnostics
-            </button>
-          </div>
-        </section>
-
-        {renderJobDescriptionPanel()}
-        {renderCareerQuestionPanel()}
-        {renderRuntimePanels()}
-      </>
+      </section>
     );
   }
 
@@ -4379,6 +4351,34 @@ function withFacebookHistoryGroupFallback(
   };
 }
 
+function normalizePostingChannels(channels: ExtensionChannel[]) {
+  const seen = new Set<ExtensionChannel>();
+  return channels.filter((channel) => {
+    if (!POSTING_CHANNEL_SET.has(channel) || seen.has(channel)) return false;
+    seen.add(channel);
+    return true;
+  });
+}
+
+function formatChannelLabel(channel: ExtensionChannel) {
+  switch (channel) {
+    case 'FACEBOOK':
+      return 'Facebook';
+    case 'TOPCV':
+      return 'Top CV';
+    case 'LINKEDIN':
+      return 'LinkedIn';
+    case 'VCS_PORTAL':
+      return 'VCS Portal';
+    case 'ITVIEC':
+      return 'ITviec';
+    case 'VIETNAMWORKS':
+      return 'VietnamWorks';
+    default:
+      return channel;
+  }
+}
+
 function toFacebookGroupUiItem(group: FacebookPublishTarget) {
   return {
     key: group.targetId ?? group.targetExternalId ?? group.targetUrl ?? group.targetName,
@@ -5383,7 +5383,9 @@ function getCvStatusBadgeClass(status: string) {
 
 function canUploadApplicationCv(application: AmisApplicationsForRecruitment['applications'][number]) {
   return Boolean(application.currentCvDocumentId)
-    && application.cvSanitizeStatus?.toUpperCase() === 'SANITIZED';
+    && application.cvSanitizeStatus?.toUpperCase() === 'SANITIZED'
+    && !application.attachmentCvId
+    && !application.attachmentCvName;
 }
 
 function arrayBufferToBase64(value: ArrayBuffer) {
@@ -5719,6 +5721,7 @@ function parseAmisRecruitmentContextFromUrl(url: string) {
     const parsedUrl = new URL(url);
     const path = parsedUrl.pathname;
     const candidatePathMatch = path.match(/\/paging_candidate\/([^/?#]+)/i);
+    const jobDetailPathMatch = path.match(/\/recruit\/job\/detail\/(\d{3,})(?:\/|$)/i);
     const genericRecruitmentMatch = path.match(/\/(?:recruitment|tin-tuyen-dung|job)[^/]*(?:\/|%2F)(\d{3,})/i);
     const queryRecruitmentId = parsedUrl.searchParams.get('recruitmentID')
       ?? parsedUrl.searchParams.get('RecruitmentID')
@@ -5731,6 +5734,7 @@ function parseAmisRecruitmentContextFromUrl(url: string) {
     return {
       amisRecruitmentId: candidatePathMatch?.[1]
         ?? queryRecruitmentId
+        ?? jobDetailPathMatch?.[1]
         ?? genericRecruitmentMatch?.[1]
         ?? null,
       amisRecruitmentRoundId: queryRoundId,
