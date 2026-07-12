@@ -263,8 +263,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     return;
   }
 
-  // Exclude Facebook from background auto-sync because it requires interactive preview/editing and user confirmation.
-  let channels: ExtensionChannel[] = (await getSelectedChannels()).filter((c) => c !== 'FACEBOOK');
+  let channels: ExtensionChannel[] = await getSelectedChannels();
   if (channels.length === 0) {
     channels = ['VCS_PORTAL'];
   }

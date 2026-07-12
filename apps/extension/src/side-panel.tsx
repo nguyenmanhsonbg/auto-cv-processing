@@ -77,6 +77,7 @@ type WorkspaceTab = 'overview' | 'posting' | 'cv';
 type CvWorkspaceView = 'overview' | 'list';
 type FacebookPostHistoryFilter = 'ALL' | FacebookReviewStatus;
 type FacebookPostHistoryLoadState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
+type FacebookPostModalMode = 'PREVIEW' | 'EDIT' | null;
 type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
@@ -191,8 +192,13 @@ function SidePanel() {
   const [editFacebookGroupUrlError, setEditFacebookGroupUrlError] = useState<string | null>(null);
   const [facebookContent, setFacebookContent] = useState<string>('');
   const [facebookContentLoading, setFacebookContentLoading] = useState<boolean>(false);
-  const [facebookContentConfirmed, setFacebookContentConfirmed] = useState<boolean>(false);
+  const [, setFacebookContentConfirmed] = useState<boolean>(false);
   const [facebookContentError, setFacebookContentError] = useState<string | null>(null);
+  const [facebookPostModalMode, setFacebookPostModalMode] = useState<FacebookPostModalMode>(null);
+  const [facebookDraftContent, setFacebookDraftContent] = useState('');
+  const [facebookImagePrompt, setFacebookImagePrompt] = useState('');
+  const [facebookImageDataUrl, setFacebookImageDataUrl] = useState<string | null>(null);
+  const [facebookImageFileName, setFacebookImageFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [jobDescriptionPagination, setJobDescriptionPagination] = useState<ApiPagination | null>(null);
@@ -238,6 +244,9 @@ function SidePanel() {
   const facebookGroupVerificationQueueRef = useRef<FacebookPublishTarget[]>([]);
   const facebookGroupVerificationRunningRef = useRef(false);
   const activeFacebookGroupVerificationIdRef = useRef<string | null>(null);
+  const facebookContentRef = useRef('');
+  const facebookContentSnapshotKeyRef = useRef<string | null>(null);
+  const facebookImageInputRef = useRef<HTMLInputElement | null>(null);
   const startedFacebookPlanKeys = useRef(new Set<string>());
 
   useEffect(() => {
@@ -255,6 +264,10 @@ function SidePanel() {
   useEffect(() => {
     selectedFacebookGroupIdsRef.current = selectedFacebookGroupIds;
   }, [selectedFacebookGroupIds]);
+
+  useEffect(() => {
+    facebookContentRef.current = facebookContent;
+  }, [facebookContent]);
 
   useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
@@ -1257,6 +1270,10 @@ function SidePanel() {
 
       setJobDescriptionFillState('SUCCESS');
       setJobDescriptionFillMessage(`Filled ${response.filledFields.length} field(s): ${response.filledFields.join(', ')}.`);
+      setDefaultFacebookContentForSnapshot(
+        buildSnapshotFromJobDescription(jobDescription),
+        `jd:${jobDescription.id}:${jobDescription.updatedAt ?? jobDescription.createdAt ?? ''}`,
+      );
     } catch (err) {
       setJobDescriptionFillState('ERROR');
       setJobDescriptionFillMessage(toErrorMessage(err));
@@ -1274,6 +1291,7 @@ function SidePanel() {
     setExtractionResult(null);
     setResult(null);
     setError(null);
+    setDefaultFacebookContentForSnapshot(mock.snapshot, `mock:${mock.amisRecruitmentId}`);
     setState('READY');
   }
 
@@ -1381,17 +1399,10 @@ function SidePanel() {
     if (extraction.detected && extraction.snapshot) {
       activeSnapshotRecruitmentIdRef.current = extractionRecruitmentId;
       setSnapshot(extraction.snapshot);
-      if (selectedPostingChannels.includes('FACEBOOK') && !facebookContent && token) {
-        setFacebookContentLoading(true);
-        setFacebookContentError(null);
-        generateFacebookPreviewContent(token, { snapshot: extraction.snapshot, mode: 'TEMPLATE' })
-          .then((res) => {
-            setFacebookContent(res.content || '');
-            setFacebookContentConfirmed(false);
-          })
-          .catch((err) => setFacebookContentError(toErrorMessage(err)))
-          .finally(() => setFacebookContentLoading(false));
-      }
+      setDefaultFacebookContentForSnapshot(
+        extraction.snapshot,
+        getFacebookContentSnapshotKey(extractionRecruitmentId, extraction.snapshot),
+      );
     } else {
       activeSnapshotRecruitmentIdRef.current = null;
       setSnapshot(null);
@@ -1488,7 +1499,10 @@ function SidePanel() {
       );
       await setSelectedChannels(next);
       if (!facebookContent && snapshot) {
-        void handleGenerateFacebookContent('TEMPLATE');
+        setDefaultFacebookContentForSnapshot(
+          snapshot,
+          getFacebookContentSnapshotKey(activeSnapshotRecruitmentIdRef.current, snapshot),
+        );
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -1506,22 +1520,92 @@ function SidePanel() {
     }
   }
 
-  async function handleGenerateFacebookContent(mode: 'TEMPLATE' | 'AI' = 'TEMPLATE') {
+  async function handleGenerateFacebookContent() {
     if (!token || !snapshot) return;
     setFacebookContentLoading(true);
     setFacebookContentError(null);
     try {
       const response = await generateFacebookPreviewContent(token, {
         snapshot,
-        mode,
+        mode: 'AI',
       });
       setFacebookContent(response.content || '');
-      setFacebookContentConfirmed(false);
+      setFacebookContentConfirmed(Boolean(response.content?.trim()));
     } catch (err) {
       setFacebookContentError(toErrorMessage(err));
     } finally {
       setFacebookContentLoading(false);
     }
+  }
+
+  function setDefaultFacebookContentForSnapshot(nextSnapshot: AmisJobSnapshot, contentKey: string) {
+    if (facebookContentSnapshotKeyRef.current === contentKey && facebookContentRef.current.trim()) return;
+
+    const content = buildDefaultFacebookPostContent(nextSnapshot);
+    facebookContentSnapshotKeyRef.current = contentKey;
+    setFacebookContent(content);
+    setFacebookContentConfirmed(Boolean(content.trim()));
+    setFacebookContentError(null);
+  }
+
+  function openFacebookPostPreview() {
+    ensureFacebookContentFromSnapshot();
+    setFacebookPostModalMode('PREVIEW');
+  }
+
+  function openFacebookPostEditor() {
+    ensureFacebookContentFromSnapshot();
+    setFacebookDraftContent(facebookContentRef.current);
+    setFacebookPostModalMode('EDIT');
+  }
+
+  function closeFacebookPostModal() {
+    setFacebookPostModalMode(null);
+  }
+
+  function saveFacebookPostDraft() {
+    const content = facebookDraftContent.trim();
+    setFacebookContent(content);
+    setFacebookContentConfirmed(Boolean(content));
+    facebookContentRef.current = content;
+    setFacebookPostModalMode(null);
+  }
+
+  function ensureFacebookContentFromSnapshot() {
+    if (facebookContentRef.current.trim() || !snapshot) return;
+    setDefaultFacebookContentForSnapshot(
+      snapshot,
+      getFacebookContentSnapshotKey(activeSnapshotRecruitmentIdRef.current, snapshot),
+    );
+  }
+
+  function handleFacebookImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const [file] = Array.from(event.target.files ?? []);
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setFacebookContentError('Please upload an image file for the Facebook post preview.');
+      event.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setFacebookImageDataUrl(reader.result);
+        setFacebookImageFileName(file.name);
+        setFacebookContentError(null);
+      }
+    };
+    reader.onerror = () => {
+      setFacebookContentError('Could not read the uploaded image.');
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  }
+
+  function useSampleFacebookImage() {
+    setFacebookImageDataUrl(null);
+    setFacebookImageFileName('AI sample creative');
   }
 
   async function openFacebookGroupSettings(event: React.MouseEvent<HTMLButtonElement>) {
@@ -2194,16 +2278,21 @@ function SidePanel() {
   async function sync() {
     if (!token || !snapshot || !amisRecruitmentId || missingFields.length > 0) return;
     const facebookTargetIds = selectedPostingChannels.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
+    const resolvedFacebookContent = facebookContent.trim() || buildDefaultFacebookPostContent(snapshot);
     if (selectedPostingChannels.includes('FACEBOOK')) {
       if (facebookTargetIds.length === 0) {
         setError('Select at least one Facebook group before publishing.');
         setState('ERROR');
         return;
       }
-      if (!facebookContentConfirmed) {
-        setError('Vui lòng Xác nhận nội dung bài đăng Facebook trước khi đăng bài.');
+      if (!resolvedFacebookContent) {
+        setError('Facebook post content is required before publishing.');
         setState('ERROR');
         return;
+      }
+      if (!facebookContent.trim()) {
+        setFacebookContent(resolvedFacebookContent);
+        setFacebookContentConfirmed(true);
       }
     }
 
@@ -2214,7 +2303,9 @@ function SidePanel() {
       action: 'PUBLISH',
       snapshot,
       channels: selectedPostingChannels,
-      ...(selectedPostingChannels.includes('FACEBOOK') ? { facebookTargetIds, facebookContent } : {}),
+      ...(selectedPostingChannels.includes('FACEBOOK')
+        ? { facebookTargetIds, facebookContent: resolvedFacebookContent }
+        : {}),
       ...(selectedCareerQuestionIds.size > 0
         ? { selectedQuestionIds: Array.from(selectedCareerQuestionIds) }
         : {}),
@@ -2928,86 +3019,49 @@ function SidePanel() {
                             : null
                         )}
                       </div>
-                      
-                      {/* AI Content Preview & Edit */}
-                      <div className="channel-subselection-title" style={{ marginTop: '16px' }}>
-                        Nội dung bài đăng Facebook
-                      </div>
-                      {facebookContentError ? (
-                        <p className="error-text" style={{ margin: '4px 0 8px 0', padding: '0 2px', fontSize: '11px', color: '#ef4444' }}>
-                          {facebookContentError}
-                        </p>
-                      ) : null}
-                      <div style={{ marginTop: '8px', padding: '0 2px' }}>
+                      <div className="facebook-post-preview-shell">
+                        <div className="channel-subselection-title">
+                          Preview bài đăng
+                        </div>
+                        {facebookContentError ? (
+                          <p className="facebook-post-error">{facebookContentError}</p>
+                        ) : null}
                         {facebookContentLoading ? (
-                          <div style={{ padding: '12px 10px', color: '#047857', fontSize: '11px', background: '#ecfdf5', borderRadius: '4px', border: '1px dashed #a7f3d0' }}>
+                          <div className="facebook-post-loading">
                             Đang tạo nội dung bằng AI...
                           </div>
                         ) : (
-                          <>
-                            <textarea
-                              style={{
-                                width: '100%',
-                                minHeight: '140px',
-                                padding: '8px',
-                                border: '1px solid #a7f3d0',
-                                borderRadius: '4px',
-                                fontFamily: 'inherit',
-                                fontSize: '12px',
-                                resize: 'vertical',
-                                backgroundColor: '#ffffff',
-                                color: '#1e293b',
-                                lineHeight: '1.45',
-                              }}
-                               value={facebookContent}
-                               onChange={(e) => {
-                                 setFacebookContent(e.target.value);
-                                 setFacebookContentConfirmed(false);
-                               }}
-                               placeholder="Nội dung bài viết trên Facebook..."
-                            />
-                            <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <button
-                                type="button"
-                                style={{
-                                  padding: '5px 10px',
-                                  fontSize: '11px',
-                                  fontWeight: 'bold',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  border: facebookContentConfirmed ? '1px solid #059669' : '1px solid #2563eb',
-                                  backgroundColor: facebookContentConfirmed ? '#ecfdf5' : '#2563eb',
-                                  color: facebookContentConfirmed ? '#047857' : '#ffffff',
-                                  transition: 'all 150ms ease',
-                                }}
-                                onClick={() => setFacebookContentConfirmed(!facebookContentConfirmed)}
-                              >
-                                {facebookContentConfirmed ? '✅ Đã xác nhận' : '👍 Xác nhận nội dung'}
-                              </button>
-                              <button
-                                type="button"
-                                className="text-button"
-                                style={{
-                                  padding: '4px 8px',
-                                  fontSize: '11px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  color: '#047857',
-                                  border: '1px solid #a7f3d0',
-                                  borderRadius: '4px',
-                                  background: '#ffffff',
-                                  cursor: 'pointer',
-                                }}
-                                onClick={() => handleGenerateFacebookContent('AI')}
-                              >
-                                🪄 {facebookContent ? 'Re-gen bằng AI' : 'Tạo bằng AI'}
-                              </button>
+                          <div className="facebook-post-preview-card">
+                            <div className="facebook-post-thumb">
+                              {facebookImageDataUrl ? (
+                                <img src={facebookImageDataUrl} alt="Facebook post preview" />
+                              ) : (
+                                <SampleFacebookCreative />
+                              )}
                             </div>
-                          </>
+                            <div className="facebook-post-preview-copy">
+                              <strong>{getFacebookPostHeadline(facebookContent, snapshot)}</strong>
+                              <span>{summarizeFacebookPost(facebookContent)}</span>
+                            </div>
+                            <button
+                              type="button"
+                              className="facebook-post-action-button"
+                              disabled={facebookContentLoading || !snapshot}
+                              onClick={() => handleGenerateFacebookContent()}
+                            >
+                              <SparklesIcon />
+                              <span>Sinh bài</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="facebook-post-action-button"
+                              disabled={!facebookContent.trim() && !snapshot}
+                              onClick={openFacebookPostPreview}
+                            >
+                              <span>Xem bản đầy đủ</span>
+                              <ExternalLinkIcon />
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -3017,6 +3071,217 @@ function SidePanel() {
             })}
           </div>
       </section>
+    );
+  }
+
+  function renderFacebookPostPreviewModal() {
+    const content = facebookContent.trim() || (snapshot ? buildDefaultFacebookPostContent(snapshot) : '');
+
+    return (
+      <div className="modal-backdrop facebook-post-modal-backdrop" role="presentation">
+        <section
+          className="facebook-post-modal facebook-post-preview-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="facebook-post-preview-title"
+        >
+          <header className="facebook-post-modal-header">
+            <h2 id="facebook-post-preview-title">Xem trước bài đăng Facebook</h2>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Đóng"
+              onClick={closeFacebookPostModal}
+            >
+              <CloseIcon />
+            </button>
+          </header>
+
+          <div className="facebook-post-preview-body">
+            <article className="facebook-feed-card">
+              <header className="facebook-feed-header">
+                <span className="facebook-page-avatar">V</span>
+                <div>
+                  <strong>VCS Recruitment</strong>
+                  <span>Vừa xong · Công khai</span>
+                </div>
+              </header>
+              <div className="facebook-feed-content">
+                {content.split('\n').map((line, index) => (
+                  <React.Fragment key={`${line}-${index}`}>
+                    {line}
+                    {index < content.split('\n').length - 1 ? <br /> : null}
+                  </React.Fragment>
+                ))}
+              </div>
+              <div className="facebook-feed-image">
+                {facebookImageDataUrl ? (
+                  <img src={facebookImageDataUrl} alt="Facebook creative preview" />
+                ) : (
+                  <SampleFacebookCreative large />
+                )}
+              </div>
+              <footer className="facebook-feed-actions">
+                <span>Thích</span>
+                <span>Bình luận</span>
+                <span>Chia sẻ</span>
+              </footer>
+            </article>
+
+            <div className="facebook-preview-note">
+              <InfoExportIcon />
+              <p>Đây là bản xem trước cách bài đăng sẽ hiển thị trên bảng tin Facebook. Hình ảnh hiện chỉ phục vụ preview và chưa được gửi khi đăng.</p>
+            </div>
+          </div>
+
+          <footer className="facebook-post-modal-footer">
+            <button type="button" className="modal-cancel-button" onClick={closeFacebookPostModal}>
+              Đóng
+            </button>
+            <button
+              type="button"
+              className="modal-submit-button"
+              disabled={facebookContentLoading || !snapshot}
+              onClick={() => handleGenerateFacebookContent()}
+            >
+              <SparklesIcon />
+              <span>Sinh bài</span>
+            </button>
+            <button type="button" className="modal-submit-button" onClick={openFacebookPostEditor}>
+              <EditIcon />
+              <span>Chỉnh sửa</span>
+            </button>
+          </footer>
+        </section>
+      </div>
+    );
+  }
+
+  function renderFacebookPostEditModal() {
+    const hasSelectedImage = Boolean(facebookImageDataUrl || facebookImageFileName);
+
+    return (
+      <div className="modal-backdrop facebook-post-modal-backdrop" role="presentation">
+        <section
+          className="facebook-post-modal facebook-post-edit-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="facebook-post-edit-title"
+        >
+          <header className="facebook-post-modal-header">
+            <h2 id="facebook-post-edit-title">Chỉnh sửa bài đăng Facebook</h2>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Đóng"
+              onClick={closeFacebookPostModal}
+            >
+              <CloseIcon />
+            </button>
+          </header>
+
+          <div className="facebook-post-edit-body">
+            <label className="facebook-post-editor-field">
+              <span>
+                <PostingIcon />
+                Nội dung bài viết
+              </span>
+              <textarea
+                value={facebookDraftContent}
+                onChange={(event) => setFacebookDraftContent(event.target.value)}
+                placeholder="Nội dung bài viết trên Facebook..."
+              />
+              <small>{facebookDraftContent.length} ký tự</small>
+            </label>
+
+            <section className="facebook-image-editor">
+              <header>
+                <span>
+                  <ImageIcon />
+                  Hình ảnh
+                </span>
+                <strong>{hasSelectedImage ? '1/1 ảnh' : '0/1 ảnh'}</strong>
+              </header>
+
+              <div className="facebook-ai-image-box">
+                <strong>
+                  <SparklesIcon />
+                  Sáng tạo bằng AI
+                </strong>
+                <textarea
+                  value={facebookImagePrompt}
+                  onChange={(event) => setFacebookImagePrompt(event.target.value)}
+                  placeholder="Mô tả hình ảnh bạn muốn tạo (ví dụ: Văn phòng hiện đại, lập trình viên đang làm việc...)"
+                />
+                <button type="button" className="secondary-button compact-button" onClick={useSampleFacebookImage}>
+                  <SparklesIcon />
+                  <span>Sinh ảnh</span>
+                </button>
+              </div>
+
+              <div className="facebook-image-library">
+                <div>
+                  <span>
+                    <GridIcon />
+                    Thư viện ảnh
+                  </span>
+                  <button
+                    type="button"
+                    className="text-button facebook-upload-button"
+                    onClick={() => facebookImageInputRef.current?.click()}
+                  >
+                    <UploadIcon />
+                    <span>Tải lên</span>
+                  </button>
+                </div>
+                <div className="facebook-image-slots">
+                  <button
+                    type="button"
+                    className={`facebook-image-slot${hasSelectedImage ? ' is-selected' : ''}`}
+                    onClick={() => facebookImageInputRef.current?.click()}
+                  >
+                    {facebookImageDataUrl ? (
+                      <img src={facebookImageDataUrl} alt={facebookImageFileName ?? 'Uploaded Facebook post image'} />
+                    ) : (
+                      <SampleFacebookCreative />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="facebook-image-slot is-upload"
+                    onClick={() => facebookImageInputRef.current?.click()}
+                    aria-label="Tải ảnh Facebook"
+                  >
+                    <PlusIcon />
+                  </button>
+                </div>
+                <input
+                  ref={facebookImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleFacebookImageUpload}
+                />
+              </div>
+            </section>
+          </div>
+
+          <footer className="facebook-post-modal-footer">
+            <button type="button" className="modal-cancel-button" onClick={closeFacebookPostModal}>
+              Hủy
+            </button>
+            <button
+              type="button"
+              className="modal-submit-button"
+              disabled={!facebookDraftContent.trim()}
+              onClick={saveFacebookPostDraft}
+            >
+              <CheckCircleIcon />
+              <span>Lưu thay đổi</span>
+            </button>
+          </footer>
+        </section>
+      </div>
     );
   }
 
@@ -3875,6 +4140,9 @@ function SidePanel() {
           </>
         ) : null}
       </section>
+
+      {facebookPostModalMode === 'PREVIEW' ? renderFacebookPostPreviewModal() : null}
+      {facebookPostModalMode === 'EDIT' ? renderFacebookPostEditModal() : null}
 
       {isCvSyncReviewOpen ? renderCvSyncReviewModal() : null}
 
@@ -4763,6 +5031,68 @@ function ExternalLinkIcon({ className }: IconProps) {
   );
 }
 
+function SparklesIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M6.2 2.2 7 5l2.8.8L7 6.7l-.8 2.8-.9-2.8-2.8-.9 2.8-.8.9-2.8Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M11.2 8.4 11.8 10l1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6.6-1.6Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ImageIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M2.5 3.5h11v9h-11v-9Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="m3.5 11 3.2-3 2.1 2 1.3-1.3 2.4 2.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="10.8" cy="6" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function GridIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M2.5 2.5h4v4h-4v-4ZM9.5 2.5h4v4h-4v-4ZM2.5 9.5h4v4h-4v-4ZM9.5 9.5h4v4h-4v-4Z" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function UploadIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M8 11V3.5m0 0L5.5 6M8 3.5 10.5 6M3.2 10.5v1.7c0 .7.5 1.2 1.2 1.2h7.2c.7 0 1.2-.5 1.2-1.2v-1.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CheckCircleIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5.8" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m5.4 8 1.8 1.8 3.5-3.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SampleFacebookCreative({ large = false }: { large?: boolean }) {
+  return (
+    <div className={`sample-facebook-creative${large ? ' is-large' : ''}`} aria-hidden="true">
+      <div className="sample-creative-top">
+        <span>VCS</span>
+        <strong>JOIN OUR TECH TEAM</strong>
+      </div>
+      <div className="sample-creative-body">
+        <span />
+        <div>
+          <strong>HIRING DEVELOPERS</strong>
+          <small>Cyber Security · Engineering · Product</small>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function toErrorMessage(error: unknown) {
   if (error instanceof ApiClientError) return `${error.code}: ${error.message}`;
   if (error instanceof Error) return error.message;
@@ -4973,6 +5303,75 @@ function slugifyForDisplay(value: string) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     || 'job-posting';
+}
+
+function buildSnapshotFromJobDescription(jobDescription: JobDescriptionSummary): AmisJobSnapshot {
+  return {
+    title: jobDescription.title,
+    summary: jobDescription.summary ?? undefined,
+    description: jobDescription.description,
+    requirements: {
+      rawText: stringifyStructuredContent(jobDescription.requirements),
+    },
+    benefits: jobDescription.benefits ?? null,
+  };
+}
+
+function getFacebookContentSnapshotKey(recruitmentId: string | null, snapshot: AmisJobSnapshot) {
+  return [
+    recruitmentId ?? 'snapshot',
+    snapshot.title,
+    snapshot.description,
+    snapshot.requirements.rawText,
+    snapshot.deadline ?? '',
+  ].join('|');
+}
+
+function buildDefaultFacebookPostContent(snapshot: AmisJobSnapshot) {
+  const title = snapshot.title.trim() || 'Vi tri tuyen dung';
+  const displayTitle = title.replace(/^(tuyển dụng|tuyển)\s+/i, '');
+  const requirements = stringifyStructuredContent(snapshot.requirements).trim();
+  const benefits = stringifyStructuredContent(snapshot.benefits).trim();
+  const description = (snapshot.summary || snapshot.description || '').trim();
+  const applyUrl = `https://vcs-portal.vn/jobs/${slugifyForDisplay(displayTitle)}`;
+  const location = snapshot.location?.trim()
+    || 'Tòa Keangnam Landmark 72, Đ. Phạm Hùng, Q. Nam Từ Liêm, Hà Nội';
+
+  const lines = [
+    `🚀 [HN] VIETTEL CYBER SECURITY (VCS) TUYỂN DỤNG ${displayTitle.toUpperCase()}`,
+    'Bạn có kinh nghiệm và mong muốn tham gia các dự án quy mô lớn, môi trường công nghệ chuyên sâu?',
+    'Cơ hội dành cho bạn tại Viettel Cyber Security (VCS)!',
+    '',
+    '📌 Vị trí tuyển dụng:',
+    `🔹 ${displayTitle}`,
+    '',
+    ...buildFacebookPostSection('💼 Mô tả công việc', description),
+    ...buildFacebookPostSection('🎯 Yêu cầu', requirements),
+    ...buildFacebookPostSection('✨ Quyền lợi', benefits),
+    `📍 Địa điểm làm việc: ${location}`,
+    '',
+    `Ứng viên quan tâm vui lòng nhắn tin Fanpage VCS Recruitment hoặc truy cập link ứng tuyển: ${applyUrl}`,
+  ];
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function buildFacebookPostSection(title: string, content: string) {
+  return content ? [`${title}:`, content, ''] : [];
+}
+
+function getFacebookPostHeadline(content: string, snapshot: AmisJobSnapshot | null) {
+  const firstLine = content
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean);
+  return firstLine || snapshot?.title || 'Facebook recruitment post';
+}
+
+function summarizeFacebookPost(content: string) {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (!normalized) return 'Nội dung mặc định sẽ được tạo từ JD hiện tại.';
+  return normalized.length > 82 ? `${normalized.slice(0, 79)}...` : normalized;
 }
 
 function formatMetricValue(value: number | null) {
