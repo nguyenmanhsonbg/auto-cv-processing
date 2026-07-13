@@ -2,6 +2,7 @@ import { BE_API_BASE_URL, EXTENSION_CAPABILITIES, EXTENSION_VERSION } from './co
 import { clearAccessToken, getRefreshToken, setAuthTokens } from './auth-store';
 import {
   clearExtensionInstanceId,
+  getExtensionDisplayName,
   getExtensionInstanceId,
   getExtensionInstanceMetadata,
   getOrCreateInstallId,
@@ -68,7 +69,7 @@ export async function ensureRegisteredExtensionInstance(accessToken: string) {
     accessToken,
     body: {
       installId,
-      displayName: 'Chrome Extension',
+      displayName: getExtensionDisplayName(),
       version: EXTENSION_VERSION,
       capabilities: EXTENSION_CAPABILITIES,
       metadata: getExtensionInstanceMetadata(),
@@ -91,6 +92,7 @@ export async function heartbeatExtensionInstance(accessToken: string) {
       method: 'POST',
       accessToken,
       body: {
+        displayName: getExtensionDisplayName(),
         version: EXTENSION_VERSION,
         capabilities: EXTENSION_CAPABILITIES,
         metadata: getExtensionInstanceMetadata(),

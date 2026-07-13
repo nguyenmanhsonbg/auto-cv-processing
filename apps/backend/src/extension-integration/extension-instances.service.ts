@@ -73,6 +73,7 @@ export class ExtensionInstancesService {
       extensionInstanceId: input.extensionInstanceId,
     });
 
+    instance.displayName = this.optionalText(input.dto.displayName, 160) ?? instance.displayName;
     instance.version = this.optionalText(input.dto.version, 64) ?? instance.version;
     if (input.dto.capabilities) {
       instance.capabilities = this.normalizeCapabilities(input.dto.capabilities);

@@ -52,12 +52,32 @@ export async function clearExtensionInstanceId(): Promise<void> {
 }
 
 export function getExtensionInstanceMetadata() {
+  const browser = detectBrowser();
+
   return {
-    browser: 'chrome',
+    browser: browser.key,
     platform: typeof navigator !== 'undefined' ? navigator.platform : undefined,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
   };
+}
+
+export function getExtensionDisplayName() {
+  return detectBrowser().displayName;
+}
+
+function detectBrowser() {
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+
+  if (/\bEdg(A|iOS)?\//.test(userAgent)) {
+    return { key: 'edge', displayName: 'Edge Extension' };
+  }
+
+  if (/\bChrome\//.test(userAgent) || /\bCriOS\//.test(userAgent)) {
+    return { key: 'chrome', displayName: 'Chrome Extension' };
+  }
+
+  return { key: 'unknown', displayName: 'Browser Extension' };
 }
 
 function newId() {

@@ -49,6 +49,12 @@ export class HeartbeatExtensionInstanceDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(160)
+  displayName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   @MaxLength(64)
   version?: string;
 
