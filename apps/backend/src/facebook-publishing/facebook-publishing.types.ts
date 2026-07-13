@@ -43,7 +43,6 @@ export interface ResolvedFacebookPublishTarget {
   disabledReason?: string | null;
 }
 
-
 export interface CreateFacebookGroupInput {
   ownerUserId: string;
   targetName: string;

@@ -39,110 +39,54 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     }
 
     const amisRecruitmentId = extractRecruitmentId(pageUrl, fieldSources);
-    if (!amisRecruitmentId) {
-      return {
-        status: 'UNSUPPORTED_PAGE',
-        detected: false,
-        source: 'DOM_HEURISTIC',
-        confidence: 'LOW',
-        url: pageUrl,
-        missingFields: ['AMIS recruitment id'],
-        warnings: [
-          'No recruitment ID found on the current page.',
-        ],
-        evidence: {
-          host,
-          title,
-          markers: markerResult.markers,
-          fieldSources,
-        },
-      };
-    }
-    const specTitle = getValueByLabel(['tieu de tin dang', 'tieu de noi bo']);
-    const specDescription = getEditorValueByPlaceholder('nhung cong viec ma vi tri')
-      ?? getValueByLabel(['mo ta cong viec', 'mo ta']);
-    const specRequirements = getEditorValueByPlaceholder('nhung yeu cau ma ung vien')
-      ?? getValueByLabel(['yeu cau cong viec', 'yeu cau']);
-    const specBenefits = getEditorValueByPlaceholder('nhung quyen loi ma ung vien')
-      ?? getValueByLabel(['quyen loi duoc huong', 'quyen loi']);
-
-    const extractedTitle = specTitle
-      ? { value: specTitle, source: 'exact label matching' }
-      : (findFieldByKeywords([
-          'tieu de tin',
-          'ten tin',
-          'ten vi tri',
-          'vi tri tuyen dung',
-          'chuc danh',
-          'job title',
-          'title',
-          'position',
-        ], 'title', fieldSources, MAX_SHORT_TEXT)
-        ?? findHeadingTitle(fieldSources));
-
-    if (specTitle) {
-      fieldSources.title = 'exact label: tieu de tin dang/noi bo';
-    }
-
-    const description = specDescription
-      ? { value: specDescription, source: 'editor placeholder' }
-      : findFieldByKeywords([
-          'mo ta cong viec',
-          'mo ta',
-          'noi dung cong viec',
-          'job description',
-          'description',
-          'responsibilities',
-        ], 'description', fieldSources, MAX_LONG_TEXT);
-
-    if (specDescription) {
-      fieldSources.description = 'editor placeholder: nhung cong viec ma vi tri';
-    }
-
+    const extractedTitle =
+      findFieldByKeywords([
+        'tieu de tin',
+        'ten tin',
+        'ten vi tri',
+        'vi tri tuyen dung',
+        'chuc danh',
+        'job title',
+        'title',
+        'position',
+      ], 'title', fieldSources, MAX_SHORT_TEXT)
+      ?? findHeadingTitle(fieldSources);
+    const description = findFieldByKeywords([
+      'mo ta cong viec',
+      'mo ta',
+      'noi dung cong viec',
+      'job description',
+      'description',
+      'responsibilities',
+    ], 'description', fieldSources, MAX_LONG_TEXT);
     const summary = findFieldByKeywords([
       'mo ta tom tat',
       'tom tat cong viec',
       'summary',
       'job summary',
     ], 'summary', fieldSources, 500);
-
-    const requirements = specRequirements
-      ? { value: specRequirements, source: 'editor placeholder' }
-      : findFieldByKeywords([
-          'yeu cau cong viec',
-          'yeu cau ung vien',
-          'yeu cau',
-          'requirements',
-          'job requirements',
-          'qualification',
-          'qualifications',
-        ], 'requirements', fieldSources, MAX_LONG_TEXT);
-
-    if (specRequirements) {
-      fieldSources.requirements = 'editor placeholder: nhung yeu cau ma ung vien';
-    }
-
-    const benefits = specBenefits
-      ? { value: specBenefits, source: 'editor placeholder' }
-      : findFieldByKeywords([
-          'quyen loi',
-          'che do',
-          'phuc loi',
-          'benefits',
-          'welfare',
-        ], 'benefits', fieldSources, 4000);
-
-    if (specBenefits) {
-      fieldSources.benefits = 'editor placeholder: nhung quyen loi ma ung vien';
-    }
-
+    const requirements = findFieldByKeywords([
+      'yeu cau cong viec',
+      'yeu cau ung vien',
+      'yeu cau',
+      'requirements',
+      'job requirements',
+      'qualification',
+      'qualifications',
+    ], 'requirements', fieldSources, MAX_LONG_TEXT);
+    const benefits = findFieldByKeywords([
+      'quyen loi',
+      'che do',
+      'phuc loi',
+      'benefits',
+      'welfare',
+    ], 'benefits', fieldSources, 4000);
     const location = findFieldByKeywords([
       'dia diem',
       'noi lam viec',
       'location',
       'workplace',
     ], 'location', fieldSources, MAX_SHORT_TEXT);
-
     const deadline = findFieldByKeywords([
       'han nop',
       'han ung tuyen',
@@ -150,7 +94,6 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
       'expiry',
       'expired',
     ], 'deadline', fieldSources, MAX_SHORT_TEXT);
-
     const normalizedDeadline = deadline?.value ? normalizeDeadline(deadline.value) : undefined;
 
     const snapshot = {
@@ -381,7 +324,7 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
       if (!keywords.some((keyword) => descriptor.includes(keyword))) continue;
 
       const value = trimText(readControlValue(control), maxLength);
-      if (!value || isAiHelperText(value)) continue;
+      if (!value) continue;
 
       fieldSources[fieldName] = domSource(control);
       return {
@@ -407,7 +350,7 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
 
     for (const candidate of candidates) {
       const value = trimText(readSectionValue(candidate), maxLength);
-      if (!value || isAiHelperText(value)) continue;
+      if (!value) continue;
 
       fieldSources[fieldName] = domSource(candidate);
       return {
@@ -463,7 +406,7 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     const labeledControl = getControlFromLabel(labelElement);
     if (labeledControl) return labeledControl;
 
-    const parent = labelElement.closest('.dx-field-item, .dx-field, .form-group, .form-item, .field, .row, .col, label');
+    const parent = labelElement.closest('label, .form-group, .form-item, .field, .row, .col, div');
     const parentControl = parent?.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]');
     if (parentControl && parentControl !== labelElement) return parentControl;
 
@@ -506,12 +449,6 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
   }
 
   function findNearbyLabel(control: Element) {
-    const container = control.closest('.dx-field-item, .dx-field, .form-group, .form-item, .field, .row, .col');
-    if (container) {
-      const label = container.querySelector('label, .dx-field-item-label, .dx-field-label, .label, [class*="label" i]');
-      if (label?.textContent) return label.textContent;
-    }
-
     const parent = control.parentElement;
     const grandparent = parent?.parentElement;
     return [
@@ -649,61 +586,5 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     }
 
     return value.replace(/["\\]/g, '\\$&');
-  }
-
-  function isAiHelperText(value: string): boolean {
-    const normalized = normalizeText(value);
-    if (normalized.length > 80) return false;
-    return [
-      'viet mo ta bang ai',
-      'viet bang ai',
-      'tao bang ai',
-      'tao mo ta bang ai',
-      'goi y bang ai',
-      'viet mo ta',
-      'tao mo ta',
-      'dung ai',
-      'viet ho',
-      'bang ai',
-    ].some((term) => normalized.includes(term));
-  }
-
-  function getEditorValueByPlaceholder(placeholderSubstring: string): string | undefined {
-    const editors = Array.from(document.querySelectorAll('.ql-editor.dx-htmleditor-content, [contenteditable="true"]'));
-    for (const editor of editors) {
-      const container = editor.closest('.dx-htmleditor') || editor.parentElement;
-      const placeholderEl = container?.querySelector('.dx-htmleditor-placeholder, [class*="placeholder" i]');
-      const placeholder = placeholderEl?.textContent || container?.getAttribute('placeholder') || editor.getAttribute('placeholder') || '';
-      
-      const normalizedPlaceholder = normalizeText(placeholder);
-      const normalizedSearch = normalizeText(placeholderSubstring);
-      
-      if (normalizedPlaceholder.includes(normalizedSearch)) {
-        return (editor as HTMLElement).innerText || editor.textContent || undefined;
-      }
-    }
-    return undefined;
-  }
-
-  function getValueByLabel(labelTexts: string[]): string | undefined {
-    const normalizedLabels = labelTexts.map(normalizeText);
-    
-    // Find all labels
-    const labels = Array.from(document.querySelectorAll('label, .dx-field-item-label, .dx-field-item-label-text, .dx-field-label, [class*="label" i], legend'));
-    for (const label of labels) {
-      const text = normalizeText(label.textContent ?? '');
-      if (normalizedLabels.some(l => text === l || text.startsWith(l + ' *') || text.startsWith(l + '*'))) {
-        // Found the label! Find the input near it
-        const control = findControlNear(label);
-        if (control) {
-          const val = readControlValue(control);
-          // Ignore AI helper buttons or empty/hidden inputs
-          if (val && !isAiHelperText(val)) {
-            return val;
-          }
-        }
-      }
-    }
-    return undefined;
   }
 }

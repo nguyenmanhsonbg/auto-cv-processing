@@ -149,7 +149,6 @@ export interface SyncAmisJobPostingRequest {
   channels: ExtensionChannel[];
   facebookTargetIds?: string[];
   selectedQuestionIds?: string[];
-  facebookContent?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -222,7 +221,6 @@ export interface FacebookPublishTarget {
   selectable: boolean;
   disabledReason?: string | null;
 }
-
 
 export interface CreateFacebookGroupRequest {
   targetName: string;

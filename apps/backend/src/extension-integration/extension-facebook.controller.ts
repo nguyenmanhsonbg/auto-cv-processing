@@ -1,5 +1,5 @@
 import { UserRole } from '@interview-assistant/shared';
-import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -10,11 +10,10 @@ import { FacebookPublishingService } from '../facebook-publishing/facebook-publi
 import {
   CreateFacebookGroupDto,
   FacebookPublishHistoryStatusCheckDto,
-  GenerateFacebookPreviewDto,
+  DiscoverFacebookGroupsDto,
   ReportFacebookPublishResultDto,
   UpdateFacebookGroupDto,
   VerifyFacebookGroupDto,
-  DiscoverFacebookGroupsDto,
 } from './dto';
 
 interface ExtensionFacebookRequest {
@@ -33,31 +32,6 @@ interface ExtensionFacebookRequest {
 @ApiErrorResponses([400, 401, 403, 500])
 export class ExtensionFacebookController {
   constructor(private readonly facebookPublishingService: FacebookPublishingService) {}
-
-  @Post('generate-preview-content')
-  @ApiOperation({ summary: 'Generate Facebook content preview based on job posting or snapshot' })
-  @ApiBody({ type: GenerateFacebookPreviewDto })
-  @ApiResponse({ status: 200, description: 'Generated content returned.' })
-  async generatePreviewContent(
-    @Body() dto: GenerateFacebookPreviewDto,
-    @Request() req: ExtensionFacebookRequest,
-  ) {
-    const mode = dto.mode || 'TEMPLATE';
-    const content = await this.facebookPublishingService.generatePreviewContent(mode, {
-      jobPostingId: dto.jobPostingId,
-      snapshot: dto.snapshot,
-    });
-
-    return {
-      success: true,
-      data: {
-        content,
-      },
-      meta: {
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
 
   @Get('groups')
   @ApiOperation({ summary: 'List active Facebook groups allowed for the current extension account' })
@@ -95,17 +69,14 @@ export class ExtensionFacebookController {
   }
 
   @Post('groups/discover')
-  @ApiOperation({ summary: 'Discover and sync user Facebook groups, auto-classifying IT groups' })
+  @ApiOperation({ summary: 'Discover and sync Facebook groups from browser scan' })
   @ApiBody({ type: DiscoverFacebookGroupsDto })
-  @ApiResponse({ status: 200, description: 'Groups synced successfully.' })
-  async discoverGroups(
-    @Body() dto: DiscoverFacebookGroupsDto,
-    @Request() req: ExtensionFacebookRequest,
-  ) {
-    const result = await this.facebookPublishingService.discoverExtensionGroups(
-      req.user.id,
-      dto.groups,
-    );
+  @ApiResponse({ status: 200, description: 'Discovered groups synced.' })
+  async discoverGroups(@Body() dto: DiscoverFacebookGroupsDto, @Request() req: ExtensionFacebookRequest) {
+    const result = await this.facebookPublishingService.discoverAndSyncExtensionGroups({
+      ownerUserId: req.user.id,
+      groups: dto.groups,
+    });
 
     return {
       success: true,

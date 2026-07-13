@@ -62,7 +62,6 @@ export class FacebookPublishTargetEntity {
   @Column({ name: 'daily_publish_limit', type: 'integer', default: 10 })
   dailyPublishLimit: number;
 
-
   @Column({ type: 'integer', default: 0 })
   priority: number;
 

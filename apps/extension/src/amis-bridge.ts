@@ -325,10 +325,8 @@ function parseRecruitmentContextFromUrl(url: string) {
     const parsedUrl = new URL(url);
     const candidatePathMatch = parsedUrl.pathname.match(/\/paging_candidate\/([^/?#]+)/i);
     const jobDetailPathMatch = parsedUrl.pathname.match(/\/recruit\/job\/detail\/(\d{3,})(?:\/|$)/i);
-    const genericRecruitmentMatch = parsedUrl.pathname.match(/\/(?:recruitment|tin-tuyen-dung|job)[^/]*(?:\/[^/]+)*(?:\/|%2F)(\d{3,})/i);
     const recruitmentId = candidatePathMatch?.[1]
       ?? jobDetailPathMatch?.[1]
-      ?? genericRecruitmentMatch?.[1]
       ?? parsedUrl.searchParams.get('recruitmentID')
       ?? parsedUrl.searchParams.get('RecruitmentID')
       ?? parsedUrl.searchParams.get('recruitmentId')
