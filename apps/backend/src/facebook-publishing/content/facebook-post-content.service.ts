@@ -8,7 +8,7 @@ export class FacebookPostContentService {
 
   build(posting: JobPostingEntity) {
     const snapshot = this.asRecord(posting.jobDescriptionVersion?.snapshot);
-    const jobDescription = this.asRecord(snapshot?.jobDescription);
+    const jobDescription = this.asRecord(snapshot?.jobDescription) || snapshot;
     const position = this.asRecord(snapshot?.position);
     const level = this.asRecord(snapshot?.level);
     let rawTitle = posting.title || this.asText(jobDescription?.title) || 'Vi tri tuyen dung';
@@ -54,7 +54,7 @@ export class FacebookPostContentService {
 
   private formatStructured(value: unknown): string | null {
     if (value == null) return null;
-    if (typeof value === 'string') return value.trim() || null;
+    if (typeof value === 'string') return this.stripHtml(value).trim() || null;
     if (Array.isArray(value)) {
       const items = value.map((item) => this.asText(item)).filter(Boolean);
       return items.length ? items.map((item) => `- ${item}`).join('\n') : null;
@@ -62,8 +62,8 @@ export class FacebookPostContentService {
 
     const record = this.asRecord(value);
     if (!record) return this.asText(value);
-    if (typeof record.rawText === 'string') return record.rawText.trim() || null;
-    if (typeof record.text === 'string') return record.text.trim() || null;
+    if (typeof record.rawText === 'string') return this.asText(record.rawText) || null;
+    if (typeof record.text === 'string') return this.asText(record.text) || null;
 
     const lines = Object.entries(record)
       .map(([key, item]) => {
@@ -85,8 +85,20 @@ export class FacebookPostContentService {
       : null;
   }
 
+  private stripHtml(value: string): string {
+    if (!value) return '';
+    return value
+      .replace(/<p[^>]*>/gi, '')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
+  }
+
   private asText(value: unknown) {
-    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'string') return this.stripHtml(value);
     if (typeof value === 'number' || typeof value === 'boolean') return String(value);
     return '';
   }

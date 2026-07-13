@@ -197,4 +197,9 @@ export class SyncAmisJobPostingDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ description: 'Optional custom/edited Facebook post content.' })
+  @IsOptional()
+  @IsString()
+  facebookContent?: string;
 }

@@ -190,6 +190,17 @@ export async function reportFacebookPublishResult(
   });
 }
 
+export async function generateFacebookPreviewContent(
+  accessToken: string,
+  payload: { jobPostingId?: string; snapshot?: any; mode?: 'TEMPLATE' | 'AI' },
+) {
+  return request<{ content: string }>('/extension/facebook/generate-preview-content', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
 export async function listFacebookGroupPublishHistories(
   accessToken: string,
   targetId: string,
@@ -228,6 +239,28 @@ export async function getFacebookGroups(accessToken: string) {
   return request<FacebookPublishTarget[]>('/extension/facebook/groups', {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function discoverFacebookGroups(
+  accessToken: string,
+  payload: {
+    groups: Array<{
+      targetName: string;
+      targetUrl: string;
+      targetExternalId: string;
+    }>;
+  },
+) {
+  return request<{
+    totalScanned: number;
+    matchedItGroups: number;
+    newGroupsAdded: number;
+    updatedGroups: number;
+  }>('/extension/facebook/groups/discover', {
+    method: 'POST',
+    accessToken,
+    body: payload,
   });
 }
 

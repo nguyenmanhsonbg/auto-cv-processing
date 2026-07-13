@@ -8,3 +8,5 @@ export * from './update-facebook-group.dto';
 export * from './discover-facebook-groups.dto';
 export * from './sync-amis-applications.dto';
 export * from './verify-facebook-group.dto';
+export * from './generate-facebook-preview.dto';
+export * from './discover-facebook-groups.dto';

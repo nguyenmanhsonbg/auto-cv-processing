@@ -7,6 +7,7 @@ import { JobPostingStatus } from '../recruitment-common';
 import { FacebookPostContentService } from './content/facebook-post-content.service';
 import { FacebookPublishHistoryEntity } from './entities/facebook-publish-history.entity';
 import { FacebookPublishTargetEntity } from './entities/facebook-publish-target.entity';
+import { AiService } from '../ai/ai.service';
 import {
   CreateFacebookGroupInput,
   ExtensionFacebookPublishPlan,
@@ -43,14 +44,16 @@ export class FacebookPublishingService {
     private readonly jobPostingsRepo: Repository<JobPostingEntity>,
     private readonly configService: ConfigService,
     private readonly contentService: FacebookPostContentService,
+    private readonly aiService: AiService,
   ) {}
 
   async prepareExtensionPublishPlan(
     posting: JobPostingEntity,
     ownerUserId: string,
     selectedTargetIds?: string[],
+    customContent?: string,
   ): Promise<ExtensionFacebookPublishPlan> {
-    const content = this.contentService.build(posting);
+    const content = customContent || this.contentService.build(posting);
     const targets = await this.resolveActiveTargets(ownerUserId, selectedTargetIds);
 
     return {
@@ -64,6 +67,134 @@ export class FacebookPublishingService {
     };
   }
 
+  async findJobPostingById(id: string): Promise<JobPostingEntity | null> {
+    return this.jobPostingsRepo.findOne({
+      where: { id },
+      relations: [
+        'jobDescription',
+        'jobDescriptionVersion',
+      ],
+    });
+  }
+
+  formatPostingToJdText(posting: JobPostingEntity): string {
+    const versionSnapshot = posting.jobDescriptionVersion?.snapshot as any;
+    const jd = versionSnapshot?.jobDescription || versionSnapshot || posting.jobDescription;
+    const title = posting.title || jd?.title || '';
+    const desc = jd?.description || jd?.summary || '';
+    
+    let requirementsText = '';
+    if (jd?.requirements) {
+      if (typeof jd.requirements === 'string') {
+        requirementsText = jd.requirements;
+      } else if (typeof jd.requirements === 'object') {
+        requirementsText = jd.requirements.rawText || JSON.stringify(jd.requirements);
+      }
+    }
+
+    let benefitsText = '';
+    if (jd?.benefits) {
+      if (typeof jd.benefits === 'string') {
+        benefitsText = jd.benefits;
+      } else {
+        benefitsText = JSON.stringify(jd.benefits);
+      }
+    }
+
+    return [
+      `Title: ${title}`,
+      `Description: ${desc}`,
+      `Requirements: ${requirementsText}`,
+      `Benefits: ${benefitsText}`
+    ].join('\n\n');
+  }
+
+  formatSnapshotToJdText(snapshot: any): string {
+    const title = snapshot.title || '';
+    const desc = snapshot.description || snapshot.summary || '';
+    const reqText = snapshot.requirements?.rawText || (typeof snapshot.requirements === 'string' ? snapshot.requirements : JSON.stringify(snapshot.requirements || ''));
+    const benefitsText = typeof snapshot.benefits === 'string'
+      ? snapshot.benefits
+      : JSON.stringify(snapshot.benefits || '');
+    
+    return [
+      `Title: ${title}`,
+      `Location: ${snapshot.location || ''}`,
+      `Description: ${desc}`,
+      `Requirements: ${reqText}`,
+      `Benefits: ${benefitsText}`
+    ].join('\n\n');
+  }
+
+  async generatePreviewContent(
+    mode: 'TEMPLATE' | 'AI',
+    options: { jobPostingId?: string; snapshot?: any },
+  ): Promise<string> {
+    let posting: JobPostingEntity | null = null;
+
+    if (options.jobPostingId) {
+      posting = await this.findJobPostingById(options.jobPostingId);
+      if (!posting) {
+        throw new BadRequestException('Job posting not found');
+      }
+      if (options.snapshot) {
+        posting.title = options.snapshot.title || posting.title;
+        if (posting.jobDescriptionVersion) {
+          const currentSnapshot = posting.jobDescriptionVersion.snapshot as any;
+          if (currentSnapshot && typeof currentSnapshot === 'object') {
+            if (currentSnapshot.jobDescription && typeof currentSnapshot.jobDescription === 'object') {
+              currentSnapshot.jobDescription = {
+                ...currentSnapshot.jobDescription,
+                ...options.snapshot,
+              };
+            } else {
+              posting.jobDescriptionVersion.snapshot = {
+                ...currentSnapshot,
+                ...options.snapshot,
+              };
+            }
+          } else {
+            posting.jobDescriptionVersion.snapshot = options.snapshot;
+          }
+        } else {
+          posting.jobDescriptionVersion = {
+            snapshot: options.snapshot,
+          } as any;
+        }
+      }
+    }
+
+    if (mode === 'TEMPLATE') {
+      if (posting) {
+        return this.contentService.build(posting);
+      } else if (options.snapshot) {
+        const mockPosting = {
+          title: options.snapshot.title,
+          publicSlug: 'amis-import',
+          jobDescriptionVersion: {
+            snapshot: options.snapshot,
+          },
+        } as any;
+        return this.contentService.build(mockPosting);
+      } else {
+        throw new BadRequestException('Either jobPostingId or snapshot must be provided');
+      }
+    } else {
+      // mode === 'AI'
+      let jdText = '';
+      if (posting) {
+        jdText = this.formatPostingToJdText(posting);
+      } else if (options.snapshot) {
+        jdText = this.formatSnapshotToJdText(options.snapshot);
+      } else {
+        throw new BadRequestException('Either jobPostingId or snapshot must be provided');
+      }
+      return this.aiService.generateFacebookPostContent(jdText);
+    }
+  }
+
+  private readonly IT_RECRUITMENT_REGEX = /\b(tuy(e|ê)n\s*d(u|ụ)ng|recruitment|job|it|cntt|dev(eloper)?|tester|c(o|ô)ng\s*ngh(e|ệ)\s*th(o|ô)ng\s*tin|tech(nology)?|engineer|frontend|backend|fullstack|react|node|java|comtor|ba|brse|l(a|ậ)p\s*tr(i|ì)nh|coder|qa|qc)\b/i;
+
   async listActiveExtensionGroups(ownerUserId: string): Promise<ResolvedFacebookPublishTarget[]> {
     const targets = await this.targetsRepo.find({
       where: {
@@ -75,6 +206,64 @@ export class FacebookPublishingService {
     });
 
     return this.toResolvedTargets(targets);
+  }
+
+  async discoverExtensionGroups(
+    ownerUserId: string,
+    groups: Array<{ targetName: string; targetUrl: string; targetExternalId: string }>,
+  ) {
+    const results = {
+      totalScanned: groups.length,
+      matchedItGroups: 0,
+      newGroupsAdded: 0,
+      updatedGroups: 0,
+    };
+
+    for (const group of groups) {
+      const isItRecruitment = this.IT_RECRUITMENT_REGEX.test(group.targetName);
+      if (isItRecruitment) {
+        results.matchedItGroups++;
+      }
+
+      let target = await this.targetsRepo.findOne({
+        where: {
+          ownerUserId,
+          type: FacebookPublishTargetType.GROUP,
+          externalId: group.targetExternalId,
+        },
+      });
+
+      if (target) {
+        target.name = group.targetName;
+        target.url = group.targetUrl;
+        target.lastDiscoveredAt = new Date();
+        if (!target.active && isItRecruitment) {
+          target.active = true;
+        }
+        await this.targetsRepo.save(target);
+        results.updatedGroups++;
+      } else {
+        const priority = await this.getNextGroupPriority(ownerUserId);
+        const newTarget = this.targetsRepo.create({
+          type: FacebookPublishTargetType.GROUP,
+          name: group.targetName,
+          externalId: group.targetExternalId,
+          url: group.targetUrl,
+          ownerUserId,
+          active: isItRecruitment,
+          priority,
+          eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
+          eligibilityReason: 'Group has not been verified yet.',
+          lastVerifiedAt: null,
+          lastDiscoveredAt: new Date(),
+        });
+        await this.targetsRepo.save(newTarget);
+        results.newGroupsAdded++;
+      }
+
+    }
+
+    return results;
   }
 
   async createExtensionGroup(input: CreateFacebookGroupInput): Promise<ResolvedFacebookPublishTarget> {
@@ -667,6 +856,7 @@ export class FacebookPublishingService {
         selectable: !disabledReason,
         disabledReason,
       };
+
     });
   }
 
