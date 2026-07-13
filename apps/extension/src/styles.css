@@ -1161,6 +1161,16 @@ dd {
   background: #ecfdf5;
 }
 
+.facebook-post-action-button.is-primary {
+  border-color: #047857;
+  color: #ffffff;
+  background: #047857;
+}
+
+.facebook-post-action-button.is-primary:hover:not(:disabled) {
+  background: #065f46;
+}
+
 .facebook-post-action-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;

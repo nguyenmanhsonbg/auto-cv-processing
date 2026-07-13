@@ -774,18 +774,22 @@ async function runScript<Args extends unknown[], Result>(
   tabId: number,
   func: (...args: Args) => Result | Promise<Result>,
   args: Args,
-) {
-  const [result] = await chrome.scripting?.executeScript<Args, Result>({
+): Promise<Awaited<Result>> {
+  if (!chrome.scripting?.executeScript) {
+    throw new Error('Chrome scripting API is unavailable.');
+  }
+
+  const [result] = await chrome.scripting.executeScript<Args, Result>({
     target: { tabId },
     func,
     args,
-  }) ?? [];
+  });
 
-  if (!result?.result) {
+  if (!result) {
     throw new Error(chrome.runtime?.lastError?.message ?? 'Could not execute browser automation script.');
   }
 
-  return result.result;
+  return result.result as Awaited<Result>;
 }
 
 async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint) {
