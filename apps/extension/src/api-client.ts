@@ -1,5 +1,12 @@
-import { BE_API_BASE_URL, EXTENSION_VERSION } from './config';
+import { BE_API_BASE_URL, EXTENSION_CAPABILITIES, EXTENSION_VERSION } from './config';
 import { clearAccessToken, getRefreshToken, setAuthTokens } from './auth-store';
+import {
+  clearExtensionInstanceId,
+  getExtensionInstanceId,
+  getExtensionInstanceMetadata,
+  getOrCreateInstallId,
+  setExtensionInstanceId,
+} from './extension-instance-store';
 import type {
   ApiEnvelope,
   ApiPagination,
@@ -8,8 +15,10 @@ import type {
   AmisCareerQuestionContext,
   CreateAmisCareerQuestionRequest,
   CreateFacebookGroupRequest,
+  ExtensionInstance,
   ExtensionQuestion,
   ExtensionSyncResponse,
+  ExtensionTask,
   ExtensionUser,
   FacebookPublishHistoriesResponse,
   FacebookPublishHistoryStatusCheckRequest,
@@ -49,6 +58,100 @@ export async function getCurrentUser(accessToken: string) {
   return request<ExtensionUser>('/auth/me', {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function ensureRegisteredExtensionInstance(accessToken: string) {
+  const installId = await getOrCreateInstallId();
+  const instance = await request<ExtensionInstance>('/extension/instances/register', {
+    method: 'POST',
+    accessToken,
+    body: {
+      installId,
+      displayName: 'Chrome Extension',
+      version: EXTENSION_VERSION,
+      capabilities: EXTENSION_CAPABILITIES,
+      metadata: getExtensionInstanceMetadata(),
+    },
+    skipExtensionInstanceHeader: true,
+  });
+
+  await setExtensionInstanceId(instance.id);
+  return instance;
+}
+
+export async function heartbeatExtensionInstance(accessToken: string) {
+  const instanceId = await getExtensionInstanceId();
+  if (!instanceId) {
+    return ensureRegisteredExtensionInstance(accessToken);
+  }
+
+  try {
+    return await request<ExtensionInstance>('/extension/instances/heartbeat', {
+      method: 'POST',
+      accessToken,
+      body: {
+        version: EXTENSION_VERSION,
+        capabilities: EXTENSION_CAPABILITIES,
+        metadata: getExtensionInstanceMetadata(),
+      },
+    });
+  } catch (error) {
+    if (error instanceof ApiClientError && error.code === 'EXTENSION_INSTANCE_NOT_FOUND') {
+      await clearExtensionInstanceId();
+      return ensureRegisteredExtensionInstance(accessToken);
+    }
+    throw error;
+  }
+}
+
+export async function claimNextExtensionTask(accessToken: string) {
+  return request<ExtensionTask | null>('/extension/tasks/next', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function startExtensionTask(accessToken: string, taskId: string) {
+  return request<ExtensionTask>(`/extension/tasks/${encodeURIComponent(taskId)}/start`, {
+    method: 'POST',
+    accessToken,
+  });
+}
+
+export async function reportExtensionTaskProgress(
+  accessToken: string,
+  taskId: string,
+  payload: { eventType: string; message?: string; payload?: Record<string, unknown> },
+) {
+  return request<ExtensionTask>(`/extension/tasks/${encodeURIComponent(taskId)}/progress`, {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function completeExtensionTask(
+  accessToken: string,
+  taskId: string,
+  result?: Record<string, unknown>,
+) {
+  return request<ExtensionTask>(`/extension/tasks/${encodeURIComponent(taskId)}/complete`, {
+    method: 'POST',
+    accessToken,
+    body: result ? { result } : {},
+  });
+}
+
+export async function failExtensionTask(
+  accessToken: string,
+  taskId: string,
+  payload: { errorCode: string; errorMessage: string; result?: Record<string, unknown> },
+) {
+  return request<ExtensionTask>(`/extension/tasks/${encodeURIComponent(taskId)}/fail`, {
+    method: 'POST',
+    accessToken,
+    body: payload,
   });
 }
 
@@ -145,10 +248,7 @@ export async function downloadCleanCvFile(
     `${BE_API_BASE_URL}/applications/${encodeURIComponent(applicationId)}/cv/${encodeURIComponent(cvDocumentId)}/clean-file?disposition=attachment`,
     {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'X-Extension-Version': EXTENSION_VERSION,
-      },
+      headers: await buildJsonHeaders(accessToken, { 'X-Extension-Version': EXTENSION_VERSION }),
     },
   );
 
@@ -303,12 +403,13 @@ async function request<T>(
     accessToken?: string;
     body?: unknown;
     headers?: Record<string, string>;
+    skipExtensionInstanceHeader?: boolean;
   },
 ): Promise<T> {
   const body = options.body === undefined ? undefined : JSON.stringify(options.body);
   let response = await fetch(`${BE_API_BASE_URL}${path}`, {
     method: options.method,
-    headers: buildJsonHeaders(options.accessToken, options.headers),
+    headers: await buildJsonHeaders(options.accessToken, options.headers, options.skipExtensionInstanceHeader),
     body,
   });
 
@@ -317,7 +418,7 @@ async function request<T>(
     if (refreshedAccessToken) {
       response = await fetch(`${BE_API_BASE_URL}${path}`, {
         method: options.method,
-        headers: buildJsonHeaders(refreshedAccessToken, options.headers),
+        headers: await buildJsonHeaders(refreshedAccessToken, options.headers, options.skipExtensionInstanceHeader),
         body,
       });
     }
@@ -348,11 +449,12 @@ async function requestWithPagination<T>(
     method: 'GET';
     accessToken?: string;
     headers?: Record<string, string>;
+    skipExtensionInstanceHeader?: boolean;
   },
 ): Promise<{ data: T[]; pagination: ApiPagination | null }> {
   let response = await fetch(`${BE_API_BASE_URL}${path}`, {
     method: options.method,
-    headers: buildJsonHeaders(options.accessToken, options.headers),
+    headers: await buildJsonHeaders(options.accessToken, options.headers, options.skipExtensionInstanceHeader),
   });
 
   if (response.status === 401 && shouldAttemptRefresh(path)) {
@@ -360,7 +462,7 @@ async function requestWithPagination<T>(
     if (refreshedAccessToken) {
       response = await fetch(`${BE_API_BASE_URL}${path}`, {
         method: options.method,
-        headers: buildJsonHeaders(refreshedAccessToken, options.headers),
+        headers: await buildJsonHeaders(refreshedAccessToken, options.headers, options.skipExtensionInstanceHeader),
       });
     }
   }
@@ -390,10 +492,16 @@ async function requestWithPagination<T>(
   };
 }
 
-function buildJsonHeaders(accessToken?: string, headers?: Record<string, string>) {
+async function buildJsonHeaders(
+  accessToken?: string,
+  headers?: Record<string, string>,
+  skipExtensionInstanceHeader = false,
+) {
+  const extensionInstanceId = skipExtensionInstanceHeader ? null : await getExtensionInstanceId();
   return {
     'Content-Type': 'application/json',
     ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...(extensionInstanceId ? { 'X-Extension-Instance-Id': extensionInstanceId } : {}),
     ...headers,
   };
 }
@@ -410,10 +518,7 @@ async function refreshAccessToken() {
 
   const response = await fetch(`${BE_API_BASE_URL}/auth/refresh`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Extension-Version': EXTENSION_VERSION,
-    },
+    headers: await buildJsonHeaders(undefined, { 'X-Extension-Version': EXTENSION_VERSION }),
     body: JSON.stringify({ refreshToken }),
   });
   const json = await readJson(response);

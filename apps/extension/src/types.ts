@@ -115,6 +115,63 @@ export type ExtensionChannel =
   | 'VIETNAMWORKS'
   | 'LINKEDIN';
 
+export type ExtensionCapability =
+  | 'AMIS_SYNC'
+  | 'FACEBOOK_PUBLISH'
+  | 'FACEBOOK_VERIFY'
+  | 'CV_UPLOAD_TO_AMIS';
+
+export type ExtensionInstanceStatus = 'ONLINE' | 'OFFLINE' | 'DISABLED';
+export type ExtensionTaskType =
+  | 'AMIS_SYNC'
+  | 'FACEBOOK_PUBLISH'
+  | 'FACEBOOK_VERIFY'
+  | 'CV_UPLOAD_TO_AMIS';
+export type ExtensionTaskStatus =
+  | 'PENDING'
+  | 'CLAIMED'
+  | 'RUNNING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'CANCELED';
+
+export interface ExtensionInstance {
+  id: string;
+  ownerUserId: string;
+  installId: string;
+  displayName?: string | null;
+  version?: string | null;
+  status: ExtensionInstanceStatus;
+  capabilities: ExtensionCapability[];
+  lastSeenAt?: string | null;
+  registeredAt: string;
+  disabledAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExtensionTask {
+  id: string;
+  type: ExtensionTaskType;
+  status: ExtensionTaskStatus;
+  requestedByUserId: string;
+  assignedInstanceId?: string | null;
+  claimedByInstanceId?: string | null;
+  lockedUntil?: string | null;
+  payload?: Record<string, unknown> | null;
+  result?: Record<string, unknown> | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  attemptCount: number;
+  maxAttempts: number;
+  priority: number;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AmisJobRequirements {
   rawText: string;
   sections?: Array<{
@@ -218,6 +275,9 @@ export interface FacebookPublishTarget {
   quotaExceeded: boolean;
   selectable: boolean;
   disabledReason?: string | null;
+  ownerExtensionInstanceId?: string | null;
+  lastVerifiedByInstanceId?: string | null;
+  facebookAccountLabel?: string | null;
 }
 
 export interface CreateFacebookGroupRequest {
@@ -296,6 +356,7 @@ export interface FacebookPublishHistoryListItem {
   lastStatusCheckMessage?: string | null;
   externalPostId?: string | null;
   externalPostUrl?: string | null;
+  extensionInstanceId?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }

@@ -18,6 +18,7 @@ import {
   UpdateAmisCareerQuestionCategoriesDto,
 } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
+import { ExtensionInstancesService } from './extension-instances.service';
 
 type HeaderValue = string | string[] | undefined;
 
@@ -36,7 +37,10 @@ interface ExtensionAuthenticatedRequest {
 @Controller('extension/amis')
 @ApiErrorResponses([400, 401, 403, 500])
 export class ExtensionIntegrationController {
-  constructor(private readonly extensionIntegrationService: ExtensionIntegrationService) {}
+  constructor(
+    private readonly extensionIntegrationService: ExtensionIntegrationService,
+    private readonly extensionInstancesService: ExtensionInstancesService,
+  ) {}
 
   @Post('job-postings/sync-and-publish')
   @ApiOperation({ summary: 'Sync and publish an AMIS job posting from the browser extension' })
@@ -55,6 +59,11 @@ export class ExtensionIntegrationController {
     required: false,
     description: 'Optional browser extension version.',
   })
+  @ApiHeader({
+    name: 'X-Extension-Instance-Id',
+    required: false,
+    description: 'Optional registered browser extension instance id.',
+  })
   @ApiBody({ type: SyncAmisJobPostingDto })
   @ApiResponse({
     status: 201,
@@ -67,14 +76,17 @@ export class ExtensionIntegrationController {
     @Headers('idempotency-key') idempotencyKey: HeaderValue,
     @Headers('x-request-id') requestId: HeaderValue,
     @Headers('x-extension-version') extensionVersion: HeaderValue,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
     const idempotencyKeyValue = this.requireIdempotencyKey(idempotencyKey);
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const data = await this.extensionIntegrationService.syncAndPublishFromAmis(dto, {
       actorUserId: req.user.id,
       actorRole: req.user.role,
       idempotencyKey: idempotencyKeyValue,
       requestId: this.optionalHeader(requestId),
       extensionVersion: this.optionalHeader(extensionVersion),
+      extensionInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -85,6 +97,7 @@ export class ExtensionIntegrationController {
         requestId: this.optionalHeader(requestId) ?? null,
         idempotencyKey: idempotencyKeyValue,
         extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+        extensionInstanceId: extensionInstance?.id ?? null,
       },
     };
   }
@@ -101,6 +114,11 @@ export class ExtensionIntegrationController {
     required: false,
     description: 'Optional browser extension version.',
   })
+  @ApiHeader({
+    name: 'X-Extension-Instance-Id',
+    required: false,
+    description: 'Optional registered browser extension instance id.',
+  })
   @ApiBody({ type: SyncAmisCareersDto })
   @ApiResponse({
     status: 201,
@@ -112,12 +130,15 @@ export class ExtensionIntegrationController {
     @Request() req: ExtensionAuthenticatedRequest,
     @Headers('x-request-id') requestId: HeaderValue,
     @Headers('x-extension-version') extensionVersion: HeaderValue,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const data = await this.extensionIntegrationService.syncAmisCareers(dto, {
       actorUserId: req.user.id,
       actorRole: req.user.role,
       requestId: this.optionalHeader(requestId),
       extensionVersion: this.optionalHeader(extensionVersion),
+      extensionInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -127,6 +148,7 @@ export class ExtensionIntegrationController {
         timestamp: new Date().toISOString(),
         requestId: this.optionalHeader(requestId) ?? null,
         extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+        extensionInstanceId: extensionInstance?.id ?? null,
       },
     };
   }
@@ -143,6 +165,11 @@ export class ExtensionIntegrationController {
     required: false,
     description: 'Optional browser extension version.',
   })
+  @ApiHeader({
+    name: 'X-Extension-Instance-Id',
+    required: false,
+    description: 'Optional registered browser extension instance id.',
+  })
   @ApiBody({ type: SyncAmisApplicationsDto })
   @ApiResponse({
     status: 201,
@@ -154,12 +181,15 @@ export class ExtensionIntegrationController {
     @Request() req: ExtensionAuthenticatedRequest,
     @Headers('x-request-id') requestId: HeaderValue,
     @Headers('x-extension-version') extensionVersion: HeaderValue,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const data = await this.extensionIntegrationService.syncAmisApplications(dto, {
       actorUserId: req.user.id,
       actorRole: req.user.role,
       requestId: this.optionalHeader(requestId),
       extensionVersion: this.optionalHeader(extensionVersion),
+      extensionInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -169,6 +199,7 @@ export class ExtensionIntegrationController {
         timestamp: new Date().toISOString(),
         requestId: this.optionalHeader(requestId) ?? null,
         extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+        extensionInstanceId: extensionInstance?.id ?? null,
       },
     };
   }
@@ -243,5 +274,19 @@ export class ExtensionIntegrationController {
     const headerValue = Array.isArray(value) ? value[0] : value;
     const normalizedValue = headerValue?.trim();
     return normalizedValue || undefined;
+  }
+
+  private async resolveOptionalExtensionInstance(
+    req: ExtensionAuthenticatedRequest,
+    extensionInstanceId: HeaderValue,
+  ) {
+    const instance = await this.extensionInstancesService.resolveOptionalForUser({
+      ownerUserId: req.user.id,
+      extensionInstanceId: this.optionalHeader(extensionInstanceId),
+    });
+    if (instance) {
+      await this.extensionInstancesService.touch(instance);
+    }
+    return instance;
   }
 }

@@ -11,6 +11,7 @@ import {
   createFacebookGroup,
   deleteFacebookGroup,
   downloadCleanCvFile,
+  ensureRegisteredExtensionInstance,
   getAmisApplicationsForRecruitment,
   getAmisCareerQuestionContext,
   getCurrentUser,
@@ -18,6 +19,7 @@ import {
   listFacebookGroupPublishHistories,
   listJobDescriptions,
   listAmisCareers,
+  heartbeatExtensionInstance,
   login,
   syncAmisApplications,
   syncAndPublishAmisJob,
@@ -235,6 +237,20 @@ function SidePanel() {
 
   useEffect(() => {
     tokenRef.current = token;
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const heartbeat = () => {
+      void heartbeatExtensionInstance(token).catch(() => {
+        // User-facing API calls handle auth/disabled errors where action context is clearer.
+      });
+    };
+
+    heartbeat();
+    const intervalId = window.setInterval(heartbeat, 60_000);
+    return () => window.clearInterval(intervalId);
   }, [token]);
 
   useEffect(() => {
@@ -476,6 +492,7 @@ function SidePanel() {
         return;
       }
 
+      await ensureRegisteredExtensionInstance(latestToken);
       setToken(latestToken);
       setUser(currentUser);
       setState('READY');
@@ -542,6 +559,7 @@ function SidePanel() {
         accessToken: auth.accessToken,
         refreshToken: auth.refreshToken,
       });
+      await ensureRegisteredExtensionInstance(auth.accessToken);
       setToken(auth.accessToken);
       setUser(auth.user);
       setState('READY');

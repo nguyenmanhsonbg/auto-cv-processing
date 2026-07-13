@@ -55,6 +55,7 @@ export interface ExtensionSyncContext {
   idempotencyKey: string;
   requestId?: string;
   extensionVersion?: string;
+  extensionInstanceId?: string | null;
 }
 
 export interface ExtensionCatalogSyncContext {
@@ -62,6 +63,7 @@ export interface ExtensionCatalogSyncContext {
   actorRole: UserRole;
   requestId?: string;
   extensionVersion?: string;
+  extensionInstanceId?: string | null;
 }
 
 @Injectable()
@@ -104,6 +106,7 @@ export class ExtensionIntegrationService {
       sourceSystem: normalizedDto.sourceSystem,
       requestHash,
       actorUserId: context.actorUserId,
+      extensionInstanceId: context.extensionInstanceId,
     });
 
     try {
@@ -233,6 +236,7 @@ export class ExtensionIntegrationService {
         internalEntityId: posting.id,
         lastSnapshotHash: snapshotHash,
         lastIdempotencyKey: context.idempotencyKey,
+        lastSyncedByExtensionInstanceId: context.extensionInstanceId ?? null,
         lastSyncedAt: now,
         metadata: this.buildExternalReferenceMetadata(dto, context),
       }),
@@ -322,6 +326,7 @@ export class ExtensionIntegrationService {
     externalReference.externalUrl = dto.amisUrl ?? externalReference.externalUrl;
     externalReference.lastSnapshotHash = snapshotHash;
     externalReference.lastIdempotencyKey = context.idempotencyKey;
+    externalReference.lastSyncedByExtensionInstanceId = context.extensionInstanceId ?? null;
     externalReference.lastSyncedAt = new Date();
     externalReference.metadata = this.buildExternalReferenceMetadata(dto, context);
     await manager.getRepository(RecruitmentExternalReferenceEntity).save(externalReference);
@@ -718,6 +723,7 @@ export class ExtensionIntegrationService {
       sourceUrl: this.optionalText(dto.sourceUrl),
       autoSync: dto.metadata?.autoSync === true,
       extensionVersion: this.optionalText(context.extensionVersion),
+      extensionInstanceId: this.optionalText(context.extensionInstanceId),
       requestId: this.optionalText(context.requestId),
       lastSyncedAt: syncedAt.toISOString(),
     };
@@ -1316,6 +1322,7 @@ export class ExtensionIntegrationService {
     return {
       requestId: context.requestId ?? null,
       extensionVersion: context.extensionVersion ?? null,
+      extensionInstanceId: context.extensionInstanceId ?? null,
       actorRole: context.actorRole,
       action: dto.action,
       channels: dto.channels,

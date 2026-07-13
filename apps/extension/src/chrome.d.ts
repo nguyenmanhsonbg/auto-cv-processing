@@ -17,6 +17,9 @@ interface ChromeRuntime {
   onInstalled: {
     addListener(callback: () => void): void;
   };
+  onStartup?: {
+    addListener(callback: () => void): void;
+  };
   onConnect?: {
     addListener(callback: (port: ChromePort) => void): void;
   };
@@ -32,6 +35,19 @@ interface ChromeRuntime {
   getURL?(path: string): string;
   lastError?: {
     message?: string;
+  };
+}
+
+interface ChromeAlarm {
+  name: string;
+  scheduledTime: number;
+  periodInMinutes?: number;
+}
+
+interface ChromeAlarms {
+  create(name: string, alarmInfo: { delayInMinutes?: number; periodInMinutes?: number }): void | Promise<void>;
+  onAlarm: {
+    addListener(callback: (alarm: ChromeAlarm) => void): void;
   };
 }
 
@@ -127,11 +143,13 @@ interface ChromeSidePanel {
 }
 
 interface ChromeApi {
+  alarms?: ChromeAlarms;
   debugger?: ChromeDebugger;
   runtime?: ChromeRuntime;
   scripting?: ChromeScripting;
   sidePanel?: ChromeSidePanel;
   storage?: {
+    local?: ChromeStorageArea;
     onChanged?: ChromeStorageChangeEvent;
     session?: ChromeStorageArea;
   };
