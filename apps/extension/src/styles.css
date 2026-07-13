@@ -2053,7 +2053,7 @@ dd {
 
 .post-history-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
 }
 
@@ -2111,6 +2111,16 @@ dd {
 .post-history-metric.is-rejected span,
 .post-history-metric.is-rejected strong {
   color: #dc2626;
+}
+
+.post-history-metric.is-deleted {
+  border-color: #d1d5db;
+  background: #f3f4f6;
+}
+
+.post-history-metric.is-deleted span,
+.post-history-metric.is-deleted strong {
+  color: #374151;
 }
 
 .post-history-filter-row {
@@ -2266,6 +2276,11 @@ dd {
 .post-history-status.is-rejected {
   color: #b91c1c;
   background: #fee2e2;
+}
+
+.post-history-status.is-deleted {
+  color: #374151;
+  background: #e5e7eb;
 }
 
 .post-history-status.is-unknown {

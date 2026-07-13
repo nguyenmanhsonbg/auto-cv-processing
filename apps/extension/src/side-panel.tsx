@@ -150,6 +150,7 @@ const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label:
   { value: 'POSTED', label: 'Đã đăng' },
   { value: 'PENDING_REVIEW', label: 'Chờ duyệt' },
   { value: 'REJECTED', label: 'Bị từ chối' },
+  { value: 'DELETED', label: 'Đã xóa' },
 ];
 const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
 type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
@@ -1778,6 +1779,7 @@ function SidePanel() {
 
       let postedCount = 0;
       let rejectedCount = 0;
+      let deletedCount = 0;
       let unresolvedCount = 0;
       let issueCount = 0;
 
@@ -1791,6 +1793,7 @@ function SidePanel() {
           await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
           if (statusCheck.facebookReviewStatus === 'POSTED') postedCount += 1;
           else if (statusCheck.facebookReviewStatus === 'REJECTED') rejectedCount += 1;
+          else if (statusCheck.facebookReviewStatus === 'DELETED') deletedCount += 1;
           else unresolvedCount += 1;
         } catch (err) {
           if (err instanceof ApiClientError && err.status === 401) {
@@ -1810,7 +1813,7 @@ function SidePanel() {
 
       await loadFacebookPostHistory(group, facebookHistoryFilter, facebookHistoryPage);
       setFacebookHistoryMessage(
-        `Đã kiểm tra ${itemsToRefresh.length} bài. ${postedCount} đã đăng, ${rejectedCount} bị từ chối, ${unresolvedCount} chưa xác định/chờ duyệt${issueCount ? `, ${issueCount} lỗi` : ''}.`,
+        `Đã kiểm tra ${itemsToRefresh.length} bài. ${postedCount} đã đăng, ${rejectedCount} bị từ chối, ${deletedCount} đã xóa, ${unresolvedCount} chưa xác định/chờ duyệt${issueCount ? `, ${issueCount} lỗi` : ''}.`,
       );
     } catch (err) {
       setFacebookHistoryMessage(toErrorMessage(err));
@@ -2378,6 +2381,7 @@ function SidePanel() {
       posted: 0,
       pendingReview: 0,
       rejected: 0,
+      deleted: 0,
       unknown: 0,
     };
     const pageItems = facebookHistoryData?.items ?? [];
@@ -2445,6 +2449,10 @@ function SidePanel() {
               <article className="post-history-metric is-rejected">
                 <span>Bị từ chối</span>
                 <strong>{summary.rejected}</strong>
+              </article>
+              <article className="post-history-metric is-deleted">
+                <span>Đã xóa</span>
+                <strong>{summary.deleted}</strong>
               </article>
             </div>
 
@@ -4453,6 +4461,7 @@ function replaceFacebookGroup(groups: FacebookPublishTarget[], updatedGroup: Fac
 function getFacebookHistoryStatusLabel(status: Exclude<FacebookPostHistoryFilter, 'ALL'>) {
   if (status === 'PENDING_REVIEW') return 'Chờ duyệt';
   if (status === 'REJECTED') return 'Bị từ chối';
+  if (status === 'DELETED') return 'Đã xóa';
   if (status === 'UNKNOWN') return 'Không rõ';
   return 'Đã đăng';
 }

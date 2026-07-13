@@ -192,7 +192,7 @@ export interface ChannelPostingResult {
 
 export type FacebookPublishTargetType = 'GROUP' | 'FANPAGE';
 export type FacebookPublishResultStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
-export type FacebookReviewStatus = 'POSTED' | 'PENDING_REVIEW' | 'REJECTED' | 'UNKNOWN';
+export type FacebookReviewStatus = 'POSTED' | 'PENDING_REVIEW' | 'REJECTED' | 'DELETED' | 'UNKNOWN';
 export type FacebookPublishTargetEligibilityStatus = 'UNKNOWN' | 'CAN_POST' | 'CANNOT_POST';
 export type FacebookPublishProgressStatus =
   | 'LOGIN_REQUIRED'
@@ -305,6 +305,7 @@ export interface FacebookPublishHistorySummary {
   posted: number;
   pendingReview: number;
   rejected: number;
+  deleted: number;
   unknown: number;
 }
 

@@ -16,6 +16,7 @@ export enum FacebookReviewStatus {
   POSTED = 'POSTED',
   PENDING_REVIEW = 'PENDING_REVIEW',
   REJECTED = 'REJECTED',
+  DELETED = 'DELETED',
   UNKNOWN = 'UNKNOWN',
 }
 

@@ -486,6 +486,7 @@ export class FacebookPublishingService {
       posted: 0,
       pendingReview: 0,
       rejected: 0,
+      deleted: 0,
       unknown: 0,
     };
 
@@ -495,6 +496,7 @@ export class FacebookPublishingService {
       if (row.facebookReviewStatus === FacebookReviewStatus.POSTED) summary.posted += count;
       else if (row.facebookReviewStatus === FacebookReviewStatus.PENDING_REVIEW) summary.pendingReview += count;
       else if (row.facebookReviewStatus === FacebookReviewStatus.REJECTED) summary.rejected += count;
+      else if (row.facebookReviewStatus === FacebookReviewStatus.DELETED) summary.deleted += count;
       else summary.unknown += count;
     }
 

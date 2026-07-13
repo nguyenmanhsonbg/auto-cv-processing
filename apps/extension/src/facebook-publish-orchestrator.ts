@@ -550,6 +550,16 @@ export async function refreshFacebookPostReviewStatus(
       };
     }
 
+    if (postedResult.facebookReviewStatus === 'DELETED') {
+      return {
+        facebookReviewStatus: 'DELETED',
+        message: postedResult.message,
+        externalPostId: postUrl.postId,
+        externalPostUrl: postedResult.externalPostUrl ?? postUrl.url,
+        checkedAt,
+      };
+    }
+
     await chrome.tabs?.update(tab.id, { url: pendingUrl });
     await waitForTabComplete(tab.id);
     await sleep(randomDelay(1_500, 3_000));
@@ -5030,37 +5040,34 @@ async function checkFacebookPostReviewStatusInPage(
     .replace(/\s+/g, ' ')
     .trim();
   const bodyText = () => normalize(document.body?.innerText ?? '');
-  const parsePostUrl = (value: string | null | undefined) => {
-    if (!value) return null;
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(value, window.location.href);
-    } catch {
-      return null;
-    }
-
-    const hostname = parsedUrl.hostname.toLowerCase();
-    if (hostname !== 'facebook.com' && !hostname.endsWith('.facebook.com')) return null;
-
-    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts)\/([^/?#]+)\/?$/i);
-    if (!match) return null;
-
-    return {
-      pathType: match[2].toLowerCase(),
-      url: parsedUrl.href,
-    };
-  };
-  const hasUnavailableCue = (text: string) => (
-    /content isn't available|this content isn't available|noi dung nay khong hien co|khong tim thay noi dung|page isn't available|trang nay khong kha dung/.test(text)
-  );
-  const hasNoPendingReviewCue = (text: string) => (
-    /chua co bai viet nao de xem xet|khong co bai viet nao dang cho xem xet|no posts to review|no pending posts|no posts pending review/.test(text)
-  );
   const hasRejectedCue = (text: string) => (
     /rejected|declined|not approved|was removed|has been removed|tu choi|bi tu choi|khong duoc phe duyet|da bi go/.test(text)
   );
+  const hasDeletedCue = (text: string) => (
+    /content isn't available|this content isn't available|noi dung nay khong hien co|khong tim thay noi dung|page isn't available|this page isn't available|link may be broken|page may have been removed|trang nay khong kha dung|trang nay khong hien thi|lien ket da hong|trang da bi go|bai viet nay da bi xoa|post was deleted|post has been deleted/.test(text)
+  );
   const hasPendingCue = (text: string) => (
     /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet|admin approval/.test(text)
+  );
+  const queryAll = (root: Document | Element, selector: string) => Array.from(root.querySelectorAll(selector));
+  const isVisible = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.visibility !== 'hidden'
+      && style.display !== 'none'
+      && rect.bottom >= -80
+      && rect.top <= window.innerHeight + 120;
+  };
+  const elementLabel = (element: Element) => normalize([
+    element.textContent ?? '',
+    element.getAttribute('aria-label') ?? '',
+    element.getAttribute('title') ?? '',
+    element.getAttribute('role') ?? '',
+  ].join(' '));
+  const getClickableElement = (element: Element) => (
+    element.closest('[role="button"], button, a[href], [tabindex]') ?? element
   );
   const makeSearchSamples = () => {
     const values = [input.title, input.contentPreview]
@@ -5144,7 +5151,7 @@ async function checkFacebookPostReviewStatusInPage(
       || (!hasTitleRequirement && (previewScore > 0 || sampleScore >= 80));
   };
   const pageLooksLikeLoadedPost = () => {
-    const articleText = Array.from(document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"]'))
+    const articleText = Array.from(document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"], [role="dialog"]'))
       .map((element) => normalize(element.textContent ?? ''))
       .find((text) => text.length > 80);
     return Boolean(articleText);
@@ -5154,7 +5161,7 @@ async function checkFacebookPostReviewStatusInPage(
 
     const candidates = [
       bodyText(),
-      ...Array.from(document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"]'))
+      ...Array.from(document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"], [role="dialog"]'))
         .map((element) => normalize(element.textContent ?? '')),
     ];
 
@@ -5163,16 +5170,114 @@ async function checkFacebookPostReviewStatusInPage(
       && hasSubmittedContentMatch(candidate)
     ));
   };
+  const getSubmittedPostRoots = () => {
+    const roots = queryAll(document, '[role="dialog"], [role="article"], article, [data-pagelet*="FeedUnit"]')
+      .filter(isVisible)
+      .filter((element) => hasSubmittedContentMatch(elementLabel(element)));
+
+    return roots.length > 0 ? roots : (containsSubmittedPost() ? [document.body] : []);
+  };
+  const scrollSubmittedPostToActions = async () => {
+    const roots = getSubmittedPostRoots();
+    const scrollables = new Set<Element>();
+
+    if (document.scrollingElement) scrollables.add(document.scrollingElement);
+    for (const root of roots) {
+      let current: Element | null = root;
+      let depth = 0;
+      while (current && depth < 8) {
+        if (current.scrollHeight > current.clientHeight + 40) scrollables.add(current);
+        current = current.parentElement;
+        depth += 1;
+      }
+    }
+
+    for (let step = 0; step < 5; step += 1) {
+      for (const scrollable of scrollables) {
+        scrollable.scrollTop = scrollable.scrollHeight;
+      }
+      window.scrollTo(0, document.body.scrollHeight);
+      await sleepInPage(220);
+    }
+  };
+  type PostActionKind = 'LIKE' | 'COMMENT' | 'SEND';
+  const getPostActionKind = (label: string): PostActionKind | null => {
+    if (/(^|\s)(binh luan|comment)(?=\s|$|[.,;:!?])/.test(label)) return 'COMMENT';
+    if (/(^|\s)(gui|send|share|chia se)(?=\s|$|[.,;:!?])/.test(label)) return 'SEND';
+    if (/(^|\s)(thich|like|react|bay to cam xuc)(?=\s|$|[.,;:!?])/.test(label)) return 'LIKE';
+    return null;
+  };
+  const getPostEngagementActionState = () => {
+    const roots = getSubmittedPostRoots();
+    const sourceRoots = roots.length > 0 ? roots : [document.body];
+    const seenTargets = new Set<Element>();
+    const actions = sourceRoots
+      .flatMap((root) => queryAll(root, '[role="button"], button, a[href], [tabindex]'))
+      .filter(isVisible)
+      .map((element) => {
+        const target = getClickableElement(element);
+        if (seenTargets.has(target) || !isVisible(target)) return null;
+        seenTargets.add(target);
+
+        const label = elementLabel(target);
+        const kind = getPostActionKind(label);
+        if (!kind) return null;
+
+        const rect = target.getBoundingClientRect();
+        if (rect.height > 64 || rect.width < 12 || rect.width > Math.min(window.innerWidth * 0.8, 520)) return null;
+
+        return {
+          kind,
+          label,
+          centerX: rect.left + rect.width / 2,
+          centerY: rect.top + rect.height / 2,
+        };
+      })
+      .filter((action): action is NonNullable<typeof action> => Boolean(action));
+
+    const likes = actions.filter((action) => action.kind === 'LIKE');
+    const comments = actions.filter((action) => action.kind === 'COMMENT');
+    const sends = actions.filter((action) => action.kind === 'SEND');
+    const sameRow = (left: typeof actions[number], right: typeof actions[number]) => (
+      Math.abs(left.centerY - right.centerY) <= 34
+    );
+
+    for (const like of likes) {
+      for (const send of sends) {
+        if (!sameRow(like, send) || Math.abs(like.centerX - send.centerX) < 90) continue;
+        const leftX = Math.min(like.centerX, send.centerX);
+        const rightX = Math.max(like.centerX, send.centerX);
+        const commentBetween = comments.some((comment) => (
+          sameRow(comment, like)
+            && comment.centerX > leftX + 24
+            && comment.centerX < rightX - 24
+        ));
+
+        return {
+          hasLikeAndSendRow: true,
+          hasCommentBetweenLikeAndSend: commentBetween,
+          labels: actions.map((action) => action.label).slice(0, 8),
+        };
+      }
+    }
+
+    return {
+      hasLikeAndSendRow: false,
+      hasCommentBetweenLikeAndSend: false,
+      labels: actions.map((action) => action.label).slice(0, 8),
+    };
+  };
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await sleepInPage(attempt === 0 ? 0 : 900);
+    await scrollSubmittedPostToActions();
     const text = bodyText();
-    const currentPostUrl = parsePostUrl(window.location.href);
+    const submittedPostVisible = containsSubmittedPost();
 
-    if (input.expectedPathType === 'pending_posts' && hasNoPendingReviewCue(text)) {
+    if (!submittedPostVisible && hasDeletedCue(text)) {
       return {
-        facebookReviewStatus: 'REJECTED',
-        message: 'Facebook shows no pending post to review for this pending post URL.',
+        facebookReviewStatus: 'DELETED',
+        message: 'Facebook post URL loaded but the post content is unavailable or deleted.',
         externalPostUrl: input.externalPostUrl ?? window.location.href,
       };
     }
@@ -5185,37 +5290,23 @@ async function checkFacebookPostReviewStatusInPage(
       };
     }
 
-    if (hasUnavailableCue(text)) {
-      return {
-        facebookReviewStatus: 'PENDING_REVIEW',
-        message: input.expectedPathType === 'posts'
-          ? 'Approved post URL is not visible yet; pending URL will be checked next.'
-          : 'Post is not visible yet or the content is unavailable to this account.',
-        externalPostUrl: input.externalPostUrl ?? null,
-      };
-    }
+    if (submittedPostVisible) {
+      const actionState = getPostEngagementActionState();
+      if (actionState.hasCommentBetweenLikeAndSend) {
+        return {
+          facebookReviewStatus: 'POSTED',
+          message: 'Facebook post is visible and exposes the Comment action between Like and Send.',
+          externalPostUrl: window.location.href,
+        };
+      }
 
-    if (containsSubmittedPost() && (input.expectedPathType !== 'pending_posts' || currentPostUrl?.pathType === 'posts')) {
-      return {
-        facebookReviewStatus: 'POSTED',
-        message: 'Post is now visible in the Facebook group.',
-        externalPostUrl: window.location.href,
-      };
-    }
-
-    if (
-      input.externalPostUrl
-      && pageLooksLikeLoadedPost()
-      && (samples.length === 0 || containsSubmittedPost())
-      && !hasPendingCue(text)
-      && input.expectedPathType !== 'pending_posts'
-      && currentPostUrl?.pathType === 'posts'
-    ) {
-      return {
-        facebookReviewStatus: 'POSTED',
-        message: 'Facebook post URL loaded and the post appears visible.',
-        externalPostUrl: window.location.href,
-      };
+      if (actionState.hasLikeAndSendRow) {
+        return {
+          facebookReviewStatus: 'PENDING_REVIEW',
+          message: 'Facebook post is visible but the Comment action is not available yet, so it is still pending approval.',
+          externalPostUrl: input.externalPostUrl ?? window.location.href,
+        };
+      }
     }
 
     if (hasPendingCue(text)) {
@@ -5227,6 +5318,14 @@ async function checkFacebookPostReviewStatusInPage(
     }
 
     window.scrollBy({ top: Math.max(420, window.innerHeight * 0.7), behavior: 'auto' });
+  }
+
+  if (input.externalPostUrl && !containsSubmittedPost() && !pageLooksLikeLoadedPost()) {
+    return {
+      facebookReviewStatus: 'DELETED',
+      message: 'Facebook post URL opened but no matching post content was rendered.',
+      externalPostUrl: input.externalPostUrl,
+    };
   }
 
   return {
