@@ -3737,17 +3737,93 @@ async function recoverFacebookPendingPostUrlInPage(
     }))];
   };
   const samples = makeSearchSamples();
-  const getContentScore = (element: Element) => {
-    if (samples.length === 0) return 0;
-    const text = textOf(element);
-    if (text.length < 8) return 0;
+  const titleSamples = [...new Set([
+    normalize(input.title ?? ''),
+    ...normalize(input.title ?? '').split(/\s*[-:|]\s*/).map((part) => part.trim()),
+  ].filter((sample) => sample.length >= 8))];
+  const contentPreviewSamples = [...new Set(
+    normalize(input.contentPreview ?? '')
+      .split(/\r?\n+/)
+      .flatMap((line) => [line.trim(), line.trim().slice(0, 140)])
+      .filter((sample) => sample.length >= 24),
+  )];
+  const isBoundaryCharacter = (value: string | undefined) => !value || !/[a-z0-9]/i.test(value);
+  const containsPhrase = (text: string, sample: string) => {
+    let index = text.indexOf(sample);
+    while (index >= 0) {
+      const before = text[index - 1];
+      const after = text[index + sample.length];
+      if (isBoundaryCharacter(before) && isBoundaryCharacter(after)) return true;
+      index = text.indexOf(sample, index + 1);
+    }
 
-    return samples.reduce((score, sample) => {
+    return false;
+  };
+  const containsTitlePhrase = (text: string, sample: string) => {
+    let index = text.indexOf(sample);
+    while (index >= 0) {
+      const before = text[index - 1];
+      const after = text[index + sample.length];
+      const facebookJoinedNextWord = /\d$/.test(sample) && Boolean(after) && /[a-z]/i.test(after);
+      if (isBoundaryCharacter(before) && (isBoundaryCharacter(after) || facebookJoinedNextWord)) return true;
+      index = text.indexOf(sample, index + 1);
+    }
+
+    return false;
+  };
+  const scoreSamplesInText = (text: string, sampleValues: string[], exactMultiplier: number) => (
+    sampleValues.reduce((score, sample) => {
+      if (containsPhrase(text, sample)) return score + Math.min(360, sample.length * exactMultiplier);
       if (text.includes(sample)) return score + Math.min(240, sample.length * 3);
       if (sample.length >= 40 && text.includes(sample.slice(0, 40))) return score + 80;
       if (sample.length >= 24 && text.includes(sample.slice(0, 24))) return score + 40;
       return score;
-    }, 0);
+    }, 0)
+  );
+  const scoreTitleSamplesInText = (text: string) => (
+    titleSamples.reduce((score, sample) => (
+      containsTitlePhrase(text, sample) ? score + Math.min(360, sample.length * 6) : score
+    ), 0)
+  );
+  const titleTokens = normalize(input.title ?? '')
+    .split(/[^a-z0-9]+/i)
+    .filter((word) => word.length >= 3);
+  const hasDistinctiveTitleToken = titleTokens.some((word) => /\d/.test(word) || word.length >= 5);
+  const getTitleTokenScore = (text: string) => {
+    if (titleTokens.length < 3 || !hasDistinctiveTitleToken) return 0;
+    return titleTokens.every((word) => containsPhrase(text, word)) ? 90 : 0;
+  };
+  const getSubmittedContentMatchForText = (value: string) => {
+    const text = normalize(value);
+    if (text.length < 8) {
+      return {
+        matched: samples.length === 0,
+        score: 0,
+      };
+    }
+
+    const titleScore = scoreTitleSamplesInText(text) + getTitleTokenScore(text);
+    const previewScore = scoreSamplesInText(text, contentPreviewSamples, 4);
+    const sampleScore = scoreSamplesInText(text, samples, 3);
+    const hasTitleRequirement = titleSamples.length > 0;
+    return {
+      matched: samples.length === 0
+        || titleScore > 0
+        || (!hasTitleRequirement && (previewScore > 0 || sampleScore >= 80)),
+      score: titleScore + previewScore + sampleScore,
+    };
+  };
+  const getContentMatch = (element: Element) => getSubmittedContentMatchForText(textOf(element));
+  const hasSubmittedContentMatch = (element: Element) => getContentMatch(element).matched;
+  const pageHasSubmittedContentMatch = () => {
+    if (samples.length === 0) return true;
+
+    const articleCandidates = Array.from(
+      document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"], div[aria-posinset]'),
+    ).filter(isVisible);
+    if (articleCandidates.some(hasSubmittedContentMatch)) return true;
+
+    return getSubmittedContentMatchForText(document.body?.innerText ?? '').matched;
   };
   const getClickableElement = (element: Element) => (
     element.closest('a[href], [role="link"], [role="button"], button, [tabindex]') ?? element
@@ -3784,7 +3860,7 @@ async function recoverFacebookPendingPostUrlInPage(
 
     const textElements = Array.from(document.querySelectorAll('div, span, p'))
       .filter((element) => isVisible(element))
-      .filter((element) => getContentScore(element) > 0);
+      .filter((element) => samples.length > 0 && hasSubmittedContentMatch(element));
     textElements.forEach((element) => cards.add(getCardRoot(element)));
 
     const actionElements = Array.from(document.querySelectorAll('button, [role="button"], a, span, div'))
@@ -3799,16 +3875,18 @@ async function recoverFacebookPendingPostUrlInPage(
       .map((card) => {
         const text = textOf(card);
         const rect = card.getBoundingClientRect();
-        const contentScore = getContentScore(card);
+        const contentMatch = getContentMatch(card);
+        if (samples.length > 0 && !contentMatch.matched) return null;
         const pendingScore = hasPendingCue(text) ? 100 : 0;
         const actionScore = /chinh sua|edit|xoa|delete/.test(text) || hasPostOpenActionText(text) ? 25 : 0;
         const viewportScore = rect.top >= -80 && rect.top <= window.innerHeight ? 30 : 0;
         const sizePenalty = Math.max(0, (text.length - 2_400) / 120);
         return {
           card,
-          score: contentScore + pendingScore + actionScore + viewportScore - sizePenalty,
+          score: contentMatch.score + pendingScore + actionScore + viewportScore - sizePenalty,
         };
       })
+      .filter((item): item is { card: Element; score: number } => Boolean(item))
       .filter((item) => item.score >= 45)
       .sort((left, right) => right.score - left.score);
 
@@ -3830,6 +3908,8 @@ async function recoverFacebookPendingPostUrlInPage(
     };
   };
   const findPostUrlInCard = (card: Element) => {
+    if (samples.length > 0 && !hasSubmittedContentMatch(card)) return null;
+
     const links = Array.from(card.querySelectorAll('a[href]'));
     for (const link of links) {
       const postUrl = parsePostUrl(link.getAttribute('href'));
@@ -3896,20 +3976,14 @@ async function recoverFacebookPendingPostUrlInPage(
     .replace(/\\\\/g, '\\');
   const getScriptChunkContentScore = (value: string) => {
     if (samples.length === 0) return 0;
-    const text = normalize(value);
-    return samples.reduce((score, sample) => {
-      if (text.includes(sample)) return score + Math.min(360, sample.length * 4);
-      if (sample.length >= 40 && text.includes(sample.slice(0, 40))) return score + 120;
-      if (sample.length >= 24 && text.includes(sample.slice(0, 24))) return score + 70;
-      return score;
-    }, 0);
+    const contentMatch = getSubmittedContentMatchForText(value);
+    return contentMatch.matched ? contentMatch.score : 0;
   };
   const findPostUrlInPageScriptsForMatchedCard = (card: Element) => {
     const expectedGroupId = expectedGroupIds[0] ?? getGroupIdFromUrl(window.location.href);
     if (!expectedGroupId) return null;
 
-    const cardContentScore = getContentScore(card);
-    if (samples.length > 0 && cardContentScore <= 0) return null;
+    if (samples.length > 0 && !hasSubmittedContentMatch(card)) return null;
 
     const scripts = Array.from(document.querySelectorAll('script[type="application/json"]'))
       .map((script) => script.textContent ?? '')
@@ -3950,12 +4024,16 @@ async function recoverFacebookPendingPostUrlInPage(
   const findContentElement = (card: Element) => {
     const candidates = Array.from(card.querySelectorAll('div, span, p'))
       .filter(isVisible)
-      .map((element) => ({
-        element,
-        score: getContentScore(element),
-        textLength: textOf(element).length,
-      }))
-      .filter((item) => item.score > 0 && item.textLength <= 2_500)
+      .map((element) => {
+        const contentMatch = getContentMatch(element);
+        return {
+          element,
+          matched: contentMatch.matched,
+          score: contentMatch.score,
+          textLength: textOf(element).length,
+        };
+      })
+      .filter((item) => item.matched && item.textLength <= 2_500)
       .sort((left, right) => right.score - left.score || left.textLength - right.textLength);
 
     return candidates[0]?.element ?? null;
@@ -4579,7 +4657,7 @@ async function recoverFacebookPendingPostUrlInPage(
 
   const currentPostUrl = parsePostUrl(window.location.href);
   const expectedCurrentPostUrl = isExpectedPostUrl(currentPostUrl) ? currentPostUrl : null;
-  if (expectedCurrentPostUrl) {
+  if (expectedCurrentPostUrl && pageHasSubmittedContentMatch()) {
     return {
       facebookReviewStatus: expectedCurrentPostUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
       message: 'Current Facebook URL already contains the group post id.',
@@ -4997,6 +5075,74 @@ async function checkFacebookPostReviewStatusInPage(
     });
   };
   const samples = [...new Set(makeSearchSamples())];
+  const titleSamples = [...new Set([
+    normalize(input.title ?? ''),
+    ...normalize(input.title ?? '').split(/\s*[-:|]\s*/).map((part) => part.trim()),
+  ].filter((sample) => sample.length >= 8))];
+  const contentPreviewSamples = [...new Set(
+    normalize(input.contentPreview ?? '')
+      .split(/\r?\n+/)
+      .flatMap((line) => [line.trim(), line.trim().slice(0, 140)])
+      .filter((sample) => sample.length >= 24),
+  )];
+  const isBoundaryCharacter = (value: string | undefined) => !value || !/[a-z0-9]/i.test(value);
+  const containsPhrase = (text: string, sample: string) => {
+    let index = text.indexOf(sample);
+    while (index >= 0) {
+      const before = text[index - 1];
+      const after = text[index + sample.length];
+      if (isBoundaryCharacter(before) && isBoundaryCharacter(after)) return true;
+      index = text.indexOf(sample, index + 1);
+    }
+
+    return false;
+  };
+  const containsTitlePhrase = (text: string, sample: string) => {
+    let index = text.indexOf(sample);
+    while (index >= 0) {
+      const before = text[index - 1];
+      const after = text[index + sample.length];
+      const facebookJoinedNextWord = /\d$/.test(sample) && Boolean(after) && /[a-z]/i.test(after);
+      if (isBoundaryCharacter(before) && (isBoundaryCharacter(after) || facebookJoinedNextWord)) return true;
+      index = text.indexOf(sample, index + 1);
+    }
+
+    return false;
+  };
+  const scoreSamplesInText = (text: string, sampleValues: string[], exactMultiplier: number) => (
+    sampleValues.reduce((score, sample) => {
+      if (containsPhrase(text, sample)) return score + Math.min(360, sample.length * exactMultiplier);
+      if (text.includes(sample)) return score + Math.min(240, sample.length * 3);
+      if (sample.length >= 40 && text.includes(sample.slice(0, 40))) return score + 80;
+      if (sample.length >= 24 && text.includes(sample.slice(0, 24))) return score + 40;
+      return score;
+    }, 0)
+  );
+  const scoreTitleSamplesInText = (text: string) => (
+    titleSamples.reduce((score, sample) => (
+      containsTitlePhrase(text, sample) ? score + Math.min(360, sample.length * 6) : score
+    ), 0)
+  );
+  const titleTokens = normalize(input.title ?? '')
+    .split(/[^a-z0-9]+/i)
+    .filter((word) => word.length >= 3);
+  const hasDistinctiveTitleToken = titleTokens.some((word) => /\d/.test(word) || word.length >= 5);
+  const getTitleTokenScore = (text: string) => {
+    if (titleTokens.length < 3 || !hasDistinctiveTitleToken) return 0;
+    return titleTokens.every((word) => containsPhrase(text, word)) ? 90 : 0;
+  };
+  const hasSubmittedContentMatch = (value: string) => {
+    const text = normalize(value);
+    if (text.length < 8) return samples.length === 0;
+
+    const titleScore = scoreTitleSamplesInText(text) + getTitleTokenScore(text);
+    const previewScore = scoreSamplesInText(text, contentPreviewSamples, 4);
+    const sampleScore = scoreSamplesInText(text, samples, 3);
+    const hasTitleRequirement = titleSamples.length > 0;
+    return samples.length === 0
+      || titleScore > 0
+      || (!hasTitleRequirement && (previewScore > 0 || sampleScore >= 80));
+  };
   const pageLooksLikeLoadedPost = () => {
     const articleText = Array.from(document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"]'))
       .map((element) => normalize(element.textContent ?? ''))
@@ -5014,7 +5160,7 @@ async function checkFacebookPostReviewStatusInPage(
 
     return candidates.some((candidate) => (
       candidate.length >= 40
-      && samples.some((sample) => candidate.includes(sample) || sample.includes(candidate.slice(0, 80)))
+      && hasSubmittedContentMatch(candidate)
     ));
   };
 
@@ -5060,6 +5206,7 @@ async function checkFacebookPostReviewStatusInPage(
     if (
       input.externalPostUrl
       && pageLooksLikeLoadedPost()
+      && (samples.length === 0 || containsSubmittedPost())
       && !hasPendingCue(text)
       && input.expectedPathType !== 'pending_posts'
       && currentPostUrl?.pathType === 'posts'
