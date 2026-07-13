@@ -2473,6 +2473,12 @@ function SidePanel() {
 
             <div className="post-history-table-card">
               <table>
+                <colgroup>
+                  <col className="post-history-date-column" />
+                  <col className="post-history-title-column" />
+                  <col className="post-history-status-column" />
+                  <col className="post-history-action-column" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Ngày</th>

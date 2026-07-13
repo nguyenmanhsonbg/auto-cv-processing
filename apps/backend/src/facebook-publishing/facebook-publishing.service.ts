@@ -849,21 +849,70 @@ export class FacebookPublishingService {
     const isFacebookHost = hostname === 'facebook.com' || hostname.endsWith('.facebook.com');
     if (!isFacebookHost) return null;
 
-    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts)\/(\d+)\/?$/i);
-    if (!match) return null;
+    const directMatch = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts|permalink)\/([^/?#]+)\/?$/i);
+    if (directMatch) {
+      const [, rawGroupId, rawPathType, postId] = directMatch;
+      const groupId = this.decodeUrlPathSegment(rawGroupId).trim();
+      const pathType = rawPathType.toLowerCase() === 'pending_posts' ? 'pending_posts' : 'posts';
+      if (!groupId || !postId) return null;
 
-    const [, rawGroupId, rawPathType, postId] = match;
-    const groupId = this.decodeUrlPathSegment(rawGroupId).trim();
-    const pathType = rawPathType.toLowerCase();
+      const suffix = pathType === 'posts' ? '/' : '';
+      return {
+        groupId,
+        postId,
+        pathType,
+        url: `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/${pathType}/${postId}${suffix}`,
+      };
+    }
+
+    const groupId = this.readFacebookGroupId(parsedUrl);
+    const postId = this.readFacebookPostId(parsedUrl);
     if (!groupId || !postId) return null;
 
-    const suffix = pathType === 'posts' ? '/' : '';
     return {
       groupId,
       postId,
-      pathType,
-      url: `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/${pathType}/${postId}${suffix}`,
+      pathType: 'posts',
+      url: `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/posts/${postId}/`,
     };
+  }
+
+  private readFacebookGroupId(parsedUrl: URL) {
+    const groupPathMatch = parsedUrl.pathname.match(/^\/groups\/([^/]+)/i);
+    const groupPathId = groupPathMatch?.[1] ? this.decodeUrlPathSegment(groupPathMatch[1]).trim() : '';
+    if (groupPathId) return groupPathId;
+
+    return this.firstNumericSearchParam(parsedUrl, ['id', 'group_id', 'groupid']);
+  }
+
+  private readFacebookPostId(parsedUrl: URL) {
+    return this.firstFacebookPostIdSearchParam(parsedUrl, [
+      'story_fbid',
+      'fbid',
+      'multi_permalinks',
+      'post_id',
+      'postid',
+    ]);
+  }
+
+  private firstFacebookPostIdSearchParam(parsedUrl: URL, names: string[]) {
+    for (const name of names) {
+      const value = parsedUrl.searchParams.get(name);
+      const match = value?.match(/(?:\d{5,}|pfbid[a-z0-9]+)/i);
+      if (match?.[0]) return match[0];
+    }
+
+    return null;
+  }
+
+  private firstNumericSearchParam(parsedUrl: URL, names: string[]) {
+    for (const name of names) {
+      const value = parsedUrl.searchParams.get(name);
+      const match = value?.match(/\d{5,}/);
+      if (match?.[0]) return match[0];
+    }
+
+    return null;
   }
 
   private requireText(value: string, fieldName: string) {

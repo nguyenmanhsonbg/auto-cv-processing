@@ -58,17 +58,27 @@ interface ChromeMessageSender {
 interface ChromeTab {
   id?: number;
   windowId?: number;
+  openerTabId?: number;
   url?: string;
   status?: string;
 }
 
 interface ChromeTabs {
-  query(queryInfo: { active?: boolean; currentWindow?: boolean; url?: string | string[] }): Promise<ChromeTab[]>;
+  query(queryInfo: { active?: boolean; currentWindow?: boolean; url?: string | string[]; windowId?: number }): Promise<ChromeTab[]>;
   create(createProperties: { url?: string; active?: boolean }): Promise<ChromeTab>;
   update(tabId: number, updateProperties: { url?: string; active?: boolean }): Promise<ChromeTab>;
   get(tabId: number): Promise<ChromeTab>;
   remove(tabId: number): Promise<void>;
   sendMessage?(tabId: number, message: unknown): Promise<unknown>;
+}
+
+interface ChromeWindow {
+  id?: number;
+  focused?: boolean;
+}
+
+interface ChromeWindows {
+  update(windowId: number, updateInfo: { focused?: boolean }): Promise<ChromeWindow>;
 }
 
 interface ChromeDebuggee {
@@ -141,6 +151,7 @@ interface ChromeApi {
     session?: ChromeStorageArea;
   };
   tabs?: ChromeTabs;
+  windows?: ChromeWindows;
 }
 
 declare const chrome: ChromeApi;

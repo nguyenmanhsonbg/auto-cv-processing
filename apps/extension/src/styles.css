@@ -2180,6 +2180,19 @@ dd {
 .post-history-table-card table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.post-history-date-column {
+  width: 88px;
+}
+
+.post-history-status-column {
+  width: 112px;
+}
+
+.post-history-action-column {
+  width: 78px;
 }
 
 .post-history-table-card th {
@@ -2192,6 +2205,7 @@ dd {
   line-height: 1.2;
   text-align: left;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .post-history-table-card td {
@@ -2201,20 +2215,16 @@ dd {
   font-size: 11px;
   line-height: 1.4;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 .post-history-table-card td:nth-child(1) {
-  width: 88px;
   color: #64748b;
   white-space: nowrap;
 }
 
-.post-history-table-card td:nth-child(3) {
-  width: 112px;
-}
-
+.post-history-table-card th:nth-child(4),
 .post-history-table-card td:nth-child(4) {
-  width: 76px;
   text-align: center;
 }
 
@@ -2228,6 +2238,7 @@ dd {
   color: #94a3b8;
   font-size: 10px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .post-history-status {
@@ -2266,11 +2277,14 @@ dd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 5px;
+  width: 100%;
 }
 
 .post-history-action-button {
   display: inline-grid;
+  flex: 0 0 auto;
   width: 28px;
   height: 28px;
   place-items: center;
@@ -2439,11 +2453,30 @@ dd {
   }
 
   .post-history-table-card {
-    overflow-x: auto;
+    overflow: hidden;
   }
 
-  .post-history-table-card table {
-    min-width: 600px;
+  .post-history-date-column {
+    width: 70px;
+  }
+
+  .post-history-status-column {
+    width: 86px;
+  }
+
+  .post-history-action-column {
+    width: 74px;
+  }
+
+  .post-history-table-card th,
+  .post-history-table-card td {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .post-history-status {
+    padding-right: 5px;
+    padding-left: 5px;
   }
 
   .post-history-pagination {
