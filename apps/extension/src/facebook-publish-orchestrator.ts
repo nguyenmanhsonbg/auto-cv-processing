@@ -177,42 +177,47 @@ export async function publishFacebookPlan(
 
   for (let index = 0; index < plan.targets.length; index += 1) {
     const target = plan.targets[index];
-    callbacks.onProgress?.({
-      status: 'POSTING',
-      currentIndex: index + 1,
-      total,
-      target,
-      message: `Posting to ${target.targetName}.`,
-      results,
-    });
+    try {
+      callbacks.onProgress?.({
+        status: 'POSTING',
+        currentIndex: index + 1,
+        total,
+        target,
+        message: `Posting to ${target.targetName}.`,
+        results,
+      });
 
-    const result = await publishTarget(target, plan.content);
-    const externalPost = parseFacebookGroupPostUrl(result.externalPostUrl);
-    const payload: FacebookPublishResultPayload = {
-      jobPostingId: plan.jobPostingId,
-      targetId: target.targetId ?? null,
-      targetType: target.targetType,
-      targetName: target.targetName,
-      targetUrl: target.targetUrl ?? null,
-      content: plan.content,
-      status: result.status,
-      facebookReviewStatus: getPublishResultReviewStatus(result),
-      message: result.message,
-      externalPostId: externalPost?.postId ?? result.externalPostId ?? null,
-      externalPostUrl: externalPost?.url ?? null,
-      submittedAt: result.status === 'SUCCESS' ? new Date().toISOString() : null,
-    };
+      const result = await publishTarget(target, plan.content);
+      const payload = buildFacebookPublishResultPayload(plan, target, result);
 
-    callbacks.onProgress?.({
-      status: 'REPORTING',
-      currentIndex: index + 1,
-      total,
-      target,
-      message: `Saving Facebook result for ${target.targetName}.`,
-      results,
-    });
-    const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
-    results.push(withReportMessage(payload, reportErrorMessage));
+      callbacks.onProgress?.({
+        status: 'REPORTING',
+        currentIndex: index + 1,
+        total,
+        target,
+        message: `Saving Facebook result for ${target.targetName}.`,
+        results,
+      });
+      const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
+      results.push(withReportMessage(payload, reportErrorMessage));
+    } catch (error) {
+      const payload = buildUnexpectedFacebookPublishFailurePayload(
+        plan,
+        target,
+        `FB_TARGET_UNEXPECTED_ERROR: Facebook publish target failed before it could produce a result. ${toAutomationErrorMessage(error)}`,
+      );
+
+      callbacks.onProgress?.({
+        status: 'REPORTING',
+        currentIndex: index + 1,
+        total,
+        target,
+        message: `Saving Facebook failure for ${target.targetName}.`,
+        results,
+      });
+      const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
+      results.push(withReportMessage(payload, reportErrorMessage));
+    }
 
     if (index < plan.targets.length - 1) {
       const delayMs = randomDelay(plan.delay.minMs, plan.delay.maxMs);
@@ -236,6 +241,50 @@ export async function publishFacebookPlan(
   });
 
   return results;
+}
+
+function buildFacebookPublishResultPayload(
+  plan: FacebookPublishPlan,
+  target: FacebookPublishTarget,
+  result: FacebookPagePublishResult,
+): FacebookPublishResultPayload {
+  const externalPost = parseFacebookGroupPostUrl(result.externalPostUrl);
+
+  return {
+    jobPostingId: plan.jobPostingId,
+    targetId: target.targetId ?? null,
+    targetType: target.targetType,
+    targetName: target.targetName,
+    targetUrl: target.targetUrl ?? null,
+    content: plan.content,
+    status: result.status,
+    facebookReviewStatus: getPublishResultReviewStatus(result),
+    message: result.message,
+    externalPostId: externalPost?.postId ?? result.externalPostId ?? null,
+    externalPostUrl: externalPost?.url ?? null,
+    submittedAt: result.status === 'SUCCESS' ? new Date().toISOString() : null,
+  };
+}
+
+function buildUnexpectedFacebookPublishFailurePayload(
+  plan: FacebookPublishPlan,
+  target: FacebookPublishTarget,
+  message: string,
+): FacebookPublishResultPayload {
+  return {
+    jobPostingId: plan.jobPostingId,
+    targetId: target.targetId ?? null,
+    targetType: target.targetType,
+    targetName: target.targetName,
+    targetUrl: target.targetUrl ?? null,
+    content: plan.content,
+    status: 'FAILED',
+    facebookReviewStatus: 'UNKNOWN',
+    message,
+    externalPostId: null,
+    externalPostUrl: null,
+    submittedAt: null,
+  };
 }
 
 async function waitBetweenFacebookTargets(

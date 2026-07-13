@@ -131,7 +131,7 @@ async function runFrontendFacebookPortTask(
     await task(emit);
   } catch (error) {
     await emit('ERROR', {
-      message: error instanceof Error ? error.message : 'Facebook browser automation failed.',
+      message: `FACEBOOK_BACKGROUND_PORT_ERROR: ${toExtensionErrorMessage(error, 'Facebook browser automation failed.')}`,
     });
   } finally {
     try {
@@ -197,7 +197,7 @@ async function handleFrontendFacebookPublish(
     await emit('COMPLETED', { results });
   } catch (error) {
     await emit('ERROR', {
-      message: error instanceof Error ? error.message : 'Facebook publishing could not be completed.',
+      message: `FACEBOOK_BACKGROUND_UNEXPECTED_ERROR: ${toExtensionErrorMessage(error, 'Facebook publishing could not be completed.')}`,
     });
   }
 }
@@ -757,6 +757,18 @@ function toAutoSyncError(error: unknown) {
     code: 'AUTO_SYNC_FAILED',
     message: 'Auto sync failed.',
   };
+}
+
+function toExtensionErrorMessage(error: unknown, fallbackMessage: string) {
+  if (error instanceof ApiClientError) {
+    return `${error.code}: ${error.message} (status=${error.status})`;
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return fallbackMessage;
 }
 
 function isAmisSavedMessage(value: unknown): value is {

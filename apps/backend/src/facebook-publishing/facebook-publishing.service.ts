@@ -391,6 +391,14 @@ export class FacebookPublishingService {
       if (!posting.openAt) posting.openAt = new Date();
       await this.jobPostingsRepo.save(posting);
     }
+    if (
+      input.status === FacebookPublishResultStatus.FAILED
+      && posting.status !== JobPostingStatus.CLOSED
+      && posting.status !== JobPostingStatus.PUBLISHED
+    ) {
+      posting.status = JobPostingStatus.PUBLISH_FAILED;
+      await this.jobPostingsRepo.save(posting);
+    }
 
     return savedHistory;
   }

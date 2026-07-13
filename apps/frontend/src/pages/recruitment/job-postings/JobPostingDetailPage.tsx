@@ -57,9 +57,12 @@ import {
   listJobPostingChannels,
   listFacebookGroups,
   publishJobPosting,
+  reportFacebookPublishResult,
   updateFacebookGroup,
   updateJobPosting,
   verifyFacebookGroup,
+  type FacebookPublishPlan,
+  type FacebookPublishResultPayload,
   type FacebookPublishTarget,
   type FacebookPublishTargetEligibilityStatus,
   type JobPostingChannelStatus,
@@ -130,6 +133,46 @@ function getStatusClassName(status?: string | null) {
     default:
       return 'bg-secondary text-secondary-foreground';
   }
+}
+
+function getFacebookResultKey(result: FacebookPublishResultPayload) {
+  return result.targetId
+    ?? result.targetUrl
+    ?? `${result.targetType}:${result.targetName}`;
+}
+
+function getFacebookTargetKey(target: FacebookPublishPlan['targets'][number]) {
+  return target.targetId
+    ?? target.targetUrl
+    ?? `${target.targetType}:${target.targetName}`;
+}
+
+async function reportUnreportedFacebookPublishFailures(
+  plan: FacebookPublishPlan,
+  reportedResults: FacebookPublishResultPayload[],
+  error: unknown,
+) {
+  const reportedKeys = new Set(reportedResults.map(getFacebookResultKey));
+  const unreportedTargets = plan.targets.filter((target) => !reportedKeys.has(getFacebookTargetKey(target)));
+  if (unreportedTargets.length === 0) return;
+
+  const message = `Facebook browser publishing failed before this target was reported: ${getInternalSafeErrorMessage(error)}`;
+  const normalizedMessage = message.length > 4000 ? `${message.slice(0, 3997)}...` : message;
+
+  await Promise.allSettled(unreportedTargets.map((target) => reportFacebookPublishResult({
+    jobPostingId: plan.jobPostingId,
+    targetId: target.targetId ?? null,
+    targetType: target.targetType,
+    targetName: target.targetName,
+    targetUrl: target.targetUrl ?? null,
+    content: plan.content,
+    status: 'FAILED',
+    facebookReviewStatus: 'UNKNOWN',
+    message: normalizedMessage,
+    externalPostId: null,
+    externalPostUrl: null,
+    submittedAt: null,
+  })));
 }
 
 function formatDate(value?: string | null) {
@@ -450,6 +493,8 @@ export function JobPostingDetailPage() {
     setSubmitting(true);
     setPublishError(null);
     setFacebookPublishStatus(null);
+    let facebookPlan: FacebookPublishPlan | null = null;
+    let latestFacebookResults: FacebookPublishResultPayload[] = [];
 
     try {
       const response = await publishJobPosting(
@@ -462,6 +507,7 @@ export function JobPostingDetailPage() {
         newIdempotencyKey('posting-publish'),
       );
       if (response.facebookPublishPlan && selectedChannels.includes('FACEBOOK')) {
+        facebookPlan = response.facebookPublishPlan;
         const accessToken = apiClient.getToken() ?? localStorage.getItem('token');
         if (!accessToken) {
           throw new Error('Authentication token is required for browser Facebook publishing.');
@@ -469,6 +515,7 @@ export function JobPostingDetailPage() {
 
         await startFacebookExtensionPublish(accessToken, response.facebookPublishPlan, {
           onProgress: (progress) => {
+            latestFacebookResults = progress.results;
             setFacebookPublishStatus(progress.message);
           },
         });
@@ -479,9 +526,16 @@ export function JobPostingDetailPage() {
       setPublishNote('');
       await reload();
     } catch (err) {
+      if (facebookPlan) {
+        await reportUnreportedFacebookPublishFailures(facebookPlan, latestFacebookResults, err)
+          .catch(() => undefined);
+        await reload().catch(() => undefined);
+      }
       toast({
         title: 'Publish failed',
-        description: getInternalSafeErrorMessage(err),
+        description: facebookPlan
+          ? `Facebook browser publishing failed after backend prepared ${facebookPlan.targets.length} target(s): ${getInternalSafeErrorMessage(err)}`
+          : getInternalSafeErrorMessage(err),
         variant: 'destructive',
       });
     } finally {

@@ -194,8 +194,10 @@ export interface FacebookPublishResultPayload {
   targetUrl?: string | null;
   content?: string | null;
   status: FacebookPublishResultStatus;
+  facebookReviewStatus?: string | null;
   message: string;
   externalPostId?: string | null;
+  externalPostUrl?: string | null;
   submittedAt?: string | null;
 }
 
@@ -683,6 +685,15 @@ export function publishJobPosting(
       `/job-postings/${encodeURIComponent(id)}/publish`,
       payload,
       { idempotencyKey },
+    )
+    .then(unwrapEnvelope);
+}
+
+export function reportFacebookPublishResult(payload: FacebookPublishResultPayload) {
+  return apiClient
+    .post<ApiEnvelope<{ id: string; status: string }> | { id: string; status: string }>(
+      '/extension/facebook/publish-results',
+      payload,
     )
     .then(unwrapEnvelope);
 }
