@@ -6,11 +6,14 @@ const AUTH_CHECK_REQUEST = 'VCS_FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const PUBLISH_REQUEST = 'VCS_FRONTEND_FACEBOOK_PUBLISH_REQUEST';
 const GROUP_VERIFY_REQUEST = 'VCS_FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const BRIDGE_RESPONSE = 'VCS_FRONTEND_FACEBOOK_BRIDGE_RESPONSE';
+const IMAGE_ATTACH_DECISION = 'VCS_FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION';
 const BACKGROUND_AUTH_CHECK_REQUEST = 'FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const BACKGROUND_PUBLISH_REQUEST = 'FRONTEND_FACEBOOK_PUBLISH_REQUEST';
 const BACKGROUND_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const BACKGROUND_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const BACKGROUND_PORT = 'frontend-facebook-publish';
+
+const activeRequestPorts = new Map<string, ChromePort>();
 
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
@@ -40,6 +43,17 @@ window.addEventListener('message', (event) => {
       requestId: event.data.requestId,
       target: event.data.payload.target,
     });
+    return;
+  }
+
+  if (isImageAttachDecisionMessage(event.data)) {
+    const port = activeRequestPorts.get(event.data.requestId);
+    if (!port) return;
+    port.postMessage({
+      type: IMAGE_ATTACH_DECISION,
+      requestId: event.data.requestId,
+      decision: event.data.payload.decision,
+    });
   }
 });
 
@@ -64,6 +78,7 @@ function sendBackgroundPortRequest(message: {
   }
 
   let terminalEventReceived = false;
+  activeRequestPorts.set(message.requestId, port);
 
   port.onMessage.addListener((event: unknown) => {
     if (!isBackgroundEvent(event)) return;
@@ -71,6 +86,7 @@ function sendBackgroundPortRequest(message: {
 
     if (event.requestId === message.requestId && isTerminalEvent(event.event)) {
       terminalEventReceived = true;
+      activeRequestPorts.delete(message.requestId);
       try {
         port.disconnect();
       } catch {
@@ -80,6 +96,7 @@ function sendBackgroundPortRequest(message: {
   });
 
   port.onDisconnect.addListener(() => {
+    activeRequestPorts.delete(message.requestId);
     if (terminalEventReceived) return;
     postToPage(message.requestId, 'ERROR', {
       message: chrome.runtime?.lastError?.message
@@ -157,6 +174,23 @@ function isGroupVerifyRequest(value: unknown): value is {
     && (value as { type?: unknown }).type === GROUP_VERIFY_REQUEST
     && typeof (value as { requestId?: unknown }).requestId === 'string'
     && isFacebookPublishTarget(payload?.target);
+}
+
+function isImageAttachDecisionMessage(value: unknown): value is {
+  source: typeof FRONTEND_SOURCE;
+  type: typeof IMAGE_ATTACH_DECISION;
+  requestId: string;
+  payload: {
+    decision: 'SKIP' | 'POST_TEXT_ONLY';
+  };
+} {
+  const payload = (value as { payload?: { decision?: unknown } } | null)?.payload;
+  return typeof value === 'object'
+    && value !== null
+    && (value as { source?: unknown }).source === FRONTEND_SOURCE
+    && (value as { type?: unknown }).type === IMAGE_ATTACH_DECISION
+    && typeof (value as { requestId?: unknown }).requestId === 'string'
+    && (payload?.decision === 'SKIP' || payload?.decision === 'POST_TEXT_ONLY');
 }
 
 function isBackgroundEvent(value: unknown): value is {

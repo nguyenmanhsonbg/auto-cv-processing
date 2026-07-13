@@ -30,6 +30,8 @@ import type {
   AmisExtractionResult,
   AmisAutoSyncState,
   ExtensionChannel,
+  FacebookImageAttachFailureContext,
+  FacebookImageAttachFailureDecision,
   FacebookPublishPlan,
   FacebookPublishTarget,
   SyncAmisJobPostingRequest,
@@ -45,6 +47,7 @@ const FRONTEND_FACEBOOK_PUBLISH_REQUEST = 'FRONTEND_FACEBOOK_PUBLISH_REQUEST';
 const FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const FRONTEND_FACEBOOK_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const FRONTEND_FACEBOOK_PORT = 'frontend-facebook-publish';
+const FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION = 'VCS_FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION';
 const activeAutoSyncKeys = new Set<string>();
 
 installAmisDebuggerCapture(
@@ -99,7 +102,9 @@ chrome.runtime?.onConnect?.addListener((port) => {
 
     if (isFrontendFacebookPublishRequest(message)) {
       void runFrontendFacebookPortTask(port, message.requestId, async (emit) => {
-        await handleFrontendFacebookPublish(message, emit);
+        await handleFrontendFacebookPublish(message, emit, (context) => (
+          requestFrontendFacebookImageAttachDecision(port, message.requestId, context)
+        ));
       });
       return;
     }
@@ -108,6 +113,10 @@ chrome.runtime?.onConnect?.addListener((port) => {
       void runFrontendFacebookPortTask(port, message.requestId, async (emit) => {
         await handleFrontendFacebookGroupVerify(message, emit);
       });
+      return;
+    }
+
+    if (isFrontendFacebookImageAttachDecision(message)) {
       return;
     }
 
@@ -173,6 +182,9 @@ async function handleFrontendFacebookPublish(
     plan: FacebookPublishPlan;
   },
   emitOrSender: FrontendFacebookEventEmitter | ChromeMessageSender,
+  requestImageAttachDecision?: (
+    context: FacebookImageAttachFailureContext,
+  ) => Promise<FacebookImageAttachFailureDecision>,
 ) {
   const emit = toFrontendFacebookEmitter(request.requestId, emitOrSender);
   try {
@@ -188,6 +200,7 @@ async function handleFrontendFacebookPublish(
         void saveLastFacebookPublishProgress(progress);
         void emit('PROGRESS', progress);
       },
+      onImageAttachFailed: requestImageAttachDecision,
     });
     const summary = summarizeFacebookPublishResults(results);
     if (summary.successCount === 0) {
@@ -902,4 +915,56 @@ function postFrontendFacebookPortEvent(
   } catch {
     // The tab may have navigated away or closed while Facebook automation is running.
   }
+}
+
+function requestFrontendFacebookImageAttachDecision(
+  port: ChromePort,
+  requestId: string,
+  context: FacebookImageAttachFailureContext,
+): Promise<FacebookImageAttachFailureDecision> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      settle('SKIP');
+    }, 5 * 60_000);
+
+    const settle = (decision: FacebookImageAttachFailureDecision) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      try {
+        port.onMessage.removeListener(onMessage);
+      } catch {
+        // Listener cleanup is best-effort because the port may already be closed.
+      }
+      resolve(decision);
+    };
+
+    const onMessage = (message: unknown) => {
+      if (!isFrontendFacebookImageAttachDecision(message)) return;
+      if (message.requestId !== requestId) return;
+      settle(message.decision);
+    };
+
+    port.onMessage.addListener(onMessage);
+    postFrontendFacebookPortEvent(port, requestId, 'IMAGE_ATTACH_FAILED', {
+      ...context,
+      requestId,
+    });
+  });
+}
+
+function isFrontendFacebookImageAttachDecision(value: unknown): value is {
+  type: typeof FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION;
+  requestId: string;
+  decision: FacebookImageAttachFailureDecision;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION
+    && typeof (value as { requestId?: unknown }).requestId === 'string'
+    && (
+      (value as { decision?: unknown }).decision === 'SKIP'
+      || (value as { decision?: unknown }).decision === 'POST_TEXT_ONLY'
+    );
 }

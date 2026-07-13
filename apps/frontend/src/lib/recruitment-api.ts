@@ -176,10 +176,32 @@ export interface FacebookPublishTarget {
   disabledReason?: string | null;
 }
 
+export type FacebookPublishAttachmentSource = 'LOCAL_UPLOAD' | 'AI_GENERATED';
+
+export interface FacebookPublishImageAttachment {
+  type: 'IMAGE';
+  source: FacebookPublishAttachmentSource;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  dataUrl: string;
+}
+
+export type FacebookPublishAttachment = FacebookPublishImageAttachment;
+
+export type FacebookImageAttachFailureDecision = 'SKIP' | 'POST_TEXT_ONLY';
+
+export interface FacebookImageAttachFailureContext {
+  target: FacebookPublishTarget;
+  attachment: FacebookPublishImageAttachment;
+  message: string;
+}
+
 export interface FacebookPublishPlan {
   jobPostingId: string;
   content: string;
   targets: FacebookPublishTarget[];
+  attachments?: FacebookPublishAttachment[];
   delay: {
     minMs: number;
     maxMs: number;

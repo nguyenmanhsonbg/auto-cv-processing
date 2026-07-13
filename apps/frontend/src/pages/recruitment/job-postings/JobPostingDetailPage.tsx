@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -6,6 +6,7 @@ import {
   ChevronUp,
   Edit,
   ExternalLink,
+  ImagePlus,
   Loader2,
   Pencil,
   Plus,
@@ -61,6 +62,9 @@ import {
   updateFacebookGroup,
   updateJobPosting,
   verifyFacebookGroup,
+  type FacebookImageAttachFailureContext,
+  type FacebookImageAttachFailureDecision,
+  type FacebookPublishAttachment,
   type FacebookPublishPlan,
   type FacebookPublishResultPayload,
   type FacebookPublishTarget,
@@ -87,6 +91,11 @@ type FacebookGroupLoadState =
   | 'VERIFYING'
   | 'READY'
   | 'ERROR';
+type FacebookImageAttachmentState = 'IDLE' | 'READING' | 'READY' | 'ERROR';
+
+const FACEBOOK_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
+const FACEBOOK_IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+const FACEBOOK_IMAGE_ALLOWED_TYPES = new Set(FACEBOOK_IMAGE_ACCEPT.split(','));
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft',
@@ -354,6 +363,45 @@ function isAmbiguousFacebookComposerVerificationReason(reason: string) {
     || normalizedReason.includes('could not verify facebook group composer automatically');
 }
 
+function getFacebookImageFileValidationError(file: File) {
+  if (!FACEBOOK_IMAGE_ALLOWED_TYPES.has(file.type)) {
+    return 'Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP.';
+  }
+
+  if (file.size > FACEBOOK_IMAGE_MAX_SIZE_BYTES) {
+    return `Ảnh phải nhỏ hơn ${formatFileSize(FACEBOOK_IMAGE_MAX_SIZE_BYTES)}.`;
+  }
+
+  return null;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('Could not read image file.'));
+    };
+    reader.onerror = () => reject(new Error(reader.error?.message ?? 'Could not read image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatFileSize(size: number) {
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  }
+
+  if (size >= 1024) {
+    return `${Math.ceil(size / 1024)} KB`;
+  }
+
+  return `${size} B`;
+}
+
 function DetailField({
   label,
   value,
@@ -384,6 +432,10 @@ export function JobPostingDetailPage() {
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIds] = useState<string[]>([]);
   const [facebookGroupLoadState, setFacebookGroupLoadState] = useState<FacebookGroupLoadState>('IDLE');
   const [facebookGroupMessage, setFacebookGroupMessage] = useState<string | null>(null);
+  const [facebookImageAttachment, setFacebookImageAttachment] = useState<FacebookPublishAttachment | null>(null);
+  const [facebookImageAttachmentState, setFacebookImageAttachmentState] = useState<FacebookImageAttachmentState>('IDLE');
+  const [facebookImageAttachmentError, setFacebookImageAttachmentError] = useState<string | null>(null);
+  const [facebookImageAttachPrompt, setFacebookImageAttachPrompt] = useState<FacebookImageAttachFailureContext | null>(null);
   const [verifyingFacebookGroupIds, setVerifyingFacebookGroupIds] = useState<string[]>([]);
   const [queuedFacebookGroupIds, setQueuedFacebookGroupIds] = useState<string[]>([]);
   const [facebookSettingsOpen, setFacebookSettingsOpen] = useState(false);
@@ -398,6 +450,9 @@ export function JobPostingDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [closing, setClosing] = useState(false);
   const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
+  const facebookImageInputRef = useRef<HTMLInputElement | null>(null);
+  const facebookImageReadSeqRef = useRef(0);
+  const facebookImageAttachPromptResolverRef = useRef<((decision: FacebookImageAttachFailureDecision) => void) | null>(null);
   const facebookGroupVerificationQueueRef = useRef<FacebookPublishTarget[]>([]);
   const facebookGroupVerificationRunningRef = useRef(false);
   const activeFacebookGroupVerificationIdRef = useRef<string | null>(null);
@@ -405,6 +460,11 @@ export function JobPostingDetailPage() {
   useEffect(() => {
     facebookGroupsRef.current = facebookGroups;
   }, [facebookGroups]);
+
+  useEffect(() => () => {
+    facebookImageAttachPromptResolverRef.current?.('SKIP');
+    facebookImageAttachPromptResolverRef.current = null;
+  }, []);
 
   const loadChannels = useCallback(async () => {
     if (!id) return;
@@ -489,6 +549,14 @@ export function JobPostingDetailPage() {
       setPublishError('Select at least one Facebook group before publishing.');
       return;
     }
+    if (isFacebookImageReading) {
+      setPublishError('Vui lòng chờ ảnh upload được xử lý xong trước khi đăng bài.');
+      return;
+    }
+    if (hasFacebookImageAttachmentError) {
+      setPublishError('Vui lòng bỏ ảnh lỗi hoặc chọn ảnh hợp lệ trước khi đăng bài.');
+      return;
+    }
 
     setSubmitting(true);
     setPublishError(null);
@@ -507,23 +575,28 @@ export function JobPostingDetailPage() {
         newIdempotencyKey('posting-publish'),
       );
       if (response.facebookPublishPlan && selectedChannels.includes('FACEBOOK')) {
-        facebookPlan = response.facebookPublishPlan;
+        const planForPublish: FacebookPublishPlan = facebookImageAttachment
+          ? { ...response.facebookPublishPlan, attachments: [facebookImageAttachment] }
+          : response.facebookPublishPlan;
+        facebookPlan = planForPublish;
         const accessToken = apiClient.getToken() ?? localStorage.getItem('token');
         if (!accessToken) {
           throw new Error('Authentication token is required for browser Facebook publishing.');
         }
 
-        await startFacebookExtensionPublish(accessToken, response.facebookPublishPlan, {
+        await startFacebookExtensionPublish(accessToken, planForPublish, {
           onProgress: (progress) => {
             latestFacebookResults = progress.results;
             setFacebookPublishStatus(progress.message);
           },
+          onImageAttachFailed: requestFacebookImageAttachDecision,
         });
         toast({ title: 'Facebook publishing completed in this browser' });
       }
       toast({ title: 'Job posting publish requested' });
       setPublishOpen(false);
       setPublishNote('');
+      clearFacebookImageAttachment();
       await reload();
     } catch (err) {
       if (facebookPlan) {
@@ -539,6 +612,9 @@ export function JobPostingDetailPage() {
         variant: 'destructive',
       });
     } finally {
+      if (facebookPlan?.attachments?.length) {
+        clearFacebookImageAttachment();
+      }
       setSubmitting(false);
     }
   };
@@ -583,6 +659,7 @@ export function JobPostingDetailPage() {
       setFacebookGroupLoadState('IDLE');
       setFacebookGroupMessage(null);
       setFacebookPublishStatus(null);
+      clearFacebookImageAttachment();
       return;
     }
 
@@ -644,6 +721,78 @@ export function JobPostingDetailPage() {
         ? current.filter((item) => item !== targetId)
         : [...current, targetId]
     ));
+  };
+
+  const openFacebookImageFilePicker = () => {
+    if (submitting || facebookImageAttachmentState === 'READING') return;
+    facebookImageInputRef.current?.click();
+  };
+
+  const handleFacebookImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = '';
+    if (!file) return;
+
+    const readSeq = facebookImageReadSeqRef.current + 1;
+    facebookImageReadSeqRef.current = readSeq;
+    const validationError = getFacebookImageFileValidationError(file);
+    if (validationError) {
+      setFacebookImageAttachment(null);
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(validationError);
+      return;
+    }
+
+    setFacebookImageAttachment(null);
+    setFacebookImageAttachmentState('READING');
+    setFacebookImageAttachmentError(null);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      if (facebookImageReadSeqRef.current !== readSeq) return;
+      setFacebookImageAttachment({
+        type: 'IMAGE',
+        source: 'LOCAL_UPLOAD',
+        fileName: file.name || 'facebook-image',
+        mimeType: file.type,
+        size: file.size,
+        dataUrl,
+      });
+      setFacebookImageAttachmentState('READY');
+    } catch (err) {
+      if (facebookImageReadSeqRef.current !== readSeq) return;
+      setFacebookImageAttachment(null);
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(getInternalSafeErrorMessage(err));
+    }
+  };
+
+  const clearFacebookImageAttachment = () => {
+    facebookImageReadSeqRef.current += 1;
+    setFacebookImageAttachment(null);
+    setFacebookImageAttachmentState('IDLE');
+    setFacebookImageAttachmentError(null);
+    if (facebookImageInputRef.current) {
+      facebookImageInputRef.current.value = '';
+    }
+  };
+
+  const requestFacebookImageAttachDecision = (
+    context: FacebookImageAttachFailureContext,
+  ): Promise<FacebookImageAttachFailureDecision> => {
+    facebookImageAttachPromptResolverRef.current?.('SKIP');
+    setFacebookImageAttachPrompt(context);
+
+    return new Promise((resolve) => {
+      facebookImageAttachPromptResolverRef.current = (decision) => {
+        facebookImageAttachPromptResolverRef.current = null;
+        setFacebookImageAttachPrompt(null);
+        resolve(decision);
+      };
+    });
+  };
+
+  const resolveFacebookImageAttachPrompt = (decision: FacebookImageAttachFailureDecision) => {
+    facebookImageAttachPromptResolverRef.current?.(decision);
   };
 
   const submitFacebookGroup = async () => {
@@ -813,6 +962,9 @@ export function JobPostingDetailPage() {
   const publishedLike = status === 'PUBLISHED';
   const publicSlug = jobPosting?.publicSlug ?? '';
   const facebookGroupVerificationBusy = verifyingFacebookGroupIds.length > 0 || queuedFacebookGroupIds.length > 0;
+  const isFacebookImageReading = facebookImageAttachmentState === 'READING';
+  const hasFacebookImageAttachmentError = facebookImageAttachmentState === 'ERROR';
+  const publishSubmitDisabled = submitting || isFacebookImageReading || hasFacebookImageAttachmentError;
   const facebookGroupDuplicateUrlError = getDuplicateFacebookGroupUrlError(
     facebookGroupUrl,
     facebookGroups,
@@ -1029,7 +1181,11 @@ export function JobPostingDetailPage() {
         open={publishOpen}
         onOpenChange={(open) => {
           setPublishOpen(open);
-          if (!open) setPublishError(null);
+          if (!open) {
+            setPublishError(null);
+            setFacebookPublishStatus(null);
+            clearFacebookImageAttachment();
+          }
         }}
       >
         <DialogContent className="max-w-2xl">
@@ -1200,6 +1356,68 @@ export function JobPostingDetailPage() {
                       </div>
                     )}
 
+                    <div className="space-y-2 rounded-md border border-emerald-200 bg-white p-3">
+                      <input
+                        ref={facebookImageInputRef}
+                        type="file"
+                        accept={FACEBOOK_IMAGE_ACCEPT}
+                        className="hidden"
+                        onChange={(event) => void handleFacebookImageFileChange(event)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={submitting || isFacebookImageReading}
+                        onClick={openFacebookImageFilePicker}
+                      >
+                        {isFacebookImageReading ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <ImagePlus className="mr-2 h-4 w-4" />
+                        )}
+                        Upload ảnh
+                      </Button>
+                      {facebookImageAttachment ? (
+                        <div className="flex items-center gap-3 rounded-md border bg-slate-50 p-2">
+                          <img
+                            src={facebookImageAttachment.dataUrl}
+                            alt=""
+                            className="h-14 w-14 rounded object-cover"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{facebookImageAttachment.fileName}</p>
+                            <p className="text-xs text-muted-foreground">{formatFileSize(facebookImageAttachment.size)}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={submitting || isFacebookImageReading}
+                            onClick={clearFacebookImageAttachment}
+                          >
+                            Bỏ ảnh
+                          </Button>
+                        </div>
+                      ) : null}
+                      {isFacebookImageReading ? (
+                        <p className="text-xs text-muted-foreground">Đang xử lý ảnh...</p>
+                      ) : null}
+                      {facebookImageAttachmentError ? (
+                        <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-2">
+                          <p className="text-xs font-medium text-destructive">{facebookImageAttachmentError}</p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearFacebookImageAttachment}
+                          >
+                            Bỏ ảnh
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+
                     {facebookSettingsOpen ? (
                       <div className="space-y-3 rounded-md border border-emerald-200 bg-white p-3">
                         <div className="flex items-center justify-between">
@@ -1304,12 +1522,63 @@ export function JobPostingDetailPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting}>
+              <Button type="submit" disabled={publishSubmitDisabled}>
                 <CheckCircle className="mr-2 h-4 w-4" />
-                {submitting ? 'Publishing...' : 'Publish'}
+                {submitting ? 'Publishing...' : isFacebookImageReading ? 'Loading image...' : 'Publish'}
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(facebookImageAttachPrompt)}
+        onOpenChange={(open) => {
+          if (!open && facebookImageAttachPrompt) {
+            resolveFacebookImageAttachPrompt('SKIP');
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Không attach được ảnh</DialogTitle>
+            <DialogDescription>
+              {facebookImageAttachPrompt?.target.targetName}
+            </DialogDescription>
+          </DialogHeader>
+          {facebookImageAttachPrompt ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 rounded-md border bg-slate-50 p-2">
+                <img
+                  src={facebookImageAttachPrompt.attachment.dataUrl}
+                  alt=""
+                  className="h-16 w-16 rounded object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{facebookImageAttachPrompt.attachment.fileName}</p>
+                  <p className="text-xs text-muted-foreground">{formatFileSize(facebookImageAttachPrompt.attachment.size)}</p>
+                </div>
+              </div>
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                {facebookImageAttachPrompt.message}
+              </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => resolveFacebookImageAttachPrompt('SKIP')}
+                >
+                  Không đăng bài này
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => resolveFacebookImageAttachPrompt('POST_TEXT_ONLY')}
+                >
+                  Vẫn đăng text-only
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

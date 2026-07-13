@@ -7,6 +7,9 @@ import {
   type FacebookGroupPostPathType,
 } from './facebook-post-url';
 import type {
+  FacebookImageAttachFailureContext,
+  FacebookImageAttachFailureDecision,
+  FacebookPublishImageAttachment,
   FacebookPublishHistoryListItem,
   FacebookPublishHistoryStatusCheckRequest,
   FacebookPublishPlan,
@@ -18,6 +21,9 @@ import type {
 
 interface FacebookPublishCallbacks {
   onProgress?: (progress: FacebookPublishProgress) => void;
+  onImageAttachFailed?: (
+    context: FacebookImageAttachFailureContext,
+  ) => FacebookImageAttachFailureDecision | Promise<FacebookImageAttachFailureDecision>;
 }
 
 export type FacebookSessionStatus = 'CHECKING_LOGIN' | 'WAITING_LOGIN' | 'READY';
@@ -51,6 +57,7 @@ interface FacebookPagePublishResult {
   externalPostUrl?: string | null;
   submitClickDispatched?: boolean;
   postClickEvidence?: boolean;
+  doNotRetry?: boolean;
 }
 
 interface FacebookPostReviewStatusProbeInput {
@@ -83,7 +90,7 @@ interface FacebookSubmitButtonPoint {
 }
 
 interface FacebookPreparedPostResult {
-  status: 'READY_TO_SUBMIT' | 'FAILED';
+  status: 'READY_TO_SUBMIT' | 'IMAGE_ATTACH_FAILED' | 'FAILED';
   message: string;
   submitButton?: FacebookSubmitButtonPoint;
 }
@@ -207,6 +214,7 @@ export async function publishFacebookPlan(
 
   for (let index = 0; index < plan.targets.length; index += 1) {
     const target = plan.targets[index];
+    const imageAttachment = getFacebookPublishImageAttachment(plan);
     try {
       callbacks.onProgress?.({
         status: 'POSTING',
@@ -217,7 +225,7 @@ export async function publishFacebookPlan(
         results,
       });
 
-      const result = await publishTarget(target, plan.content);
+      const result = await publishTarget(target, plan.content, imageAttachment, callbacks);
       const payload = buildFacebookPublishResultPayload(plan, target, result);
 
       callbacks.onProgress?.({
@@ -819,6 +827,8 @@ async function recoverFacebookPendingPostUrlFromGroup(
 async function publishTarget(
   target: FacebookPublishTarget,
   content: string,
+  imageAttachment: FacebookPublishImageAttachment | null,
+  callbacks: FacebookPublishCallbacks,
 ): Promise<FacebookPagePublishResult> {
   if (target.targetType !== 'GROUP') {
     return {
@@ -840,6 +850,9 @@ async function publishTarget(
       target.targetUrl,
       target.targetExternalId,
       content,
+      target,
+      imageAttachment,
+      callbacks,
     ).catch((error): FacebookPagePublishResult => ({
       status: 'FAILED',
       message: toAutomationErrorMessage(error),
@@ -849,6 +862,7 @@ async function publishTarget(
     if (
       result.status !== 'FAILED'
       || result.submitClickDispatched
+      || result.doNotRetry
       || !isRecoverableTabAutomationFailure(result.message)
     ) {
       return result;
@@ -867,6 +881,9 @@ async function publishTargetInFreshTab(
   targetUrl: string,
   targetExternalId: string | null | undefined,
   content: string,
+  target: FacebookPublishTarget,
+  imageAttachment: FacebookPublishImageAttachment | null,
+  callbacks: FacebookPublishCallbacks,
 ): Promise<FacebookPagePublishResult> {
   const tab = await openTab(targetUrl, false);
   try {
@@ -875,10 +892,10 @@ async function publishTargetInFreshTab(
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await waitForTabComplete(tab.id);
       await sleep(randomDelay(attempt === 0 ? 2_500 : 4_000, attempt === 0 ? 6_000 : 8_000));
-      const preparedPost = await runScript<[string], FacebookPreparedPostResult>(
+      const preparedPost = await runScript<[string, FacebookPublishImageAttachment | null], FacebookPreparedPostResult>(
         tab.id,
         prepareFacebookPostInPage,
-        [content],
+        [content, imageAttachment],
       );
       if (preparedPost.status === 'READY_TO_SUBMIT' && preparedPost.submitButton) {
         const submitResult = await submitPreparedPost(
@@ -889,6 +906,40 @@ async function publishTargetInFreshTab(
           targetExternalId,
         );
         return submitResult;
+      }
+
+      if (preparedPost.status === 'IMAGE_ATTACH_FAILED' && imageAttachment) {
+        const decision = callbacks.onImageAttachFailed
+          ? await callbacks.onImageAttachFailed({
+              target,
+              attachment: imageAttachment,
+              message: preparedPost.message,
+            })
+          : 'SKIP';
+
+        if (decision === 'POST_TEXT_ONLY') {
+          await closeFacebookPublishTabSafely(tab.id);
+          const submitResult = await publishTargetInFreshTab(
+            targetUrl,
+            targetExternalId,
+            content,
+            target,
+            null,
+            callbacks,
+          );
+          return {
+            ...submitResult,
+            doNotRetry: true,
+            message: submitResult.status === 'SUCCESS'
+              ? `Image attach failed; user chose to post text-only. ${submitResult.message}`
+              : `Image attach failed; user chose to post text-only, but submit did not complete. ${submitResult.message}`,
+          };
+        }
+
+        return {
+          status: 'SKIPPED',
+          message: `Image attach failed; user chose not to publish this post. ${preparedPost.message}`,
+        };
       }
 
       latestFailure = preparedPost;
@@ -939,6 +990,12 @@ async function reportAllTargetsFailed(
     const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
     results.push(withReportMessage(payload, reportErrorMessage));
   }
+}
+
+function getFacebookPublishImageAttachment(plan: FacebookPublishPlan): FacebookPublishImageAttachment | null {
+  return plan.attachments?.find((attachment): attachment is FacebookPublishImageAttachment => (
+    attachment.type === 'IMAGE'
+  )) ?? null;
 }
 
 async function reportFacebookPublishResultSafely(
@@ -2342,7 +2399,10 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
   );
 }
 
-async function prepareFacebookPostInPage(content: string): Promise<FacebookPreparedPostResult> {
+async function prepareFacebookPostInPage(
+  content: string,
+  imageAttachment: FacebookPublishImageAttachment | null = null,
+): Promise<FacebookPreparedPostResult> {
   const sleepInPage = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const normalize = (value: string) => value
     .normalize('NFD')
@@ -2373,6 +2433,22 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
     /^dang tin$/,
     /^dang len nhom$/,
     /^dang vao nhom$/,
+  ];
+  const IMAGE_PICKER_PATTERNS = [
+    /photo\/video/,
+    /photos\/videos/,
+    /add photo/,
+    /add photos/,
+    /add photo\/video/,
+    /photo or video/,
+    /^photo$/,
+    /^photos$/,
+    /anh\/video/,
+    /anh video/,
+    /them anh/,
+    /them anh\/video/,
+    /them anh video/,
+    /^anh$/,
   ];
   const COMMENT_PATTERNS = [
     /write a comment/,
@@ -2792,6 +2868,171 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
 
     return null;
   };
+  const buildSubmitButtonPoint = async (submitButton: Element): Promise<FacebookSubmitButtonPoint> => {
+    const clickableButton = getClickableElement(submitButton);
+    clickableButton.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+    await sleepInPage(150);
+    const clickPoint = resolveClickPoint(submitButton);
+    const rect = clickableButton.getBoundingClientRect();
+
+    return {
+      clientX: clickPoint.clientX,
+      clientY: clickPoint.clientY,
+      label: elementLabel(submitButton),
+      rect: {
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      },
+    };
+  };
+  const surfaceContains = (surfaceRoot: Document | Element, element: Element) => (
+    surfaceRoot instanceof Document ? surfaceRoot.contains(element) : surfaceRoot.contains(element)
+  );
+  const getSurfaceMediaCount = (surfaceRoot: Document | Element) => queryAll(
+    surfaceRoot,
+    'img[src^="blob:"], img[src^="data:"], img[src*="fbcdn"], video, [role="img"]',
+  )
+    .filter((element) => isVisible(element))
+    .filter((element) => !isInsideCommentSurface(element)).length;
+  const getVisibleSurfaceText = (surfaceRoot: Document | Element) => normalize(
+    surfaceRoot instanceof Document ? (surfaceRoot.body?.innerText ?? '') : (surfaceRoot.textContent ?? ''),
+  );
+  const hasUploadBusyCue = (surfaceRoot: Document | Element) => {
+    const text = getVisibleSurfaceText(surfaceRoot);
+    if (/uploading|processing|dang tai|dang xu ly|dang tai len|upload/.test(text)) return true;
+
+    return queryAll(surfaceRoot, '[role="progressbar"], [aria-busy="true"]')
+      .some((element) => isVisible(element));
+  };
+  const hasUploadErrorCue = (surfaceRoot: Document | Element) => {
+    const text = getVisibleSurfaceText(surfaceRoot);
+    return /couldn.?t upload|upload failed|try again|khong tai duoc|tai len that bai|thu lai/.test(text);
+  };
+  const getImageInputs = () => queryAll(document, 'input[type="file"]')
+    .filter((element): element is HTMLInputElement => element instanceof HTMLInputElement)
+    .filter((input) => {
+      const accept = normalize(input.accept ?? '');
+      return !accept
+        || accept.includes('image')
+        || accept.includes('jpg')
+        || accept.includes('jpeg')
+        || accept.includes('png')
+        || accept.includes('webp')
+        || accept.includes('heic');
+    });
+  const findBestImageInput = (surfaceRoot: Document | Element, knownInputs: Set<HTMLInputElement>) => {
+    const inputs = getImageInputs();
+    const newInputs = inputs.filter((input) => !knownInputs.has(input));
+    return newInputs.find((input) => surfaceContains(surfaceRoot, input))
+      ?? newInputs[0]
+      ?? inputs.find((input) => surfaceContains(surfaceRoot, input))
+      ?? inputs[inputs.length - 1]
+      ?? null;
+  };
+  const makeImageFile = async (attachment: FacebookPublishImageAttachment) => {
+    const response = await fetch(attachment.dataUrl);
+    if (!response.ok) {
+      throw new Error(`Could not decode image data (${response.status}).`);
+    }
+    const blob = await response.blob();
+    return new File([blob], attachment.fileName || 'facebook-image', {
+      type: attachment.mimeType || blob.type || 'image/jpeg',
+      lastModified: Date.now(),
+    });
+  };
+  const waitForImageAttachmentAccepted = async (
+    surfaceRoot: Document | Element,
+    input: HTMLInputElement,
+    initialMediaCount: number,
+    timeoutMs: number,
+  ) => {
+    const deadline = Date.now() + timeoutMs;
+    let sawMedia = false;
+
+    while (Date.now() < deadline) {
+      if (hasUploadErrorCue(surfaceRoot)) {
+        return false;
+      }
+
+      const mediaCount = getSurfaceMediaCount(surfaceRoot);
+      sawMedia = sawMedia || mediaCount > initialMediaCount;
+      if (sawMedia && !hasUploadBusyCue(surfaceRoot)) {
+        return true;
+      }
+
+      if ((input.files?.length ?? 0) > 0 && !hasUploadBusyCue(surfaceRoot) && Date.now() > deadline - timeoutMs + 4_000) {
+        return true;
+      }
+
+      await sleepInPage(500);
+    }
+
+    return sawMedia || (input.files?.length ?? 0) > 0;
+  };
+  const attachImageToComposer = async (
+    surfaceRoot: Document | Element,
+    attachment: FacebookPublishImageAttachment,
+  ): Promise<{ ok: true } | { ok: false; message: string }> => {
+    try {
+      const knownInputs = new Set(getImageInputs());
+      const initialMediaCount = getSurfaceMediaCount(surfaceRoot);
+      let input = findBestImageInput(surfaceRoot, knownInputs);
+
+      if (!input) {
+        const imageButton = findClickable(surfaceRoot, IMAGE_PICKER_PATTERNS, {
+          enabledOnly: true,
+          excludeCommentSurfaces: true,
+          maxLabelLength: 140,
+          preferViewport: true,
+        });
+        if (!imageButton) {
+          return {
+            ok: false,
+            message: 'Could not find Facebook Photo/Video control in the verified composer.',
+          };
+        }
+
+        await clickElement(imageButton);
+        const inputDeadline = Date.now() + 8_000;
+        while (Date.now() < inputDeadline) {
+          input = findBestImageInput(surfaceRoot, knownInputs);
+          if (input) break;
+          await sleepInPage(300);
+        }
+      }
+
+      if (!input) {
+        return {
+          ok: false,
+          message: 'Facebook Photo/Video control opened, but no image file input was exposed.',
+        };
+      }
+
+      const imageFile = await makeImageFile(attachment);
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(imageFile);
+      input.files = dataTransfer.files;
+      input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+      const accepted = await waitForImageAttachmentAccepted(surfaceRoot, input, initialMediaCount, 30_000);
+      if (!accepted) {
+        return {
+          ok: false,
+          message: 'Facebook did not confirm the uploaded image in the composer before timeout.',
+        };
+      }
+
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : 'Facebook image attachment failed.',
+      };
+    }
+  };
   const insertContent = async (editor: HTMLElement) => {
     const safetyMessage = getPostEditorSafetyMessage(editor);
     if (safetyMessage) return false;
@@ -2927,7 +3168,20 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
   }
   await sleepInPage(2_500 + Math.random() * 3_500);
 
-  const submitButton = await waitForPostButton(surface, 12_000);
+  if (imageAttachment) {
+    const attached = await attachImageToComposer(surface, imageAttachment);
+    if (!attached.ok) {
+      const fallbackSubmitButton = await waitForPostButton(surface, 3_000);
+      return {
+        status: 'IMAGE_ATTACH_FAILED',
+        message: attached.message,
+        submitButton: fallbackSubmitButton ? await buildSubmitButtonPoint(fallbackSubmitButton) : undefined,
+      };
+    }
+    await sleepInPage(1_000);
+  }
+
+  const submitButton = await waitForPostButton(surface, imageAttachment ? 30_000 : 12_000);
   if (!submitButton) {
     return {
       status: 'FAILED',
@@ -2935,26 +3189,10 @@ async function prepareFacebookPostInPage(content: string): Promise<FacebookPrepa
     };
   }
 
-  const clickableButton = getClickableElement(submitButton);
-  clickableButton.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-  await sleepInPage(150);
-  const clickPoint = resolveClickPoint(submitButton);
-  const rect = getClickableElement(submitButton).getBoundingClientRect();
-
   return {
     status: 'READY_TO_SUBMIT',
     message: 'Facebook post is ready to submit.',
-    submitButton: {
-      clientX: clickPoint.clientX,
-      clientY: clickPoint.clientY,
-      label: elementLabel(submitButton),
-      rect: {
-        left: Math.round(rect.left),
-        top: Math.round(rect.top),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      },
-    },
+    submitButton: await buildSubmitButtonPoint(submitButton),
   };
 }
 

@@ -1,4 +1,6 @@
 import type {
+  FacebookImageAttachFailureContext,
+  FacebookImageAttachFailureDecision,
   FacebookPublishPlan,
   FacebookPublishProgress,
   FacebookPublishTarget,
@@ -11,6 +13,7 @@ const AUTH_CHECK_REQUEST = 'VCS_FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const PUBLISH_REQUEST = 'VCS_FRONTEND_FACEBOOK_PUBLISH_REQUEST';
 const GROUP_VERIFY_REQUEST = 'VCS_FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const BRIDGE_RESPONSE = 'VCS_FRONTEND_FACEBOOK_BRIDGE_RESPONSE';
+const IMAGE_ATTACH_DECISION = 'VCS_FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION';
 
 interface BridgeResponse {
   source: typeof EXTENSION_SOURCE;
@@ -33,6 +36,9 @@ export function startFacebookExtensionPublish(
   plan: FacebookPublishPlan,
   callbacks: {
     onProgress?: (progress: FacebookPublishProgress) => void;
+    onImageAttachFailed?: (
+      context: FacebookImageAttachFailureContext,
+    ) => FacebookImageAttachFailureDecision | Promise<FacebookImageAttachFailureDecision>;
   } = {},
 ) {
   return sendBridgeRequest<void>({
@@ -43,6 +49,27 @@ export function startFacebookExtensionPublish(
     onEvent: (event, payload) => {
       if (event === 'PROGRESS' && isFacebookPublishProgress(payload)) {
         callbacks.onProgress?.(payload);
+        return;
+      }
+
+      if (event === 'IMAGE_ATTACH_FAILED' && isFacebookImageAttachFailureContext(payload)) {
+        void Promise.resolve(callbacks.onImageAttachFailed?.(payload) ?? 'SKIP')
+          .then((decision) => {
+            window.postMessage({
+              source: FRONTEND_SOURCE,
+              type: IMAGE_ATTACH_DECISION,
+              requestId: payload.requestId,
+              payload: { decision },
+            }, window.location.origin);
+          })
+          .catch(() => {
+            window.postMessage({
+              source: FRONTEND_SOURCE,
+              type: IMAGE_ATTACH_DECISION,
+              requestId: payload.requestId,
+              payload: { decision: 'SKIP' },
+            }, window.location.origin);
+          });
       }
     },
   });
@@ -121,6 +148,24 @@ function isFacebookPublishProgress(value: unknown): value is FacebookPublishProg
     && typeof (value as { total?: unknown }).total === 'number'
     && typeof (value as { message?: unknown }).message === 'string'
     && Array.isArray((value as { results?: unknown }).results);
+}
+
+function isFacebookImageAttachFailureContext(
+  value: unknown,
+): value is FacebookImageAttachFailureContext & { requestId: string } {
+  const target = (value as { target?: unknown } | null)?.target;
+  const attachment = (value as { attachment?: unknown } | null)?.attachment;
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { requestId?: unknown }).requestId === 'string'
+    && typeof (value as { message?: unknown }).message === 'string'
+    && typeof target === 'object'
+    && target !== null
+    && typeof (target as { targetName?: unknown }).targetName === 'string'
+    && typeof attachment === 'object'
+    && attachment !== null
+    && (attachment as { type?: unknown }).type === 'IMAGE'
+    && typeof (attachment as { dataUrl?: unknown }).dataUrl === 'string';
 }
 
 function readErrorMessage(payload: unknown) {

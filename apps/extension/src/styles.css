@@ -1081,6 +1081,95 @@ dd {
   color: #b91c1c;
 }
 
+.facebook-image-upload {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #a7f3d0;
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  padding: 8px 10px 10px;
+  background: #ffffff;
+}
+
+.facebook-image-input {
+  display: none;
+}
+
+.facebook-image-upload-button {
+  justify-self: start;
+}
+
+.facebook-image-upload-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.facebook-image-preview {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #d8dee9;
+  border-radius: 6px;
+  padding: 6px;
+  background: #f8fafc;
+}
+
+.facebook-image-preview.is-modal {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.facebook-image-preview img {
+  width: 42px;
+  height: 42px;
+  border-radius: 5px;
+  object-fit: cover;
+  background: #e2e8f0;
+}
+
+.facebook-image-preview.is-modal img {
+  width: 56px;
+  height: 56px;
+}
+
+.facebook-image-preview div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.facebook-image-preview strong {
+  min-width: 0;
+  color: #263449;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.facebook-image-preview span {
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.facebook-image-error-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.facebook-image-error-row p {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+}
+
+.facebook-image-error-row .text-button {
+  flex: 0 0 auto;
+}
+
 .channel-option.is-selected {
   border-color: #cbd5e1;
 }

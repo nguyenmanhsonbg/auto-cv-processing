@@ -42,6 +42,7 @@ interface ChromePort {
   };
   onMessage: {
     addListener(callback: (message: unknown) => void): void;
+    removeListener(callback: (message: unknown) => void): void;
   };
   postMessage(message: unknown): void;
   disconnect(): void;

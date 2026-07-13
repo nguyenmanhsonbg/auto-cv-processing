@@ -57,6 +57,9 @@ import type {
   ExtensionSyncResponse,
   DiscoverFacebookGroupsResponse,
   ExtensionUser,
+  FacebookImageAttachFailureContext,
+  FacebookImageAttachFailureDecision,
+  FacebookPublishAttachment,
   FacebookPublishHistoriesResponse,
   FacebookPublishHistoryListItem,
   FacebookPublishPlan,
@@ -85,6 +88,11 @@ type FacebookGroupLoadState =
   | 'ERROR';
 type FacebookGroupModalMode = 'SETTINGS' | 'EDIT' | 'DELETE';
 type ApplicationsState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
+type FacebookImageAttachmentState = 'IDLE' | 'READING' | 'READY' | 'ERROR';
+
+const FACEBOOK_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
+const FACEBOOK_IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+const FACEBOOK_IMAGE_ALLOWED_TYPES = new Set(FACEBOOK_IMAGE_ACCEPT.split(','));
 
 interface FacebookHistoryGroup {
   id: string | null;
@@ -92,6 +100,8 @@ interface FacebookHistoryGroup {
   url?: string | null;
   externalId?: string | null;
 }
+
+interface FacebookImageAttachDecisionPrompt extends FacebookImageAttachFailureContext {}
 
 interface DiscoveredFacebookGroupItem {
   targetName: string;
@@ -181,6 +191,10 @@ function SidePanel() {
   const [facebookRunning, setFacebookRunning] = useState(false);
   const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
+  const [facebookImageAttachment, setFacebookImageAttachment] = useState<FacebookPublishAttachment | null>(null);
+  const [facebookImageAttachmentState, setFacebookImageAttachmentState] = useState<FacebookImageAttachmentState>('IDLE');
+  const [facebookImageAttachmentError, setFacebookImageAttachmentError] = useState<string | null>(null);
+  const [facebookImageAttachPrompt, setFacebookImageAttachPrompt] = useState<FacebookImageAttachDecisionPrompt | null>(null);
   const [facebookGroupLoadState, setFacebookGroupLoadState] = useState<FacebookGroupLoadState>('IDLE');
   const [facebookGroupMessage, setFacebookGroupMessage] = useState<string | null>(null);
   const [isFacebookSettingsOpen, setIsFacebookSettingsOpen] = useState(false);
@@ -249,6 +263,9 @@ function SidePanel() {
   const channelsRef = useRef<ExtensionChannel[]>(channels);
   const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
   const selectedFacebookGroupIdsRef = useRef<string[]>(selectedFacebookGroupIds);
+  const facebookImageInputRef = useRef<HTMLInputElement | null>(null);
+  const facebookImageReadSeqRef = useRef(0);
+  const facebookImageAttachPromptResolverRef = useRef<((decision: FacebookImageAttachFailureDecision) => void) | null>(null);
   const facebookGroupVerificationQueueRef = useRef<FacebookPublishTarget[]>([]);
   const facebookGroupVerificationRunningRef = useRef(false);
   const activeFacebookGroupVerificationIdRef = useRef<string | null>(null);
@@ -273,6 +290,11 @@ function SidePanel() {
   useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
   }, [amisRecruitmentId]);
+
+  useEffect(() => () => {
+    facebookImageAttachPromptResolverRef.current?.('SKIP');
+    facebookImageAttachPromptResolverRef.current = null;
+  }, []);
 
   useEffect(() => subscribeAuthTokenChanges(({ accessToken }) => {
     setToken(accessToken);
@@ -421,6 +443,15 @@ function SidePanel() {
 
   const selectedPostingChannelCount = selectedPostingChannels.length;
   const allChannelsSelected = selectedPostingChannelCount === POSTING_CHANNELS.length;
+  const isFacebookImageReading = facebookImageAttachmentState === 'READING';
+  const hasFacebookImageAttachmentError = facebookImageAttachmentState === 'ERROR';
+  const facebookImageUploadDisabled = facebookRunning || state === 'SYNCING' || isFacebookImageReading;
+  const syncDisabled = state === 'EXTRACTING'
+    || state === 'SYNCING'
+    || facebookRunning
+    || isFacebookImageReading
+    || hasFacebookImageAttachmentError
+    || missingFields.length > 0;
   const selectedNewQuestionCategory = useMemo(
     () => careerQuestionContext?.categories.find((category) => category.name === newQuestionCategory) ?? null,
     [careerQuestionContext, newQuestionCategory],
@@ -549,6 +580,78 @@ function SidePanel() {
       setFacebookGroupLoadState('READY');
       setFacebookGroupMessage(`${uniqueStrings(nextTargetIds).length}/${selectableCount} eligible Facebook group(s) selected.`);
     }
+  }
+
+  function openFacebookImageFilePicker() {
+    if (facebookImageUploadDisabled) return;
+    facebookImageInputRef.current?.click();
+  }
+
+  async function handleFacebookImageFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = '';
+    if (!file) return;
+
+    const readSeq = facebookImageReadSeqRef.current + 1;
+    facebookImageReadSeqRef.current = readSeq;
+    const validationError = getFacebookImageFileValidationError(file);
+    if (validationError) {
+      setFacebookImageAttachment(null);
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(validationError);
+      return;
+    }
+
+    setFacebookImageAttachment(null);
+    setFacebookImageAttachmentState('READING');
+    setFacebookImageAttachmentError(null);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      if (facebookImageReadSeqRef.current !== readSeq) return;
+      setFacebookImageAttachment({
+        type: 'IMAGE',
+        source: 'LOCAL_UPLOAD',
+        fileName: file.name || 'facebook-image',
+        mimeType: file.type,
+        size: file.size,
+        dataUrl,
+      });
+      setFacebookImageAttachmentState('READY');
+    } catch (err) {
+      if (facebookImageReadSeqRef.current !== readSeq) return;
+      setFacebookImageAttachment(null);
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(toErrorMessage(err));
+    }
+  }
+
+  function clearFacebookImageAttachment() {
+    facebookImageReadSeqRef.current += 1;
+    setFacebookImageAttachment(null);
+    setFacebookImageAttachmentState('IDLE');
+    setFacebookImageAttachmentError(null);
+    if (facebookImageInputRef.current) {
+      facebookImageInputRef.current.value = '';
+    }
+  }
+
+  function requestFacebookImageAttachDecision(
+    context: FacebookImageAttachFailureContext,
+  ): Promise<FacebookImageAttachFailureDecision> {
+    facebookImageAttachPromptResolverRef.current?.('SKIP');
+    setFacebookImageAttachPrompt(context);
+
+    return new Promise((resolve) => {
+      facebookImageAttachPromptResolverRef.current = (decision) => {
+        facebookImageAttachPromptResolverRef.current = null;
+        setFacebookImageAttachPrompt(null);
+        resolve(decision);
+      };
+    });
+  }
+
+  function resolveFacebookImageAttachPrompt(decision: FacebookImageAttachFailureDecision) {
+    facebookImageAttachPromptResolverRef.current?.(decision);
   }
 
   async function submitLogin(event: React.FormEvent<HTMLFormElement>) {
@@ -1447,6 +1550,7 @@ function SidePanel() {
       setChannels(next);
       setFacebookGroupLoadState('IDLE');
       setFacebookGroupMessage(null);
+      clearFacebookImageAttachment();
       void setSelectedChannels(next);
       return;
     }
@@ -2215,11 +2319,22 @@ function SidePanel() {
     setChannels([]);
     setFacebookGroupLoadState('IDLE');
     setFacebookGroupMessage(null);
+    clearFacebookImageAttachment();
     void setSelectedChannels([]);
   }
 
   async function sync() {
     if (!token || !snapshot || !amisRecruitmentId || missingFields.length > 0) return;
+    if (isFacebookImageReading) {
+      setError('Vui lòng chờ ảnh upload được xử lý xong trước khi đăng bài.');
+      setState('ERROR');
+      return;
+    }
+    if (hasFacebookImageAttachmentError) {
+      setError('Vui lòng bỏ ảnh lỗi hoặc chọn ảnh hợp lệ trước khi đăng bài.');
+      setState('ERROR');
+      return;
+    }
     const facebookTargetIds = selectedPostingChannels.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
     if (selectedPostingChannels.includes('FACEBOOK') && facebookTargetIds.length === 0) {
       setError('Select at least one Facebook group before publishing.');
@@ -2274,10 +2389,13 @@ function SidePanel() {
 
   async function startFacebookPublish(plan: FacebookPublishPlan) {
     if (!token) return;
-    const planKey = getFacebookPlanKey(plan);
+    const planForPublish: FacebookPublishPlan = facebookImageAttachment
+      ? { ...plan, attachments: [facebookImageAttachment] }
+      : plan;
+    const planKey = getFacebookPlanKey(planForPublish);
     if (startedFacebookPlanKeys.current.has(planKey)) return;
 
-    if (plan.targets.length === 0) {
+    if (planForPublish.targets.length === 0) {
       const progress: FacebookPublishProgress = {
         status: 'ERROR',
         currentIndex: 0,
@@ -2298,12 +2416,13 @@ function SidePanel() {
     let latestProgress: FacebookPublishProgress | null = facebookProgress;
 
     try {
-      const facebookResults = await publishFacebookPlan(token, plan, {
+      const facebookResults = await publishFacebookPlan(token, planForPublish, {
         onProgress: (progress) => {
           latestProgress = progress;
           setFacebookProgress(progress);
           void saveLastFacebookPublishProgress(progress);
         },
+        onImageAttachFailed: requestFacebookImageAttachDecision,
       });
       const summary = summarizeFacebookPublishResults(facebookResults);
       setResult((current) => current ? updateFacebookChannelStatus(current, facebookResults) : current);
@@ -2319,7 +2438,7 @@ function SidePanel() {
       const progress: FacebookPublishProgress = {
         status: 'ERROR',
         currentIndex: latestProgress?.currentIndex ?? 0,
-        total: latestProgress?.total ?? plan.targets.length,
+        total: latestProgress?.total ?? planForPublish.targets.length,
         target: latestProgress?.target,
         message: toErrorMessage(err),
         results: latestProgress?.results ?? [],
@@ -2330,6 +2449,9 @@ function SidePanel() {
       startedFacebookPlanKeys.current.delete(planKey);
     } finally {
       setFacebookRunning(false);
+      if (planForPublish.attachments?.length) {
+        clearFacebookImageAttachment();
+      }
     }
   }
 
@@ -2370,6 +2492,54 @@ function SidePanel() {
         {tab === 'posting' ? renderPostingPanel() : null}
         {tab === 'cv' ? renderCvPanel() : null}
       </section>
+    );
+  }
+
+  function renderFacebookImageAttachPromptModal() {
+    if (!facebookImageAttachPrompt) return null;
+
+    return (
+      <div className="modal-backdrop" role="presentation">
+        <section
+          className="facebook-group-modal facebook-image-decision-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="facebook-image-attach-title"
+        >
+          <div className="modal-header">
+            <div>
+              <h2 id="facebook-image-attach-title">Không attach được ảnh</h2>
+              <p>{facebookImageAttachPrompt.target.targetName}</p>
+            </div>
+          </div>
+          <div className="modal-body">
+            <div className="facebook-image-preview is-modal">
+              <img src={facebookImageAttachPrompt.attachment.dataUrl} alt="" />
+              <div>
+                <strong>{facebookImageAttachPrompt.attachment.fileName}</strong>
+                <span>{formatFileSize(facebookImageAttachPrompt.attachment.size)}</span>
+              </div>
+            </div>
+            <p className="modal-status is-error">{facebookImageAttachPrompt.message}</p>
+            <div className="form-actions">
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => resolveFacebookImageAttachPrompt('SKIP')}
+              >
+                Không đăng bài này
+              </button>
+              <button
+                type="button"
+                className="primary-button compact-button"
+                onClick={() => resolveFacebookImageAttachPrompt('POST_TEXT_ONLY')}
+              >
+                Vẫn đăng text-only
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
     );
   }
 
@@ -2812,10 +2982,10 @@ function SidePanel() {
         <button
           type="button"
           className="primary-button sync-button"
-          disabled={state === 'EXTRACTING' || state === 'SYNCING' || facebookRunning || missingFields.length > 0}
+          disabled={syncDisabled}
           onClick={sync}
         >
-          {facebookRunning ? 'Publishing Facebook...' : state === 'SYNCING' ? 'Syncing...' : 'SYNC AND PUBLISH'}
+          {facebookRunning ? 'Publishing Facebook...' : state === 'SYNCING' ? 'Syncing...' : isFacebookImageReading ? 'Loading image...' : 'SYNC AND PUBLISH'}
         </button>
 
         {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
@@ -2968,6 +3138,60 @@ function SidePanel() {
                             : null
                         )}
                       </div>
+                      {isSelected ? (
+                        <div className="facebook-image-upload">
+                          <input
+                            ref={facebookImageInputRef}
+                            type="file"
+                            accept={FACEBOOK_IMAGE_ACCEPT}
+                            className="facebook-image-input"
+                            onChange={(event) => void handleFacebookImageFileChange(event)}
+                          />
+                          <button
+                            type="button"
+                            className="secondary-button compact-button facebook-image-upload-button"
+                            disabled={facebookImageUploadDisabled}
+                            onClick={openFacebookImageFilePicker}
+                          >
+                            <ImageIcon />
+                            <span>Upload ảnh</span>
+                          </button>
+                          {facebookImageAttachment ? (
+                            <div className="facebook-image-preview">
+                              <img src={facebookImageAttachment.dataUrl} alt="" />
+                              <div>
+                                <strong>{facebookImageAttachment.fileName}</strong>
+                                <span>{formatFileSize(facebookImageAttachment.size)}</span>
+                              </div>
+                              <button
+                                type="button"
+                                className="channel-action-button"
+                                title="Xóa ảnh"
+                                aria-label="Xóa ảnh"
+                                disabled={facebookImageUploadDisabled}
+                                onClick={clearFacebookImageAttachment}
+                              >
+                                <CloseIcon />
+                              </button>
+                            </div>
+                          ) : null}
+                          {isFacebookImageReading ? (
+                            <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
+                          ) : null}
+                          {facebookImageAttachmentError ? (
+                            <div className="facebook-image-error-row">
+                              <p className="channel-subselection-empty is-error">{facebookImageAttachmentError}</p>
+                              <button
+                                type="button"
+                                className="text-button"
+                                onClick={clearFacebookImageAttachment}
+                              >
+                                Bỏ ảnh
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -4329,6 +4553,7 @@ function SidePanel() {
           ) : null}
         </div>
       ) : null}
+      {facebookImageAttachPrompt ? renderFacebookImageAttachPromptModal() : null}
       {selectedFacebookHistoryGroup ? renderFacebookPostHistoryModal() : null}
     </main>
   );
@@ -4464,6 +4689,45 @@ function getFacebookHistoryStatusLabel(status: Exclude<FacebookPostHistoryFilter
   if (status === 'DELETED') return 'Đã xóa';
   if (status === 'UNKNOWN') return 'Không rõ';
   return 'Đã đăng';
+}
+
+function getFacebookImageFileValidationError(file: File) {
+  if (!FACEBOOK_IMAGE_ALLOWED_TYPES.has(file.type)) {
+    return 'Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP.';
+  }
+
+  if (file.size > FACEBOOK_IMAGE_MAX_SIZE_BYTES) {
+    return `Ảnh phải nhỏ hơn ${formatFileSize(FACEBOOK_IMAGE_MAX_SIZE_BYTES)}.`;
+  }
+
+  return null;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('Could not read image file.'));
+    };
+    reader.onerror = () => reject(new Error(reader.error?.message ?? 'Could not read image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatFileSize(size: number) {
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  }
+
+  if (size >= 1024) {
+    return `${Math.ceil(size / 1024)} KB`;
+  }
+
+  return `${size} B`;
 }
 
 function isSelectableFacebookGroup(group: FacebookPublishTarget) {
@@ -4612,6 +4876,16 @@ function TrashIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="M3 4.5h10M6.5 2.8h3L10 4.5H6l.5-1.7ZM5 6v6.3c0 .5.4.9.9.9h4.2c.5 0 .9-.4.9-.9V6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ImageIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M3.2 3h9.6c.7 0 1.2.5 1.2 1.2v7.6c0 .7-.5 1.2-1.2 1.2H3.2c-.7 0-1.2-.5-1.2-1.2V4.2C2 3.5 2.5 3 3.2 3Z" stroke="currentColor" strokeWidth="1.4" />
+      <path d="m3.8 11 2.5-2.5 1.9 1.9 2.1-2.3L13 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="10.8" cy="5.6" r="1" fill="currentColor" />
     </svg>
   );
 }
@@ -5988,6 +6262,12 @@ function getFacebookPlanKey(plan: FacebookPublishPlan) {
     plan.jobPostingId,
     plan.content.length,
     plan.targets.map((target) => target.targetId ?? target.targetUrl ?? target.targetName).join('|'),
+    plan.attachments?.map((attachment) => [
+      attachment.type,
+      attachment.source,
+      attachment.fileName,
+      attachment.size,
+    ].join('/')).join('|') ?? '',
   ].join(':');
 }
 
