@@ -84,7 +84,7 @@ async function bootstrap() {
       title: 'Kỹ sư phát triển phần mềm IT chuyên nghiệp',
       summary: 'Lập trình backend nodejs',
       description: 'Lập trình nodejs',
-      requirements: {},
+      requirements: 'Có kinh nghiệm lập trình backend nodejs.',
       status: JobDescriptionStatus.ACTIVE,
       createdById: user.id,
     });

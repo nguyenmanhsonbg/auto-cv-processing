@@ -167,7 +167,7 @@ export function JobDescriptionForm({
     const normalizedTitle = title.trim();
     const normalizedSummary = summary.trim();
     const normalizedDescription = description.trim();
-    const parsedRequirements = parseStructuredObject(requirements, 'Requirements', true);
+    const normalizedRequirements = requirements.trim();
     const parsedBenefits = parseStructuredObject(benefits, 'Benefits', false);
 
     if (!normalizedTitle) nextErrors.title = 'Title is required.';
@@ -176,11 +176,11 @@ export function JobDescriptionForm({
       nextErrors.summary = 'Mô tả tóm tắt công việc tối đa 500 ký tự.';
     }
     if (!normalizedDescription) nextErrors.description = 'Mô tả chung về công việc là bắt buộc.';
-    if (parsedRequirements.error) nextErrors.requirements = parsedRequirements.error;
+    if (!normalizedRequirements) nextErrors.requirements = 'Requirements is required.';
     if (parsedBenefits.error) nextErrors.benefits = parsedBenefits.error;
 
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0 || !parsedRequirements.value) return;
+    if (Object.keys(nextErrors).length > 0) return;
 
     void onSubmit({
       title: normalizedTitle,
@@ -188,7 +188,7 @@ export function JobDescriptionForm({
       levelId: levelId.trim() || null,
       summary: normalizedSummary,
       description: normalizedDescription,
-      requirements: parsedRequirements.value,
+      requirements: normalizedRequirements,
       benefits: parsedBenefits.value ?? null,
     });
   };
@@ -307,7 +307,7 @@ export function JobDescriptionForm({
           value={requirements}
           onChange={(event) => setRequirements(event.target.value)}
           rows={6}
-          placeholder='Plain text or JSON object, for example: {"skills":["React"],"experienceYears":3}'
+          placeholder="Plain text requirements"
           disabled={submitting}
         />
         {errors.requirements && <p className="text-sm text-destructive">{errors.requirements}</p>}

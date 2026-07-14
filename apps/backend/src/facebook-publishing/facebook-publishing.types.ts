@@ -34,6 +34,7 @@ export interface ResolvedFacebookPublishTarget {
   eligibilityStatus: FacebookPublishTargetEligibilityStatus;
   eligibilityReason?: string | null;
   lastVerifiedAt?: string | null;
+  lastDiscoveredAt?: string | null;
   todayPublishCount: number;
   dailyPublishLimit: number;
   quotaLabel: string;
@@ -44,6 +45,7 @@ export interface ResolvedFacebookPublishTarget {
   lastVerifiedByInstanceId?: string | null;
   facebookAccountLabel?: string | null;
 }
+
 
 export interface CreateFacebookGroupInput {
   ownerUserId: string;

@@ -5,6 +5,7 @@ import { FacebookPostContentService } from './content/facebook-post-content.serv
 import { FacebookPublishHistoryEntity } from './entities/facebook-publish-history.entity';
 import { FacebookPublishTargetEntity } from './entities/facebook-publish-target.entity';
 import { FacebookPublishingService } from './facebook-publishing.service';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { FacebookPublishingService } from './facebook-publishing.service';
       FacebookPublishTargetEntity,
       JobPostingEntity,
     ]),
+    AiModule,
   ],
   providers: [FacebookPostContentService, FacebookPublishingService],
   exports: [FacebookPublishingService],

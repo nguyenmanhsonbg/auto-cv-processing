@@ -463,6 +463,11 @@ export function JobDescriptionDetailPage() {
                 />
                 <DetailField label="Created" value={formatDate(jobDescription.createdAt)} />
                 <DetailField label="Updated" value={formatDate(jobDescription.updatedAt)} />
+                <DetailField label="Department" value={jobDescription.department ?? '-'} />
+                <DetailField
+                  label="Application deadline"
+                  value={formatDate(jobDescription.applicationDeadline)}
+                />
               </div>
               <Separator />
               <DetailField
@@ -473,9 +478,13 @@ export function JobDescriptionDetailPage() {
           </Card>
 
           <StructuredSection title="Mô tả tóm tắt" value={jobDescription.summary} />
+          <StructuredSection title="Overview" value={jobDescription.overview} />
+          <StructuredSection title="Responsibilities" value={jobDescription.responsibilities} />
           <StructuredSection title="Mô tả chung về công việc" value={jobDescription.description} />
           <StructuredSection title="Requirements" value={jobDescription.requirements} />
           <StructuredSection title="Benefits" value={jobDescription.benefits} />
+          <StructuredSection title="Salary" value={jobDescription.salary} />
+          <StructuredSection title="Annual leave days" value={jobDescription.annualLeaveDays} />
         </>
       )}
 

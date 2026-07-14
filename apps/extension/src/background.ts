@@ -424,7 +424,10 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     return;
   }
 
-  const channels = await getSelectedChannels();
+  let channels: ExtensionChannel[] = await getSelectedChannels();
+  if (channels.length === 0) {
+    channels = ['VCS_PORTAL'];
+  }
   const facebookTargetIds = channels.includes('FACEBOOK')
     ? await getSelectedFacebookGroupIds()
     : [];

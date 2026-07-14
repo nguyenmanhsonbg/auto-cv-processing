@@ -12,7 +12,7 @@ type CreatableVersionStatus =
   | JobDescriptionVersionStatus.DRAFT;
 
 interface JobDescriptionSnapshot extends Record<string, unknown> {
-  schemaVersion: 1;
+  schemaVersion: 2;
   snapshottedAt: string;
   jobDescription: {
     id: string;
@@ -20,9 +20,15 @@ interface JobDescriptionSnapshot extends Record<string, unknown> {
     positionId: string | null;
     levelId: string | null;
     description: string;
+    overview: string | null;
+    responsibilities: string | null;
     summary: string;
-    requirements: Record<string, unknown>;
+    requirements: string;
     benefits: Record<string, unknown> | null;
+    salary: string | null;
+    annualLeaveDays: string | null;
+    department: string | null;
+    applicationDeadline: string | null;
     status: string;
     createdById: string;
     createdAt: string | null;
@@ -225,7 +231,7 @@ export class JobDescriptionVersionsService {
 
   private buildSnapshot(jobDescription: JobDescriptionEntity): JobDescriptionSnapshot {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       snapshottedAt: new Date().toISOString(),
       jobDescription: {
         id: jobDescription.id,
@@ -233,9 +239,15 @@ export class JobDescriptionVersionsService {
         positionId: jobDescription.positionId,
         levelId: jobDescription.levelId,
         description: jobDescription.description,
+        overview: jobDescription.overview,
+        responsibilities: jobDescription.responsibilities,
         summary: this.summaryForSnapshot(jobDescription),
         requirements: jobDescription.requirements,
         benefits: jobDescription.benefits,
+        salary: jobDescription.salary,
+        annualLeaveDays: jobDescription.annualLeaveDays,
+        department: jobDescription.department,
+        applicationDeadline: jobDescription.applicationDeadline,
         status: jobDescription.status,
         createdById: jobDescription.createdById,
         createdAt: jobDescription.createdAt?.toISOString() ?? null,

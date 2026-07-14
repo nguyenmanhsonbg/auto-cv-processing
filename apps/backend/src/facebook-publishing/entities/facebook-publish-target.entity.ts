@@ -74,8 +74,12 @@ export class FacebookPublishTargetEntity {
   @Column({ name: 'facebook_account_label', type: 'varchar', nullable: true })
   facebookAccountLabel: string | null;
 
+  @Column({ name: 'last_discovered_at', type: 'timestamp', nullable: true })
+  lastDiscoveredAt: Date | null;
+
   @Column({ name: 'daily_publish_limit', type: 'integer', default: 10 })
   dailyPublishLimit: number;
+
 
   @Column({ type: 'integer', default: 0 })
   priority: number;

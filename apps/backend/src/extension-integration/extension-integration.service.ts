@@ -1,6 +1,6 @@
 import { UserRole } from '@interview-assistant/shared';
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
 import { JobDescriptionEntity } from '../job-descriptions/entities/job-description.entity';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
@@ -12,6 +12,7 @@ import {
   JobDescriptionStatus,
   JobDescriptionVersionStatus,
   JobPostingStatus,
+  QuestionSetStatus,
   RecruitmentChannel,
 } from '../recruitment-common';
 import {
@@ -43,11 +44,24 @@ import {
 } from './extension-idempotency.service';
 import { createAmisSnapshotHash, createExtensionRequestHash } from './utils';
 import { QuestionsService } from '../questions/questions.service';
+import { QuestionSetEntity } from '../questions/entities/question-set.entity';
+import { QuestionEntity } from '../questions/entities/question.entity';
+import { QuestionSetItemEntity } from '../questions/entities/question-set-item.entity';
 import { CategoriesService } from '../categories/categories.service';
 import { QuestionType } from '@interview-assistant/shared';
 import { ApplicationsService } from '../applications/applications.service';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { ApplicationSourceEntity } from '../applications/entities/application-source.entity';
+
+const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
+
+interface PostingQuestionSnapshotItemInput {
+  questionId: string | null;
+  questionTextSnapshot: string;
+  questionType: string;
+  required: boolean;
+  metadata: Record<string, unknown> | null;
+}
 
 export interface ExtensionSyncContext {
   actorUserId: string;
@@ -198,9 +212,15 @@ export class ExtensionIntegrationService {
         positionId: null,
         levelId: null,
         description: dto.snapshot.description,
+        overview: this.optionalText(dto.snapshot.summary) ?? null,
+        responsibilities: dto.snapshot.description,
         summary: this.toSummary(dto.snapshot.summary ?? dto.snapshot.description),
         requirements: this.toPlainRequirements(dto.snapshot.requirements),
         benefits: this.normalizeBenefits(dto.snapshot.benefits),
+        salary: null,
+        annualLeaveDays: null,
+        department: null,
+        applicationDeadline: closeAt?.toISOString().slice(0, 10) ?? null,
         status: JobDescriptionStatus.ACTIVE,
         createdById: createdBy.id,
       }),
@@ -221,9 +241,16 @@ export class ExtensionIntegrationService {
         status: JobPostingStatus.PUBLISHED,
         openAt: now,
         closeAt,
-        formQuestionIds: dto.selectedQuestionIds?.length ? dto.selectedQuestionIds : null,
+        formQuestionIds: null,
+        formQuestionSetId: null,
         createdById: createdBy.id,
       }),
+    );
+    await this.replacePostingQuestionSetSnapshot(
+      manager,
+      posting,
+      dto.selectedQuestionIds ?? [],
+      createdBy.id,
     );
 
     await manager.getRepository(RecruitmentExternalReferenceEntity).save(
@@ -278,9 +305,15 @@ export class ExtensionIntegrationService {
 
     jobDescription.title = dto.snapshot.title;
     jobDescription.description = dto.snapshot.description;
+    jobDescription.overview = this.optionalText(dto.snapshot.summary) ?? null;
+    jobDescription.responsibilities = dto.snapshot.description;
     jobDescription.summary = this.toSummary(dto.snapshot.summary ?? dto.snapshot.description);
     jobDescription.requirements = this.toPlainRequirements(dto.snapshot.requirements);
     jobDescription.benefits = this.normalizeBenefits(dto.snapshot.benefits);
+    jobDescription.salary = null;
+    jobDescription.annualLeaveDays = null;
+    jobDescription.department = null;
+    jobDescription.applicationDeadline = closeAt?.toISOString().slice(0, 10) ?? null;
     jobDescription.status = JobDescriptionStatus.ACTIVE;
     await manager.getRepository(JobDescriptionEntity).save(jobDescription);
 
@@ -295,8 +328,15 @@ export class ExtensionIntegrationService {
     posting.status = JobPostingStatus.PUBLISHED;
     if (!posting.openAt) posting.openAt = now;
     posting.closeAt = closeAt;
-    posting.formQuestionIds = dto.selectedQuestionIds?.length ? dto.selectedQuestionIds : null;
     await manager.getRepository(JobPostingEntity).save(posting);
+    if (dto.selectedQuestionIds !== undefined) {
+      await this.replacePostingQuestionSetSnapshot(
+        manager,
+        posting,
+        dto.selectedQuestionIds,
+        context.actorUserId,
+      );
+    }
 
     await this.updateExternalReferenceSyncMetadata(
       manager,
@@ -314,6 +354,137 @@ export class ExtensionIntegrationService {
       snapshotChanged: true,
       actorUserId: context.actorUserId,
     });
+  }
+
+  private async replacePostingQuestionSetSnapshot(
+    manager: EntityManager,
+    posting: JobPostingEntity,
+    selectedQuestionIds: string[],
+    createdById: string,
+  ) {
+    const uniqueQuestionIds = [...new Set(selectedQuestionIds.filter(Boolean))];
+    if (uniqueQuestionIds.length === 0) return null;
+
+    const snapshotItems = await this.resolvePostingQuestionSnapshotItems(
+      manager,
+      uniqueQuestionIds,
+    );
+    if (snapshotItems.length === 0) {
+      throw new BadRequestException(
+        'Selected questionnaire questions are not available to snapshot for this job posting.',
+      );
+    }
+
+    const previousQuestionSetId = posting.formQuestionSetId;
+    const setRepo = manager.getRepository(QuestionSetEntity);
+    const itemRepo = manager.getRepository(QuestionSetItemEntity);
+    const snapshotSet = await setRepo.save(setRepo.create({
+      name: `Posting Questionnaire - ${posting.title}`,
+      jobDescriptionId: posting.jobDescriptionId,
+      jobDescriptionVersionId: posting.jobDescriptionVersionId,
+      positionId: null,
+      levelId: null,
+      status: QuestionSetStatus.ACTIVE,
+      createdById,
+      sourceSystem: JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM,
+      sourceJobId: null,
+      sourceSnapshotHash: null,
+      sourceSnapshot: {
+        jobPostingId: posting.id,
+        selectedQuestionIds: uniqueQuestionIds,
+        questionCount: snapshotItems.length,
+      },
+      sourceLastSyncedAt: new Date(),
+    }));
+
+    const savedItems = await itemRepo.save(
+      snapshotItems.map((item, index) => itemRepo.create({
+        questionSetId: snapshotSet.id,
+        questionId: item.questionId,
+        questionTextSnapshot: item.questionTextSnapshot,
+        questionType: item.questionType,
+        orderIndex: index,
+        required: item.required,
+        metadata: {
+          ...(this.isRecord(item.metadata) ? item.metadata : {}),
+          snapshotForJobPostingId: posting.id,
+        },
+      })),
+    );
+
+    posting.formQuestionSetId = snapshotSet.id;
+    posting.formQuestionIds = savedItems.map((item) => item.id);
+    await manager.getRepository(JobPostingEntity).save(posting);
+
+    if (previousQuestionSetId && previousQuestionSetId !== snapshotSet.id) {
+      await setRepo.update(
+        {
+          id: previousQuestionSetId,
+          sourceSystem: JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM,
+        },
+        { status: QuestionSetStatus.ARCHIVED },
+      );
+    }
+
+    return snapshotSet;
+  }
+
+  private async resolvePostingQuestionSnapshotItems(
+    manager: EntityManager,
+    selectedQuestionIds: string[],
+  ): Promise<PostingQuestionSnapshotItemInput[]> {
+    const itemRepo = manager.getRepository(QuestionSetItemEntity);
+    const questionSetItems = await itemRepo.find({
+      where: { id: In(selectedQuestionIds) },
+      relations: ['questionSet', 'question'],
+    });
+    const itemById = new Map(questionSetItems.map((item) => [item.id, item]));
+    const unresolvedIds: string[] = [];
+    const resolvedItems: PostingQuestionSnapshotItemInput[] = [];
+
+    for (const selectedQuestionId of selectedQuestionIds) {
+      const item = itemById.get(selectedQuestionId);
+      if (!item) {
+        unresolvedIds.push(selectedQuestionId);
+        continue;
+      }
+
+      resolvedItems.push({
+        questionId: item.questionId,
+        questionTextSnapshot: item.questionTextSnapshot,
+        questionType: item.questionType,
+        required: item.required,
+        metadata: {
+          ...(this.isRecord(item.metadata) ? item.metadata : {}),
+          copiedFromQuestionSetId: item.questionSetId,
+          copiedFromQuestionSetItemId: item.id,
+          copiedFromQuestionSetSourceSystem: item.questionSet?.sourceSystem ?? null,
+        },
+      });
+    }
+
+    if (unresolvedIds.length === 0) return resolvedItems;
+
+    const bankQuestions = await manager.getRepository(QuestionEntity).find({
+      where: { id: In(unresolvedIds), isActive: true },
+    });
+    const bankQuestionById = new Map(bankQuestions.map((question) => [question.id, question]));
+
+    for (const unresolvedId of unresolvedIds) {
+      const question = bankQuestionById.get(unresolvedId);
+      if (!question) continue;
+      resolvedItems.push({
+        questionId: question.id,
+        questionTextSnapshot: question.text,
+        questionType: question.type,
+        required: true,
+        metadata: {
+          copiedFromQuestionId: question.id,
+        },
+      });
+    }
+
+    return resolvedItems;
   }
 
   private async updateExternalReferenceSyncMetadata(
@@ -402,6 +573,7 @@ export class ExtensionIntegrationService {
         input.posting,
         input.actorUserId,
         input.dto.facebookTargetIds,
+        input.dto.facebookContent,
       )
       : undefined;
     const warnings: ExtensionSyncWarningDto[] = [];
@@ -523,6 +695,13 @@ export class ExtensionIntegrationService {
   }
 
   private normalizeRequest(dto: SyncAmisJobPostingDto): SyncAmisJobPostingDto {
+    if (dto.sourceSystem !== ExtensionSourceSystem.AMIS) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'AMIS job posting sync only accepts AMIS as sourceSystem.',
+      });
+    }
+
     const channels = [...new Set(dto.channels)];
 
     return {
@@ -544,6 +723,7 @@ export class ExtensionIntegrationService {
       channels,
       facebookTargetIds: this.normalizeFacebookTargetIds(dto.facebookTargetIds, channels),
       selectedQuestionIds: this.normalizeSelectedQuestionIds(dto.selectedQuestionIds),
+      facebookContent: this.optionalText(dto.facebookContent) ?? undefined,
       metadata: this.safeMetadata(dto.metadata),
     };
   }
@@ -822,6 +1002,15 @@ export class ExtensionIntegrationService {
       }));
   }
 
+  private latestByCreatedAt<T extends { createdAt?: Date | null }>(items?: T[] | null) {
+    if (!items?.length) return null;
+    return [...items].sort((left, right) => {
+      const leftTime = left.createdAt?.getTime() ?? 0;
+      const rightTime = right.createdAt?.getTime() ?? 0;
+      return rightTime - leftTime;
+    })[0];
+  }
+
   private safeAmisCatalogSnapshot(value: unknown) {
     if (!this.isRecord(value) || Array.isArray(value)) return undefined;
 
@@ -865,18 +1054,8 @@ export class ExtensionIntegrationService {
 
   private toPlainRequirements(
     value: SyncAmisJobPostingDto['snapshot']['requirements'],
-  ): Record<string, unknown> {
-    return {
-      rawText: value.rawText,
-      sections: value.sections,
-      mustHaveSkills: value.mustHaveSkills,
-      niceToHaveSkills: value.niceToHaveSkills,
-      minExperienceYears: value.minExperienceYears,
-      education: value.education,
-      languages: value.languages,
-      certifications: value.certifications,
-      notes: value.notes,
-    };
+  ): string {
+    return value.rawText;
   }
 
   private normalizeBenefits(value: unknown): Record<string, unknown> | null {
@@ -1056,7 +1235,7 @@ export class ExtensionIntegrationService {
     const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(normalizedRecruitmentId);
     const applications = await this.dataSource.getRepository(ApplicationEntity).find({
       where: { jobPostingId },
-      relations: ['candidate', 'currentCvDocument', 'sources'],
+      relations: ['candidate', 'currentCvDocument', 'formSessions', 'sources'],
       order: { createdAt: 'DESC' },
     });
     const applicationRows = this.buildAmisApplicationListRows(
@@ -1070,6 +1249,7 @@ export class ExtensionIntegrationService {
       total: applicationRows.length,
       applications: applicationRows.map(({ application, source }) => {
         const rawPayload = this.isRecord(source?.rawPayload) ? source.rawPayload : {};
+        const latestForm = this.latestByCreatedAt(application.formSessions);
 
         return {
           applicationId: application.id,
@@ -1078,6 +1258,18 @@ export class ExtensionIntegrationService {
           email: application.candidate?.email ?? null,
           mobile: application.candidate?.phone ?? null,
           status: application.status,
+          formStatus: latestForm?.status ?? null,
+          latestForm: latestForm
+            ? {
+                formSessionId: latestForm.id,
+                status: latestForm.status,
+                expiresAt: latestForm.expiresAt.toISOString(),
+                sentAt: latestForm.sentAt?.toISOString() ?? null,
+                openedAt: latestForm.openedAt?.toISOString() ?? null,
+                submittedAt: latestForm.submittedAt?.toISOString() ?? null,
+                createdAt: latestForm.createdAt.toISOString(),
+              }
+            : null,
           currentCvDocumentId: application.currentCvDocumentId,
           cvScanStatus: application.currentCvDocument?.scanStatus ?? null,
           cvSanitizeStatus: application.currentCvDocument?.sanitizeStatus ?? null,
@@ -1172,6 +1364,99 @@ export class ExtensionIntegrationService {
       career: this.toCareerCatalogItem(career),
       categories,
       questions,
+    };
+  }
+
+  async getJobDescriptionQuestionSetContext(jobDescriptionId: string) {
+    const normalizedJobDescriptionId = this.requireText(jobDescriptionId, 'jobDescriptionId');
+    const jobDescription = await this.dataSource.getRepository(JobDescriptionEntity).findOne({
+      where: { id: normalizedJobDescriptionId },
+      relations: ['position', 'level'],
+    });
+    if (!jobDescription) {
+      throw new BadRequestException({
+        code: 'JOB_DESCRIPTION_NOT_FOUND',
+        message: 'Job description was not found.',
+      });
+    }
+
+    const questionSet = await this.dataSource.getRepository(QuestionSetEntity)
+      .createQueryBuilder('questionSet')
+      .leftJoinAndSelect('questionSet.items', 'item')
+      .leftJoinAndSelect('item.question', 'question')
+      .where('questionSet.jobDescriptionId = :jobDescriptionId', {
+        jobDescriptionId: normalizedJobDescriptionId,
+      })
+      .andWhere('questionSet.status = :status', { status: QuestionSetStatus.ACTIVE })
+      .orderBy(
+        `CASE WHEN "questionSet"."source_system" = :sourceSystem THEN 0 ELSE 1 END`,
+        'ASC',
+      )
+      .addOrderBy('questionSet.sourceLastSyncedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('questionSet.updatedAt', 'DESC')
+      .addOrderBy('item.orderIndex', 'ASC')
+      .setParameter('sourceSystem', ExtensionSourceSystem.VCS_PORTAL)
+      .getOne();
+
+    const sortedItems = (questionSet?.items ?? []).sort((left, right) =>
+      left.orderIndex - right.orderIndex,
+    );
+
+    return {
+      jobDescription: {
+        id: jobDescription.id,
+        jobDescriptionId: jobDescription.id,
+        title: jobDescription.title,
+        summary: jobDescription.summary,
+        description: jobDescription.description,
+        status: jobDescription.status,
+        sourceSystem: jobDescription.sourceSystem,
+        sourceJobId: jobDescription.sourceJobId,
+        sourceSlug: jobDescription.sourceSlug,
+        position: jobDescription.position
+          ? {
+              id: jobDescription.position.id,
+              name: jobDescription.position.name,
+              description: jobDescription.position.description,
+            }
+          : null,
+        level: jobDescription.level
+          ? {
+              id: jobDescription.level.id,
+              name: jobDescription.level.name,
+              displayName: jobDescription.level.displayName,
+              orderIndex: jobDescription.level.orderIndex,
+            }
+          : null,
+      },
+      questionSet: questionSet
+        ? {
+            id: questionSet.id,
+            name: questionSet.name,
+            status: questionSet.status,
+            sourceSystem: questionSet.sourceSystem,
+            sourceJobId: questionSet.sourceJobId,
+            sourceLastSyncedAt: questionSet.sourceLastSyncedAt?.toISOString() ?? null,
+            updatedAt: questionSet.updatedAt?.toISOString() ?? null,
+          }
+        : null,
+      questions: sortedItems.map((item) => ({
+        id: item.id,
+        questionSetItemId: item.id,
+        questionId: item.questionId,
+        text: item.questionTextSnapshot,
+        type: item.questionType,
+        required: item.required,
+        orderIndex: item.orderIndex,
+        category: item.question?.category ?? null,
+        subcategory: item.question?.subcategory ?? null,
+        competencyType: item.question?.competencyType ?? null,
+        difficulty: item.question?.difficulty ?? null,
+        targetLevels: item.question?.targetLevels ?? [],
+        expectedAnswer: item.question?.expectedAnswer ?? null,
+        scoringGuide: item.question?.scoringGuide ?? null,
+        metadata: item.metadata,
+      })),
     };
   }
 
@@ -1333,7 +1618,7 @@ export class ExtensionIntegrationService {
 
   private buildJobDescriptionSnapshot(jobDescription: JobDescriptionEntity) {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       snapshottedAt: new Date().toISOString(),
       jobDescription: {
         id: jobDescription.id,
@@ -1341,9 +1626,15 @@ export class ExtensionIntegrationService {
         positionId: jobDescription.positionId,
         levelId: jobDescription.levelId,
         description: jobDescription.description,
+        overview: jobDescription.overview,
+        responsibilities: jobDescription.responsibilities,
         summary: this.summaryForSnapshot(jobDescription),
         requirements: jobDescription.requirements,
         benefits: jobDescription.benefits,
+        salary: jobDescription.salary,
+        annualLeaveDays: jobDescription.annualLeaveDays,
+        department: jobDescription.department,
+        applicationDeadline: jobDescription.applicationDeadline,
         status: jobDescription.status,
         createdById: jobDescription.createdById,
         createdAt: jobDescription.createdAt?.toISOString() ?? null,

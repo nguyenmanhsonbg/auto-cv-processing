@@ -11,9 +11,11 @@ import { ExtensionInstancesService } from './extension-instances.service';
 import {
   CreateFacebookGroupDto,
   FacebookPublishHistoryStatusCheckDto,
+  GenerateFacebookPreviewDto,
   ReportFacebookPublishResultDto,
   UpdateFacebookGroupDto,
   VerifyFacebookGroupDto,
+  DiscoverFacebookGroupsDto,
 } from './dto';
 
 interface ExtensionFacebookRequest {
@@ -37,6 +39,31 @@ export class ExtensionFacebookController {
     private readonly facebookPublishingService: FacebookPublishingService,
     private readonly extensionInstancesService: ExtensionInstancesService,
   ) {}
+
+  @Post('generate-preview-content')
+  @ApiOperation({ summary: 'Generate Facebook content preview based on job posting or snapshot' })
+  @ApiBody({ type: GenerateFacebookPreviewDto })
+  @ApiResponse({ status: 200, description: 'Generated content returned.' })
+  async generatePreviewContent(
+    @Body() dto: GenerateFacebookPreviewDto,
+    @Request() req: ExtensionFacebookRequest,
+  ) {
+    const mode = dto.mode || 'TEMPLATE';
+    const content = await this.facebookPublishingService.generatePreviewContent(mode, {
+      jobPostingId: dto.jobPostingId,
+      snapshot: dto.snapshot,
+    });
+
+    return {
+      success: true,
+      data: {
+        content,
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
 
   @Get('groups')
   @ApiOperation({ summary: 'List active Facebook groups allowed for the current extension account' })
@@ -79,6 +106,28 @@ export class ExtensionFacebookController {
     return {
       success: true,
       data: group,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  @Post('groups/discover')
+  @ApiOperation({ summary: 'Discover and sync user Facebook groups, auto-classifying IT groups' })
+  @ApiBody({ type: DiscoverFacebookGroupsDto })
+  @ApiResponse({ status: 200, description: 'Groups synced successfully.' })
+  async discoverGroups(
+    @Body() dto: DiscoverFacebookGroupsDto,
+    @Request() req: ExtensionFacebookRequest,
+  ) {
+    const result = await this.facebookPublishingService.discoverExtensionGroups(
+      req.user.id,
+      dto.groups,
+    );
+
+    return {
+      success: true,
+      data: result,
       meta: {
         timestamp: new Date().toISOString(),
       },

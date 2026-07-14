@@ -67,8 +67,14 @@ interface PublicJobDescriptionSnapshot extends Record<string, unknown> {
   jobDescription?: {
     summary?: unknown;
     description?: unknown;
+    overview?: unknown;
+    responsibilities?: unknown;
     requirements?: unknown;
     benefits?: unknown;
+    salary?: unknown;
+    annualLeaveDays?: unknown;
+    department?: unknown;
+    applicationDeadline?: unknown;
   };
   position?: {
     id?: unknown;
@@ -136,8 +142,14 @@ const publicJobPostingSchema = {
     publicSlug: { type: 'string' },
     summary: { type: 'string' },
     description: { type: 'string' },
-    requirements: { type: 'object', additionalProperties: true },
+    overview: { type: 'string', nullable: true },
+    responsibilities: { type: 'string', nullable: true },
+    requirements: { type: 'string' },
     benefits: { type: 'object', nullable: true, additionalProperties: true },
+    salary: { type: 'string', nullable: true },
+    annualLeaveDays: { type: 'string', nullable: true },
+    department: { type: 'string', nullable: true },
+    applicationDeadline: { type: 'string', format: 'date', nullable: true },
     position: {
       type: 'object',
       nullable: true,
@@ -408,11 +420,29 @@ export class PublicJobPostingsController {
       description: this.asString(jobDescription?.description)
         ?? posting.jobDescription?.description
         ?? '',
-      requirements: this.asRecord(jobDescription?.requirements)
+      overview: this.asString(jobDescription?.overview)
+        ?? posting.jobDescription?.overview
+        ?? null,
+      responsibilities: this.asString(jobDescription?.responsibilities)
+        ?? posting.jobDescription?.responsibilities
+        ?? null,
+      requirements: this.asString(jobDescription?.requirements)
         ?? posting.jobDescription?.requirements
-        ?? {},
+        ?? '',
       benefits: this.asRecord(jobDescription?.benefits)
         ?? posting.jobDescription?.benefits
+        ?? null,
+      salary: this.asString(jobDescription?.salary)
+        ?? posting.jobDescription?.salary
+        ?? null,
+      annualLeaveDays: this.asDisplayText(jobDescription?.annualLeaveDays)
+        ?? posting.jobDescription?.annualLeaveDays
+        ?? null,
+      department: this.asString(jobDescription?.department)
+        ?? posting.jobDescription?.department
+        ?? null,
+      applicationDeadline: this.asString(jobDescription?.applicationDeadline)
+        ?? posting.jobDescription?.applicationDeadline
         ?? null,
       position: this.toPublicPosition(snapshot),
       level: this.toPublicLevel(snapshot),
@@ -570,6 +600,12 @@ export class PublicJobPostingsController {
 
   private asString(value: unknown) {
     return typeof value === 'string' ? value : null;
+  }
+
+  private asDisplayText(value: unknown) {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    return null;
   }
 
   private asRecord(value: unknown) {
