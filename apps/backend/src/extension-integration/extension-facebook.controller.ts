@@ -1,12 +1,13 @@
 import { UserRole } from '@interview-assistant/shared';
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Headers, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
 import { FacebookReviewStatus } from '../facebook-publishing/facebook-publishing.types';
 import { FacebookPublishingService } from '../facebook-publishing/facebook-publishing.service';
+import { ExtensionInstancesService } from './extension-instances.service';
 import {
   CreateFacebookGroupDto,
   FacebookPublishHistoryStatusCheckDto,
@@ -24,6 +25,8 @@ interface ExtensionFacebookRequest {
   };
 }
 
+type HeaderValue = string | string[] | undefined;
+
 @ApiTags('Extension Facebook Publishing')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -31,12 +34,20 @@ interface ExtensionFacebookRequest {
 @Controller('extension/facebook')
 @ApiErrorResponses([400, 401, 403, 500])
 export class ExtensionFacebookController {
-  constructor(private readonly facebookPublishingService: FacebookPublishingService) {}
+  constructor(
+    private readonly facebookPublishingService: FacebookPublishingService,
+    private readonly extensionInstancesService: ExtensionInstancesService,
+  ) {}
 
   @Get('groups')
   @ApiOperation({ summary: 'List active Facebook groups allowed for the current extension account' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
   @ApiResponse({ status: 200, description: 'Active Facebook groups returned.' })
-  async listGroups(@Request() req: ExtensionFacebookRequest) {
+  async listGroups(
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const groups = await this.facebookPublishingService.listActiveExtensionGroups(req.user.id);
 
     return {
@@ -50,13 +61,20 @@ export class ExtensionFacebookController {
 
   @Post('groups')
   @ApiOperation({ summary: 'Add a Facebook group allowed for the current extension account' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
   @ApiBody({ type: CreateFacebookGroupDto })
   @ApiResponse({ status: 201, description: 'Facebook group saved.' })
-  async createGroup(@Body() dto: CreateFacebookGroupDto, @Request() req: ExtensionFacebookRequest) {
+  async createGroup(
+    @Body() dto: CreateFacebookGroupDto,
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const group = await this.facebookPublishingService.createExtensionGroup({
       ownerUserId: req.user.id,
       targetName: dto.targetName,
       targetUrl: dto.targetUrl,
+      ownerExtensionInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -89,13 +107,16 @@ export class ExtensionFacebookController {
 
   @Put('groups/:targetId')
   @ApiOperation({ summary: 'Update a Facebook group allowed for the current extension account' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
   @ApiBody({ type: UpdateFacebookGroupDto })
   @ApiResponse({ status: 200, description: 'Facebook group updated.' })
   async updateGroup(
     @Param('targetId') targetId: string,
     @Body() dto: UpdateFacebookGroupDto,
     @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
+    await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const group = await this.facebookPublishingService.updateExtensionGroup({
       ownerUserId: req.user.id,
       targetId,
@@ -114,19 +135,23 @@ export class ExtensionFacebookController {
 
   @Post('groups/:targetId/verify-result')
   @ApiOperation({ summary: 'Update the Facebook group posting eligibility checked by the extension browser session' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
   @ApiBody({ type: VerifyFacebookGroupDto })
   @ApiResponse({ status: 200, description: 'Facebook group verification status updated.' })
   async updateGroupVerification(
     @Param('targetId') targetId: string,
     @Body() dto: VerifyFacebookGroupDto,
     @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const group = await this.facebookPublishingService.updateExtensionGroupVerification({
       ownerUserId: req.user.id,
       targetId,
       eligibilityStatus: dto.eligibilityStatus,
       eligibilityReason: dto.eligibilityReason,
       verifiedAt: dto.verifiedAt ? new Date(dto.verifiedAt) : null,
+      lastVerifiedByInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -140,8 +165,14 @@ export class ExtensionFacebookController {
 
   @Delete('groups/:targetId')
   @ApiOperation({ summary: 'Remove a Facebook group allowed for the current extension account' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
   @ApiResponse({ status: 200, description: 'Facebook group removed.' })
-  async deleteGroup(@Param('targetId') targetId: string, @Request() req: ExtensionFacebookRequest) {
+  async deleteGroup(
+    @Param('targetId') targetId: string,
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const group = await this.facebookPublishingService.deleteExtensionGroup(req.user.id, targetId);
 
     return {
@@ -155,6 +186,7 @@ export class ExtensionFacebookController {
 
   @Get('groups/:targetId/publish-histories')
   @ApiOperation({ summary: 'List Facebook publish histories for a configured group' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
   @ApiQuery({ name: 'status', required: false, enum: FacebookReviewStatus })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -165,7 +197,9 @@ export class ExtensionFacebookController {
     @Query('page') page: string | undefined,
     @Query('limit') limit: string | undefined,
     @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
+    await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const result = await this.facebookPublishingService.listExtensionGroupPublishHistories({
       ownerUserId: req.user.id,
       targetId,
@@ -185,12 +219,19 @@ export class ExtensionFacebookController {
 
   @Post('publish-results')
   @ApiOperation({ summary: 'Report a browser-extension Facebook publish result' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
   @ApiBody({ type: ReportFacebookPublishResultDto })
   @ApiResponse({ status: 201, description: 'Facebook publish result recorded.' })
-  async reportPublishResult(@Body() dto: ReportFacebookPublishResultDto) {
+  async reportPublishResult(
+    @Body() dto: ReportFacebookPublishResultDto,
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const history = await this.facebookPublishingService.reportExtensionPublishResult({
       ...dto,
       submittedAt: dto.submittedAt ? new Date(dto.submittedAt) : null,
+      extensionInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -208,6 +249,7 @@ export class ExtensionFacebookController {
         errorReason: history.errorReason,
         externalPostId: history.externalPostId,
         externalPostUrl: history.externalPostUrl,
+        extensionInstanceId: history.extensionInstanceId,
         submittedAt: history.submittedAt?.toISOString() ?? null,
         createdAt: history.createdAt?.toISOString() ?? null,
       },
@@ -219,13 +261,16 @@ export class ExtensionFacebookController {
 
   @Post('publish-histories/:historyId/status-check')
   @ApiOperation({ summary: 'Update a Facebook publish history moderation status after extension refresh' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
   @ApiBody({ type: FacebookPublishHistoryStatusCheckDto })
   @ApiResponse({ status: 200, description: 'Facebook publish history status updated.' })
   async updatePublishHistoryStatusCheck(
     @Param('historyId') historyId: string,
     @Body() dto: FacebookPublishHistoryStatusCheckDto,
     @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const history = await this.facebookPublishingService.updateExtensionPublishHistoryStatusCheck({
       ownerUserId: req.user.id,
       historyId,
@@ -234,6 +279,7 @@ export class ExtensionFacebookController {
       externalPostUrl: dto.externalPostUrl,
       externalPostId: dto.externalPostId,
       checkedAt: dto.checkedAt ? new Date(dto.checkedAt) : null,
+      extensionInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -248,5 +294,25 @@ export class ExtensionFacebookController {
   private normalizeReviewStatusQuery(status: FacebookReviewStatus | undefined) {
     if (!status) return null;
     return Object.values(FacebookReviewStatus).includes(status) ? status : null;
+  }
+
+  private async resolveOptionalExtensionInstance(
+    req: ExtensionFacebookRequest,
+    extensionInstanceId: HeaderValue,
+  ) {
+    const instance = await this.extensionInstancesService.resolveOptionalForUser({
+      ownerUserId: req.user.id,
+      extensionInstanceId: this.optionalHeader(extensionInstanceId),
+    });
+    if (instance) {
+      await this.extensionInstancesService.touch(instance);
+    }
+    return instance;
+  }
+
+  private optionalHeader(value: HeaderValue) {
+    const headerValue = Array.isArray(value) ? value[0] : value;
+    const normalizedValue = headerValue?.trim();
+    return normalizedValue || undefined;
   }
 }

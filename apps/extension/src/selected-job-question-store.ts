@@ -3,6 +3,9 @@ const SELECTED_JOB_QUESTION_CONTEXTS_STORAGE_KEY = 'vcs:selected-job-question-co
 interface SelectedJobQuestionContext {
   tabId: number;
   pageUrl?: string | null;
+  jobDescriptionId?: string | null;
+  jobDescriptionTitle?: string | null;
+  questionSetId?: string | null;
   amisCareerId?: string | null;
   careerName?: string | null;
   questionIds: string[];

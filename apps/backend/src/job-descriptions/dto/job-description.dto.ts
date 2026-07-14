@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDefined, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsBooleanString, IsDateString, IsDefined, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 
 export class ListJobDescriptionsQueryDto {
   @ApiPropertyOptional({ default: 1 })
@@ -38,11 +38,25 @@ export class ListJobDescriptionsQueryDto {
   levelId?: string;
 
   @ApiPropertyOptional({
-    enum: ['title', 'status', 'createdAt', 'updatedAt'],
+    description: 'Filter by external source system such as VCS_PORTAL.',
+  })
+  @IsOptional()
+  @IsString()
+  sourceSystem?: string;
+
+  @ApiPropertyOptional({
+    description: 'When true, only returns source-synced JDs that have lastSyncedAt.',
+  })
+  @IsOptional()
+  @IsBooleanString()
+  latestSyncedOnly?: string;
+
+  @ApiPropertyOptional({
+    enum: ['title', 'status', 'createdAt', 'updatedAt', 'lastSyncedAt'],
     default: 'createdAt',
   })
   @IsOptional()
-  @IsIn(['title', 'status', 'createdAt', 'updatedAt'])
+  @IsIn(['title', 'status', 'createdAt', 'updatedAt', 'lastSyncedAt'])
   sortBy?: string;
 
   @ApiPropertyOptional({ enum: ['ASC', 'DESC'], default: 'DESC' })
@@ -71,6 +85,16 @@ export class CreateJobDescriptionDto {
   @IsString()
   description: string;
 
+  @ApiPropertyOptional({ description: 'Plain text overview synced from VCS Portal acf.overview.' })
+  @IsOptional()
+  @IsString()
+  overview?: string | null;
+
+  @ApiPropertyOptional({ description: 'Plain text responsibilities synced from VCS Portal acf.responsibilities.' })
+  @IsOptional()
+  @IsString()
+  responsibilities?: string | null;
+
   @ApiProperty({
     description: 'Short job summary used by AMIS summary field. Maximum 500 characters.',
     maxLength: 500,
@@ -80,16 +104,37 @@ export class CreateJobDescriptionDto {
   summary: string;
 
   @ApiProperty({
-    description: 'JSON object or plain string. Plain string is stored as { text }.',
+    description: 'Plain text requirements. VCS Portal maps this from acf.qualifications.',
   })
   @IsDefined()
-  requirements: unknown;
+  @IsString()
+  requirements: string;
 
   @ApiPropertyOptional({
     description: 'JSON object or plain string. Plain string is stored as { text }.',
   })
   @IsOptional()
   benefits?: unknown;
+
+  @ApiPropertyOptional({ description: 'Plain text salary synced from VCS Portal acf.salary.' })
+  @IsOptional()
+  @IsString()
+  salary?: string | null;
+
+  @ApiPropertyOptional({ description: 'Plain text annual leave days synced from VCS Portal acf.annual_leave_days.' })
+  @IsOptional()
+  @IsString()
+  annualLeaveDays?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  department?: string | null;
+
+  @ApiPropertyOptional({ description: 'Application deadline date in ISO yyyy-MM-dd format.' })
+  @IsOptional()
+  @IsDateString()
+  applicationDeadline?: string | null;
 }
 
 export class UpdateJobDescriptionDto {
@@ -114,6 +159,16 @@ export class UpdateJobDescriptionDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({ description: 'Plain text overview synced from VCS Portal acf.overview.' })
+  @IsOptional()
+  @IsString()
+  overview?: string | null;
+
+  @ApiPropertyOptional({ description: 'Plain text responsibilities synced from VCS Portal acf.responsibilities.' })
+  @IsOptional()
+  @IsString()
+  responsibilities?: string | null;
+
   @ApiPropertyOptional({
     description: 'Short job summary used by AMIS summary field. Maximum 500 characters.',
     maxLength: 500,
@@ -124,16 +179,37 @@ export class UpdateJobDescriptionDto {
   summary?: string;
 
   @ApiPropertyOptional({
-    description: 'JSON object or plain string. Plain string is stored as { text }.',
+    description: 'Plain text requirements. VCS Portal maps this from acf.qualifications.',
   })
   @IsOptional()
-  requirements?: unknown;
+  @IsString()
+  requirements?: string;
 
   @ApiPropertyOptional({
     description: 'JSON object or plain string. Plain string is stored as { text }.',
   })
   @IsOptional()
   benefits?: unknown;
+
+  @ApiPropertyOptional({ description: 'Plain text salary synced from VCS Portal acf.salary.' })
+  @IsOptional()
+  @IsString()
+  salary?: string | null;
+
+  @ApiPropertyOptional({ description: 'Plain text annual leave days synced from VCS Portal acf.annual_leave_days.' })
+  @IsOptional()
+  @IsString()
+  annualLeaveDays?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  department?: string | null;
+
+  @ApiPropertyOptional({ description: 'Application deadline date in ISO yyyy-MM-dd format.' })
+  @IsOptional()
+  @IsDateString()
+  applicationDeadline?: string | null;
 }
 
 export class CreateJobDescriptionVersionDto {

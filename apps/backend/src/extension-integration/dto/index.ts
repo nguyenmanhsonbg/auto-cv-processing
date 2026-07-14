@@ -1,5 +1,7 @@
 export * from './sync-amis-job-posting.dto';
 export * from './extension-sync-response.dto';
+export * from './extension-instance.dto';
+export * from './extension-task.dto';
 export * from './sync-amis-careers.dto';
 export * from './report-facebook-publish-result.dto';
 export * from './facebook-publish-history-status-check.dto';
@@ -8,3 +10,4 @@ export * from './update-facebook-group.dto';
 export * from './discover-facebook-groups.dto';
 export * from './sync-amis-applications.dto';
 export * from './verify-facebook-group.dto';
+export * from './sync-vcs-portal-jds.dto';

@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { UserEntity } from '../../auth/entities/user.entity';
+import { ExtensionInstanceEntity } from './extension-instance.entity';
 import {
   ExtensionIdempotencyStatus,
   ExtensionSourceSystem,
@@ -46,6 +47,13 @@ export class ExtensionIdempotencyRecordEntity {
   @ManyToOne(() => UserEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'actor_user_id' })
   actorUser: UserEntity | null;
+
+  @Column({ name: 'extension_instance_id', type: 'uuid', nullable: true })
+  extensionInstanceId: string | null;
+
+  @ManyToOne(() => ExtensionInstanceEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'extension_instance_id' })
+  extensionInstance: ExtensionInstanceEntity | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt: Date;

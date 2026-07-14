@@ -55,6 +55,21 @@ export class QuestionSetEntity {
   @Column({ type: 'varchar', default: 'DRAFT' })
   status: string;
 
+  @Column({ name: 'source_system', type: 'varchar', nullable: true })
+  sourceSystem: string | null;
+
+  @Column({ name: 'source_job_id', type: 'varchar', nullable: true })
+  sourceJobId: string | null;
+
+  @Column({ name: 'source_snapshot_hash', type: 'varchar', nullable: true })
+  sourceSnapshotHash: string | null;
+
+  @Column({ name: 'source_snapshot', type: 'jsonb', nullable: true })
+  sourceSnapshot: Record<string, unknown> | null;
+
+  @Column({ name: 'source_last_synced_at', type: 'timestamp', nullable: true })
+  sourceLastSyncedAt: Date | null;
+
   @Column({ name: 'created_by_id', type: 'uuid' })
   createdById: string;
 

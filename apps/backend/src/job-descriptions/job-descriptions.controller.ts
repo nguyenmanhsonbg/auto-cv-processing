@@ -39,6 +39,8 @@ export class JobDescriptionsController {
       status: this.normalizeStatus(query.status),
       positionId: query.positionId,
       levelId: query.levelId,
+      sourceSystem: query.sourceSystem,
+      latestSyncedOnly: this.toBoolean(query.latestSyncedOnly),
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
     });
@@ -68,9 +70,15 @@ export class JobDescriptionsController {
       positionId: dto.positionId ?? null,
       levelId: dto.levelId ?? null,
       description: dto.description,
+      overview: dto.overview ?? null,
+      responsibilities: dto.responsibilities ?? null,
       summary: dto.summary,
-      requirements: this.normalizeStructuredObject(dto.requirements, 'Requirements', true) as Record<string, unknown>,
+      requirements: this.normalizeText(dto.requirements, 'Requirements', true) as string,
       benefits: this.normalizeStructuredObject(dto.benefits, 'Benefits', false),
+      salary: dto.salary ?? null,
+      annualLeaveDays: dto.annualLeaveDays ?? null,
+      department: dto.department ?? null,
+      applicationDeadline: dto.applicationDeadline ?? null,
       createdById: req?.user?.id,
     });
 
@@ -104,13 +112,19 @@ export class JobDescriptionsController {
       positionId: dto.positionId,
       levelId: dto.levelId,
       description: dto.description,
+      overview: dto.overview,
+      responsibilities: dto.responsibilities,
       summary: dto.summary,
       requirements: dto.requirements === undefined
         ? undefined
-        : this.normalizeStructuredObject(dto.requirements, 'Requirements', true) as Record<string, unknown>,
+        : this.normalizeText(dto.requirements, 'Requirements', true) as string,
       benefits: dto.benefits === undefined
         ? undefined
         : this.normalizeStructuredObject(dto.benefits, 'Benefits', false),
+      salary: dto.salary,
+      annualLeaveDays: dto.annualLeaveDays,
+      department: dto.department,
+      applicationDeadline: dto.applicationDeadline,
     });
 
     return {
@@ -183,6 +197,10 @@ export class JobDescriptionsController {
     throw new BadRequestException('Invalid job description status');
   }
 
+  private toBoolean(value?: string) {
+    return value === 'true';
+  }
+
   private normalizeStructuredObject(
     value: unknown,
     fieldName: string,
@@ -217,6 +235,42 @@ export class JobDescriptionsController {
     throw new BadRequestException(`${fieldName} must be a JSON object or text`);
   }
 
+  private normalizeText(
+    value: unknown,
+    fieldName: string,
+    required: boolean,
+  ): string | null {
+    if (value == null || value === '') {
+      if (required) throw new BadRequestException(`${fieldName} is required`);
+      return null;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        if (required) throw new BadRequestException(`${fieldName} is required`);
+        return null;
+      }
+      return trimmed;
+    }
+
+    if (this.isRecord(value)) {
+      const textValue = this.firstTextValue(value, ['rawText', 'text', 'html']);
+      if (textValue) return textValue;
+      return JSON.stringify(value);
+    }
+
+    throw new BadRequestException(`${fieldName} must be text`);
+  }
+
+  private firstTextValue(record: Record<string, unknown>, keys: string[]) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return null;
+  }
+
   private isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
@@ -244,10 +298,32 @@ export class JobDescriptionsController {
         }
         : null,
       description: jobDescription.description,
+      overview: jobDescription.overview,
+      responsibilities: jobDescription.responsibilities,
       summary: jobDescription.summary,
       requirements: jobDescription.requirements,
       benefits: jobDescription.benefits,
+      salary: jobDescription.salary,
+      annualLeaveDays: jobDescription.annualLeaveDays,
+      department: jobDescription.department,
+      applicationDeadline: jobDescription.applicationDeadline,
       status: jobDescription.status,
+      sourceSystem: jobDescription.sourceSystem,
+      sourceJobId: jobDescription.sourceJobId,
+      sourceSlug: jobDescription.sourceSlug,
+      sourceUrl: jobDescription.sourceUrl,
+      sourceCreatedAt: jobDescription.sourceCreatedAt?.toISOString() ?? null,
+      sourceModifiedAt: jobDescription.sourceModifiedAt?.toISOString() ?? null,
+      sourceContentHash: jobDescription.sourceContentHash,
+      lastSyncedAt: jobDescription.lastSyncedAt?.toISOString() ?? null,
+      sourceCategories: (jobDescription.sourceCategories ?? []).map((category) => ({
+        id: category.id,
+        sourceSystem: category.sourceSystem,
+        sourceCategoryId: category.sourceCategoryId,
+        name: category.name,
+        displayName: category.displayName,
+        slug: category.slug,
+      })),
       createdById: jobDescription.createdById,
       createdBy: this.toUserSummary(jobDescription.createdBy),
       createdAt: jobDescription.createdAt?.toISOString(),

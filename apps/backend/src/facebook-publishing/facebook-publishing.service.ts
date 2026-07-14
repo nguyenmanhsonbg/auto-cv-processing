@@ -112,6 +112,7 @@ export class FacebookPublishingService {
       inactiveTarget.eligibilityReason = 'Group has not been verified yet.';
       inactiveTarget.lastVerifiedAt = null;
       inactiveTarget.lastDiscoveredAt = discoveryTime;
+      inactiveTarget.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? inactiveTarget.ownerExtensionInstanceId;
       return this.toResolvedTarget(await this.targetsRepo.save(inactiveTarget));
     }
 
@@ -122,6 +123,9 @@ export class FacebookPublishingService {
       externalId: groupUrl.externalId,
       url: groupUrl.url,
       ownerUserId: input.ownerUserId,
+      ownerExtensionInstanceId: input.ownerExtensionInstanceId ?? null,
+      lastVerifiedByInstanceId: null,
+      facebookAccountLabel: null,
       active: true,
       priority,
       eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
@@ -333,6 +337,7 @@ export class FacebookPublishingService {
     target.eligibilityStatus = eligibilityStatus;
     target.eligibilityReason = input.eligibilityReason?.trim() || null;
     target.lastVerifiedAt = input.verifiedAt ?? new Date();
+    target.lastVerifiedByInstanceId = input.lastVerifiedByInstanceId ?? null;
 
     return this.toResolvedTarget(await this.targetsRepo.save(target));
   }
@@ -362,6 +367,7 @@ export class FacebookPublishingService {
       jobDescriptionId: posting.jobDescriptionId ?? null,
       jobDescriptionVersionId: posting.jobDescriptionVersionId ?? null,
       targetId: input.targetId ?? null,
+      extensionInstanceId: input.extensionInstanceId ?? null,
       targetType: input.targetType,
       targetName: input.targetName,
       targetUrl: input.targetUrl ?? null,
@@ -468,6 +474,9 @@ export class FacebookPublishingService {
     if (input.externalPostUrl === undefined && input.externalPostId !== undefined) {
       history.externalPostId = input.externalPostId?.trim() || null;
     }
+    if (input.extensionInstanceId !== undefined) {
+      history.extensionInstanceId = input.extensionInstanceId ?? history.extensionInstanceId;
+    }
 
     return this.toPublishHistoryListItem(await this.historiesRepo.save(history));
   }
@@ -527,6 +536,7 @@ export class FacebookPublishingService {
       externalPostUrl: history.externalPostUrl,
       createdAt: history.createdAt?.toISOString() ?? null,
       updatedAt: history.updatedAt?.toISOString() ?? null,
+      extensionInstanceId: history.extensionInstanceId ?? null,
     };
   }
 
@@ -676,6 +686,9 @@ export class FacebookPublishingService {
         quotaExceeded,
         selectable: !disabledReason,
         disabledReason,
+        ownerExtensionInstanceId: target.ownerExtensionInstanceId,
+        lastVerifiedByInstanceId: target.lastVerifiedByInstanceId,
+        facebookAccountLabel: target.facebookAccountLabel,
       };
     });
   }

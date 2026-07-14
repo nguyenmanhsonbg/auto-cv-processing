@@ -10,9 +10,16 @@ import { saveLastAmisCapture } from './amis-capture-store';
 import { extractAmisJobFromPage } from './amis-page-extractor';
 import {
   ApiClientError,
+  claimNextExtensionTask,
+  completeExtensionTask,
+  failExtensionTask,
+  heartbeatExtensionInstance,
+  reportExtensionTaskProgress,
+  startExtensionTask,
   syncAmisApplications,
   syncAmisCareers,
   syncAndPublishAmisJob,
+  verifyFacebookGroup,
 } from './api-client';
 import { clearAccessToken, getAccessToken } from './auth-store';
 import { getSelectedChannels } from './channel-preferences';
@@ -32,8 +39,10 @@ import type {
   ExtensionChannel,
   FacebookImageAttachFailureContext,
   FacebookImageAttachFailureDecision,
+  ExtensionTask,
   FacebookPublishPlan,
   FacebookPublishTarget,
+  FacebookPublishProgress,
   SyncAmisJobPostingRequest,
 } from './types';
 
@@ -48,7 +57,10 @@ const FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_R
 const FRONTEND_FACEBOOK_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const FRONTEND_FACEBOOK_PORT = 'frontend-facebook-publish';
 const FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION = 'VCS_FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION';
+const EXTENSION_TASK_POLL_ALARM = 'vcs-extension-task-poll';
+const EXTENSION_TASK_POLL_INTERVAL_MINUTES = 1;
 const activeAutoSyncKeys = new Set<string>();
+let extensionTaskPollRunning = false;
 
 installAmisDebuggerCapture(
   (capture, sender) => handleAmisSaved(capture, sender),
@@ -58,7 +70,20 @@ installAmisDebuggerCapture(
 
 chrome.runtime?.onInstalled.addListener(() => {
   void chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true });
+  scheduleExtensionTaskPolling();
 });
+
+chrome.runtime?.onStartup?.addListener(() => {
+  scheduleExtensionTaskPolling();
+});
+
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm.name !== EXTENSION_TASK_POLL_ALARM) return;
+  void runExtensionTaskPoll();
+});
+
+scheduleExtensionTaskPolling();
+void runExtensionTaskPoll();
 
 chrome.runtime?.onMessage.addListener((message, sender) => {
   if (isAmisDiagnosticMessage(message)) {
@@ -188,6 +213,7 @@ async function handleFrontendFacebookPublish(
 ) {
   const emit = toFrontendFacebookEmitter(request.requestId, emitOrSender);
   try {
+    await heartbeatExtensionInstance(request.accessToken);
     await emit('PROGRESS', {
       status: 'LOGIN_REQUIRED',
       currentIndex: 0,
@@ -233,6 +259,141 @@ async function handleFrontendFacebookGroupVerify(
     await emit('ERROR', {
       message: error instanceof Error ? error.message : 'Facebook group verification could not be completed.',
     });
+  }
+}
+
+function scheduleExtensionTaskPolling() {
+  chrome.alarms?.create(EXTENSION_TASK_POLL_ALARM, {
+    delayInMinutes: EXTENSION_TASK_POLL_INTERVAL_MINUTES,
+    periodInMinutes: EXTENSION_TASK_POLL_INTERVAL_MINUTES,
+  });
+}
+
+async function runExtensionTaskPoll() {
+  if (extensionTaskPollRunning) return;
+  extensionTaskPollRunning = true;
+
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) return;
+
+    await heartbeatExtensionInstance(accessToken);
+    const task = await claimNextExtensionTask(accessToken);
+    if (!task) return;
+
+    await executeExtensionTask(accessToken, task);
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 401) {
+      await clearAccessToken();
+    }
+  } finally {
+    extensionTaskPollRunning = false;
+  }
+}
+
+async function executeExtensionTask(accessToken: string, task: ExtensionTask) {
+  try {
+    await startExtensionTask(accessToken, task.id);
+
+    if (task.type === 'FACEBOOK_PUBLISH') {
+      await executeFacebookPublishTask(accessToken, task);
+      return;
+    }
+
+    if (task.type === 'FACEBOOK_VERIFY') {
+      await executeFacebookVerifyTask(accessToken, task);
+      return;
+    }
+
+    await failExtensionTask(accessToken, task.id, {
+      errorCode: 'UNSUPPORTED_EXTENSION_TASK',
+      errorMessage: `${task.type} is not supported by this extension version.`,
+    });
+  } catch (error) {
+    await failClaimedTask(accessToken, task, error);
+  }
+}
+
+async function executeFacebookPublishTask(accessToken: string, task: ExtensionTask) {
+  const plan = readFacebookPublishPlanTaskPayload(task.payload);
+  if (!plan) {
+    throw new Error('FACEBOOK_PUBLISH task payload must include a valid plan.');
+  }
+
+  await reportExtensionTaskProgress(accessToken, task.id, {
+    eventType: 'FACEBOOK_PUBLISH_STARTED',
+    message: 'Starting Facebook browser automation.',
+    payload: {
+      jobPostingId: plan.jobPostingId,
+      targetCount: plan.targets.length,
+    },
+  });
+
+  const results = await publishFacebookPlan(accessToken, plan, {
+    onProgress: (progress) => {
+      void saveLastFacebookPublishProgress(progress);
+      void reportFacebookPublishTaskProgress(accessToken, task.id, progress);
+    },
+  });
+
+  await completeExtensionTask(accessToken, task.id, { results });
+}
+
+async function executeFacebookVerifyTask(accessToken: string, task: ExtensionTask) {
+  const target = readFacebookVerifyTaskPayload(task.payload);
+  if (!target) {
+    throw new Error('FACEBOOK_VERIFY task payload must include a valid target.');
+  }
+
+  await reportExtensionTaskProgress(accessToken, task.id, {
+    eventType: 'FACEBOOK_VERIFY_STARTED',
+    message: `Checking ${target.targetName}.`,
+    payload: {
+      targetId: target.targetId ?? null,
+      targetName: target.targetName,
+    },
+  });
+
+  const result = await verifyFacebookGroupPostingEligibility(target);
+  const persistedTarget = target.targetId
+    ? await verifyFacebookGroup(accessToken, target.targetId, {
+      eligibilityStatus: result.eligibilityStatus,
+      eligibilityReason: result.eligibilityReason,
+      verifiedAt: result.verifiedAt,
+    })
+    : null;
+
+  await completeExtensionTask(accessToken, task.id, {
+    verification: result,
+    target: persistedTarget,
+  });
+}
+
+async function reportFacebookPublishTaskProgress(
+  accessToken: string,
+  taskId: string,
+  progress: FacebookPublishProgress,
+) {
+  await reportExtensionTaskProgress(accessToken, taskId, {
+    eventType: `FACEBOOK_PUBLISH_${progress.status}`,
+    message: progress.message,
+    payload: {
+      currentIndex: progress.currentIndex,
+      total: progress.total,
+      targetName: progress.target?.targetName ?? null,
+      resultCount: progress.results.length,
+    },
+  });
+}
+
+async function failClaimedTask(accessToken: string, task: ExtensionTask, error: unknown) {
+  try {
+    await failExtensionTask(accessToken, task.id, {
+      errorCode: error instanceof ApiClientError ? error.code : 'EXTENSION_TASK_FAILED',
+      errorMessage: error instanceof Error ? error.message : 'Extension task failed.',
+    });
+  } catch {
+    // If the backend rejected the fail report, the lock timeout will make the task retryable.
   }
 }
 
@@ -325,6 +486,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     }
 
     try {
+      await heartbeatExtensionInstance(accessToken);
       const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(sender.tab?.id);
       const result = await syncAndPublishAmisJob(
         accessToken,
@@ -433,6 +595,7 @@ async function handleAmisCareersCaptured(capture: AmisCareerCapture, _sender: Ch
   }
 
   try {
+    await heartbeatExtensionInstance(accessToken);
     const result = await syncAmisCareers(accessToken, {
       items: capture.items,
       sourceUrl: capture.sourceUrl,
@@ -507,6 +670,7 @@ async function handleAmisApplicationsCaptured(capture: AmisApplicationsCapture, 
   }
 
   try {
+    await heartbeatExtensionInstance(accessToken);
     const result = await syncAmisApplications(accessToken, {
       items: capture.items,
       sourceUrl: capture.sourceUrl,
@@ -841,11 +1005,25 @@ function isFacebookPublishPlan(value: unknown): value is FacebookPublishPlan {
     && typeof delay.maxMs === 'number';
 }
 
+function readFacebookPublishPlanTaskPayload(payload: Record<string, unknown> | null | undefined) {
+  if (!payload) return null;
+  if (isFacebookPublishPlan(payload)) return payload;
+  const plan = payload.plan;
+  return isFacebookPublishPlan(plan) ? plan : null;
+}
+
 function isFacebookPublishTarget(value: unknown): value is FacebookPublishTarget {
   return typeof value === 'object'
     && value !== null
     && typeof (value as { targetType?: unknown }).targetType === 'string'
     && typeof (value as { targetName?: unknown }).targetName === 'string';
+}
+
+function readFacebookVerifyTaskPayload(payload: Record<string, unknown> | null | undefined) {
+  if (!payload) return null;
+  if (isFacebookPublishTarget(payload)) return payload;
+  const target = payload.target;
+  return isFacebookPublishTarget(target) ? target : null;
 }
 
 function isAmisDiagnosticMessage(value: unknown): value is {

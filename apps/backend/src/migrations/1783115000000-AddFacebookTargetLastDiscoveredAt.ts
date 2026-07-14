@@ -1,6 +1,8 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class AddFacebookTargetLastDiscoveredAt1783115000000 implements MigrationInterface {
+  name = 'AddFacebookTargetLastDiscoveredAt1783115000000';
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE "facebook_publish_targets"

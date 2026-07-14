@@ -14,6 +14,7 @@ import {
   ExtensionInternalEntityType,
   ExtensionSourceSystem,
 } from '../enums/extension-integration.enum';
+import { ExtensionInstanceEntity } from './extension-instance.entity';
 
 @Entity('recruitment_external_references')
 @Index(
@@ -60,6 +61,13 @@ export class RecruitmentExternalReferenceEntity {
 
   @Column({ name: 'last_idempotency_key', type: 'varchar', nullable: true })
   lastIdempotencyKey: string | null;
+
+  @Column({ name: 'last_synced_by_extension_instance_id', type: 'uuid', nullable: true })
+  lastSyncedByExtensionInstanceId: string | null;
+
+  @ManyToOne(() => ExtensionInstanceEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'last_synced_by_extension_instance_id' })
+  lastSyncedByExtensionInstance: ExtensionInstanceEntity | null;
 
   @Column({ name: 'last_synced_at', type: 'timestamp', nullable: true })
   lastSyncedAt: Date | null;

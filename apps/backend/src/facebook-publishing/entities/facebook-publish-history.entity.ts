@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { ExtensionInstanceEntity } from '../../extension-integration/entities/extension-instance.entity';
 import { JobPostingEntity } from '../../job-postings/entities/job-posting.entity';
 import {
   FacebookPublishResultStatus,
@@ -43,6 +44,13 @@ export class FacebookPublishHistoryEntity {
   @ManyToOne(() => FacebookPublishTargetEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'target_id' })
   target: FacebookPublishTargetEntity | null;
+
+  @Column({ name: 'extension_instance_id', type: 'uuid', nullable: true })
+  extensionInstanceId: string | null;
+
+  @ManyToOne(() => ExtensionInstanceEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'extension_instance_id' })
+  extensionInstance: ExtensionInstanceEntity | null;
 
   @Column({ name: 'target_type', type: 'varchar' })
   targetType: FacebookPublishTargetType;

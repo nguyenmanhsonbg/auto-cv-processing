@@ -48,8 +48,22 @@ export interface JobDescriptionRecord {
   level?: RecruitmentRelationSummary | null;
   summary?: string | null;
   description?: string | null;
-  requirements?: unknown;
+  overview?: string | null;
+  responsibilities?: string | null;
+  requirements?: string | null;
   benefits?: unknown;
+  salary?: string | null;
+  annualLeaveDays?: string | null;
+  department?: string | null;
+  applicationDeadline?: string | null;
+  sourceSystem?: string | null;
+  sourceJobId?: string | null;
+  sourceSlug?: string | null;
+  sourceUrl?: string | null;
+  sourceCreatedAt?: string | null;
+  sourceModifiedAt?: string | null;
+  sourceContentHash?: string | null;
+  lastSyncedAt?: string | null;
   status?: string | null;
   createdById?: string | null;
   createdBy?: RecruitmentRelationSummary | null;
@@ -87,8 +101,14 @@ export interface JobDescriptionPayload {
   levelId?: string | null;
   summary: string;
   description: string;
-  requirements: Record<string, unknown>;
+  overview?: string | null;
+  responsibilities?: string | null;
+  requirements: string;
   benefits?: Record<string, unknown> | null;
+  salary?: string | null;
+  annualLeaveDays?: string | null;
+  department?: string | null;
+  applicationDeadline?: string | null;
 }
 
 export interface ListJobDescriptionsParams {

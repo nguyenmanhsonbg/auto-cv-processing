@@ -13,9 +13,15 @@ export interface CreateJobDescriptionInput {
   positionId?: string | null;
   levelId?: string | null;
   description: string;
+  overview?: string | null;
+  responsibilities?: string | null;
   summary: string;
-  requirements: Record<string, unknown>;
+  requirements: string;
   benefits?: Record<string, unknown> | null;
+  salary?: string | null;
+  annualLeaveDays?: string | null;
+  department?: string | null;
+  applicationDeadline?: string | null;
   status?: JobDescriptionStatus;
   createdById: string;
 }
@@ -25,9 +31,15 @@ export interface UpdateJobDescriptionInput {
   positionId?: string | null;
   levelId?: string | null;
   description?: string;
+  overview?: string | null;
+  responsibilities?: string | null;
   summary?: string;
-  requirements?: Record<string, unknown>;
+  requirements?: string;
   benefits?: Record<string, unknown> | null;
+  salary?: string | null;
+  annualLeaveDays?: string | null;
+  department?: string | null;
+  applicationDeadline?: string | null;
   status?: JobDescriptionStatus;
 }
 
@@ -38,9 +50,26 @@ export interface ListJobDescriptionsParams {
   status?: JobDescriptionStatus;
   positionId?: string;
   levelId?: string;
+  sourceSystem?: string;
+  latestSyncedOnly?: boolean;
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
 }
+
+const VCS_PORTAL_SOURCE_SYSTEM = 'VCS_PORTAL';
+const VCS_PORTAL_MANAGED_BUSINESS_FIELDS: Array<keyof UpdateJobDescriptionInput> = [
+  'title',
+  'description',
+  'overview',
+  'responsibilities',
+  'summary',
+  'requirements',
+  'benefits',
+  'salary',
+  'annualLeaveDays',
+  'department',
+  'applicationDeadline',
+];
 
 @Injectable()
 export class JobDescriptionsService {
@@ -57,7 +86,7 @@ export class JobDescriptionsService {
 
   findAll() {
     return this.jobDescriptionsRepo.find({
-      relations: ['position', 'level', 'createdBy'],
+      relations: ['position', 'level', 'createdBy', 'sourceCategories'],
       order: { createdAt: 'DESC' },
     });
   }
@@ -74,6 +103,7 @@ export class JobDescriptionsService {
       status: 'jd.status',
       createdAt: 'jd.createdAt',
       updatedAt: 'jd.updatedAt',
+      lastSyncedAt: 'jd.lastSyncedAt',
     };
     const sortCol = allowedSorts[params.sortBy ?? ''] ?? 'jd.createdAt';
 
@@ -82,13 +112,25 @@ export class JobDescriptionsService {
       .leftJoinAndSelect('jd.position', 'position')
       .leftJoinAndSelect('jd.level', 'level')
       .leftJoinAndSelect('jd.createdBy', 'createdBy')
+      .leftJoinAndSelect('jd.sourceCategories', 'sourceCategories')
       .orderBy(sortCol, sortOrder);
 
     const search = params.search?.trim();
     if (search) {
-      qb.andWhere('(jd.title ILIKE :search OR jd.summary ILIKE :search OR jd.description ILIKE :search)', {
-        search: `%${search}%`,
-      });
+      qb.andWhere(
+        `(
+          jd.title ILIKE :search
+          OR jd.summary ILIKE :search
+          OR jd.description ILIKE :search
+          OR jd.overview ILIKE :search
+          OR jd.responsibilities ILIKE :search
+          OR jd.requirements ILIKE :search
+          OR jd.salary ILIKE :search
+          OR jd.annual_leave_days ILIKE :search
+          OR jd.department ILIKE :search
+        )`,
+        { search: `%${search}%` },
+      );
     }
 
     if (params.status !== undefined) {
@@ -104,6 +146,26 @@ export class JobDescriptionsService {
       qb.andWhere('jd.levelId = :levelId', { levelId: params.levelId });
     }
 
+    const sourceSystem = params.sourceSystem?.trim();
+    if (sourceSystem) {
+      qb.andWhere('jd.sourceSystem = :sourceSystem', { sourceSystem });
+    }
+
+    if (params.latestSyncedOnly) {
+      const latestSyncConditions = ['latest_jd.last_synced_at IS NOT NULL'];
+      if (sourceSystem) {
+        latestSyncConditions.push('latest_jd.source_system = :sourceSystem');
+      }
+      if (params.status !== undefined) {
+        latestSyncConditions.push('latest_jd.status = :status');
+      }
+      qb.andWhere(`jd.lastSyncedAt = (
+        SELECT MAX(latest_jd.last_synced_at)
+        FROM job_descriptions latest_jd
+        WHERE ${latestSyncConditions.join(' AND ')}
+      )`);
+    }
+
     const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
@@ -111,7 +173,7 @@ export class JobDescriptionsService {
   async findOne(id: string) {
     const jobDescription = await this.jobDescriptionsRepo.findOne({
       where: { id },
-      relations: ['position', 'level', 'createdBy'],
+      relations: ['position', 'level', 'createdBy', 'sourceCategories'],
     });
     if (!jobDescription) throw new BadRequestException('Job description not found');
     return jobDescription;
@@ -131,9 +193,15 @@ export class JobDescriptionsService {
       positionId: input.positionId ?? null,
       levelId: input.levelId ?? null,
       description,
+      overview: this.optionalText(input.overview, 'Overview'),
+      responsibilities: this.optionalText(input.responsibilities, 'Responsibilities'),
       summary,
-      requirements: this.requireJsonObject(input.requirements, 'Requirements'),
+      requirements: this.requireText(input.requirements, 'Requirements'),
       benefits: this.optionalJsonObject(input.benefits, 'Benefits'),
+      salary: this.optionalText(input.salary, 'Salary'),
+      annualLeaveDays: this.optionalText(input.annualLeaveDays, 'Annual leave days'),
+      department: this.optionalText(input.department, 'Department'),
+      applicationDeadline: this.optionalDate(input.applicationDeadline, 'Application deadline'),
       status: input.status ?? JobDescriptionStatus.DRAFT,
       createdById,
     });
@@ -143,6 +211,7 @@ export class JobDescriptionsService {
 
   async update(id: string, input: UpdateJobDescriptionInput) {
     const jobDescription = await this.findOne(id);
+    this.assertPortalManagedFieldsAreNotEdited(jobDescription, input);
 
     if (input.title !== undefined) {
       jobDescription.title = this.requireText(input.title, 'Title');
@@ -162,16 +231,43 @@ export class JobDescriptionsService {
       jobDescription.description = this.requireText(input.description, 'Description');
     }
 
+    if (input.overview !== undefined) {
+      jobDescription.overview = this.optionalText(input.overview, 'Overview');
+    }
+
+    if (input.responsibilities !== undefined) {
+      jobDescription.responsibilities = this.optionalText(input.responsibilities, 'Responsibilities');
+    }
+
     if (input.summary !== undefined) {
       jobDescription.summary = this.requireText(input.summary, 'Summary', 500);
     }
 
     if (input.requirements !== undefined) {
-      jobDescription.requirements = this.requireJsonObject(input.requirements, 'Requirements');
+      jobDescription.requirements = this.requireText(input.requirements, 'Requirements');
     }
 
     if (input.benefits !== undefined) {
       jobDescription.benefits = this.optionalJsonObject(input.benefits, 'Benefits');
+    }
+
+    if (input.salary !== undefined) {
+      jobDescription.salary = this.optionalText(input.salary, 'Salary');
+    }
+
+    if (input.annualLeaveDays !== undefined) {
+      jobDescription.annualLeaveDays = this.optionalText(input.annualLeaveDays, 'Annual leave days');
+    }
+
+    if (input.department !== undefined) {
+      jobDescription.department = this.optionalText(input.department, 'Department');
+    }
+
+    if (input.applicationDeadline !== undefined) {
+      jobDescription.applicationDeadline = this.optionalDate(
+        input.applicationDeadline,
+        'Application deadline',
+      );
     }
 
     if (input.status !== undefined) {
@@ -202,13 +298,6 @@ export class JobDescriptionsService {
     return normalized;
   }
 
-  private requireJsonObject(value: Record<string, unknown>, fieldName: string) {
-    if (!this.isJsonObject(value)) {
-      throw new BadRequestException(`${fieldName} must be a JSON object`);
-    }
-    return value;
-  }
-
   private optionalJsonObject(
     value: Record<string, unknown> | null | undefined,
     fieldName: string,
@@ -220,8 +309,50 @@ export class JobDescriptionsService {
     return value;
   }
 
+  private optionalText(value: string | null | undefined, fieldName: string) {
+    if (value == null) return null;
+    if (typeof value !== 'string') {
+      throw new BadRequestException(`${fieldName} must be text`);
+    }
+    return value.trim() || null;
+  }
+
+  private optionalDate(value: string | null | undefined, fieldName: string) {
+    if (value == null || value === '') return null;
+    if (typeof value !== 'string') {
+      throw new BadRequestException(`${fieldName} must be a date string`);
+    }
+
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+    const date = new Date(trimmed);
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(`${fieldName} must be a valid date`);
+    }
+    return date.toISOString().slice(0, 10);
+  }
+
   private isJsonObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private assertPortalManagedFieldsAreNotEdited(
+    jobDescription: JobDescriptionEntity,
+    input: UpdateJobDescriptionInput,
+  ) {
+    if (jobDescription.sourceSystem !== VCS_PORTAL_SOURCE_SYSTEM) return;
+
+    const editedFields = VCS_PORTAL_MANAGED_BUSINESS_FIELDS.filter((fieldName) =>
+      input[fieldName] !== undefined,
+    );
+    if (editedFields.length === 0) return;
+
+    throw new BadRequestException({
+      code: 'VCS_PORTAL_JD_LOCAL_EDIT_BLOCKED',
+      message: 'VCS Portal job descriptions cannot be edited locally for source-managed business fields.',
+      details: { fields: editedFields },
+    });
   }
 
   private assertValidStatus(status: JobDescriptionStatus) {

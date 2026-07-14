@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { UserEntity } from '../../auth/entities/user.entity';
+import { ExtensionInstanceEntity } from '../../extension-integration/entities/extension-instance.entity';
 import {
   FacebookPublishTargetEligibilityStatus,
   FacebookPublishTargetType,
@@ -40,6 +41,13 @@ export class FacebookPublishTargetEntity {
   @JoinColumn({ name: 'owner_user_id' })
   ownerUser: UserEntity | null;
 
+  @Column({ name: 'owner_extension_instance_id', type: 'uuid', nullable: true })
+  ownerExtensionInstanceId: string | null;
+
+  @ManyToOne(() => ExtensionInstanceEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'owner_extension_instance_id' })
+  ownerExtensionInstance: ExtensionInstanceEntity | null;
+
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
@@ -55,6 +63,16 @@ export class FacebookPublishTargetEntity {
 
   @Column({ name: 'last_verified_at', type: 'timestamp', nullable: true })
   lastVerifiedAt: Date | null;
+
+  @Column({ name: 'last_verified_by_instance_id', type: 'uuid', nullable: true })
+  lastVerifiedByInstanceId: string | null;
+
+  @ManyToOne(() => ExtensionInstanceEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'last_verified_by_instance_id' })
+  lastVerifiedByInstance: ExtensionInstanceEntity | null;
+
+  @Column({ name: 'facebook_account_label', type: 'varchar', nullable: true })
+  facebookAccountLabel: string | null;
 
   @Column({ name: 'last_discovered_at', type: 'timestamp', nullable: true })
   lastDiscoveredAt: Date | null;

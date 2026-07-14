@@ -31,9 +31,31 @@ export interface JobDescriptionSummary {
   } | null;
   summary?: string | null;
   description: string;
-  requirements?: Record<string, unknown> | null;
+  overview?: string | null;
+  responsibilities?: string | null;
+  requirements?: string | null;
   benefits?: Record<string, unknown> | null;
+  salary?: string | null;
+  annualLeaveDays?: string | null;
+  department?: string | null;
+  applicationDeadline?: string | null;
   status: string;
+  sourceSystem?: string | null;
+  sourceJobId?: string | null;
+  sourceSlug?: string | null;
+  sourceUrl?: string | null;
+  sourceCreatedAt?: string | null;
+  sourceModifiedAt?: string | null;
+  sourceContentHash?: string | null;
+  lastSyncedAt?: string | null;
+  sourceCategories?: Array<{
+    id: string;
+    sourceSystem: string;
+    sourceCategoryId?: string | null;
+    name: string;
+    displayName: string;
+    slug: string;
+  }>;
   createdBy?: {
     id: string;
     email?: string | null;
@@ -69,6 +91,38 @@ export interface ExtensionQuestion {
   expectedAnswer?: string | null;
   scoringGuide?: string | null;
   isActive: boolean;
+}
+
+export interface JobDescriptionQuestionSetItem {
+  id: string;
+  questionSetItemId: string;
+  questionId?: string | null;
+  text: string;
+  type: string;
+  required: boolean;
+  orderIndex: number;
+  category?: string | null;
+  subcategory?: string | null;
+  competencyType?: string | null;
+  difficulty?: number | null;
+  targetLevels?: string[];
+  expectedAnswer?: string | null;
+  scoringGuide?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface JobDescriptionQuestionSetContext {
+  jobDescription: JobDescriptionSummary;
+  questionSet: {
+    id: string;
+    name: string;
+    status: string;
+    sourceSystem?: string | null;
+    sourceJobId?: string | null;
+    sourceLastSyncedAt?: string | null;
+    updatedAt?: string | null;
+  } | null;
+  questions: JobDescriptionQuestionSetItem[];
 }
 
 export interface AmisCareerQuestionCategory {
@@ -114,6 +168,63 @@ export type ExtensionChannel =
   | 'ITVIEC'
   | 'VIETNAMWORKS'
   | 'LINKEDIN';
+
+export type ExtensionCapability =
+  | 'AMIS_SYNC'
+  | 'FACEBOOK_PUBLISH'
+  | 'FACEBOOK_VERIFY'
+  | 'CV_UPLOAD_TO_AMIS';
+
+export type ExtensionInstanceStatus = 'ONLINE' | 'OFFLINE' | 'DISABLED';
+export type ExtensionTaskType =
+  | 'AMIS_SYNC'
+  | 'FACEBOOK_PUBLISH'
+  | 'FACEBOOK_VERIFY'
+  | 'CV_UPLOAD_TO_AMIS';
+export type ExtensionTaskStatus =
+  | 'PENDING'
+  | 'CLAIMED'
+  | 'RUNNING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'CANCELED';
+
+export interface ExtensionInstance {
+  id: string;
+  ownerUserId: string;
+  installId: string;
+  displayName?: string | null;
+  version?: string | null;
+  status: ExtensionInstanceStatus;
+  capabilities: ExtensionCapability[];
+  lastSeenAt?: string | null;
+  registeredAt: string;
+  disabledAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExtensionTask {
+  id: string;
+  type: ExtensionTaskType;
+  status: ExtensionTaskStatus;
+  requestedByUserId: string;
+  assignedInstanceId?: string | null;
+  claimedByInstanceId?: string | null;
+  lockedUntil?: string | null;
+  payload?: Record<string, unknown> | null;
+  result?: Record<string, unknown> | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  attemptCount: number;
+  maxAttempts: number;
+  priority: number;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface AmisJobRequirements {
   rawText: string;
@@ -220,6 +331,9 @@ export interface FacebookPublishTarget {
   quotaExceeded: boolean;
   selectable: boolean;
   disabledReason?: string | null;
+  ownerExtensionInstanceId?: string | null;
+  lastVerifiedByInstanceId?: string | null;
+  facebookAccountLabel?: string | null;
 }
 
 export interface CreateFacebookGroupRequest {
@@ -349,6 +463,7 @@ export interface FacebookPublishHistoryListItem {
   lastStatusCheckMessage?: string | null;
   externalPostId?: string | null;
   externalPostUrl?: string | null;
+  extensionInstanceId?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }
@@ -454,6 +569,29 @@ export interface SyncAmisApplicationsResponse {
   lastSyncedAt: string;
 }
 
+export interface SyncVcsPortalJdWarning {
+  code: string;
+  message: string;
+  sourceJobId?: string | null;
+  sourceSlug?: string | null;
+  page?: number | null;
+}
+
+export interface SyncVcsPortalJdsResponse {
+  fetchedCount: number;
+  pagesFetched: number;
+  createdCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  archivedCount: number;
+  failedCount: number;
+  questionSetCreatedCount: number;
+  questionSetDeletedCount: number;
+  questionCount: number;
+  lastSyncedAt: string;
+  warnings?: SyncVcsPortalJdWarning[];
+}
+
 export interface AmisApplicationListItem {
   applicationId: string;
   candidateId: string;
@@ -461,6 +599,16 @@ export interface AmisApplicationListItem {
   email: string | null;
   mobile: string | null;
   status: string;
+  formStatus: string | null;
+  latestForm: {
+    formSessionId: string;
+    status: string;
+    expiresAt: string;
+    sentAt: string | null;
+    openedAt: string | null;
+    submittedAt: string | null;
+    createdAt: string;
+  } | null;
   currentCvDocumentId: string | null;
   cvScanStatus: string | null;
   cvSanitizeStatus: string | null;

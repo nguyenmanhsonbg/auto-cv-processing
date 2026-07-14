@@ -42,12 +42,16 @@ export interface ResolvedFacebookPublishTarget {
   quotaExceeded: boolean;
   selectable: boolean;
   disabledReason?: string | null;
+  ownerExtensionInstanceId?: string | null;
+  lastVerifiedByInstanceId?: string | null;
+  facebookAccountLabel?: string | null;
 }
 
 export interface CreateFacebookGroupInput {
   ownerUserId: string;
   targetName: string;
   targetUrl: string;
+  ownerExtensionInstanceId?: string | null;
 }
 
 export interface UpdateFacebookGroupInput extends CreateFacebookGroupInput {
@@ -60,6 +64,7 @@ export interface UpdateFacebookGroupVerificationInput {
   eligibilityStatus: FacebookPublishTargetEligibilityStatus;
   eligibilityReason?: string | null;
   verifiedAt?: Date | null;
+  lastVerifiedByInstanceId?: string | null;
 }
 
 export interface ExtensionFacebookPublishPlan {
@@ -108,6 +113,7 @@ export interface ReportFacebookPublishResultInput {
   externalPostId?: string | null;
   externalPostUrl?: string | null;
   submittedAt?: Date | null;
+  extensionInstanceId?: string | null;
 }
 
 export interface ListFacebookPublishHistoriesInput {
@@ -126,4 +132,5 @@ export interface UpdateFacebookPublishHistoryStatusCheckInput {
   externalPostUrl?: string | null;
   externalPostId?: string | null;
   checkedAt?: Date | null;
+  extensionInstanceId?: string | null;
 }

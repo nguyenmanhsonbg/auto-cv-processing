@@ -14,6 +14,7 @@ import { ApplicationEntity } from '../../applications/entities/application.entit
 import { UserEntity } from '../../auth/entities/user.entity';
 import { JobDescriptionEntity } from '../../job-descriptions/entities/job-description.entity';
 import { JobDescriptionVersionEntity } from '../../job-descriptions/entities/job-description-version.entity';
+import { QuestionSetEntity } from '../../questions/entities/question-set.entity';
 
 @Entity('job_postings')
 @Index('UQ_job_postings_public_slug', ['publicSlug'], { unique: true })
@@ -60,6 +61,13 @@ export class JobPostingEntity {
 
   @Column({ name: 'form_question_ids', type: 'jsonb', nullable: true })
   formQuestionIds: string[] | null;
+
+  @Column({ name: 'form_question_set_id', type: 'uuid', nullable: true })
+  formQuestionSetId: string | null;
+
+  @ManyToOne(() => QuestionSetEntity, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'form_question_set_id' })
+  formQuestionSet: QuestionSetEntity | null;
 
   @Column({ name: 'created_by_id', type: 'uuid' })
   createdById: string;

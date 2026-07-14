@@ -38,6 +38,7 @@ export class ExtensionIdempotencyService {
     sourceSystem: ExtensionSourceSystem;
     requestHash: string;
     actorUserId?: string;
+    extensionInstanceId?: string | null;
   }) {
     const record = this.idempotencyRecordsRepo.create({
       idempotencyKey: input.idempotencyKey,
@@ -46,6 +47,7 @@ export class ExtensionIdempotencyService {
       status: ExtensionIdempotencyStatus.PROCESSING,
       responseData: null,
       actorUserId: input.actorUserId ?? null,
+      extensionInstanceId: input.extensionInstanceId ?? null,
     });
 
     return this.idempotencyRecordsRepo.save(record);
