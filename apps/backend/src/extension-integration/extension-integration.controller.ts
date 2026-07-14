@@ -217,6 +217,12 @@ export class ExtensionIntegrationController {
     return this.extensionIntegrationService.getAmisCareerQuestionContext(amisCareerId);
   }
 
+  @Get('job-descriptions/:jobDescriptionId/question-set')
+  @ApiOperation({ summary: 'List active question set items for a selected job description' })
+  async getJobDescriptionQuestionSet(@Param('jobDescriptionId') jobDescriptionId: string) {
+    return this.extensionIntegrationService.getJobDescriptionQuestionSetContext(jobDescriptionId);
+  }
+
   @Post('careers/:amisCareerId/questions')
   @ApiOperation({ summary: 'Create a question under a category mapped to an AMIS career' })
   @ApiBody({ type: CreateAmisCareerQuestionDto })

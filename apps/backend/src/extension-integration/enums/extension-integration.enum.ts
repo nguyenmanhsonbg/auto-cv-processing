@@ -2,6 +2,7 @@ import { RecruitmentChannel } from '../../recruitment-common';
 
 export enum ExtensionSourceSystem {
   AMIS = 'AMIS',
+  VCS_PORTAL = 'VCS_PORTAL',
 }
 
 export enum ExtensionExternalEntityType {

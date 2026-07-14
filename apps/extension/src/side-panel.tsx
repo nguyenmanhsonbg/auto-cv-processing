@@ -7,22 +7,21 @@ import { getAmisDiagnostics } from './amis-diagnostics-store';
 import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
 import {
   ApiClientError,
-  createAmisCareerQuestion,
   createFacebookGroup,
   deleteFacebookGroup,
   downloadCleanCvFile,
   getAmisApplicationsForRecruitment,
-  getAmisCareerQuestionContext,
   getCurrentUser,
   getFacebookGroups,
   discoverFacebookGroups,
   generateFacebookPreviewContent,
+  getJobDescriptionQuestionSet,
   listFacebookGroupPublishHistories,
   listJobDescriptions,
-  listAmisCareers,
   login,
   syncAmisApplications,
   syncAndPublishAmisJob,
+  syncVcsPortalJobDescriptions,
   updateFacebookGroup,
   updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
@@ -46,15 +45,12 @@ import { saveSelectedJobQuestionContext } from './selected-job-question-store';
 import type {
   AmisDiagnosticEvent,
   AmisAutoSyncState,
-  AmisCareerQuestionContext,
   AmisApplicationsForRecruitment,
   AmisApplicationItem,
-  AmisSelectedCareerResult,
   AmisExtractionResult,
   AmisJobSnapshot,
   ApiPagination,
   ChannelPostingResult,
-  ExtensionQuestion,
   ExtensionChannel,
   ExtensionSyncResponse,
   ExtensionUser,
@@ -65,8 +61,11 @@ import type {
   FacebookPublishTarget,
   FacebookPublishTargetEligibilityStatus,
   FacebookReviewStatus,
+  JobDescriptionQuestionSetContext,
+  JobDescriptionQuestionSetItem,
   JobDescriptionSummary,
   SyncAmisJobPostingRequest,
+  SyncVcsPortalJdsResponse,
 } from './types';
 import './styles.css';
 
@@ -87,6 +86,7 @@ type FacebookGroupLoadState =
   | 'ERROR';
 type FacebookGroupModalMode = 'SETTINGS' | 'EDIT' | 'DELETE';
 type ApplicationsState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
+type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 
 interface FacebookHistoryGroup {
   id: string | null;
@@ -98,31 +98,16 @@ interface FacebookHistoryGroup {
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
 const FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
 const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
-const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
-const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
 const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
-const CAREER_QUESTION_SELECTION_PREFIX = 'vcs:selected-career-questions:';
+const JOB_DESCRIPTION_QUESTION_SELECTION_PREFIX = 'vcs:selected-jd-questions:';
 const MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS = 3;
 const TARGET_LEVEL_OPTIONS = [
   { value: 'ENTRY', label: 'Entry Level' },
   { value: 'EXPERIENCED', label: 'Experienced' },
   { value: 'SENIOR', label: 'Senior' },
   { value: 'SPECIALIST', label: 'Specialist / Expert' },
-];
-const DIFFICULTY_OPTIONS = [
-  { value: '1', label: '1 - Basic' },
-  { value: '2', label: '2 - Easy' },
-  { value: '3', label: '3 - Intermediate' },
-  { value: '4', label: '4 - Advanced' },
-  { value: '5', label: '5 - Expert' },
-];
-const COMPETENCY_TYPE_OPTIONS = [
-  { value: 'INHERIT', label: 'Inherit from subcategory' },
-  { value: 'KNOWLEDGE', label: 'Knowledge' },
-  { value: 'SKILL', label: 'Skill' },
-  { value: 'PERSONALITY', label: 'Personality' },
 ];
 const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'overview', label: 'Tổng Quan' },
@@ -139,9 +124,15 @@ const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label:
 ];
 const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
 type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
+type ApplicationQuestionStatusCode = 'ANSWERED' | 'SENT' | 'OPENED' | 'EXPIRED' | 'NOT_SENT';
+type ApplicationQuestionStatus = {
+  code: ApplicationQuestionStatusCode;
+  label: string;
+  tone: 'is-success' | 'is-warning' | 'is-danger' | 'is-muted';
+};
 
-function getCareerQuestionSelectionStorageKey(amisCareerId: string) {
-  return `${CAREER_QUESTION_SELECTION_PREFIX}${amisCareerId}`;
+function getJobDescriptionQuestionSelectionStorageKey(jobDescriptionId: string) {
+  return `${JOB_DESCRIPTION_QUESTION_SELECTION_PREFIX}${jobDescriptionId}`;
 }
 
 function SidePanel() {
@@ -208,20 +199,14 @@ function SidePanel() {
   const [jobDescriptionFillState, setJobDescriptionFillState] = useState<JobDescriptionFillState>('IDLE');
   const [jobDescriptionFillMessage, setJobDescriptionFillMessage] = useState<string | null>(null);
   const [fillingJobDescriptionId, setFillingJobDescriptionId] = useState<string | null>(null);
-  const [selectedCareerName, setSelectedCareerName] = useState<string | null>(null);
+  const [vcsPortalSyncState, setVcsPortalSyncState] = useState<VcsPortalSyncState>('IDLE');
+  const [vcsPortalSyncResult, setVcsPortalSyncResult] = useState<SyncVcsPortalJdsResponse | null>(null);
+  const [vcsPortalSyncMessage, setVcsPortalSyncMessage] = useState<string | null>(null);
+  const [selectedJobDescription, setSelectedJobDescription] = useState<JobDescriptionSummary | null>(null);
   const [careerQuestionState, setCareerQuestionState] = useState<CareerQuestionState>('IDLE');
   const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
-  const [careerQuestionContext, setCareerQuestionContext] = useState<AmisCareerQuestionContext | null>(null);
-  const [newQuestionCategory, setNewQuestionCategory] = useState('');
-  const [newQuestionSubcategory, setNewQuestionSubcategory] = useState('');
-  const [newQuestionText, setNewQuestionText] = useState('');
-  const [newQuestionExpectedAnswer, setNewQuestionExpectedAnswer] = useState('');
-  const [newQuestionDrawerOpen, setNewQuestionDrawerOpen] = useState(false);
-  const [newQuestionCompetencyType, setNewQuestionCompetencyType] = useState('INHERIT');
-  const [newQuestionDifficulty, setNewQuestionDifficulty] = useState('3');
-  const [newQuestionTargetLevels, setNewQuestionTargetLevels] = useState<string[]>(['SENIOR']);
-  const [newQuestionSaving, setNewQuestionSaving] = useState(false);
-  const [selectedCareerQuestionIds, setSelectedCareerQuestionIds] = useState<Set<string>>(new Set());
+  const [jobDescriptionQuestionContext, setJobDescriptionQuestionContext] = useState<JobDescriptionQuestionSetContext | null>(null);
+  const [selectedJobQuestionIds, setSelectedJobQuestionIds] = useState<Set<string>>(new Set());
   const [applicationsState, setApplicationsState] = useState<ApplicationsState>('IDLE');
   const [applicationsContext, setApplicationsContext] = useState<AmisApplicationsForRecruitment | null>(null);
   const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
@@ -229,7 +214,7 @@ function SidePanel() {
   const [selectedApplicationCvIds, setSelectedApplicationCvIds] = useState<Set<string>>(new Set());
   const [selectedCvApplicationIds, setSelectedCvApplicationIds] = useState<Set<string>>(new Set());
   const [isCvSyncReviewOpen, setIsCvSyncReviewOpen] = useState(false);
-  const lastCareerContextIdRef = useRef<string | null>(null);
+  const lastJobQuestionContextIdRef = useRef<string | null>(null);
   const lastApplicationsFallbackSyncUrlRef = useRef<string | null>(null);
   const activeAmisRecruitmentIdRef = useRef<string | null>(null);
   const activeSnapshotRecruitmentIdRef = useRef<string | null>(null);
@@ -302,14 +287,6 @@ function SidePanel() {
         return;
       }
 
-      if (isSelectedCareerChangedMessage(message)) {
-        setSelectedCareerName(message.payload.careerName || null);
-        if (tokenRef.current) {
-          void refreshSelectedCareerContext(tokenRef.current, { silent: true });
-        }
-        return;
-      }
-
       if (isRecruitmentContextChangedMessage(message)) {
         void refreshAmisRecruitmentContextFromActiveTab({
           silent: true,
@@ -348,17 +325,6 @@ function SidePanel() {
   }, [token]);
 
   useEffect(() => {
-    if (!token) return;
-
-    void refreshSelectedCareerContext(token, { silent: true });
-    const intervalId = window.setInterval(() => {
-      void refreshSelectedCareerContext(token, { silent: true });
-    }, 3000);
-
-    return () => window.clearInterval(intervalId);
-  }, [token]);
-
-  useEffect(() => {
     if (!token || !amisRecruitmentId) {
       setApplicationsContext(null);
       setApplicationsState('IDLE');
@@ -386,18 +352,6 @@ function SidePanel() {
     );
   }, [applicationsContext]);
 
-  useEffect(() => {
-    const firstCategory = careerQuestionContext?.categories[0];
-    if (!firstCategory) {
-      setNewQuestionCategory('');
-      setNewQuestionSubcategory('');
-      return;
-    }
-
-    setNewQuestionCategory((current) => current || firstCategory.name);
-    setNewQuestionSubcategory((current) => current || firstCategory.subcategories[0]?.name || '');
-  }, [careerQuestionContext]);
-
   const selectedPostingChannels = useMemo(() => normalizePostingChannels(channels), [channels]);
   const missingFields = useMemo(() => {
     const missing: string[] = [];
@@ -420,22 +374,14 @@ function SidePanel() {
 
   const selectedPostingChannelCount = selectedPostingChannels.length;
   const allChannelsSelected = selectedPostingChannelCount === POSTING_CHANNELS.length;
-  const selectedNewQuestionCategory = useMemo(
-    () => careerQuestionContext?.categories.find((category) => category.name === newQuestionCategory) ?? null,
-    [careerQuestionContext, newQuestionCategory],
-  );
-  const selectedNewQuestionSubcategory = useMemo(
-    () => selectedNewQuestionCategory?.subcategories.find((subcategory) => subcategory.name === newQuestionSubcategory) ?? null,
-    [newQuestionSubcategory, selectedNewQuestionCategory],
-  );
   const selectedCareerQuestionCount = useMemo(() => {
-    if (!careerQuestionContext) return 0;
+    if (!jobDescriptionQuestionContext) return 0;
 
-    const visibleQuestionIds = new Set(careerQuestionContext.questions.map((question) => question.id));
-    return Array.from(selectedCareerQuestionIds).filter((questionId) => visibleQuestionIds.has(questionId)).length;
-  }, [careerQuestionContext, selectedCareerQuestionIds]);
-  const allCareerQuestionsSelected = Boolean(careerQuestionContext?.questions.length)
-    && selectedCareerQuestionCount === careerQuestionContext?.questions.length;
+    const visibleQuestionIds = new Set(jobDescriptionQuestionContext.questions.map((question) => question.id));
+    return Array.from(selectedJobQuestionIds).filter((questionId) => visibleQuestionIds.has(questionId)).length;
+  }, [jobDescriptionQuestionContext, selectedJobQuestionIds]);
+  const allCareerQuestionsSelected = Boolean(jobDescriptionQuestionContext?.questions.length)
+    && selectedCareerQuestionCount === jobDescriptionQuestionContext?.questions.length;
 
   const visibleFacebookGroups = useMemo(() => {
     if (facebookGroups.length > 0) {
@@ -609,6 +555,37 @@ function SidePanel() {
 
       setJobDescriptionError(toErrorMessage(err));
       setJobDescriptionStatus('ERROR');
+    }
+  }
+
+  async function syncPortalJobDescriptions() {
+    if (!token || vcsPortalSyncState === 'SYNCING') return;
+
+    setVcsPortalSyncState('SYNCING');
+    setVcsPortalSyncMessage(null);
+    setVcsPortalSyncResult(null);
+
+    try {
+      const response = await syncVcsPortalJobDescriptions(token);
+      setVcsPortalSyncResult(response);
+      setVcsPortalSyncState(response.failedCount > 0 ? 'ERROR' : 'SUCCESS');
+      setVcsPortalSyncMessage(
+        response.failedCount > 0
+          ? `${response.failedCount} Portal item(s) failed. Synced ${response.createdCount + response.updatedCount + response.unchangedCount} item(s).`
+          : `Portal sync complete. Synced ${response.fetchedCount} item(s).`,
+      );
+      await loadJobDescriptions(token, 1);
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+
+      setVcsPortalSyncState('ERROR');
+      setVcsPortalSyncMessage(toErrorMessage(err));
     }
   }
 
@@ -1011,72 +988,40 @@ function SidePanel() {
     return false;
   }
 
-  async function refreshSelectedCareerContext(
+  async function loadSelectedJobDescriptionQuestionSet(
+    jobDescription: JobDescriptionSummary | null = selectedJobDescription,
     accessToken = token,
-    options: { silent?: boolean } = {},
+    options: { silent?: boolean; force?: boolean } = {},
   ) {
     if (!accessToken) return;
+    if (!jobDescription?.id) {
+      lastJobQuestionContextIdRef.current = null;
+      setJobDescriptionQuestionContext(null);
+      setSelectedJobQuestionIds(new Set());
+      setCareerQuestionState('IDLE');
+      setCareerQuestionMessage('Select a JD to view its synced question set.');
+      return;
+    }
+
+    if (!options.force && options.silent && lastJobQuestionContextIdRef.current === jobDescription.id) {
+      return;
+    }
+
     if (!options.silent) {
       setCareerQuestionState('LOADING');
       setCareerQuestionMessage(null);
     }
 
     try {
-      const activeTab = await getActiveTab();
-      if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
-        if (!options.silent) {
-          setCareerQuestionState('IDLE');
-          setCareerQuestionMessage('Open the AMIS recruitment form tab to detect the selected career.');
-        }
-        return;
-      }
-
-      if (!chrome.tabs?.sendMessage) {
-        throw new Error('Chrome tabs messaging is unavailable.');
-      }
-
-      const selected = await sendMessageToAmisTab(activeTab.id, {
-        type: GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE,
-      });
-
-      if (!isSelectedCareerResponse(selected) || !selected.ok) {
-        throw new Error(isSelectedCareerResponse(selected) ? selected.error ?? 'Could not read AMIS career.' : 'AMIS tab did not return career selection.');
-      }
-
-      const careerName = sanitizeDetectedCareerName(selected.careerName);
-      setSelectedCareerName(careerName || null);
-      if (!careerName) {
-        lastCareerContextIdRef.current = null;
-        setCareerQuestionContext(null);
-        setSelectedCareerQuestionIds(new Set());
-        setCareerQuestionState('IDLE');
-        setCareerQuestionMessage('No AMIS career is selected on the form.');
-        return;
-      }
-
-      const careers = await listAmisCareers(accessToken);
-      const matchedCareer = careers.find((career) => normalizeMatchText(career.name) === normalizeMatchText(careerName))
-        ?? careers.find((career) => normalizeMatchText(career.name).includes(normalizeMatchText(careerName))
-          || normalizeMatchText(careerName).includes(normalizeMatchText(career.name)));
-
-      if (!matchedCareer) {
-        setCareerQuestionContext(null);
-        setSelectedCareerQuestionIds(new Set());
-        setCareerQuestionState('ERROR');
-        setCareerQuestionMessage(`"${careerName}" has not been synced into AMIS Careers yet.`);
-        return;
-      }
-
-      if (lastCareerContextIdRef.current === matchedCareer.amisCareerId && options.silent) {
-        return;
-      }
-
-      const context = await getAmisCareerQuestionContext(accessToken, matchedCareer.amisCareerId);
-      lastCareerContextIdRef.current = matchedCareer.amisCareerId;
-      setCareerQuestionContext(context);
-      await restoreSelectedCareerQuestions(context);
+      const context = await getJobDescriptionQuestionSet(accessToken, jobDescription.id);
+      lastJobQuestionContextIdRef.current = jobDescription.id;
+      setSelectedJobDescription(context.jobDescription);
+      setJobDescriptionQuestionContext(context);
+      await restoreSelectedJobQuestions(context);
       setCareerQuestionState('READY');
-      setCareerQuestionMessage(null);
+      setCareerQuestionMessage(context.questionSet
+        ? null
+        : 'This JD does not have an active synced question set.');
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -1093,8 +1038,8 @@ function SidePanel() {
     }
   }
 
-  async function restoreSelectedCareerQuestions(context: AmisCareerQuestionContext) {
-    const storageKey = getCareerQuestionSelectionStorageKey(context.career.amisCareerId);
+  async function restoreSelectedJobQuestions(context: JobDescriptionQuestionSetContext) {
+    const storageKey = getJobDescriptionQuestionSelectionStorageKey(context.jobDescription.id);
     const validQuestionIds = new Set(context.questions.map((question) => question.id));
 
     try {
@@ -1104,35 +1049,35 @@ function SidePanel() {
         (questionId): questionId is string => typeof questionId === 'string' && validQuestionIds.has(questionId),
       );
 
-      setSelectedCareerQuestionIds(new Set(selectedQuestionIds));
+      setSelectedJobQuestionIds(new Set(selectedQuestionIds));
       void persistSelectedJobQuestionContextForActiveTab(context, selectedQuestionIds);
     } catch {
-      setSelectedCareerQuestionIds(new Set());
+      setSelectedJobQuestionIds(new Set());
       void persistSelectedJobQuestionContextForActiveTab(context, []);
     }
   }
 
-  async function persistSelectedCareerQuestions(amisCareerId: string, questionIds: string[]) {
+  async function persistSelectedJobQuestions(jobDescriptionId: string, questionIds: string[]) {
     try {
       await chrome.storage?.session?.set({
-        [getCareerQuestionSelectionStorageKey(amisCareerId)]: questionIds,
+        [getJobDescriptionQuestionSelectionStorageKey(jobDescriptionId)]: questionIds,
       });
     } catch {
       // Selection is a panel convenience state; failing to persist must not block AMIS work.
     }
   }
 
-  function updateSelectedCareerQuestions(nextQuestionIds: Set<string>) {
-    setSelectedCareerQuestionIds(nextQuestionIds);
+  function updateSelectedJobQuestions(nextQuestionIds: Set<string>) {
+    setSelectedJobQuestionIds(nextQuestionIds);
     const questionIds = Array.from(nextQuestionIds);
-    if (careerQuestionContext) {
-      void persistSelectedCareerQuestions(careerQuestionContext.career.amisCareerId, questionIds);
-      void persistSelectedJobQuestionContextForActiveTab(careerQuestionContext, questionIds);
+    if (jobDescriptionQuestionContext) {
+      void persistSelectedJobQuestions(jobDescriptionQuestionContext.jobDescription.id, questionIds);
+      void persistSelectedJobQuestionContextForActiveTab(jobDescriptionQuestionContext, questionIds);
     }
   }
 
   async function persistSelectedJobQuestionContextForActiveTab(
-    context: AmisCareerQuestionContext,
+    context: JobDescriptionQuestionSetContext,
     questionIds: string[],
   ) {
     try {
@@ -1142,101 +1087,34 @@ function SidePanel() {
       await saveSelectedJobQuestionContext({
         tabId: activeTab.id,
         pageUrl: activeTab.url,
-        amisCareerId: context.career.amisCareerId,
-        careerName: context.career.name,
+        jobDescriptionId: context.jobDescription.id,
+        jobDescriptionTitle: context.jobDescription.title,
+        questionSetId: context.questionSet?.id ?? null,
         questionIds,
       });
     } catch {
-      // Background auto-sync can still fall back to category-based question generation.
+      // Background auto-sync can still fall back to backend questionnaire defaults.
     }
   }
 
   function toggleCareerQuestion(questionId: string) {
-    const nextQuestionIds = new Set(selectedCareerQuestionIds);
+    const nextQuestionIds = new Set(selectedJobQuestionIds);
     if (nextQuestionIds.has(questionId)) {
       nextQuestionIds.delete(questionId);
     } else {
       nextQuestionIds.add(questionId);
     }
 
-    updateSelectedCareerQuestions(nextQuestionIds);
+    updateSelectedJobQuestions(nextQuestionIds);
   }
 
   function selectAllCareerQuestions() {
-    if (!careerQuestionContext) return;
-    updateSelectedCareerQuestions(new Set(careerQuestionContext.questions.map((question) => question.id)));
+    if (!jobDescriptionQuestionContext) return;
+    updateSelectedJobQuestions(new Set(jobDescriptionQuestionContext.questions.map((question) => question.id)));
   }
 
   function clearSelectedCareerQuestions() {
-    updateSelectedCareerQuestions(new Set());
-  }
-
-  function handleNewQuestionCategoryChange(categoryName: string) {
-    setNewQuestionCategory(categoryName);
-    const category = careerQuestionContext?.categories.find((item) => item.name === categoryName);
-    setNewQuestionSubcategory(category?.subcategories[0]?.name ?? '');
-    setNewQuestionCompetencyType('INHERIT');
-  }
-
-  function openNewQuestionDrawer() {
-    setNewQuestionDrawerOpen(true);
-  }
-
-  function closeNewQuestionDrawer() {
-    setNewQuestionDrawerOpen(false);
-  }
-
-  function resetNewQuestionDraft() {
-    setNewQuestionText('');
-    setNewQuestionExpectedAnswer('');
-    setNewQuestionCompetencyType('INHERIT');
-    setNewQuestionDifficulty('3');
-    setNewQuestionTargetLevels(['SENIOR']);
-  }
-
-  function toggleNewQuestionTargetLevel(level: string) {
-    setNewQuestionTargetLevels((current) => (
-      current.includes(level)
-        ? current.filter((item) => item !== level)
-        : [...current, level]
-    ));
-  }
-
-  async function submitNewCareerQuestion(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!token || !careerQuestionContext) return;
-    if (!newQuestionCategory || !newQuestionSubcategory || !newQuestionText.trim()) {
-      setCareerQuestionMessage('Category, subcategory, and question text are required.');
-      setCareerQuestionState('ERROR');
-      return;
-    }
-
-    setNewQuestionSaving(true);
-    setCareerQuestionMessage(null);
-    try {
-      const question = await createAmisCareerQuestion(token, careerQuestionContext.career.amisCareerId, {
-        category: newQuestionCategory,
-        subcategory: newQuestionSubcategory,
-        text: newQuestionText,
-        expectedAnswer: newQuestionExpectedAnswer || undefined,
-      });
-      setCareerQuestionContext({
-        ...careerQuestionContext,
-        questions: [...careerQuestionContext.questions, question],
-      });
-      const nextSelectedQuestionIds = new Set(selectedCareerQuestionIds);
-      nextSelectedQuestionIds.add(question.id);
-      updateSelectedCareerQuestions(nextSelectedQuestionIds);
-      resetNewQuestionDraft();
-      closeNewQuestionDrawer();
-      setCareerQuestionState('READY');
-      setCareerQuestionMessage('Question added to the selected AMIS career mapping.');
-    } catch (err) {
-      setCareerQuestionState('ERROR');
-      setCareerQuestionMessage(toErrorMessage(err));
-    } finally {
-      setNewQuestionSaving(false);
-    }
+    updateSelectedJobQuestions(new Set());
   }
 
   function submitJobDescriptionSearch(event: React.FormEvent<HTMLFormElement>) {
@@ -1245,6 +1123,8 @@ function SidePanel() {
   }
 
   async function fillJobDescriptionInAmis(jobDescription: JobDescriptionSummary) {
+    setSelectedJobDescription(jobDescription);
+    void loadSelectedJobDescriptionQuestionSet(jobDescription, token, { silent: true, force: true });
     setJobDescriptionFillState('FILLING');
     setFillingJobDescriptionId(jobDescription.id);
     setJobDescriptionFillMessage(`Filling "${jobDescription.title}" into the active AMIS tab...`);
@@ -2306,8 +2186,8 @@ function SidePanel() {
       ...(selectedPostingChannels.includes('FACEBOOK')
         ? { facebookTargetIds, facebookContent: resolvedFacebookContent }
         : {}),
-      ...(selectedCareerQuestionIds.size > 0
-        ? { selectedQuestionIds: Array.from(selectedCareerQuestionIds) }
+      ...(selectedJobQuestionIds.size > 0
+        ? { selectedQuestionIds: Array.from(selectedJobQuestionIds) }
         : {}),
       metadata: {
         capturedAt: new Date().toISOString(),
@@ -2315,7 +2195,9 @@ function SidePanel() {
         captureConfidence: extractionResult?.confidence,
         extractionWarnings: extractionResult?.warnings,
         extractionEvidence: extractionResult?.evidence,
-        selectedQuestionCount: selectedCareerQuestionIds.size,
+        selectedJobDescriptionId: selectedJobDescription?.id,
+        selectedQuestionSetId: jobDescriptionQuestionContext?.questionSet?.id,
+        selectedQuestionCount: selectedJobQuestionIds.size,
       },
     };
 
@@ -2707,7 +2589,7 @@ function SidePanel() {
       ...(snapshot ? [{
         key: 'snapshot',
         title: snapshot.title,
-        company: snapshot.location ?? selectedCareerName ?? 'AMIS Recruitment',
+        company: snapshot.location ?? selectedJobDescription?.title ?? 'AMIS Recruitment',
         deadline: snapshot.deadline,
         statusLabel: 'Đang hoạt động',
         statusTone: 'active',
@@ -3308,13 +3190,63 @@ function SidePanel() {
           </button>
           <button
             type="button"
+            className="primary-button portal-sync-button"
+            disabled={vcsPortalSyncState === 'SYNCING' || jobDescriptionStatus === 'LOADING'}
+            onClick={() => void syncPortalJobDescriptions()}
+          >
+            {vcsPortalSyncState === 'SYNCING' ? 'Syncing...' : 'Sync Portal'}
+          </button>
+          <button
+            type="button"
             className="ghost-button"
-            disabled={jobDescriptionStatus === 'LOADING'}
+            disabled={jobDescriptionStatus === 'LOADING' || vcsPortalSyncState === 'SYNCING'}
             onClick={() => void loadJobDescriptions(token, jobDescriptionPagination?.page ?? 1)}
           >
             Refresh
           </button>
         </form>
+
+        {vcsPortalSyncMessage ? (
+          <p className={vcsPortalSyncState === 'ERROR' ? 'error-text' : 'muted-text'}>
+            {vcsPortalSyncMessage}
+          </p>
+        ) : null}
+
+        {vcsPortalSyncResult ? (
+          <section className="portal-sync-result" aria-label="VCS Portal sync result">
+            <div className="portal-sync-result-header">
+              <div>
+                <p className="eyebrow">VCS Portal</p>
+                <h3>{vcsPortalSyncResult.failedCount > 0 ? 'Sync finished with warnings' : 'Sync complete'}</h3>
+              </div>
+              <span className="status-badge">
+                {formatDate(vcsPortalSyncResult.lastSyncedAt) ?? '-'}
+              </span>
+            </div>
+            <div className="portal-sync-metrics">
+              <span><strong>{vcsPortalSyncResult.fetchedCount}</strong>Fetched</span>
+              <span><strong>{vcsPortalSyncResult.createdCount}</strong>Created</span>
+              <span><strong>{vcsPortalSyncResult.updatedCount}</strong>Updated</span>
+              <span><strong>{vcsPortalSyncResult.unchangedCount}</strong>Unchanged</span>
+              <span><strong>{vcsPortalSyncResult.archivedCount}</strong>Archived</span>
+              <span className={vcsPortalSyncResult.failedCount > 0 ? 'is-danger' : undefined}>
+                <strong>{vcsPortalSyncResult.failedCount}</strong>Failed
+              </span>
+              <span><strong>{vcsPortalSyncResult.questionCount}</strong>Questions</span>
+              <span><strong>{vcsPortalSyncResult.questionSetCreatedCount}</strong>Question sets</span>
+            </div>
+            {vcsPortalSyncResult.warnings?.length ? (
+              <ul className="portal-sync-warning-list">
+                {vcsPortalSyncResult.warnings.slice(0, 3).map((warning, index) => (
+                  <li key={`${warning.code}-${warning.sourceJobId ?? warning.sourceSlug ?? index}`}>
+                    <strong>{warning.sourceSlug ?? warning.sourceJobId ?? warning.code}</strong>
+                    <span>{warning.message}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
 
         {jobDescriptionStatus === 'LOADING' ? (
           <p className="muted-text">Loading job descriptions from backend...</p>
@@ -3338,7 +3270,7 @@ function SidePanel() {
               <li key={jobDescription.id}>
                 <button
                   type="button"
-                  className="jd-card-button"
+                  className={`jd-card-button${selectedJobDescription?.id === jobDescription.id ? ' is-selected' : ''}`}
                   disabled={jobDescriptionFillState === 'FILLING'}
                   onClick={() => void fillJobDescriptionInAmis(jobDescription)}
                 >
@@ -3346,13 +3278,19 @@ function SidePanel() {
                   <p>{summarizeText(jobDescription.summary ?? jobDescription.description)}</p>
                   <small>
                     {[
+                      jobDescription.sourceSystem === 'VCS_PORTAL' ? 'VCS Portal' : null,
+                      jobDescription.sourceCategories?.map((category) => category.displayName).join(', '),
                       jobDescription.position?.name,
                       jobDescription.level?.displayName ?? jobDescription.level?.name,
+                      jobDescription.lastSyncedAt ? `Synced ${formatDate(jobDescription.lastSyncedAt)}` : null,
                       formatDate(jobDescription.updatedAt ?? jobDescription.createdAt),
                     ].filter(Boolean).join(' - ')}
                   </small>
                 </button>
-                <span className="status-badge">{jobDescription.status}</span>
+                <span className="status-badge">
+                  {jobDescription.sourceSystem === 'VCS_PORTAL' ? 'PORTAL' : jobDescription.status}
+                </span>
+                {selectedJobDescription?.id === jobDescription.id ? <span className="status-badge">SELECTED</span> : null}
                 {fillingJobDescriptionId === jobDescription.id ? <span className="status-badge">FILLING</span> : null}
               </li>
             ))}
@@ -3394,15 +3332,15 @@ function SidePanel() {
       <section className="question-panel career-question-panel compact-workspace-section">
         <div className="career-panel-topbar">
           <div className="career-title-row">
-            <h2>Chỉnh sửa câu hỏi</h2>
-            <p>VCS RECRUITMENT POSTING</p>
+            <h2>Question set</h2>
+            <p>Selected JD</p>
           </div>
           <button
             type="button"
             className="career-icon-button"
-            aria-label="Refresh AMIS career questions"
-            disabled={careerQuestionState === 'LOADING'}
-            onClick={() => void refreshSelectedCareerContext(token)}
+            aria-label="Refresh selected JD question set"
+            disabled={careerQuestionState === 'LOADING' || !selectedJobDescription}
+            onClick={() => void loadSelectedJobDescriptionQuestionSet(selectedJobDescription, token, { force: true })}
           >
             <RefreshIcon />
           </button>
@@ -3412,9 +3350,9 @@ function SidePanel() {
           <div className="career-industry-area">
             <div className="career-industry-badge">
               <BriefcaseIcon />
-              <span>Ngành: {selectedCareerName || careerQuestionContext?.career.name || 'Chưa chọn ngành'}</span>
+              <span>{selectedJobDescription?.title ?? 'No JD selected'}</span>
             </div>
-            <p>Chọn các câu hỏi cụ thể để thêm vào bài đánh giá của bạn.</p>
+            <p>Select questions from the active question set of the JD picked in Job descriptions.</p>
           </div>
 
           {careerQuestionMessage ? (
@@ -3423,12 +3361,17 @@ function SidePanel() {
             </p>
           ) : null}
 
-          {careerQuestionContext ? (
+          {jobDescriptionQuestionContext ? (
             <>
               <div className="career-question-summary-row">
-                <span>{careerQuestionContext.questions.length} câu hỏi</span>
-                <strong>{selectedCareerQuestionCount} đã chọn</strong>
-                {careerQuestionContext.questions.length > 0 ? (
+                <span>{jobDescriptionQuestionContext.questions.length} questions</span>
+                <strong>{selectedCareerQuestionCount} selected</strong>
+                {jobDescriptionQuestionContext.questionSet ? (
+                  <span className="status-badge">
+                    {jobDescriptionQuestionContext.questionSet.sourceSystem ?? 'LOCAL'}
+                  </span>
+                ) : null}
+                {jobDescriptionQuestionContext.questions.length > 0 ? (
                   <div className="question-selection-actions">
                     <button
                       type="button"
@@ -3436,7 +3379,7 @@ function SidePanel() {
                       disabled={allCareerQuestionsSelected}
                       onClick={selectAllCareerQuestions}
                     >
-                      Tất cả
+                      All
                     </button>
                     <button
                       type="button"
@@ -3444,16 +3387,16 @@ function SidePanel() {
                       disabled={selectedCareerQuestionCount === 0}
                       onClick={clearSelectedCareerQuestions}
                     >
-                      Bỏ chọn
+                      Clear
                     </button>
                   </div>
                 ) : null}
               </div>
 
-              {careerQuestionContext.questions.length > 0 ? (
+              {jobDescriptionQuestionContext.questions.length > 0 ? (
                 <ul className="career-question-list">
-                  {careerQuestionContext.questions.map((question) => {
-                    const checked = selectedCareerQuestionIds.has(question.id);
+                  {jobDescriptionQuestionContext.questions.map((question) => {
+                    const checked = selectedJobQuestionIds.has(question.id);
 
                     return (
                       <li key={question.id}>
@@ -3464,18 +3407,29 @@ function SidePanel() {
                           <span className="career-question-card-body">
                             <span className="career-question-title">{question.text}</span>
                             <span className="question-tag-row">
-                              <span className="question-tag question-tag-category">
-                                {formatQuestionCategoryLabel(question.category)}
-                              </span>
-                              <span className="question-tag question-tag-muted">{question.subcategory}</span>
+                              {question.category ? (
+                                <span className="question-tag question-tag-category">
+                                  {formatQuestionCategoryLabel(question.category)}
+                                </span>
+                              ) : null}
+                              {question.subcategory ? (
+                                <span className="question-tag question-tag-muted">{question.subcategory}</span>
+                              ) : null}
                               <span className="question-tag question-tag-type">{question.type}</span>
+                              {question.required ? <span className="question-tag question-tag-muted">Required</span> : null}
                             </span>
-                            <span className="question-meta-row">
-                              <strong>{formatQuestionDifficulty(question.difficulty)}</strong>
-                              <span className="question-level-pill">
-                                {formatQuestionTargetLevel(question.targetLevels)}
+                            {question.difficulty || question.targetLevels?.length ? (
+                              <span className="question-meta-row">
+                                {question.difficulty ? (
+                                  <strong>{formatQuestionDifficulty(question.difficulty)}</strong>
+                                ) : null}
+                                {question.targetLevels?.length ? (
+                                  <span className="question-level-pill">
+                                    {formatQuestionTargetLevel(question.targetLevels)}
+                                  </span>
+                                ) : null}
                               </span>
-                            </span>
+                            ) : null}
                           </span>
                           <input
                             className="career-question-checkbox"
@@ -3489,13 +3443,8 @@ function SidePanel() {
                   })}
                 </ul>
               ) : (
-                <p className="career-question-empty">Chưa có câu hỏi nào được map cho ngành này.</p>
+                <p className="career-question-empty">No active question set items were found for this JD.</p>
               )}
-
-              <button type="button" className="add-question-card-button" onClick={openNewQuestionDrawer}>
-                <PlusIcon />
-                <span>Thêm câu hỏi mới</span>
-              </button>
             </>
           ) : null}
         </div>
@@ -3617,8 +3566,13 @@ function SidePanel() {
           <button type="button" className="secondary-action-button" onClick={() => selectWorkspaceTab('posting')}>
             Sync JD
           </button>
-          <button type="button" className="secondary-action-button" onClick={() => void refreshSelectedCareerContext(token)}>
-            Xem bộ câu hỏi
+          <button
+            type="button"
+            className="secondary-action-button"
+            disabled={!selectedJobDescription}
+            onClick={() => void loadSelectedJobDescriptionQuestionSet(selectedJobDescription, token, { force: true })}
+          >
+            View question set
           </button>
         </div>
 
@@ -3661,7 +3615,7 @@ function SidePanel() {
           <article className="is-success"><span>Đạt yêu cầu</span><strong>{stats.readyCount}</strong></article>
           <article className="is-warning"><span>Cần xem xét</span><strong>{stats.reviewCount}</strong></article>
           <article className="is-danger"><span>Không đạt</span><strong>{stats.failedCount}</strong></article>
-          <article className="is-muted"><span>Chưa trả lời</span><strong>{stats.noAnswerCount}</strong></article>
+          <article className="is-muted"><span>Chưa gửi</span><strong>{stats.noAnswerCount}</strong></article>
         </div>
 
         <div className="cv-list-toolbar">
@@ -3718,7 +3672,7 @@ function SidePanel() {
                         <strong>{application.candidateName}</strong>
                         <span>{[application.email, application.mobile].filter(Boolean).join(' - ') || 'No contact'}</span>
                       </div>
-                      <span className={`cv-mini-badge ${getQuestionBadgeTone(questionStatus)}`}>{questionStatus}</span>
+                      <span className={`cv-mini-badge ${questionStatus.tone}`}>{questionStatus.label}</span>
                     </div>
                     <div className="cv-candidate-meta">
                       <span>Source: {application.sourceChannel ?? 'VCS Portal'}</span>
@@ -4145,141 +4099,6 @@ function SidePanel() {
       {facebookPostModalMode === 'EDIT' ? renderFacebookPostEditModal() : null}
 
       {isCvSyncReviewOpen ? renderCvSyncReviewModal() : null}
-
-      {newQuestionDrawerOpen && careerQuestionContext ? (
-        <div className="question-drawer-backdrop" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) closeNewQuestionDrawer();
-        }}>
-          <section className="question-drawer" role="dialog" aria-modal="true" aria-labelledby="new-question-title">
-            <div className="question-drawer-header">
-              <button
-                type="button"
-                className="career-icon-button"
-                aria-label="Close create question form"
-                onClick={closeNewQuestionDrawer}
-              >
-                <CloseIcon />
-              </button>
-              <h2 id="new-question-title">Tạo câu hỏi mới</h2>
-            </div>
-
-            <form className="question-drawer-form" onSubmit={submitNewCareerQuestion}>
-              <label className="drawer-field">
-                <span>Text</span>
-                <textarea
-                  value={newQuestionText}
-                  onChange={(event) => setNewQuestionText(event.target.value)}
-                  placeholder="Nhập nội dung câu hỏi..."
-                  rows={4}
-                />
-              </label>
-
-              <div className="drawer-field-grid">
-                <label className="drawer-field">
-                  <span>Category</span>
-                  <select
-                    value={newQuestionCategory}
-                    onChange={(event) => handleNewQuestionCategoryChange(event.target.value)}
-                  >
-                    {careerQuestionContext.categories.map((category) => (
-                      <option key={category.name} value={category.name}>{category.displayName}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="drawer-field">
-                  <span>Subcategory</span>
-                  <select
-                    value={newQuestionSubcategory}
-                    onChange={(event) => {
-                      setNewQuestionSubcategory(event.target.value);
-                      setNewQuestionCompetencyType('INHERIT');
-                    }}
-                  >
-                    {(selectedNewQuestionCategory?.subcategories ?? []).map((subcategory) => (
-                      <option key={subcategory.id} value={subcategory.name}>{subcategory.name}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <label className="drawer-field">
-                <span>Competency Type</span>
-                <select
-                  value={newQuestionCompetencyType}
-                  onChange={(event) => setNewQuestionCompetencyType(event.target.value)}
-                >
-                  {COMPETENCY_TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.value === 'INHERIT' && selectedNewQuestionSubcategory?.competencyType
-                        ? `${option.label} (${selectedNewQuestionSubcategory.competencyType})`
-                        : option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="drawer-field">
-                <span>Difficulty (1-5)</span>
-                <select
-                  value={newQuestionDifficulty}
-                  onChange={(event) => setNewQuestionDifficulty(event.target.value)}
-                >
-                  {DIFFICULTY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-
-              <fieldset className="drawer-target-levels">
-                <legend>Target Levels</legend>
-                <div>
-                  {TARGET_LEVEL_OPTIONS.map((level) => (
-                    <label key={level.value}>
-                      <input
-                        type="checkbox"
-                        checked={newQuestionTargetLevels.includes(level.value)}
-                        onChange={() => toggleNewQuestionTargetLevel(level.value)}
-                      />
-                      <span>{level.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-
-              <label className="drawer-field">
-                <span>Expected Answer / Scoring Guide</span>
-                <textarea
-                  value={newQuestionExpectedAnswer}
-                  onChange={(event) => setNewQuestionExpectedAnswer(event.target.value)}
-                  placeholder="Describe what a good answer looks like..."
-                  rows={5}
-                />
-              </label>
-
-              <div className="question-drawer-footer">
-                <button
-                  type="button"
-                  className="drawer-cancel-button"
-                  onClick={() => {
-                    resetNewQuestionDraft();
-                    closeNewQuestionDrawer();
-                  }}
-                >
-                  Hủy bỏ
-                </button>
-                <button
-                  type="submit"
-                  className="drawer-submit-button"
-                  disabled={newQuestionSaving || !newQuestionText.trim() || !newQuestionCategory || !newQuestionSubcategory}
-                >
-                  {newQuestionSaving ? 'Đang tạo...' : 'Tạo mới'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
 
 {isFacebookSettingsOpen ? (
         <div className="modal-backdrop" role="presentation">
@@ -4832,8 +4651,8 @@ function formatQuestionCategoryLabel(value: string) {
   return value.replace(/[_-]+/g, ' ').toUpperCase();
 }
 
-function formatQuestionDifficulty(value: ExtensionQuestion['difficulty']) {
-  const difficulty = Number.isFinite(value) ? value : 3;
+function formatQuestionDifficulty(value: JobDescriptionQuestionSetItem['difficulty']) {
+  const difficulty = typeof value === 'number' && Number.isFinite(value) ? value : 3;
   const labels: Record<number, string> = {
     1: 'Rất dễ',
     2: 'Dễ',
@@ -4845,8 +4664,8 @@ function formatQuestionDifficulty(value: ExtensionQuestion['difficulty']) {
   return `${labels[difficulty] ?? 'Trung bình'} - ${difficulty}/5`;
 }
 
-function formatQuestionTargetLevel(levels: ExtensionQuestion['targetLevels']) {
-  if (!levels.length) return 'Any level';
+function formatQuestionTargetLevel(levels: JobDescriptionQuestionSetItem['targetLevels']) {
+  if (!levels?.length) return 'Any level';
 
   const [firstLevel] = levels;
   const label = TARGET_LEVEL_OPTIONS.find((level) => level.value === firstLevel)?.label ?? firstLevel;
@@ -5226,7 +5045,7 @@ function getCvOverviewStats(applications: ExtensionApplication[]) {
     readyCount,
     reviewCount,
     failedCount,
-    noAnswerCount: applications.filter((application) => getApplicationQuestionStatus(application) === 'Chưa trả lời').length,
+    noAnswerCount: applications.filter((application) => getApplicationQuestionStatus(application).code === 'NOT_SENT').length,
   };
 }
 
@@ -5255,16 +5074,20 @@ function getApplicationAmisSyncStatus(application: ExtensionApplication) {
 }
 
 function getApplicationQuestionStatus(application: ExtensionApplication) {
-  const score = getApplicationMatchScore(application);
-  if (score >= 88) return 'Answered';
-  if (score >= 72) return 'Not sent';
-  return 'Chưa trả lời';
-}
-
-function getQuestionBadgeTone(status: string) {
-  if (status === 'Answered') return 'is-success';
-  if (status === 'Not sent') return 'is-warning';
-  return 'is-muted';
+  const status = normalizeStatus(application.latestForm?.status ?? application.formStatus);
+  if (status === 'SUBMITTED') {
+    return { code: 'ANSWERED', label: 'Đã trả lời', tone: 'is-success' } satisfies ApplicationQuestionStatus;
+  }
+  if (status === 'SENT') {
+    return { code: 'SENT', label: 'Đã gửi', tone: 'is-warning' } satisfies ApplicationQuestionStatus;
+  }
+  if (status === 'OPENED') {
+    return { code: 'OPENED', label: 'Đã mở', tone: 'is-warning' } satisfies ApplicationQuestionStatus;
+  }
+  if (status === 'EXPIRED') {
+    return { code: 'EXPIRED', label: 'Hết hạn', tone: 'is-danger' } satisfies ApplicationQuestionStatus;
+  }
+  return { code: 'NOT_SENT', label: 'Chưa gửi', tone: 'is-muted' } satisfies ApplicationQuestionStatus;
 }
 
 function getApplicationMatchScore(application: ExtensionApplication) {
@@ -5308,8 +5131,8 @@ function slugifyForDisplay(value: string) {
 function buildSnapshotFromJobDescription(jobDescription: JobDescriptionSummary): AmisJobSnapshot {
   return {
     title: jobDescription.title,
-    summary: jobDescription.summary ?? undefined,
-    description: jobDescription.description,
+    summary: jobDescription.summary ?? jobDescription.overview ?? undefined,
+    description: jobDescription.responsibilities ?? jobDescription.description,
     requirements: {
       rawText: stringifyStructuredContent(jobDescription.requirements),
     },
@@ -5455,22 +5278,6 @@ function isDiagnosticUpdateMessage(value: unknown): value is {
     && Array.isArray((value as { payload?: unknown }).payload);
 }
 
-function isSelectedCareerChangedMessage(value: unknown): value is {
-  type: typeof SELECTED_CAREER_CHANGED_MESSAGE_TYPE;
-  payload: {
-    careerName: string;
-    pageUrl: string;
-    timestamp: string;
-  };
-} {
-  if (typeof value !== 'object' || value === null) return false;
-  const payload = (value as { payload?: unknown }).payload;
-  return (value as { type?: unknown }).type === SELECTED_CAREER_CHANGED_MESSAGE_TYPE
-    && typeof payload === 'object'
-    && payload !== null
-    && typeof (payload as { careerName?: unknown }).careerName === 'string';
-}
-
 function isRecruitmentContextChangedMessage(value: unknown): value is {
   type: typeof RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE;
   payload: {
@@ -5600,8 +5407,11 @@ function buildAmisFormFillPayload(jobDescription: JobDescriptionSummary) {
   return {
     title: jobDescription.title,
     positionName: jobDescription.position?.name ?? '',
-    summary: truncateForMaxLength(jobDescription.summary ?? jobDescription.description, 500),
-    responsibilities: jobDescription.description,
+    summary: truncateForMaxLength(
+      jobDescription.summary ?? jobDescription.overview ?? jobDescription.description,
+      500,
+    ),
+    responsibilities: jobDescription.responsibilities ?? jobDescription.description,
     requirements: stringifyStructuredContent(jobDescription.requirements),
     benefits: stringifyStructuredContent(jobDescription.benefits),
   };
@@ -5671,35 +5481,6 @@ function isFillResponse(value: unknown): value is {
     && typeof (value as { ok?: unknown }).ok === 'boolean'
     && Array.isArray((value as { filledFields?: unknown }).filledFields)
     && Array.isArray((value as { missingFields?: unknown }).missingFields);
-}
-
-function isSelectedCareerResponse(value: unknown): value is AmisSelectedCareerResult {
-  return typeof value === 'object'
-    && value !== null
-    && typeof (value as { ok?: unknown }).ok === 'boolean'
-    && typeof (value as { pageUrl?: unknown }).pageUrl === 'string';
-}
-
-function normalizeMatchText(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-function sanitizeDetectedCareerName(value: string | undefined) {
-  const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
-  if (!normalized) return '';
-  if (normalized.length > 120) return '';
-  if (/họ và tên|số điện thoại|email|chiến dịch tuyển dụng|trình độ đào tạo|nguồn ứng viên|ngày ứng tuyển/i.test(normalized)) {
-    return '';
-  }
-
-  return normalized;
 }
 
 function isLikelyAmisRecruitmentPage(url: string) {

@@ -144,6 +144,29 @@ export class SyncAmisApplicationsResponseDto {
   lastSyncedAt: string;
 }
 
+export class AmisApplicationLatestFormDto {
+  @ApiProperty()
+  formSessionId: string;
+
+  @ApiProperty()
+  status: string;
+
+  @ApiProperty()
+  expiresAt: string;
+
+  @ApiPropertyOptional()
+  sentAt: string | null;
+
+  @ApiPropertyOptional()
+  openedAt: string | null;
+
+  @ApiPropertyOptional()
+  submittedAt: string | null;
+
+  @ApiProperty()
+  createdAt: string;
+}
+
 export class AmisApplicationListItemDto {
   @ApiProperty()
   applicationId: string;
@@ -162,6 +185,12 @@ export class AmisApplicationListItemDto {
 
   @ApiProperty()
   status: string;
+
+  @ApiPropertyOptional()
+  formStatus: string | null;
+
+  @ApiPropertyOptional({ type: () => AmisApplicationLatestFormDto, nullable: true })
+  latestForm: AmisApplicationLatestFormDto | null;
 
   @ApiPropertyOptional()
   currentCvDocumentId: string | null;

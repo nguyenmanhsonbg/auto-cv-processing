@@ -17,6 +17,7 @@ import { PositionEntity } from '../positions/entities/position.entity';
 import { WorkflowEventEntity } from '../workflow-state/entities/workflow-event.entity';
 import { JobDescriptionEntity } from './entities/job-description.entity';
 import { JobDescriptionVersionEntity } from './entities/job-description-version.entity';
+import { JobSourceCategoryEntity } from './entities/job-source-category.entity';
 import { JobDescriptionsController } from './job-descriptions.controller';
 import { JobDescriptionVersionsService } from './job-description-versions.service';
 import { JobDescriptionsService } from './job-descriptions.service';
@@ -34,6 +35,7 @@ import { JobDescriptionsService } from './job-descriptions.service';
       HrReviewDecisionEntity,
       JobDescriptionEntity,
       JobDescriptionVersionEntity,
+      JobSourceCategoryEntity,
       JobPostingEntity,
       PositionEntity,
       LevelEntity,

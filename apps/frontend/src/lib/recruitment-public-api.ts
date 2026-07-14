@@ -13,8 +13,14 @@ export interface PublicJobPostingDetail {
   publicSlug: string;
   summary?: string | null;
   description?: string | null;
-  requirements?: unknown;
+  overview?: string | null;
+  responsibilities?: string | null;
+  requirements?: string | null;
   benefits?: unknown;
+  salary?: string | null;
+  annualLeaveDays?: string | null;
+  department?: string | null;
+  applicationDeadline?: string | null;
   position?: {
     name?: string | null;
   } | null;

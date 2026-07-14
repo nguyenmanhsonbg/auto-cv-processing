@@ -239,6 +239,15 @@ export class JobPostingsController {
       status: posting.status,
       openAt: posting.openAt?.toISOString() ?? null,
       closeAt: posting.closeAt?.toISOString() ?? null,
+      formQuestionSetId: posting.formQuestionSetId,
+      formQuestionSet: posting.formQuestionSet
+        ? {
+          id: posting.formQuestionSet.id,
+          name: posting.formQuestionSet.name,
+          status: posting.formQuestionSet.status,
+          sourceSystem: posting.formQuestionSet.sourceSystem,
+        }
+        : null,
       createdById: posting.createdById,
       createdBy: this.toUserSummary(posting.createdBy),
       createdAt: posting.createdAt?.toISOString(),

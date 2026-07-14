@@ -2,14 +2,14 @@ import {
   BadRequestException,
   Injectable,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, In } from 'typeorm';
+import { DataSource, EntityManager, Repository, In } from 'typeorm';
 import { createHash, randomBytes } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { join } from 'path';
-import * as ejs from 'ejs';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const ejs: { renderFile(path: string, data?: Record<string, unknown>): Promise<string> } = require('ejs');
 
 import { FormSessionEntity } from './entities/form-session.entity';
 import { FormAnswerEntity } from './entities/form-answer.entity';
@@ -17,6 +17,7 @@ import { QuestionSetEntity } from '../questions/entities/question-set.entity';
 import { QuestionSetItemEntity } from '../questions/entities/question-set-item.entity';
 import { QuestionEntity } from '../questions/entities/question.entity';
 import { ApplicationEntity } from '../applications/entities/application.entity';
+import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
 import { AmisCareerEntity } from '../extension-integration/entities/amis-career.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { MailService } from '../notification/mail.service';
@@ -27,6 +28,18 @@ import {
   QuestionSetStatus,
 } from '../recruitment-common';
 import { WorkflowStateService } from '../workflow-state/workflow-state.service';
+
+interface QuestionnaireItemInput {
+  questionId: string | null;
+  questionTextSnapshot: string;
+  questionType: string;
+  required: boolean;
+  metadata: Record<string, unknown> | null;
+  category?: string | null;
+}
+
+const VCS_PORTAL_SOURCE_SYSTEM = 'VCS_PORTAL';
+const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
 
 @Injectable()
 export class FormSessionsService {
@@ -137,7 +150,7 @@ export class FormSessionsService {
   }
 
   private async getConfiguredQuestionsForJob(
-    manager: DataSource['manager'],
+    manager: EntityManager,
     questionIds?: string[] | null,
   ): Promise<QuestionEntity[]> {
     const uniqueQuestionIds = [...new Set((questionIds ?? []).filter(Boolean))];
@@ -153,15 +166,198 @@ export class FormSessionsService {
       .filter((question): question is QuestionEntity => Boolean(question));
   }
 
+  private async getConfiguredQuestionnaireItemsForJob(
+    manager: EntityManager,
+    configuredQuestionIds?: string[] | null,
+  ): Promise<QuestionnaireItemInput[]> {
+    const uniqueIds = [...new Set((configuredQuestionIds ?? []).filter(Boolean))];
+    if (uniqueIds.length === 0) return [];
+
+    const questionSetItems = await manager.getRepository(QuestionSetItemEntity).find({
+      where: { id: In(uniqueIds) },
+      relations: ['questionSet', 'question'],
+    });
+    const itemById = new Map(questionSetItems.map((item) => [item.id, item]));
+    const unresolvedIds: string[] = [];
+    const resolvedItems: QuestionnaireItemInput[] = [];
+
+    for (const configuredId of uniqueIds) {
+      const item = itemById.get(configuredId);
+      if (!item) {
+        unresolvedIds.push(configuredId);
+        continue;
+      }
+      if (item.questionSet?.status === QuestionSetStatus.DRAFT) {
+        continue;
+      }
+
+      resolvedItems.push({
+        questionId: item.questionId,
+        questionTextSnapshot: item.questionTextSnapshot,
+        questionType: item.questionType,
+        required: item.required,
+        metadata: {
+          ...(this.isRecord(item.metadata) ? item.metadata : {}),
+          copiedFromQuestionSetId: item.questionSetId,
+          copiedFromQuestionSetItemId: item.id,
+        },
+        category: item.question?.category ?? null,
+      });
+    }
+
+    if (unresolvedIds.length === 0) return resolvedItems;
+
+    const bankQuestions = await this.getConfiguredQuestionsForJob(manager, unresolvedIds);
+    return [
+      ...resolvedItems,
+      ...this.toQuestionnaireItemsFromBank(bankQuestions),
+    ];
+  }
+
+  private toQuestionnaireItemsFromQuestionSet(
+    questionSet?: QuestionSetEntity | null,
+  ): QuestionnaireItemInput[] {
+    const items = questionSet?.items ?? [];
+    return items
+      .sort((left, right) => left.orderIndex - right.orderIndex)
+      .map((item) => ({
+        questionId: item.questionId,
+        questionTextSnapshot: item.questionTextSnapshot,
+        questionType: item.questionType,
+        required: item.required,
+        metadata: {
+          ...(this.isRecord(item.metadata) ? item.metadata : {}),
+          copiedFromQuestionSetId: item.questionSetId,
+          copiedFromQuestionSetItemId: item.id,
+        },
+        category: item.question?.category ?? null,
+      }));
+  }
+
+  private async getPortalQuestionnaireItemsForJobDescription(
+    manager: EntityManager,
+    jobDescriptionId: string | null,
+  ): Promise<QuestionnaireItemInput[]> {
+    if (!jobDescriptionId) return [];
+
+    const questionSet = await manager.getRepository(QuestionSetEntity)
+      .createQueryBuilder('questionSet')
+      .leftJoinAndSelect('questionSet.items', 'item')
+      .where('questionSet.jobDescriptionId = :jobDescriptionId', { jobDescriptionId })
+      .andWhere('questionSet.sourceSystem = :sourceSystem', {
+        sourceSystem: VCS_PORTAL_SOURCE_SYSTEM,
+      })
+      .andWhere('questionSet.status = :status', { status: QuestionSetStatus.ACTIVE })
+      .orderBy('questionSet.sourceLastSyncedAt', 'DESC')
+      .addOrderBy('item.orderIndex', 'ASC')
+      .getOne();
+
+    if (!questionSet?.items?.length) return [];
+
+    return questionSet.items
+      .sort((a, b) => a.orderIndex - b.orderIndex)
+      .map((item) => ({
+        questionId: item.questionId,
+        questionTextSnapshot: item.questionTextSnapshot,
+        questionType: item.questionType,
+        required: item.required,
+        metadata: {
+          ...(this.isRecord(item.metadata) ? item.metadata : {}),
+          copiedFromQuestionSetId: questionSet.id,
+          copiedFromQuestionSetItemId: item.id,
+        },
+      }));
+  }
+
+  private toQuestionnaireItemsFromBank(questions: QuestionEntity[]): QuestionnaireItemInput[] {
+    return questions.map((question) => ({
+      questionId: question.id,
+      questionTextSnapshot: question.text,
+      questionType: question.type,
+      required: true,
+      metadata: null,
+      category: question.category,
+    }));
+  }
+
+  private async createPostingQuestionSetSnapshot(
+    manager: EntityManager,
+    jobPosting: JobPostingEntity,
+    questionnaireItems: QuestionnaireItemInput[],
+    createdById: string,
+  ): Promise<QuestionnaireItemInput[]> {
+    const setRepo = manager.getRepository(QuestionSetEntity);
+    const itemRepo = manager.getRepository(QuestionSetItemEntity);
+    const snapshotSet = await setRepo.save(setRepo.create({
+      name: `Posting Questionnaire - ${jobPosting.title}`,
+      jobDescriptionId: jobPosting.jobDescriptionId,
+      jobDescriptionVersionId: jobPosting.jobDescriptionVersionId,
+      positionId: jobPosting.jobDescription?.positionId ?? null,
+      levelId: jobPosting.jobDescription?.levelId ?? null,
+      status: QuestionSetStatus.ACTIVE,
+      createdById,
+      sourceSystem: JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM,
+      sourceJobId: null,
+      sourceSnapshotHash: null,
+      sourceSnapshot: {
+        jobPostingId: jobPosting.id,
+        repairedDuringFormGeneration: true,
+        questionCount: questionnaireItems.length,
+      },
+      sourceLastSyncedAt: new Date(),
+    }));
+
+    const savedItems = await itemRepo.save(
+      questionnaireItems.map((item, index) => itemRepo.create({
+        questionSetId: snapshotSet.id,
+        questionId: item.questionId,
+        questionTextSnapshot: item.questionTextSnapshot,
+        questionType: item.questionType,
+        orderIndex: index,
+        required: item.required,
+        metadata: {
+          ...(this.isRecord(item.metadata) ? item.metadata : {}),
+          snapshotForJobPostingId: jobPosting.id,
+        },
+      })),
+    );
+
+    await manager.getRepository(JobPostingEntity).update(
+      { id: jobPosting.id },
+      {
+        formQuestionSetId: snapshotSet.id,
+        formQuestionIds: savedItems.map((item) => item.id),
+      },
+    );
+    jobPosting.formQuestionSetId = snapshotSet.id;
+    jobPosting.formQuestionIds = savedItems.map((item) => item.id);
+
+    return savedItems.map((item, index) => ({
+      questionId: item.questionId,
+      questionTextSnapshot: item.questionTextSnapshot,
+      questionType: item.questionType,
+      required: item.required,
+      metadata: item.metadata,
+      category: questionnaireItems[index]?.category ?? null,
+    }));
+  }
+
   async generateFormSession(applicationId: string, createdById?: string | null) {
     return this.dataSource.transaction(async (manager) => {
       const application = await manager.getRepository(ApplicationEntity).findOne({
         where: { id: applicationId },
-        relations: ['candidate', 'jobPosting', 'jobPosting.jobDescription'],
+        relations: [
+          'candidate',
+          'jobPosting',
+          'jobPosting.jobDescription',
+          'jobPosting.formQuestionSet',
+          'jobPosting.formQuestionSet.items',
+          'jobPosting.formQuestionSet.items.question',
+        ],
       });
 
       if (!application) {
-        throw new NotFoundException('Application not found');
+        throw new BadRequestException('Application not found');
       }
 
       const jobPosting = application.jobPosting;
@@ -169,20 +365,55 @@ export class FormSessionsService {
         throw new BadRequestException('Job posting not found for this application');
       }
 
-      // 1. Prefer questions explicitly configured on the AMIS job posting.
-      let selectedQuestions = await this.getConfiguredQuestionsForJob(
-        manager,
-        jobPosting.formQuestionIds,
+      // Resolve createdById user before optional posting snapshot repair.
+      let finalCreatedById = createdById || null;
+      if (!finalCreatedById) {
+        const firstUser = await manager.getRepository(UserEntity).findOne({
+          where: {},
+          order: { createdAt: 'ASC' },
+        });
+        if (firstUser) {
+          finalCreatedById = firstUser.id;
+        } else {
+          throw new BadRequestException('No users available in database to attribute creation.');
+        }
+      }
+
+      let selectedQuestionnaireItems = this.toQuestionnaireItemsFromQuestionSet(
+        jobPosting.formQuestionSet,
       );
 
-      if (jobPosting.formQuestionIds?.length && selectedQuestions.length === 0) {
-        throw new BadRequestException(
-          'Configured questionnaire questions are not active or no longer exist.',
+      if (selectedQuestionnaireItems.length === 0) {
+        selectedQuestionnaireItems = await this.getConfiguredQuestionnaireItemsForJob(
+          manager,
+          jobPosting.formQuestionIds,
         );
       }
 
+      if (jobPosting.formQuestionIds?.length && selectedQuestionnaireItems.length === 0) {
+        this.logger.warn(
+          `Job posting ${jobPosting.id} has stale configured questionnaire ids; falling back to current JD questions.`,
+        );
+      }
+
+      if (selectedQuestionnaireItems.length === 0) {
+        selectedQuestionnaireItems = await this.getPortalQuestionnaireItemsForJobDescription(
+          manager,
+          jobPosting.jobDescriptionId,
+        );
+
+        if (
+          selectedQuestionnaireItems.length === 0
+          && jobPosting.jobDescription?.sourceSystem === VCS_PORTAL_SOURCE_SYSTEM
+        ) {
+          throw new BadRequestException(
+            'No synced VCS Portal questions are available for this job description.',
+          );
+        }
+      }
+
       // Fallback for postings without an explicit question selection.
-      if (selectedQuestions.length === 0) {
+      if (selectedQuestionnaireItems.length === 0) {
         const categoryNames = await this.getQuestionCategoriesForJob(jobPosting.title);
         let questions = await manager.getRepository(QuestionEntity).find({
           where: { category: In(categoryNames), isActive: true },
@@ -202,23 +433,18 @@ export class FormSessionsService {
         }
 
         // Shuffle and take 5 questions for legacy/default postings.
-        selectedQuestions = questions
+        selectedQuestionnaireItems = this.toQuestionnaireItemsFromBank(questions
           .sort(() => 0.5 - Math.random())
-          .slice(0, 5);
+          .slice(0, 5));
       }
 
-      // Resolve createdById user
-      let finalCreatedById = createdById || null;
-      if (!finalCreatedById) {
-        const firstUser = await manager.getRepository(UserEntity).findOne({
-          where: {},
-          order: { createdAt: 'ASC' },
-        });
-        if (firstUser) {
-          finalCreatedById = firstUser.id;
-        } else {
-          throw new BadRequestException('No users available in database to attribute creation.');
-        }
+      if (!jobPosting.formQuestionSetId && selectedQuestionnaireItems.length > 0) {
+        selectedQuestionnaireItems = await this.createPostingQuestionSetSnapshot(
+          manager,
+          jobPosting,
+          selectedQuestionnaireItems,
+          finalCreatedById,
+        );
       }
 
       // 2. Create QuestionSet
@@ -235,15 +461,15 @@ export class FormSessionsService {
       const savedSet = await manager.save(QuestionSetEntity, questionSet);
 
       // Create QuestionSetItems
-      const items = selectedQuestions.map((q, idx) =>
+      const items = selectedQuestionnaireItems.map((question, idx) =>
         manager.create(QuestionSetItemEntity, {
           questionSetId: savedSet.id,
-          questionId: q.id,
-          questionTextSnapshot: q.text,
-          questionType: q.type,
+          questionId: question.questionId,
+          questionTextSnapshot: question.questionTextSnapshot,
+          questionType: question.questionType,
           orderIndex: idx,
-          required: true,
-          metadata: null,
+          required: question.required,
+          metadata: question.metadata,
         }),
       );
 
@@ -330,11 +556,11 @@ export class FormSessionsService {
         plainToken,
         formUrl,
         expiresAt,
-        questions: selectedQuestions.map((q) => ({
-          id: q.id,
-          category: q.category,
-          text: q.text,
-          type: q.type,
+        questions: selectedQuestionnaireItems.map((question) => ({
+          id: question.questionId,
+          category: question.category ?? null,
+          text: question.questionTextSnapshot,
+          type: question.questionType,
         })),
       };
     });
@@ -355,7 +581,7 @@ export class FormSessionsService {
     });
 
     if (!session) {
-      throw new NotFoundException('Questionnaire form not found');
+      throw new BadRequestException('Questionnaire form not found');
     }
 
     if (
@@ -430,7 +656,7 @@ export class FormSessionsService {
     });
 
     if (!session) {
-      throw new NotFoundException('Questionnaire form not found');
+      throw new BadRequestException('Questionnaire form not found');
     }
 
     if (session.status === FormSessionStatus.SUBMITTED) {
@@ -547,5 +773,9 @@ export class FormSessionsService {
         };
       }),
     };
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 }

@@ -17,12 +17,14 @@ import type {
   FacebookReviewStatus,
   FacebookPublishTarget,
   FacebookPublishResultPayload,
+  JobDescriptionQuestionSetContext,
   JobDescriptionSummary,
   SyncAmisApplicationsRequest,
   SyncAmisApplicationsResponse,
   SyncAmisCareersRequest,
   SyncAmisCareersResponse,
   SyncAmisJobPostingRequest,
+  SyncVcsPortalJdsResponse,
   UpdateFacebookGroupRequest,
   VerifyFacebookGroupRequest,
 } from './types';
@@ -54,11 +56,25 @@ export async function getCurrentUser(accessToken: string) {
 
 export async function listJobDescriptions(
   accessToken: string,
-  params: { page?: number; limit?: number; search?: string } = {},
+  params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    sourceSystem?: string;
+    status?: string;
+    latestSyncedOnly?: boolean;
+    sortBy?: string;
+    sortOrder?: 'ASC' | 'DESC';
+  } = {},
 ) {
   const searchParams = new URLSearchParams();
   searchParams.set('page', String(params.page ?? 1));
   searchParams.set('limit', String(params.limit ?? 20));
+  searchParams.set('sourceSystem', params.sourceSystem ?? 'VCS_PORTAL');
+  searchParams.set('status', params.status ?? 'ACTIVE');
+  searchParams.set('latestSyncedOnly', String(params.latestSyncedOnly ?? true));
+  searchParams.set('sortBy', params.sortBy ?? 'lastSyncedAt');
+  searchParams.set('sortOrder', params.sortOrder ?? 'DESC');
   if (params.search?.trim()) searchParams.set('search', params.search.trim());
 
   return requestWithPagination<JobDescriptionSummary>(
@@ -123,12 +139,38 @@ export async function syncAmisApplications(
   });
 }
 
+export async function syncVcsPortalJobDescriptions(accessToken: string) {
+  const requestId = `ext-vcs-portal-jds-${crypto.randomUUID()}`;
+
+  return request<SyncVcsPortalJdsResponse>('/extension/vcs-portal/jds/sync', {
+    method: 'POST',
+    accessToken,
+    headers: {
+      'X-Request-Id': requestId,
+      'X-Extension-Version': EXTENSION_VERSION,
+    },
+  });
+}
+
 export async function getAmisApplicationsForRecruitment(
   accessToken: string,
   amisRecruitmentId: string,
 ) {
   return request<AmisApplicationsForRecruitment>(
     `/extension/amis/recruitments/${encodeURIComponent(amisRecruitmentId)}/applications`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
+}
+
+export async function getJobDescriptionQuestionSet(
+  accessToken: string,
+  jobDescriptionId: string,
+) {
+  return request<JobDescriptionQuestionSetContext>(
+    `/extension/amis/job-descriptions/${encodeURIComponent(jobDescriptionId)}/question-set`,
     {
       method: 'GET',
       accessToken,

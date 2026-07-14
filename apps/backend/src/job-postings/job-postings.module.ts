@@ -15,6 +15,8 @@ import { FormSessionEntity } from '../form-sessions/entities/form-session.entity
 import { HrReviewDecisionEntity } from '../hr-review/entities/hr-review-decision.entity';
 import { JobDescriptionEntity } from '../job-descriptions/entities/job-description.entity';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
+import { QuestionSetEntity } from '../questions/entities/question-set.entity';
+import { QuestionSetItemEntity } from '../questions/entities/question-set-item.entity';
 import { FacebookPublishingModule } from '../facebook-publishing/facebook-publishing.module';
 import { FileParserModule } from '../file-parser/file-parser.module';
 import { LevelEntity } from '../levels/entities/level.entity';
@@ -51,6 +53,8 @@ import { FormSessionsModule } from '../form-sessions/form-sessions.module';
       LevelEntity,
       MappingResultEntity,
       ParsedProfileEntity,
+      QuestionSetEntity,
+      QuestionSetItemEntity,
       UserEntity,
       WorkflowEventEntity,
     ]),

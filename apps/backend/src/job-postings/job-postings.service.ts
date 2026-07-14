@@ -8,10 +8,15 @@ import {
   JobDescriptionStatus,
   JobDescriptionVersionStatus,
   JobPostingStatus,
+  QuestionSetStatus,
 } from '../recruitment-common';
 import { JobPostingEntity } from './entities/job-posting.entity';
+import { QuestionSetEntity } from '../questions/entities/question-set.entity';
+import { QuestionSetItemEntity } from '../questions/entities/question-set-item.entity';
 
 type DateInput = Date | string | null;
+const VCS_PORTAL_SOURCE_SYSTEM = 'VCS_PORTAL';
+const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
 
 export interface CreateJobPostingInput {
   jobDescriptionVersionId: string;
@@ -54,11 +59,15 @@ export class JobPostingsService {
     private readonly versionsRepo: Repository<JobDescriptionVersionEntity>,
     @InjectRepository(UserEntity)
     private readonly usersRepo: Repository<UserEntity>,
+    @InjectRepository(QuestionSetEntity)
+    private readonly questionSetsRepo: Repository<QuestionSetEntity>,
+    @InjectRepository(QuestionSetItemEntity)
+    private readonly questionSetItemsRepo: Repository<QuestionSetItemEntity>,
   ) {}
 
   findAll() {
     return this.jobPostingsRepo.find({
-      relations: ['jobDescription', 'jobDescriptionVersion', 'createdBy'],
+      relations: ['jobDescription', 'jobDescriptionVersion', 'formQuestionSet', 'createdBy'],
       order: { createdAt: 'DESC' },
     });
   }
@@ -85,6 +94,7 @@ export class JobPostingsService {
       .createQueryBuilder('posting')
       .leftJoinAndSelect('posting.jobDescription', 'jobDescription')
       .leftJoinAndSelect('posting.jobDescriptionVersion', 'jobDescriptionVersion')
+      .leftJoinAndSelect('posting.formQuestionSet', 'formQuestionSet')
       .leftJoinAndSelect('posting.createdBy', 'createdBy')
       .orderBy(sortCol, sortOrder);
 
@@ -124,6 +134,7 @@ export class JobPostingsService {
         'jobDescription',
         'jobDescriptionVersion',
         'jobDescriptionVersion.jobDescription',
+        'formQuestionSet',
         'createdBy',
       ],
     });
@@ -142,6 +153,7 @@ export class JobPostingsService {
         'jobDescription',
         'jobDescriptionVersion',
         'jobDescriptionVersion.jobDescription',
+        'formQuestionSet',
       ],
     });
     if (!posting || !this.isPubliclyAccessible(posting)) {
@@ -172,7 +184,13 @@ export class JobPostingsService {
       createdById,
     });
 
-    return this.jobPostingsRepo.save(posting);
+    const savedPosting = await this.jobPostingsRepo.save(posting);
+    await this.createPostingQuestionSetSnapshotFromActiveJobDescription(
+      savedPosting,
+      version,
+      createdById,
+    );
+    return savedPosting;
   }
 
   async update(id: string, input: UpdateJobPostingInput) {
@@ -273,6 +291,73 @@ export class JobPostingsService {
     return version;
   }
 
+  private async createPostingQuestionSetSnapshotFromActiveJobDescription(
+    posting: JobPostingEntity,
+    version: JobDescriptionVersionEntity,
+    createdById: string,
+  ) {
+    const sourceSet = await this.questionSetsRepo
+      .createQueryBuilder('questionSet')
+      .leftJoinAndSelect('questionSet.items', 'item')
+      .leftJoinAndSelect('item.question', 'question')
+      .where('questionSet.jobDescriptionId = :jobDescriptionId', {
+        jobDescriptionId: version.jobDescriptionId,
+      })
+      .andWhere('questionSet.sourceSystem = :sourceSystem', {
+        sourceSystem: VCS_PORTAL_SOURCE_SYSTEM,
+      })
+      .andWhere('questionSet.status = :status', { status: QuestionSetStatus.ACTIVE })
+      .orderBy('questionSet.sourceLastSyncedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('questionSet.updatedAt', 'DESC')
+      .addOrderBy('item.orderIndex', 'ASC')
+      .getOne();
+
+    const sourceItems = (sourceSet?.items ?? []).sort((left, right) =>
+      left.orderIndex - right.orderIndex,
+    );
+    if (!sourceSet || sourceItems.length === 0) return null;
+
+    const snapshotSet = await this.questionSetsRepo.save(this.questionSetsRepo.create({
+      name: `Posting Questionnaire - ${posting.title}`,
+      jobDescriptionId: posting.jobDescriptionId,
+      jobDescriptionVersionId: posting.jobDescriptionVersionId,
+      positionId: version.jobDescription?.positionId ?? null,
+      levelId: version.jobDescription?.levelId ?? null,
+      status: QuestionSetStatus.ACTIVE,
+      createdById,
+      sourceSystem: JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM,
+      sourceJobId: sourceSet.sourceJobId,
+      sourceSnapshotHash: sourceSet.sourceSnapshotHash,
+      sourceSnapshot: {
+        copiedFromQuestionSetId: sourceSet.id,
+        jobPostingId: posting.id,
+        questionCount: sourceItems.length,
+      },
+      sourceLastSyncedAt: new Date(),
+    }));
+
+    const snapshotItems = await this.questionSetItemsRepo.save(
+      sourceItems.map((item, index) => this.questionSetItemsRepo.create({
+        questionSetId: snapshotSet.id,
+        questionId: item.questionId,
+        questionTextSnapshot: item.questionTextSnapshot,
+        questionType: item.questionType,
+        orderIndex: index,
+        required: item.required,
+        metadata: {
+          ...(this.isRecord(item.metadata) ? item.metadata : {}),
+          copiedFromQuestionSetId: sourceSet.id,
+          copiedFromQuestionSetItemId: item.id,
+          snapshotForJobPostingId: posting.id,
+        },
+      })),
+    );
+
+    posting.formQuestionSetId = snapshotSet.id;
+    posting.formQuestionIds = snapshotItems.map((item) => item.id);
+    return this.jobPostingsRepo.save(posting);
+  }
+
   private async assertUserExists(userId: string) {
     const normalizedUserId = this.requireText(userId, 'Created by user id');
     const user = await this.usersRepo.findOne({ where: { id: normalizedUserId } });
@@ -353,6 +438,10 @@ export class JobPostingsService {
     const normalized = value?.trim();
     if (!normalized) throw new BadRequestException(`${fieldName} is required`);
     return normalized;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
   private parseOptionalDate(value: DateInput | undefined, fieldName: string) {
