@@ -2,36 +2,74 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JobPostingEntity } from '../../job-postings/entities/job-posting.entity';
 
+interface FacebookPostSnapshotInput {
+  title?: unknown;
+  description?: unknown;
+  summary?: unknown;
+  requirements?: unknown;
+  benefits?: unknown;
+  location?: unknown;
+}
+
 @Injectable()
 export class FacebookPostContentService {
   constructor(private readonly configService: ConfigService) {}
 
-  build(posting: JobPostingEntity) {
+  build(posting: JobPostingEntity, customContent?: string | null) {
+    const normalizedCustomContent = customContent?.trim();
+    if (normalizedCustomContent) {
+      return this.hydrateApplyUrl(normalizedCustomContent, posting.publicSlug);
+    }
+
     const snapshot = this.asRecord(posting.jobDescriptionVersion?.snapshot);
     const jobDescription = this.asRecord(snapshot?.jobDescription);
-    const position = this.asRecord(snapshot?.position);
     const level = this.asRecord(snapshot?.level);
-    let rawTitle = posting.title || this.asText(jobDescription?.title) || 'Vi tri tuyen dung';
-    rawTitle = rawTitle.trim().replace(/^(tuyển dụng|tuyển)\s+/i, '');
+
+    return this.buildContent({
+      title: posting.title || this.asText(jobDescription?.title),
+      description: jobDescription?.description,
+      requirements: jobDescription?.requirements,
+      benefits: jobDescription?.benefits,
+      level,
+      applyUrl: this.buildApplyUrl(posting.publicSlug),
+    });
+  }
+
+  buildFromSnapshot(snapshot: FacebookPostSnapshotInput) {
+    return this.buildContent({
+      title: snapshot.title,
+      description: snapshot.description ?? snapshot.summary,
+      requirements: snapshot.requirements,
+      benefits: snapshot.benefits,
+      applyUrl: '{{APPLY_URL}}',
+    });
+  }
+
+  private buildContent(input: FacebookPostSnapshotInput & {
+    level?: Record<string, unknown> | null;
+    applyUrl: string;
+  }) {
+    const level = input.level;
+    const rawTitle = this.stripRecruitmentPrefix(this.asText(input.title) || 'Vi tri tuyen dung');
     const title = rawTitle.toUpperCase();
-    const applyUrl = this.buildApplyUrl(posting.publicSlug);
     const fanpageName = this.configService.get<string>('FACEBOOK_DEFAULT_FANPAGE_NAME') || 'VCS Careers';
-    const defaultLocation = 'Tòa Keangnam Landmark 72, Đ. Phạm Hùng, Q. Nam Từ Liêm, Hà Nội';
+    const defaultLocation = 'Toa Keangnam Landmark 72, Pham Hung, Nam Tu Liem, Ha Noi';
+    const location = this.asText(input.location) || defaultLocation;
 
     const lines = [
-      `🚀 [HN] VIETTEL CYBER SECURITY (VCS) TUYỂN DỤNG ${title}`,
-      'Bạn có kinh nghiệm và mong muốn tham gia các dự án quy mô lớn, môi trường công nghệ chuyên sâu?',
-      'Cơ hội dành cho bạn tại Viettel Cyber Security (VCS)!',
+      `[HN] VIETTEL CYBER SECURITY (VCS) TUYEN DUNG ${title}`,
+      'Ban co kinh nghiem va mong muon tham gia cac du an quy mo lon, moi truong cong nghe chuyen sau?',
+      'Co hoi danh cho ban tai Viettel Cyber Security (VCS)!',
       '',
-      '📌 Vị trí tuyển dụng:',
-      `🔹 ${rawTitle}${level?.displayName || level?.name ? ` – ${this.asText(level.displayName ?? level.name)}` : ''}`,
+      'Vi tri tuyen dung:',
+      `- ${rawTitle}${level?.displayName || level?.name ? ` - ${this.asText(level.displayName ?? level.name)}` : ''}`,
       '',
-      this.section('💼 Mô tả công việc', this.asText(jobDescription?.description)),
-      this.section('🎯 Yêu cầu', this.formatStructured(jobDescription?.requirements)),
-      this.section('✨ Quyền lợi', this.formatStructured(jobDescription?.benefits)),
-      `📍 Địa điểm làm việc: ${defaultLocation}`,
+      this.section('Mo ta cong viec', this.asText(input.description)),
+      this.section('Yeu cau', this.formatStructured(input.requirements)),
+      this.section('Quyen loi', this.formatStructured(input.benefits)),
+      `Dia diem lam viec: ${location}`,
       '',
-      `Ung vien quan tam vui long nhan tin Fanpage ${fanpageName} hoac truy cap link ung tuyen: ${applyUrl}`,
+      `Ung vien quan tam vui long nhan tin Fanpage ${fanpageName} hoac truy cap link ung tuyen: ${input.applyUrl}`,
     ];
 
     return lines
@@ -50,6 +88,14 @@ export class FacebookPostContentService {
   private buildApplyUrl(publicSlug: string) {
     const base = this.configService.get<string>('FACEBOOK_CANDIDATE_CTA_URL_BASE') || '/jobs';
     return `${base.replace(/\/+$/, '')}/${publicSlug}`;
+  }
+
+  private hydrateApplyUrl(content: string, publicSlug: string) {
+    const applyUrl = this.buildApplyUrl(publicSlug);
+    return content
+      .replace(/\{\{\s*APPLY_URL\s*\}\}/gi, applyUrl)
+      .replace(/\[\s*APPLY_URL\s*\]/gi, applyUrl)
+      .trim();
   }
 
   private formatStructured(value: unknown): string | null {
@@ -73,6 +119,13 @@ export class FacebookPostContentService {
       .filter((line): line is string => Boolean(line));
 
     return lines.length ? lines.join('\n') : null;
+  }
+
+  private stripRecruitmentPrefix(value: string) {
+    return value
+      .trim()
+      .replace(/^(tuyen dung|tuyen)\s+/i, '')
+      .trim();
   }
 
   private humanizeKey(key: string) {

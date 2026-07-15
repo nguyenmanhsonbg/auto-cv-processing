@@ -19,6 +19,7 @@ import {
   ChannelPostingResultDto,
   AmisCareerCatalogItemDto,
   CreateAmisCareerQuestionDto,
+  ExtensionPreviewPublishPlanResponseDto,
   ExtensionSyncResponseDto,
   ExtensionSyncWarningDto,
   SyncAmisCareersDto,
@@ -138,6 +139,41 @@ export class ExtensionIntegrationService {
       });
       throw error;
     }
+  }
+
+  async previewPublishPlanFromAmis(
+    dto: SyncAmisJobPostingDto,
+    context: ExtensionCatalogSyncContext,
+  ): Promise<ExtensionPreviewPublishPlanResponseDto> {
+    const normalizedDto = this.normalizeRequest(dto, { requireFacebookTargets: false });
+    if (normalizedDto.action !== ExtensionSyncAction.PUBLISH) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Only PUBLISH action is supported for extension integration MVP.',
+      });
+    }
+
+    const snapshotHash = createAmisSnapshotHash(
+      normalizedDto.snapshot,
+      normalizedDto.selectedQuestionIds,
+    );
+    const posting = await this.buildPreviewPosting(normalizedDto, snapshotHash);
+    const facebookPublishPlan = normalizedDto.channels.includes(RecruitmentChannel.FACEBOOK)
+      ? await this.facebookPublishingService.prepareExtensionPublishPlan(
+        posting,
+        context.actorUserId,
+        normalizedDto.facebookTargetIds,
+        normalizedDto.facebookContent,
+      )
+      : undefined;
+    const warnings = this.buildFacebookPreviewWarnings(normalizedDto.channels, facebookPublishPlan);
+
+    return {
+      amisRecruitmentId: normalizedDto.amisRecruitmentId,
+      snapshotHash,
+      ...(facebookPublishPlan ? { facebookPublishPlan } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
   }
 
   private async syncDomainRecords(
@@ -538,6 +574,108 @@ export class ExtensionIntegrationService {
     );
   }
 
+  private async buildPreviewPosting(
+    dto: SyncAmisJobPostingDto,
+    snapshotHash: string,
+  ) {
+    const manager = this.dataSource.manager;
+    const existingReference = await manager.getRepository(RecruitmentExternalReferenceEntity).findOne({
+      where: {
+        sourceSystem: dto.sourceSystem,
+        externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+        externalId: dto.amisRecruitmentId,
+      },
+    });
+    const existingPosting = existingReference
+      ? await manager.getRepository(JobPostingEntity).findOne({
+        where: { id: existingReference.internalEntityId },
+        relations: [
+          'jobDescription',
+          'jobDescriptionVersion',
+          'jobDescriptionVersion.jobDescription',
+          'createdBy',
+        ],
+      })
+      : null;
+
+    if (existingPosting && existingReference?.lastSnapshotHash === snapshotHash) {
+      return existingPosting;
+    }
+
+    const publicSlug = existingPosting?.publicSlug ?? await this.createUniqueSlug(manager, dto.snapshot.title);
+    const now = new Date();
+    const closeAt = this.parseDeadline(dto.snapshot.deadline, now);
+    const jobDescription = manager.getRepository(JobDescriptionEntity).create({
+      id: existingPosting?.jobDescriptionId ?? 'preview-job-description',
+      title: dto.snapshot.title,
+      positionId: null,
+      levelId: null,
+      description: dto.snapshot.description,
+      overview: this.optionalText(dto.snapshot.summary) ?? null,
+      responsibilities: dto.snapshot.description,
+      summary: this.toSummary(dto.snapshot.summary ?? dto.snapshot.description),
+      requirements: this.toPlainRequirements(dto.snapshot.requirements),
+      benefits: this.normalizeBenefits(dto.snapshot.benefits),
+      salary: null,
+      annualLeaveDays: null,
+      department: null,
+      applicationDeadline: closeAt?.toISOString().slice(0, 10) ?? null,
+      status: JobDescriptionStatus.ACTIVE,
+      createdById: existingPosting?.createdById ?? 'preview-user',
+    });
+    const version = manager.getRepository(JobDescriptionVersionEntity).create({
+      id: existingPosting?.jobDescriptionVersionId ?? 'preview-job-description-version',
+      jobDescriptionId: jobDescription.id,
+      versionNo: existingPosting?.jobDescriptionVersion?.versionNo ?? 1,
+      snapshot: this.buildJobDescriptionSnapshot(jobDescription),
+      status: JobDescriptionVersionStatus.ACTIVE,
+      createdById: jobDescription.createdById,
+    });
+
+    return manager.getRepository(JobPostingEntity).create({
+      id: existingPosting?.id ?? 'preview-job-posting',
+      jobDescriptionId: jobDescription.id,
+      jobDescription,
+      jobDescriptionVersionId: version.id,
+      jobDescriptionVersion: version,
+      title: dto.snapshot.title,
+      publicSlug,
+      status: JobPostingStatus.PUBLISHED,
+      openAt: existingPosting?.openAt ?? now,
+      closeAt,
+      formQuestionIds: existingPosting?.formQuestionIds ?? null,
+      formQuestionSetId: existingPosting?.formQuestionSetId ?? null,
+      createdById: existingPosting?.createdById ?? jobDescription.createdById,
+    });
+  }
+
+  private buildFacebookPreviewWarnings(
+    channels: ExtensionSyncChannel[],
+    facebookPublishPlan?: ExtensionFacebookPublishPlan,
+  ): ExtensionSyncWarningDto[] {
+    const warnings: ExtensionSyncWarningDto[] = [];
+    for (const channel of channels) {
+      if (channel === RecruitmentChannel.VCS_PORTAL) continue;
+      if (channel === RecruitmentChannel.FACEBOOK) {
+        if (!facebookPublishPlan || facebookPublishPlan.targets.length === 0) {
+          warnings.push({
+            code: 'FACEBOOK_TARGETS_NOT_CONFIGURED',
+            message: 'No eligible Facebook publish targets are configured or available today.',
+            channel,
+          });
+        }
+        continue;
+      }
+
+      warnings.push({
+        code: 'CHANNEL_NOT_CONFIGURED',
+        message: `${channel} is not configured for automatic publishing.`,
+        channel,
+      });
+    }
+    return warnings;
+  }
+
   private async findPosting(manager: EntityManager, id: string) {
     const posting = await manager.getRepository(JobPostingEntity).findOne({
       where: { id },
@@ -573,6 +711,7 @@ export class ExtensionIntegrationService {
         input.posting,
         input.actorUserId,
         input.dto.facebookTargetIds,
+        input.dto.facebookContent,
       )
       : undefined;
     const warnings: ExtensionSyncWarningDto[] = [];
@@ -693,7 +832,10 @@ export class ExtensionIntegrationService {
       && Array.isArray((value as ExtensionSyncResponseDto).channelPostings);
   }
 
-  private normalizeRequest(dto: SyncAmisJobPostingDto): SyncAmisJobPostingDto {
+  private normalizeRequest(
+    dto: SyncAmisJobPostingDto,
+    options: { requireFacebookTargets?: boolean } = {},
+  ): SyncAmisJobPostingDto {
     if (dto.sourceSystem !== ExtensionSourceSystem.AMIS) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -720,7 +862,11 @@ export class ExtensionIntegrationService {
         deadline: this.optionalText(dto.snapshot.deadline) ?? undefined,
       },
       channels,
-      facebookTargetIds: this.normalizeFacebookTargetIds(dto.facebookTargetIds, channels),
+      facebookTargetIds: this.normalizeFacebookTargetIds(
+        dto.facebookTargetIds,
+        channels,
+        options.requireFacebookTargets ?? true,
+      ),
       selectedQuestionIds: this.normalizeSelectedQuestionIds(dto.selectedQuestionIds),
       metadata: this.safeMetadata(dto.metadata),
     };
@@ -1714,10 +1860,12 @@ export class ExtensionIntegrationService {
   private normalizeFacebookTargetIds(
     value: unknown,
     channels: ExtensionSyncChannel[],
+    requireTargets: boolean,
   ) {
     if (!channels.includes(RecruitmentChannel.FACEBOOK)) return undefined;
 
     if (!Array.isArray(value)) {
+      if (!requireTargets) return undefined;
       throw new BadRequestException({
         code: 'FACEBOOK_TARGETS_REQUIRED',
         message: 'Select at least one Facebook group before publishing.',
@@ -1730,6 +1878,7 @@ export class ExtensionIntegrationService {
       .filter(Boolean))];
 
     if (uniqueTargetIds.length === 0) {
+      if (!requireTargets) return undefined;
       throw new BadRequestException({
         code: 'FACEBOOK_TARGETS_REQUIRED',
         message: 'Select at least one Facebook group before publishing.',

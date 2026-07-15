@@ -260,6 +260,7 @@ export interface SyncAmisJobPostingRequest {
   channels: ExtensionChannel[];
   facebookTargetIds?: string[];
   selectedQuestionIds?: string[];
+  facebookContent?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -494,6 +495,17 @@ export interface ExtensionSyncResponse {
   snapshotHash: string;
   snapshotChanged: boolean;
   channelPostings: ChannelPostingResult[];
+  facebookPublishPlan?: FacebookPublishPlan;
+  warnings?: Array<{
+    code: string;
+    message: string;
+    channel?: ExtensionChannel;
+  }>;
+}
+
+export interface ExtensionPreviewPublishPlanResponse {
+  amisRecruitmentId: string;
+  snapshotHash: string;
   facebookPublishPlan?: FacebookPublishPlan;
   warnings?: Array<{
     code: string;

@@ -12,6 +12,7 @@ import {
   CreateFacebookGroupDto,
   FacebookPublishHistoryStatusCheckDto,
   DiscoverFacebookGroupsDto,
+  GenerateFacebookPreviewContentDto,
   ReportFacebookPublishResultDto,
   UpdateFacebookGroupDto,
   VerifyFacebookGroupDto,
@@ -211,6 +212,33 @@ export class ExtensionFacebookController {
     return {
       success: true,
       data: result,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  @Post('generate-preview-content')
+  @ApiOperation({ summary: 'Generate a Facebook post preview from an extension job snapshot' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
+  @ApiBody({ type: GenerateFacebookPreviewContentDto })
+  @ApiResponse({ status: 200, description: 'Facebook preview content generated.' })
+  async generatePreviewContent(
+    @Body() dto: GenerateFacebookPreviewContentDto,
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const content = this.facebookPublishingService.generateExtensionPreviewContent({
+      snapshot: dto.snapshot,
+    });
+
+    return {
+      success: true,
+      data: {
+        content,
+        mode: dto.mode ?? 'TEMPLATE',
+      },
       meta: {
         timestamp: new Date().toISOString(),
       },

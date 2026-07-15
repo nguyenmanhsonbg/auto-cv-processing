@@ -10,6 +10,7 @@ import {
   AmisCareerCatalogItemDto,
   CreateAmisCareerQuestionDto,
   AmisApplicationsForRecruitmentDto,
+  ExtensionPreviewPublishPlanResponseDto,
   SyncAmisApplicationsDto,
   SyncAmisApplicationsResponseDto,
   SyncAmisCareersDto,
@@ -96,6 +97,59 @@ export class ExtensionIntegrationController {
         timestamp: new Date().toISOString(),
         requestId: this.optionalHeader(requestId) ?? null,
         idempotencyKey: idempotencyKeyValue,
+        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+        extensionInstanceId: extensionInstance?.id ?? null,
+      },
+    };
+  }
+
+  @Post('job-postings/preview-plan')
+  @ApiOperation({
+    summary: 'Preview the AMIS job posting publish plan without syncing or creating records',
+  })
+  @ApiHeader({
+    name: 'X-Request-Id',
+    required: false,
+    description: 'Optional upstream request correlation id from the extension.',
+  })
+  @ApiHeader({
+    name: 'X-Extension-Version',
+    required: false,
+    description: 'Optional browser extension version.',
+  })
+  @ApiHeader({
+    name: 'X-Extension-Instance-Id',
+    required: false,
+    description: 'Optional registered browser extension instance id.',
+  })
+  @ApiBody({ type: SyncAmisJobPostingDto })
+  @ApiResponse({
+    status: 201,
+    description: 'AMIS job posting publish plan preview.',
+    type: ExtensionPreviewPublishPlanResponseDto,
+  })
+  async previewPublishPlan(
+    @Body() dto: SyncAmisJobPostingDto,
+    @Request() req: ExtensionAuthenticatedRequest,
+    @Headers('x-request-id') requestId: HeaderValue,
+    @Headers('x-extension-version') extensionVersion: HeaderValue,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const data = await this.extensionIntegrationService.previewPublishPlanFromAmis(dto, {
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      requestId: this.optionalHeader(requestId),
+      extensionVersion: this.optionalHeader(extensionVersion),
+      extensionInstanceId: extensionInstance?.id ?? null,
+    });
+
+    return {
+      success: true,
+      data,
+      meta: {
+        timestamp: new Date().toISOString(),
+        requestId: this.optionalHeader(requestId) ?? null,
         extensionVersion: this.optionalHeader(extensionVersion) ?? null,
         extensionInstanceId: extensionInstance?.id ?? null,
       },

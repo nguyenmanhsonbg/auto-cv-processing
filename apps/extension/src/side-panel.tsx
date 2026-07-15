@@ -20,6 +20,7 @@ import {
   listJobDescriptions,
   heartbeatExtensionInstance,
   login,
+  previewAmisJobPublishPlan,
   syncAmisApplications,
   syncAndPublishAmisJob,
   syncVcsPortalJobDescriptions,
@@ -66,7 +67,6 @@ import type {
   FacebookPublishTargetEligibilityStatus,
   FacebookReviewStatus,
   JobDescriptionQuestionSetContext,
-  JobDescriptionQuestionSetItem,
   JobDescriptionSummary,
   SyncAmisJobPostingRequest,
   SyncVcsPortalJdsResponse,
@@ -80,6 +80,7 @@ type WorkspaceTab = 'overview' | 'posting' | 'cv';
 type CvWorkspaceView = 'overview' | 'list';
 type FacebookPostHistoryFilter = 'ALL' | FacebookReviewStatus;
 type FacebookPostHistoryLoadState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
+type FacebookContentState = 'IDLE' | 'GENERATING' | 'READY' | 'ERROR';
 type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
@@ -87,6 +88,7 @@ type FacebookGroupLoadState =
   | 'LOADING_GROUPS'
   | 'READY'
   | 'ERROR';
+type FacebookPreviewModalMode = 'PREVIEW' | 'EDIT';
 type FacebookGroupModalMode = 'SETTINGS' | 'EDIT' | 'DELETE';
 type ApplicationsState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type FacebookImageAttachmentState = 'IDLE' | 'READING' | 'READY' | 'ERROR';
@@ -129,16 +131,17 @@ const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANG
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 const JOB_DESCRIPTION_QUESTION_SELECTION_PREFIX = 'vcs:selected-jd-questions:';
 const MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS = 3;
-const TARGET_LEVEL_OPTIONS = [
-  { value: 'ENTRY', label: 'Entry Level' },
-  { value: 'EXPERIENCED', label: 'Experienced' },
-  { value: 'SENIOR', label: 'Senior' },
-  { value: 'SPECIALIST', label: 'Specialist / Expert' },
-];
 const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'overview', label: 'Tổng Quan' },
-  { id: 'posting', label: 'Posting' },
+  { id: 'posting', label: 'Đăng bài' },
   { id: 'cv', label: 'CV' },
+];
+const JOB_DESCRIPTION_STATUS_OPTIONS = [
+  { value: 'ALL', label: 'Tất cả' },
+  { value: 'ACTIVE', label: 'Công khai' },
+  { value: 'DRAFT', label: 'Nội bộ' },
+  { value: 'CLOSED', label: 'Đóng' },
+  { value: 'ARCHIVED', label: 'Ngừng tuyển' },
 ];
 const FACEBOOK_HISTORY_PAGE_SIZE = 5;
 const FACEBOOK_HISTORY_REFRESH_BATCH_SIZE = 50;
@@ -165,7 +168,7 @@ function getJobDescriptionQuestionSelectionStorageKey(jobDescriptionId: string) 
 function SidePanel() {
   const [state, setState] = useState<PanelState>('AUTH_LOADING');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('overview');
-  const [pinnedWorkspaceTab, setPinnedWorkspaceTab] = useState<WorkspaceTab | null>('overview');
+  const [pinnedWorkspaceTab, setPinnedWorkspaceTab] = useState<WorkspaceTab | null>(null);
   const [cvWorkspaceView, setCvWorkspaceView] = useState<CvWorkspaceView>('overview');
   const [user, setUser] = useState<ExtensionUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -184,6 +187,11 @@ function SidePanel() {
   const [facebookRunning, setFacebookRunning] = useState(false);
   const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
+  const [facebookContent, setFacebookContent] = useState('');
+  const [facebookContentState, setFacebookContentState] = useState<FacebookContentState>('IDLE');
+  const [facebookContentMessage, setFacebookContentMessage] = useState<string | null>(null);
+  const [facebookPreviewModalMode, setFacebookPreviewModalMode] = useState<FacebookPreviewModalMode | null>(null);
+  const [facebookContentDraft, setFacebookContentDraft] = useState('');
   const [facebookImageAttachment, setFacebookImageAttachment] = useState<FacebookPublishAttachment | null>(null);
   const [facebookImageAttachmentState, setFacebookImageAttachmentState] = useState<FacebookImageAttachmentState>('IDLE');
   const [facebookImageAttachmentError, setFacebookImageAttachmentError] = useState<string | null>(null);
@@ -218,6 +226,7 @@ function SidePanel() {
   const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [jobDescriptionPagination, setJobDescriptionPagination] = useState<ApiPagination | null>(null);
   const [jobDescriptionSearch, setJobDescriptionSearch] = useState('');
+  const [jobDescriptionStatusFilter, setJobDescriptionStatusFilter] = useState('ACTIVE');
   const [jobDescriptionStatus, setJobDescriptionStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
   const [jobDescriptionError, setJobDescriptionError] = useState<string | null>(null);
   const [jobDescriptionFillState, setJobDescriptionFillState] = useState<JobDescriptionFillState>('IDLE');
@@ -251,6 +260,7 @@ function SidePanel() {
   const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
   const selectedFacebookGroupIdsRef = useRef<string[]>(selectedFacebookGroupIds);
   const facebookImageInputRef = useRef<HTMLInputElement | null>(null);
+  const facebookContentGenerationSeqRef = useRef(0);
   const facebookImageReadSeqRef = useRef(0);
   const facebookImageAttachPromptResolverRef = useRef<((decision: FacebookImageAttachFailureDecision) => void) | null>(null);
   const facebookGroupVerificationQueueRef = useRef<FacebookPublishTarget[]>([]);
@@ -391,6 +401,24 @@ function SidePanel() {
     );
   }, [applicationsContext]);
 
+  useEffect(() => {
+    setFacebookContent('');
+    setFacebookContentState('IDLE');
+    setFacebookContentMessage(null);
+    if (token && amisRecruitmentId && snapshot) {
+      void generateFacebookPostContent({ forceFacebookChannel: true });
+    }
+  }, [
+    token,
+    amisRecruitmentId,
+    snapshot?.title,
+    snapshot?.summary,
+    snapshot?.description,
+    snapshot?.requirements.rawText,
+    snapshot?.location,
+    snapshot?.deadline,
+  ]);
+
   const selectedPostingChannels = useMemo(() => normalizePostingChannels(channels), [channels]);
   const missingFields = useMemo(() => {
     const missing: string[] = [];
@@ -411,26 +439,19 @@ function SidePanel() {
     return [activeWorkspaceTab];
   }, [activeWorkspaceTab, pinnedWorkspaceTab]);
 
-  const selectedPostingChannelCount = selectedPostingChannels.length;
-  const allChannelsSelected = selectedPostingChannelCount === POSTING_CHANNELS.length;
+  const facebookSelected = selectedPostingChannels.includes('FACEBOOK');
+  const facebookContentBusy = facebookContentState === 'GENERATING';
+  const facebookContentReady = facebookContent.trim().length > 0;
   const isFacebookImageReading = facebookImageAttachmentState === 'READING';
   const hasFacebookImageAttachmentError = facebookImageAttachmentState === 'ERROR';
   const facebookImageUploadDisabled = facebookRunning || state === 'SYNCING' || isFacebookImageReading;
   const syncDisabled = state === 'EXTRACTING'
     || state === 'SYNCING'
     || facebookRunning
+    || facebookContentBusy
     || isFacebookImageReading
     || hasFacebookImageAttachmentError
     || missingFields.length > 0;
-  const selectedCareerQuestionCount = useMemo(() => {
-    if (!jobDescriptionQuestionContext) return 0;
-
-    const visibleQuestionIds = new Set(jobDescriptionQuestionContext.questions.map((question) => question.id));
-    return Array.from(selectedJobQuestionIds).filter((questionId) => visibleQuestionIds.has(questionId)).length;
-  }, [jobDescriptionQuestionContext, selectedJobQuestionIds]);
-  const allCareerQuestionsSelected = Boolean(jobDescriptionQuestionContext?.questions.length)
-    && selectedCareerQuestionCount === jobDescriptionQuestionContext?.questions.length;
-
   const visibleFacebookGroups = useMemo(() => {
     if (facebookGroups.length > 0) {
       return facebookGroups.map(toFacebookGroupUiItem);
@@ -545,11 +566,6 @@ function SidePanel() {
     }
   }
 
-  function openFacebookImageFilePicker() {
-    if (facebookImageUploadDisabled) return;
-    facebookImageInputRef.current?.click();
-  }
-
   async function handleFacebookImageFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     event.target.value = '';
@@ -596,6 +612,121 @@ function SidePanel() {
     if (facebookImageInputRef.current) {
       facebookImageInputRef.current.value = '';
     }
+  }
+
+  function clearFacebookContent() {
+    setFacebookContent('');
+    setFacebookContentState('IDLE');
+    setFacebookContentMessage(null);
+  }
+
+  function openFacebookImageFilePicker() {
+    if (facebookImageUploadDisabled) return;
+    facebookImageInputRef.current?.click();
+  }
+
+  async function generateFacebookPostContent(options: {
+    snapshotOverride?: AmisJobSnapshot;
+    selectedJobDescriptionOverride?: JobDescriptionSummary | null;
+    forceFacebookChannel?: boolean;
+  } = {}) {
+    if (!token) {
+      setError('Sign in to VCS Recruitment before generating Facebook content.');
+      setState('AUTH_REQUIRED');
+      return null;
+    }
+    const sourceSnapshot = options.snapshotOverride
+      ?? snapshot
+      ?? (selectedJobDescription ? buildAmisJobSnapshotFromJobDescription(selectedJobDescription) : null);
+    if (!sourceSnapshot || !amisRecruitmentId) {
+      setFacebookContentState('ERROR');
+      setFacebookContentMessage('Load an AMIS job snapshot before generating Facebook content.');
+      return null;
+    }
+    const payload = buildAmisJobPostingPayload({
+      includeFacebookContent: false,
+      snapshotOverride: sourceSnapshot,
+      selectedJobDescriptionOverride: options.selectedJobDescriptionOverride,
+      forceFacebookChannel: options.forceFacebookChannel ?? true,
+    });
+    if (!payload) return null;
+    const generationSeq = facebookContentGenerationSeqRef.current + 1;
+    facebookContentGenerationSeqRef.current = generationSeq;
+
+    setFacebookContentState('GENERATING');
+    setFacebookContentMessage(null);
+
+    try {
+      const response = await previewAmisJobPublishPlan(token, payload);
+      if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
+      const content = response.facebookPublishPlan?.content?.trim() ?? '';
+      if (!content) {
+        throw new Error('Backend did not return Facebook preview content.');
+      }
+      setFacebookContent(content);
+      setFacebookContentState('READY');
+      setFacebookContentMessage('Facebook content generated from the same publish plan used for posting.');
+      return content;
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+      } else if (facebookContentGenerationSeqRef.current === generationSeq) {
+        setFacebookContentState('ERROR');
+        setFacebookContentMessage(toErrorMessage(err));
+      }
+      return null;
+    }
+  }
+
+  async function openFacebookPreviewModal() {
+    await ensureFacebookDefaultContent();
+    setFacebookPreviewModalMode('PREVIEW');
+  }
+
+  async function openFacebookEditModal() {
+    const content = await ensureFacebookDefaultContent();
+    setFacebookContentDraft(content);
+    setFacebookPreviewModalMode('EDIT');
+  }
+
+  async function ensureFacebookDefaultContent() {
+    const currentContent = facebookContent.trim();
+    if (currentContent) return currentContent;
+
+    const publishPlanContent = getCurrentFacebookPublishPlanContent();
+    if (publishPlanContent) {
+      setFacebookContent(publishPlanContent);
+      setFacebookContentState('READY');
+      setFacebookContentMessage('Đang dùng nội dung Facebook mặc định từ kế hoạch đăng hiện tại.');
+      return publishPlanContent;
+    }
+
+    if (!snapshot || !token) return '';
+    return (await generateFacebookPostContent())?.trim() ?? '';
+  }
+
+  async function generateFacebookDraftContent() {
+    const content = await generateFacebookPostContent();
+    if (content !== null) {
+      setFacebookContentDraft(content);
+    }
+  }
+
+  function saveFacebookContentDraft() {
+    const content = facebookContentDraft.trim();
+    setFacebookContent(content);
+    setFacebookContentState(content ? 'READY' : 'IDLE');
+    setFacebookContentMessage(content ? 'Đã lưu thay đổi nội dung Facebook.' : null);
+    setFacebookPreviewModalMode('PREVIEW');
+  }
+
+  function getCurrentFacebookPublishPlanContent() {
+    if (!result?.facebookPublishPlan?.content?.trim()) return '';
+    if (amisRecruitmentId && result.amisRecruitmentId !== amisRecruitmentId) return '';
+    return result.facebookPublishPlan.content.trim();
   }
 
   function requestFacebookImageAttachDecision(
@@ -653,7 +784,11 @@ function SidePanel() {
     setState('AUTH_REQUIRED');
   }
 
-  async function loadJobDescriptions(accessToken = token, page = 1) {
+  async function loadJobDescriptions(
+    accessToken = token,
+    page = 1,
+    filters: { search?: string; status?: string } = {},
+  ) {
     if (!accessToken) return;
 
     setJobDescriptionStatus('LOADING');
@@ -662,8 +797,9 @@ function SidePanel() {
     try {
       const response = await listJobDescriptions(accessToken, {
         page,
-        limit: 20,
-        search: jobDescriptionSearch,
+        limit: 5,
+        search: filters.search ?? jobDescriptionSearch,
+        status: filters.status ?? jobDescriptionStatusFilter,
       });
       setJobDescriptions(response.data);
       setJobDescriptionPagination(response.pagination);
@@ -1140,7 +1276,7 @@ function SidePanel() {
       lastJobQuestionContextIdRef.current = jobDescription.id;
       setSelectedJobDescription(context.jobDescription);
       setJobDescriptionQuestionContext(context);
-      await restoreSelectedJobQuestions(context);
+      await selectAllJobQuestions(context);
       setCareerQuestionState('READY');
       setCareerQuestionMessage(context.questionSet
         ? null
@@ -1161,25 +1297,6 @@ function SidePanel() {
     }
   }
 
-  async function restoreSelectedJobQuestions(context: JobDescriptionQuestionSetContext) {
-    const storageKey = getJobDescriptionQuestionSelectionStorageKey(context.jobDescription.id);
-    const validQuestionIds = new Set(context.questions.map((question) => question.id));
-
-    try {
-      const stored = await chrome.storage?.session?.get(storageKey);
-      const storedQuestionIds = Array.isArray(stored?.[storageKey]) ? stored[storageKey] : [];
-      const selectedQuestionIds = storedQuestionIds.filter(
-        (questionId): questionId is string => typeof questionId === 'string' && validQuestionIds.has(questionId),
-      );
-
-      setSelectedJobQuestionIds(new Set(selectedQuestionIds));
-      void persistSelectedJobQuestionContextForActiveTab(context, selectedQuestionIds);
-    } catch {
-      setSelectedJobQuestionIds(new Set());
-      void persistSelectedJobQuestionContextForActiveTab(context, []);
-    }
-  }
-
   async function persistSelectedJobQuestions(jobDescriptionId: string, questionIds: string[]) {
     try {
       await chrome.storage?.session?.set({
@@ -1190,13 +1307,11 @@ function SidePanel() {
     }
   }
 
-  function updateSelectedJobQuestions(nextQuestionIds: Set<string>) {
-    setSelectedJobQuestionIds(nextQuestionIds);
-    const questionIds = Array.from(nextQuestionIds);
-    if (jobDescriptionQuestionContext) {
-      void persistSelectedJobQuestions(jobDescriptionQuestionContext.jobDescription.id, questionIds);
-      void persistSelectedJobQuestionContextForActiveTab(jobDescriptionQuestionContext, questionIds);
-    }
+  async function selectAllJobQuestions(context: JobDescriptionQuestionSetContext) {
+    const questionIds = context.questions.map((question) => question.id);
+    setSelectedJobQuestionIds(new Set(questionIds));
+    await persistSelectedJobQuestions(context.jobDescription.id, questionIds);
+    void persistSelectedJobQuestionContextForActiveTab(context, questionIds);
   }
 
   async function persistSelectedJobQuestionContextForActiveTab(
@@ -1220,42 +1335,36 @@ function SidePanel() {
     }
   }
 
-  function toggleCareerQuestion(questionId: string) {
-    const nextQuestionIds = new Set(selectedJobQuestionIds);
-    if (nextQuestionIds.has(questionId)) {
-      nextQuestionIds.delete(questionId);
-    } else {
-      nextQuestionIds.add(questionId);
-    }
-
-    updateSelectedJobQuestions(nextQuestionIds);
-  }
-
-  function selectAllCareerQuestions() {
-    if (!jobDescriptionQuestionContext) return;
-    updateSelectedJobQuestions(new Set(jobDescriptionQuestionContext.questions.map((question) => question.id)));
-  }
-
-  function clearSelectedCareerQuestions() {
-    updateSelectedJobQuestions(new Set());
-  }
-
   function submitJobDescriptionSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void loadJobDescriptions(token, 1);
   }
 
+  function changeJobDescriptionStatusFilter(status: string) {
+    setJobDescriptionStatusFilter(status);
+    void loadJobDescriptions(token, 1, { status });
+  }
+
   async function fillJobDescriptionInAmis(jobDescription: JobDescriptionSummary) {
     setSelectedJobDescription(jobDescription);
+    setResult(null);
+    setFacebookContent('');
+    setFacebookContentState('IDLE');
+    setFacebookContentMessage(null);
     void loadSelectedJobDescriptionQuestionSet(jobDescription, token, { silent: true, force: true });
+    void generateFacebookPostContent({
+      snapshotOverride: buildAmisJobSnapshotFromJobDescription(jobDescription),
+      selectedJobDescriptionOverride: jobDescription,
+      forceFacebookChannel: true,
+    });
     setJobDescriptionFillState('FILLING');
     setFillingJobDescriptionId(jobDescription.id);
-    setJobDescriptionFillMessage(`Filling "${jobDescription.title}" into the active AMIS tab...`);
+    setJobDescriptionFillMessage(`Đang chọn "${jobDescription.title}" và tải bộ câu hỏi...`);
 
     try {
       const activeTab = await getActiveTab();
       if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
-        throw new Error('Open the AMIS recruitment creation screen in the active tab, then click the JD again.');
+        throw new Error('Mở màn tạo tin tuyển dụng AMIS ở tab hiện tại rồi chọn lại JD.');
       }
 
       if (!chrome.tabs?.sendMessage) {
@@ -1449,6 +1558,7 @@ function SidePanel() {
       setFacebookGroupLoadState('IDLE');
       setFacebookGroupMessage(null);
       clearFacebookImageAttachment();
+      clearFacebookContent();
       void setSelectedChannels(next);
       return;
     }
@@ -2207,18 +2317,49 @@ function SidePanel() {
     }
   }
 
-  function selectAllChannels() {
-    const next = [...POSTING_CHANNELS];
-    setChannels(next);
-    void setSelectedChannels(next);
-  }
+  function buildAmisJobPostingPayload(options: {
+    includeFacebookContent?: boolean;
+    snapshotOverride?: AmisJobSnapshot;
+    selectedJobDescriptionOverride?: JobDescriptionSummary | null;
+    forceFacebookChannel?: boolean;
+  } = {}) {
+    const rawSnapshot = options.snapshotOverride ?? snapshot;
+    if (!rawSnapshot || !amisRecruitmentId) return null;
+    const sourceSnapshot = sanitizeAmisJobSnapshotForApi(rawSnapshot);
 
-  function clearChannels() {
-    setChannels([]);
-    setFacebookGroupLoadState('IDLE');
-    setFacebookGroupMessage(null);
-    clearFacebookImageAttachment();
-    void setSelectedChannels([]);
+    const channelsForPayload = options.forceFacebookChannel && !selectedPostingChannels.includes('FACEBOOK')
+      ? normalizePostingChannels([...selectedPostingChannels, 'FACEBOOK'])
+      : selectedPostingChannels;
+    const facebookTargetIds = channelsForPayload.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
+    const includeFacebookContent = options.includeFacebookContent ?? true;
+    const trimmedFacebookContent = facebookContent.trim();
+    const jobDescriptionForMetadata = options.selectedJobDescriptionOverride ?? selectedJobDescription;
+
+    return {
+      sourceSystem: 'AMIS',
+      amisRecruitmentId,
+      amisUrl,
+      action: 'PUBLISH',
+      snapshot: sourceSnapshot,
+      channels: channelsForPayload,
+      ...(channelsForPayload.includes('FACEBOOK') && facebookTargetIds.length > 0 ? { facebookTargetIds } : {}),
+      ...(channelsForPayload.includes('FACEBOOK') && includeFacebookContent && trimmedFacebookContent
+        ? { facebookContent: trimmedFacebookContent }
+        : {}),
+      ...(selectedJobQuestionIds.size > 0
+        ? { selectedQuestionIds: Array.from(selectedJobQuestionIds) }
+        : {}),
+      metadata: {
+        capturedAt: new Date().toISOString(),
+        captureSource: extractionResult?.source ?? 'MOCK',
+        captureConfidence: extractionResult?.confidence,
+        extractionWarnings: extractionResult?.warnings,
+        extractionEvidence: extractionResult?.evidence,
+        selectedJobDescriptionId: jobDescriptionForMetadata?.id,
+        selectedQuestionSetId: jobDescriptionQuestionContext?.questionSet?.id,
+        selectedQuestionCount: selectedJobQuestionIds.size,
+      },
+    } satisfies SyncAmisJobPostingRequest;
   }
 
   async function sync() {
@@ -2240,28 +2381,8 @@ function SidePanel() {
       return;
     }
 
-    const payload: SyncAmisJobPostingRequest = {
-      sourceSystem: 'AMIS',
-      amisRecruitmentId,
-      amisUrl,
-      action: 'PUBLISH',
-      snapshot,
-      channels: selectedPostingChannels,
-      ...(selectedPostingChannels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
-      ...(selectedJobQuestionIds.size > 0
-        ? { selectedQuestionIds: Array.from(selectedJobQuestionIds) }
-        : {}),
-      metadata: {
-        capturedAt: new Date().toISOString(),
-        captureSource: extractionResult?.source ?? 'MOCK',
-        captureConfidence: extractionResult?.confidence,
-        extractionWarnings: extractionResult?.warnings,
-        extractionEvidence: extractionResult?.evidence,
-        selectedJobDescriptionId: selectedJobDescription?.id,
-        selectedQuestionSetId: jobDescriptionQuestionContext?.questionSet?.id,
-        selectedQuestionCount: selectedJobQuestionIds.size,
-      },
-    };
+    const payload = buildAmisJobPostingPayload();
+    if (!payload) return;
 
     setState('SYNCING');
     setError(null);
@@ -2269,6 +2390,11 @@ function SidePanel() {
     try {
       const response = await syncAndPublishAmisJob(token, payload);
       setResult(response);
+      if (response.facebookPublishPlan?.content && selectedPostingChannels.includes('FACEBOOK')) {
+        setFacebookContent(response.facebookPublishPlan.content);
+        setFacebookContentState('READY');
+        setFacebookContentMessage('Đã cập nhật nội dung Facebook theo kế hoạch đăng thật.');
+      }
       if (response.facebookPublishPlan && selectedPostingChannels.includes('FACEBOOK')) {
         await startFacebookPublish(response.facebookPublishPlan);
       } else {
@@ -2369,10 +2495,12 @@ function SidePanel() {
 
   function renderWorkspacePanel(tab: WorkspaceTab) {
     const isPinned = pinnedWorkspaceTab === tab;
+    const isPostingTab = tab === 'posting';
 
     return (
-      <section key={tab} className={`workspace-panel workspace-panel-${tab}${isPinned ? ' is-pinned' : ''}`}>
-        <div className="workspace-panel-heading">
+      <section key={tab} className={`workspace-panel workspace-panel-${tab}${isPinned ? ' is-pinned' : ''}${isPostingTab ? ' is-flat' : ''}`}>
+        {!isPostingTab ? (
+          <div className="workspace-panel-heading">
           <div>
             <p className="workspace-panel-kicker">VCS Recruitment</p>
             <h2>{tab === 'overview' ? 'VCS Recruitment Posting' : getWorkspaceTabLabel(tab)}</h2>
@@ -2387,7 +2515,8 @@ function SidePanel() {
           >
             <PinIcon filled={isPinned} />
           </button>
-        </div>
+          </div>
+        ) : null}
         {tab === 'overview' ? renderOverviewPanel() : null}
         {tab === 'posting' ? renderPostingPanel() : null}
         {tab === 'cv' ? renderCvPanel() : null}
@@ -2837,46 +2966,6 @@ function SidePanel() {
         {renderCareerQuestionPanel()}
         {renderChannelPanel()}
 
-        {snapshot ? (
-          <section className="preview recruitment-snapshot-card">
-            <div>
-              <p className="eyebrow">Snapshot</p>
-              <h2>{snapshot.title}</h2>
-            </div>
-            <dl>
-              <div>
-                <dt>AMIS ID</dt>
-                <dd>{amisRecruitmentId}</dd>
-              </div>
-              <div>
-                <dt>Description</dt>
-                <dd>{snapshot.summary ?? snapshot.description}</dd>
-              </div>
-              <div>
-                <dt>Requirements</dt>
-                <dd>{snapshot.requirements.rawText}</dd>
-              </div>
-              {snapshot.location ? (
-                <div>
-                  <dt>Location</dt>
-                  <dd>{snapshot.location}</dd>
-                </div>
-              ) : null}
-              {snapshot.deadline ? (
-                <div>
-                  <dt>Deadline</dt>
-                  <dd>{snapshot.deadline}</dd>
-                </div>
-              ) : null}
-            </dl>
-          </section>
-        ) : (
-          <div className="empty-panel-state">
-            <strong>No snapshot loaded</strong>
-            <span>Load the latest AMIS save, run DOM extract, or use mock data.</span>
-          </div>
-        )}
-
         {missingFields.length > 0 ? <p className="warning-text">Missing: {missingFields.join(', ')}</p> : null}
 
         <button
@@ -2885,7 +2974,7 @@ function SidePanel() {
           disabled={syncDisabled}
           onClick={sync}
         >
-          {facebookRunning ? 'Publishing Facebook...' : state === 'SYNCING' ? 'Syncing...' : isFacebookImageReading ? 'Loading image...' : 'SYNC AND PUBLISH'}
+          {facebookRunning ? 'ĐANG ĐĂNG FACEBOOK...' : state === 'SYNCING' ? 'ĐANG ĐỒNG BỘ...' : isFacebookImageReading ? 'ĐANG TẢI ẢNH...' : 'ĐỒNG BỘ VÀ ĐĂNG'}
         </button>
 
         {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
@@ -2893,8 +2982,7 @@ function SidePanel() {
         {result ? (
           <section className="result-panel publish-result-panel">
             <div>
-              <p className="eyebrow">RESULT</p>
-              <h2>{result.resultCode}</h2>
+              <h2>Kết quả</h2>
             </div>
             <ul className="result-list">
               {result.channelPostings.map((channel) => (
@@ -2921,24 +3009,299 @@ function SidePanel() {
     );
   }
 
+  function renderFacebookContentPanel() {
+    if (!facebookSelected) return null;
+
+    const canGenerate = Boolean(token && snapshot) && !facebookContentBusy;
+    const previewTitle = snapshot?.title ?? selectedJobDescription?.title ?? 'Bài đăng tuyển dụng';
+    const previewCopy = facebookContentReady
+      ? summarizeText(facebookContent)
+      : summarizeText(snapshot?.summary ?? snapshot?.description ?? selectedJobDescription?.summary ?? selectedJobDescription?.description);
+    const helperText = facebookContentReady
+      ? '{{APPLY_URL}} sẽ được thay bằng link tuyển dụng thật sau khi đồng bộ.'
+      : 'Sinh bài từ JD/AMIS snapshot hiện tại trước khi đăng.';
+
+    return (
+      <div className="facebook-content-panel">
+        <p className="channel-subselection-title facebook-preview-title">Xem trước bài đăng</p>
+        <div className="facebook-preview-card">
+          {facebookImageAttachment ? (
+            <img src={facebookImageAttachment.dataUrl} alt="" />
+          ) : (
+            <span className="facebook-preview-thumb" aria-hidden="true">VCS</span>
+          )}
+          <div className="facebook-preview-copy">
+            <strong>{previewTitle}</strong>
+            <span>{previewCopy || 'Chưa có nội dung preview.'}</span>
+          </div>
+          <div className="facebook-preview-actions">
+            <button
+              type="button"
+              className="secondary-button compact-button facebook-generate-button"
+              disabled={!canGenerate}
+              onClick={() => void generateFacebookPostContent()}
+            >
+              {facebookContentBusy ? 'Đang sinh...' : 'Sinh bài'}
+            </button>
+            <button
+              type="button"
+              className="secondary-button compact-button facebook-full-button"
+              disabled={facebookContentBusy}
+              onClick={() => void openFacebookPreviewModal()}
+            >
+              Xem bản đầy đủ
+              <ExternalLinkIcon />
+            </button>
+          </div>
+        </div>
+
+        <div className="facebook-content-meta is-preview">
+          <span>{facebookContent.trim().length} ký tự</span>
+          <span>{helperText}</span>
+        </div>
+
+        {facebookContentMessage ? (
+          <p className={facebookContentState === 'ERROR' ? 'error-text' : 'muted-text'}>
+            {facebookContentMessage}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderFacebookPreviewModal() {
+    if (!facebookPreviewModalMode) return null;
+
+    const content = facebookContent.trim();
+    const previewTitle = snapshot?.title ?? selectedJobDescription?.title ?? 'Bài đăng tuyển dụng';
+    const previewImage = facebookImageAttachment?.dataUrl ?? null;
+    const canGenerate = Boolean(token && snapshot) && !facebookContentBusy;
+    const imageCount = facebookImageAttachment ? 1 : 0;
+
+    if (facebookPreviewModalMode === 'EDIT') {
+      return (
+        <div className="modal-backdrop facebook-preview-backdrop" role="presentation">
+          <section
+            className="facebook-composer-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="facebook-composer-title"
+          >
+            <header className="facebook-preview-modal-header">
+              <h2 id="facebook-composer-title">Chỉnh sửa bài đăng Facebook</h2>
+              <button
+                type="button"
+                className="icon-button"
+                title="Đóng"
+                aria-label="Đóng chỉnh sửa bài đăng Facebook"
+                onClick={() => setFacebookPreviewModalMode('PREVIEW')}
+              >
+                <CloseIcon />
+              </button>
+            </header>
+            <div className="facebook-composer-body">
+              <div className="facebook-composer-content-heading">
+                <div className="facebook-composer-section-title">
+                  <MenuLinesIcon />
+                  <strong>Nội dung bài viết</strong>
+                </div>
+                <button
+                  type="button"
+                  className="primary-button facebook-composer-generate-button"
+                  disabled={!canGenerate}
+                  onClick={() => void generateFacebookDraftContent()}
+                >
+                  <SparklesIcon />
+                  <span>{facebookContentBusy ? 'Đang sinh...' : 'Sinh bài'}</span>
+                </button>
+              </div>
+              <label className="facebook-composer-textarea-wrap">
+                <span className="visually-hidden">Nội dung bài đăng Facebook</span>
+                <textarea
+                  className="facebook-content-textarea facebook-composer-textarea"
+                  value={facebookContentDraft}
+                  onChange={(event) => setFacebookContentDraft(event.target.value)}
+                  placeholder="Sinh bài hoặc nhập nội dung Facebook tại đây."
+                  rows={16}
+                />
+                <span>{facebookContentDraft.trim().length} ký tự</span>
+              </label>
+
+              <div className="facebook-composer-image-heading">
+                <div className="facebook-composer-section-title">
+                  <ImageFrameIcon />
+                  <strong>Hình ảnh</strong>
+                </div>
+                <span>{imageCount}/5 ảnh</span>
+              </div>
+              <div className="facebook-composer-image-library">
+                <div className="facebook-composer-library-header">
+                  <div>
+                    <GridIcon />
+                    <strong>Thư viện ảnh</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-button facebook-composer-upload-button"
+                    disabled={facebookImageUploadDisabled}
+                    onClick={openFacebookImageFilePicker}
+                  >
+                    <UploadIcon />
+                    <span>Tải lên</span>
+                  </button>
+                </div>
+                <div className="facebook-composer-image-grid">
+                  {facebookImageAttachment ? (
+                    <article className="facebook-composer-image-card">
+                      <img src={facebookImageAttachment.dataUrl} alt="" />
+                      <button
+                        type="button"
+                        className="facebook-composer-image-remove"
+                        title="Xóa ảnh"
+                        aria-label="Xóa ảnh"
+                        disabled={facebookImageUploadDisabled}
+                        onClick={clearFacebookImageAttachment}
+                      >
+                        <CloseIcon />
+                      </button>
+                    </article>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="facebook-composer-add-image-tile"
+                    disabled={facebookImageUploadDisabled}
+                    onClick={openFacebookImageFilePicker}
+                    aria-label="Tải lên ảnh bài đăng"
+                  >
+                    <span aria-hidden="true">+</span>
+                  </button>
+                </div>
+                {isFacebookImageReading ? (
+                  <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
+                ) : null}
+                {facebookImageAttachmentError ? (
+                  <div className="facebook-image-error-row">
+                    <p className="channel-subselection-empty is-error">{facebookImageAttachmentError}</p>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={clearFacebookImageAttachment}
+                    >
+                      Bỏ ảnh
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <footer className="facebook-preview-modal-footer">
+              <button
+                type="button"
+                className="secondary-button facebook-modal-cancel-button"
+                onClick={() => setFacebookPreviewModalMode('PREVIEW')}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="primary-button facebook-modal-primary-button"
+                onClick={saveFacebookContentDraft}
+              >
+                <CheckCircleIcon />
+                <span>Lưu thay đổi</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      );
+    }
+
+    return (
+      <div className="modal-backdrop facebook-preview-backdrop" role="presentation">
+        <section
+          className="facebook-preview-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="facebook-preview-modal-title"
+        >
+          <header className="facebook-preview-modal-header">
+            <h2 id="facebook-preview-modal-title">Xem trước bài đăng Facebook</h2>
+            <button
+              type="button"
+              className="icon-button"
+              title="Đóng"
+              aria-label="Đóng xem trước bài đăng Facebook"
+              onClick={() => setFacebookPreviewModalMode(null)}
+            >
+              <CloseIcon />
+            </button>
+          </header>
+          <div className="facebook-preview-modal-body">
+            <article className="facebook-post-preview-frame">
+              <header className="facebook-post-preview-header">
+                <span className="facebook-post-avatar">V</span>
+                <span>
+                  <strong>VCS Recruitment</strong>
+                  <small>Vừa xong · Công khai</small>
+                </span>
+              </header>
+              <div className="facebook-post-preview-content">{content || 'Chưa có nội dung bài đăng.'}</div>
+              <div className="facebook-post-preview-image">
+                {previewImage ? (
+                  <img src={previewImage} alt="" />
+                ) : (
+                  <div>
+                    <strong>{previewTitle}</strong>
+                    <span>VCS Recruitment</span>
+                  </div>
+                )}
+              </div>
+              <footer className="facebook-post-preview-actions">
+                <span>Thích</span>
+                <span>Bình luận</span>
+                <span>Chia sẻ</span>
+              </footer>
+            </article>
+            <p className="facebook-preview-note">
+              Đây là bản xem trước cách bài đăng sẽ hiển thị trên bảng tin Facebook của ứng viên.
+              Nội dung có thể được chỉnh sửa trước khi đồng bộ và đăng.
+            </p>
+          </div>
+          <footer className="facebook-preview-modal-footer">
+            <button
+              type="button"
+              className="secondary-button facebook-modal-cancel-button"
+              onClick={() => setFacebookPreviewModalMode(null)}
+            >
+              Đóng
+            </button>
+            <button
+              type="button"
+              className="primary-button facebook-modal-secondary-button"
+              disabled={!canGenerate}
+              onClick={() => void generateFacebookPostContent()}
+            >
+              <SparklesIcon />
+              <span>{facebookContentBusy ? 'Đang sinh...' : 'Sinh bài'}</span>
+            </button>
+            <button
+              type="button"
+              className="primary-button facebook-modal-primary-button"
+              onClick={() => void openFacebookEditModal()}
+            >
+              <EditIcon />
+              <span>Chỉnh sửa</span>
+            </button>
+          </footer>
+        </section>
+      </div>
+    );
+  }
+
   function renderChannelPanel() {
     return (
       <section className="channel-section">
           <div className="section-heading-row">
-            <p className="section-title">Channels</p>
-            <div className="channel-select-actions">
-              <button type="button" className="text-button" disabled={allChannelsSelected} onClick={selectAllChannels}>
-                All
-              </button>
-              <button
-                type="button"
-                className="text-button"
-                disabled={selectedPostingChannelCount === 0}
-                onClick={clearChannels}
-              >
-                Clear
-              </button>
-            </div>
+            <p className="section-title">Kênh tuyển dụng</p>
           </div>
           <div className="channel-list">
             {POSTING_CHANNELS.map((channel) => {
@@ -2988,8 +3351,13 @@ function SidePanel() {
                   </div>
                   {showFacebookGroups ? (
                     <div className="channel-subselection">
-                      <div className="channel-subselection-title">Facebook groups</div>
+                      <div className="channel-subselection-title">Nhóm Facebook</div>
                       <div className="channel-subselection-list">
+                        {visibleFacebookGroups.length > 0 ? (
+                          <p className="channel-subselection-summary">
+                            {selectedFacebookGroupIds.length}/{visibleFacebookGroups.length} nhóm Facebook đã được chọn
+                          </p>
+                        ) : null}
                         {facebookGroupMessage ? (
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
                             {facebookGroupMessage}
@@ -3039,7 +3407,7 @@ function SidePanel() {
                         )}
                       </div>
                       {isSelected ? (
-                        <div className="facebook-image-upload">
+                        <>
                           <input
                             ref={facebookImageInputRef}
                             type="file"
@@ -3047,51 +3415,47 @@ function SidePanel() {
                             className="facebook-image-input"
                             onChange={(event) => void handleFacebookImageFileChange(event)}
                           />
-                          <button
-                            type="button"
-                            className="secondary-button compact-button facebook-image-upload-button"
-                            disabled={facebookImageUploadDisabled}
-                            onClick={openFacebookImageFilePicker}
-                          >
-                            <ImageIcon />
-                            <span>Upload ảnh</span>
-                          </button>
-                          {facebookImageAttachment ? (
-                            <div className="facebook-image-preview">
-                              <img src={facebookImageAttachment.dataUrl} alt="" />
-                              <div>
-                                <strong>{facebookImageAttachment.fileName}</strong>
-                                <span>{formatFileSize(facebookImageAttachment.size)}</span>
-                              </div>
-                              <button
-                                type="button"
-                                className="channel-action-button"
-                                title="Xóa ảnh"
-                                aria-label="Xóa ảnh"
-                                disabled={facebookImageUploadDisabled}
-                                onClick={clearFacebookImageAttachment}
-                              >
-                                <CloseIcon />
-                              </button>
+                          {facebookImageAttachment || isFacebookImageReading || facebookImageAttachmentError ? (
+                            <div className="facebook-image-upload">
+                              {facebookImageAttachment ? (
+                                <div className="facebook-image-preview">
+                                  <img src={facebookImageAttachment.dataUrl} alt="" />
+                                  <div>
+                                    <strong>{facebookImageAttachment.fileName}</strong>
+                                    <span>{formatFileSize(facebookImageAttachment.size)}</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="channel-action-button"
+                                    title="Xóa ảnh"
+                                    aria-label="Xóa ảnh"
+                                    disabled={facebookImageUploadDisabled}
+                                    onClick={clearFacebookImageAttachment}
+                                  >
+                                    <CloseIcon />
+                                  </button>
+                                </div>
+                              ) : null}
+                              {isFacebookImageReading ? (
+                                <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
+                              ) : null}
+                              {facebookImageAttachmentError ? (
+                                <div className="facebook-image-error-row">
+                                  <p className="channel-subselection-empty is-error">{facebookImageAttachmentError}</p>
+                                  <button
+                                    type="button"
+                                    className="text-button"
+                                    onClick={clearFacebookImageAttachment}
+                                  >
+                                    Bỏ ảnh
+                                  </button>
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
-                          {isFacebookImageReading ? (
-                            <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
-                          ) : null}
-                          {facebookImageAttachmentError ? (
-                            <div className="facebook-image-error-row">
-                              <p className="channel-subselection-empty is-error">{facebookImageAttachmentError}</p>
-                              <button
-                                type="button"
-                                className="text-button"
-                                onClick={clearFacebookImageAttachment}
-                              >
-                                Bỏ ảnh
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
+                        </>
                       ) : null}
+                      {isSelected ? renderFacebookContentPanel() : null}
                     </div>
                   ) : null}
                 </div>
@@ -3103,41 +3467,42 @@ function SidePanel() {
   }
 
   function renderJobDescriptionPanel() {
+    const totalItems = jobDescriptionPagination?.total ?? jobDescriptions.length;
+    const currentPage = jobDescriptionPagination?.page ?? 1;
+    const pageLimit = jobDescriptionPagination?.limit ?? 5;
+    const totalPages = jobDescriptionPagination?.totalPages ?? 1;
+    const visibleStart = totalItems === 0 ? 0 : ((currentPage - 1) * pageLimit) + 1;
+    const visibleEnd = totalItems === 0 ? 0 : Math.min(totalItems, visibleStart + jobDescriptions.length - 1);
+    const paginationPages = buildCompactPaginationPages(currentPage, totalPages);
+
     return (
-      <section className="jd-panel compact-workspace-section">
-        <div className="status-row">
-          <div>
-            <p className="eyebrow">System connection</p>
-            <h2>Job descriptions</h2>
-          </div>
-          <strong>{jobDescriptionPagination?.total ?? jobDescriptions.length}</strong>
-        </div>
+      <section className="jd-panel compact-workspace-section post-card-section">
+        <h2>Mô tả công việc</h2>
 
         <form className="jd-toolbar" onSubmit={submitJobDescriptionSearch}>
           <input
             value={jobDescriptionSearch}
             onChange={(event) => setJobDescriptionSearch(event.target.value)}
-            placeholder="Search JD"
-            aria-label="Search job descriptions"
+            placeholder="Tìm kiếm JD"
+            aria-label="Tìm kiếm JD"
           />
-          <button type="submit" className="secondary-button" disabled={jobDescriptionStatus === 'LOADING'}>
-            Search
-          </button>
+          <select
+            value={jobDescriptionStatusFilter}
+            aria-label="Lọc trạng thái JD"
+            disabled={jobDescriptionStatus === 'LOADING'}
+            onChange={(event) => changeJobDescriptionStatusFilter(event.target.value)}
+          >
+            {JOB_DESCRIPTION_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
           <button
             type="button"
             className="primary-button portal-sync-button"
             disabled={vcsPortalSyncState === 'SYNCING' || jobDescriptionStatus === 'LOADING'}
             onClick={() => void syncPortalJobDescriptions()}
           >
-            {vcsPortalSyncState === 'SYNCING' ? 'Syncing...' : 'Sync Portal'}
-          </button>
-          <button
-            type="button"
-            className="ghost-button"
-            disabled={jobDescriptionStatus === 'LOADING' || vcsPortalSyncState === 'SYNCING'}
-            onClick={() => void loadJobDescriptions(token, jobDescriptionPagination?.page ?? 1)}
-          >
-            Refresh
+            {vcsPortalSyncState === 'SYNCING' ? 'Đang đồng bộ...' : 'Đồng bộ VCS Portal'}
           </button>
         </form>
 
@@ -3184,7 +3549,7 @@ function SidePanel() {
         ) : null}
 
         {jobDescriptionStatus === 'LOADING' ? (
-          <p className="muted-text">Loading job descriptions from backend...</p>
+          <p className="muted-text">Đang tải danh sách JD...</p>
         ) : null}
 
         {jobDescriptionError ? <p className="error-text">{jobDescriptionError}</p> : null}
@@ -3196,66 +3561,82 @@ function SidePanel() {
         ) : null}
 
         {jobDescriptionStatus !== 'LOADING' && jobDescriptions.length === 0 ? (
-          <p className="muted-text">No job descriptions found.</p>
+          <p className="muted-text">Không tìm thấy JD phù hợp.</p>
         ) : null}
 
         {jobDescriptions.length > 0 ? (
           <ul className="jd-list">
-            {jobDescriptions.map((jobDescription) => (
-              <li key={jobDescription.id}>
-                <button
-                  type="button"
-                  className={`jd-card-button${selectedJobDescription?.id === jobDescription.id ? ' is-selected' : ''}`}
-                  disabled={jobDescriptionFillState === 'FILLING'}
-                  onClick={() => void fillJobDescriptionInAmis(jobDescription)}
-                >
-                  <h3>{jobDescription.title}</h3>
-                  <p>{summarizeText(jobDescription.summary ?? jobDescription.description)}</p>
-                  <small>
-                    {[
-                      jobDescription.sourceSystem === 'VCS_PORTAL' ? 'VCS Portal' : null,
-                      jobDescription.sourceCategories?.map((category) => category.displayName).join(', '),
-                      jobDescription.position?.name,
-                      jobDescription.level?.displayName ?? jobDescription.level?.name,
-                      jobDescription.lastSyncedAt ? `Synced ${formatDate(jobDescription.lastSyncedAt)}` : null,
-                      formatDate(jobDescription.updatedAt ?? jobDescription.createdAt),
-                    ].filter(Boolean).join(' - ')}
-                  </small>
-                </button>
-                <span className="status-badge">
-                  {jobDescription.sourceSystem === 'VCS_PORTAL' ? 'PORTAL' : jobDescription.status}
-                </span>
-                {selectedJobDescription?.id === jobDescription.id ? <span className="status-badge">SELECTED</span> : null}
-                {fillingJobDescriptionId === jobDescription.id ? <span className="status-badge">FILLING</span> : null}
-              </li>
-            ))}
+            {jobDescriptions.map((jobDescription) => {
+              const badge = getJobDescriptionStatusBadge(jobDescription);
+              const isSelected = selectedJobDescription?.id === jobDescription.id;
+              const displayDate = formatDate(
+                jobDescription.sourceModifiedAt
+                  ?? jobDescription.lastSyncedAt
+                  ?? jobDescription.updatedAt
+                  ?? jobDescription.createdAt,
+              );
+
+              return (
+                <li key={jobDescription.id} className={isSelected ? 'is-selected' : undefined}>
+                  <button
+                    type="button"
+                    className="jd-card-button"
+                    disabled={jobDescriptionFillState === 'FILLING'}
+                    onClick={() => void fillJobDescriptionInAmis(jobDescription)}
+                  >
+                    <span className={`status-badge jd-status-badge ${badge.className}`}>{badge.label}</span>
+                    <h3>{jobDescription.title}</h3>
+                    <p>{summarizeText(jobDescription.summary ?? jobDescription.description)}</p>
+                    <small>{displayDate ?? '-'}</small>
+                    {fillingJobDescriptionId === jobDescription.id ? (
+                      <span className="status-badge jd-fill-badge">Đang chọn</span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         ) : null}
 
         {jobDescriptionPagination && jobDescriptionPagination.totalPages > 1 ? (
-          <div className="pagination-row">
+          <div className="pagination-row jd-pagination-row">
+            <span>
+              Hiển thị {visibleStart} - {visibleEnd} của {totalItems} kết quả
+            </span>
+            <div className="jd-pagination-actions">
             <button
               type="button"
-              className="ghost-button"
+              className="jd-page-button"
+              aria-label="Trang trước"
               disabled={jobDescriptionStatus === 'LOADING' || jobDescriptionPagination.page <= 1}
               onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page - 1)}
             >
-              Previous
+              <BackIcon />
             </button>
-            <span>
-              Page {jobDescriptionPagination.page} / {jobDescriptionPagination.totalPages}
-            </span>
+            {paginationPages.map((page) => (
+              <button
+                key={page}
+                type="button"
+                className={`jd-page-button${page === currentPage ? ' is-active' : ''}`}
+                disabled={jobDescriptionStatus === 'LOADING'}
+                onClick={() => void loadJobDescriptions(token, page)}
+              >
+                {page}
+              </button>
+            ))}
             <button
               type="button"
-              className="ghost-button"
+              className="jd-page-button"
+              aria-label="Trang sau"
               disabled={
                 jobDescriptionStatus === 'LOADING'
                 || jobDescriptionPagination.page >= jobDescriptionPagination.totalPages
               }
               onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page + 1)}
             >
-              Next
+              <ChevronRightIcon />
             </button>
+            </div>
           </div>
         ) : null}
       </section>
@@ -3264,31 +3645,18 @@ function SidePanel() {
 
   function renderCareerQuestionPanel() {
     return (
-      <section className="question-panel career-question-panel compact-workspace-section">
-        <div className="career-panel-topbar">
-          <div className="career-title-row">
-            <h2>Question set</h2>
-            <p>Selected JD</p>
-          </div>
-          <button
-            type="button"
-            className="career-icon-button"
-            aria-label="Refresh selected JD question set"
-            disabled={careerQuestionState === 'LOADING' || !selectedJobDescription}
-            onClick={() => void loadSelectedJobDescriptionQuestionSet(selectedJobDescription, token, { force: true })}
-          >
-            <RefreshIcon />
-          </button>
+      <section className="question-panel career-question-panel compact-workspace-section post-card-section">
+        <div className="question-section-header">
+          <h2>Bộ câu hỏi</h2>
+          {selectedJobDescription ? (
+            <span className="question-auto-selected-badge">Tự động chọn tất cả</span>
+          ) : null}
         </div>
 
         <div className="career-question-content">
-          <div className="career-industry-area">
-            <div className="career-industry-badge">
-              <BriefcaseIcon />
-              <span>{selectedJobDescription?.title ?? 'No JD selected'}</span>
-            </div>
-            <p>Select questions from the active question set of the JD picked in Job descriptions.</p>
-          </div>
+          {!selectedJobDescription ? (
+            <p className="question-select-alert">Chọn 1 JD để xem bộ câu hỏi tương ứng</p>
+          ) : null}
 
           {careerQuestionMessage ? (
             <p className={careerQuestionState === 'ERROR' ? 'error-text' : 'muted-text'}>
@@ -3298,87 +3666,23 @@ function SidePanel() {
 
           {jobDescriptionQuestionContext ? (
             <>
-              <div className="career-question-summary-row">
-                <span>{jobDescriptionQuestionContext.questions.length} questions</span>
-                <strong>{selectedCareerQuestionCount} selected</strong>
-                {jobDescriptionQuestionContext.questionSet ? (
-                  <span className="status-badge">
-                    {jobDescriptionQuestionContext.questionSet.sourceSystem ?? 'LOCAL'}
-                  </span>
-                ) : null}
-                {jobDescriptionQuestionContext.questions.length > 0 ? (
-                  <div className="question-selection-actions">
-                    <button
-                      type="button"
-                      className="text-button"
-                      disabled={allCareerQuestionsSelected}
-                      onClick={selectAllCareerQuestions}
-                    >
-                      All
-                    </button>
-                    <button
-                      type="button"
-                      className="text-button"
-                      disabled={selectedCareerQuestionCount === 0}
-                      onClick={clearSelectedCareerQuestions}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
               {jobDescriptionQuestionContext.questions.length > 0 ? (
                 <ul className="career-question-list">
-                  {jobDescriptionQuestionContext.questions.map((question) => {
-                    const checked = selectedJobQuestionIds.has(question.id);
-
-                    return (
+                  {jobDescriptionQuestionContext.questions.map((question, index) => (
                       <li key={question.id}>
-                        <label className={checked ? 'career-question-card is-selected' : 'career-question-card'}>
-                          <span className="question-card-handle" aria-hidden="true">
-                            <GripIcon />
-                          </span>
+                        <article className="career-question-card post-question-card">
                           <span className="career-question-card-body">
-                            <span className="career-question-title">{question.text}</span>
-                            <span className="question-tag-row">
-                              {question.category ? (
-                                <span className="question-tag question-tag-category">
-                                  {formatQuestionCategoryLabel(question.category)}
-                                </span>
-                              ) : null}
-                              {question.subcategory ? (
-                                <span className="question-tag question-tag-muted">{question.subcategory}</span>
-                              ) : null}
-                              <span className="question-tag question-tag-type">{question.type}</span>
-                              {question.required ? <span className="question-tag question-tag-muted">Required</span> : null}
+                            <span className="career-question-title">
+                              <strong>{index + 1}.</strong>
+                              {question.text}
                             </span>
-                            {question.difficulty || question.targetLevels?.length ? (
-                              <span className="question-meta-row">
-                                {question.difficulty ? (
-                                  <strong>{formatQuestionDifficulty(question.difficulty)}</strong>
-                                ) : null}
-                                {question.targetLevels?.length ? (
-                                  <span className="question-level-pill">
-                                    {formatQuestionTargetLevel(question.targetLevels)}
-                                  </span>
-                                ) : null}
-                              </span>
-                            ) : null}
                           </span>
-                          <input
-                            className="career-question-checkbox"
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleCareerQuestion(question.id)}
-                          />
-                        </label>
+                        </article>
                       </li>
-                    );
-                  })}
+                  ))}
                 </ul>
               ) : (
-                <p className="career-question-empty">No active question set items were found for this JD.</p>
+                <p className="career-question-empty">JD này chưa có bộ câu hỏi đang hoạt động.</p>
               )}
             </>
           ) : null}
@@ -3974,7 +4278,7 @@ function SidePanel() {
           <div className="extension-header-actions">
             {user ? (
               <button type="button" className="text-button" onClick={logout}>
-                Sign out
+                Đăng xuất
               </button>
             ) : null}
             <button type="button" className="extension-close-button" aria-label="Close panel" onClick={() => window.close()}>
@@ -4031,8 +4335,9 @@ function SidePanel() {
       </section>
 
       {isCvSyncReviewOpen ? renderCvSyncReviewModal() : null}
+      {facebookPreviewModalMode ? renderFacebookPreviewModal() : null}
 
-{isFacebookSettingsOpen ? (
+      {isFacebookSettingsOpen ? (
         <div className="modal-backdrop" role="presentation">
           {facebookGroupModalMode === 'SETTINGS' ? (
             <section
@@ -4482,20 +4787,42 @@ function normalizePostingChannels(channels: ExtensionChannel[]) {
 function formatChannelLabel(channel: ExtensionChannel) {
   switch (channel) {
     case 'FACEBOOK':
-      return 'Facebook';
+      return 'FACEBOOK';
     case 'TOPCV':
-      return 'Top CV';
+      return 'TOPCV';
     case 'LINKEDIN':
-      return 'LinkedIn';
+      return 'LINKEDIN';
     case 'VCS_PORTAL':
-      return 'VCS Portal';
+      return 'VCS_PORTAL';
     case 'ITVIEC':
-      return 'ITviec';
+      return 'ITVIEC';
     case 'VIETNAMWORKS':
-      return 'VietnamWorks';
+      return 'VIETNAMWORKS';
     default:
       return channel;
   }
+}
+
+function buildCompactPaginationPages(currentPage: number, totalPages: number) {
+  const safeTotal = Math.max(1, totalPages);
+  const safeCurrent = Math.min(Math.max(1, currentPage), safeTotal);
+  const start = Math.max(1, Math.min(safeCurrent - 1, safeTotal - 2));
+  const end = Math.min(safeTotal, start + 2);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+function getJobDescriptionStatusBadge(jobDescription: JobDescriptionSummary) {
+  const status = normalizeStatus(jobDescription.status);
+  if (status.includes('ARCHIVED') || status.includes('STOP') || status.includes('INACTIVE')) {
+    return { label: 'Ngừng tuyển', className: 'status-badge-danger' };
+  }
+  if (status.includes('CLOSED') || status.includes('CLOSE')) {
+    return { label: 'Đóng', className: 'status-badge-muted' };
+  }
+  if (status.includes('DRAFT') || status.includes('PRIVATE') || status.includes('INTERNAL')) {
+    return { label: 'Nội bộ', className: 'status-badge-info' };
+  }
+  return { label: 'Công khai', className: 'status-badge-success' };
 }
 
 function toFacebookGroupUiItem(group: FacebookPublishTarget) {
@@ -4626,31 +4953,6 @@ function isAmbiguousFacebookComposerVerificationReason(reason: string) {
     || normalizedReason.includes('could not verify facebook group composer automatically');
 }
 
-function formatQuestionCategoryLabel(value: string) {
-  return value.replace(/[_-]+/g, ' ').toUpperCase();
-}
-
-function formatQuestionDifficulty(value: JobDescriptionQuestionSetItem['difficulty']) {
-  const difficulty = typeof value === 'number' && Number.isFinite(value) ? value : 3;
-  const labels: Record<number, string> = {
-    1: 'Rất dễ',
-    2: 'Dễ',
-    3: 'Trung bình',
-    4: 'Khó',
-    5: 'Rất khó',
-  };
-
-  return `${labels[difficulty] ?? 'Trung bình'} - ${difficulty}/5`;
-}
-
-function formatQuestionTargetLevel(levels: JobDescriptionQuestionSetItem['targetLevels']) {
-  if (!levels?.length) return 'Any level';
-
-  const [firstLevel] = levels;
-  const label = TARGET_LEVEL_OPTIONS.find((level) => level.value === firstLevel)?.label ?? firstLevel;
-  return levels.length > 1 ? `${label} +${levels.length - 1}` : label;
-}
-
 function RefreshIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
@@ -4666,29 +4968,6 @@ function HistoryIcon({ className }: IconProps) {
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="M3.2 4.3A5.4 5.4 0 1 1 2.7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M2.8 2.5v2.3h2.3M8 4.8v3.3l2.2 1.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function BriefcaseIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="M5.6 5V3.8c0-.7.5-1.2 1.2-1.2h2.4c.7 0 1.2.5 1.2 1.2V5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M2.6 5h10.8c.6 0 1 .4 1 1v6.2c0 .6-.4 1-1 1H2.6c-.6 0-1-.4-1-1V6c0-.6.4-1 1-1Z" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M1.8 8.2h12.4M7 8.2v1h2v-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function GripIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 10 16" fill="none">
-      <circle cx="3" cy="3" r="1" fill="currentColor" />
-      <circle cx="7" cy="3" r="1" fill="currentColor" />
-      <circle cx="3" cy="8" r="1" fill="currentColor" />
-      <circle cx="7" cy="8" r="1" fill="currentColor" />
-      <circle cx="3" cy="13" r="1" fill="currentColor" />
-      <circle cx="7" cy="13" r="1" fill="currentColor" />
     </svg>
   );
 }
@@ -4709,12 +4988,54 @@ function TrashIcon({ className }: IconProps) {
   );
 }
 
-function ImageIcon({ className }: IconProps) {
+function MenuLinesIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="M3.2 3h9.6c.7 0 1.2.5 1.2 1.2v7.6c0 .7-.5 1.2-1.2 1.2H3.2c-.7 0-1.2-.5-1.2-1.2V4.2C2 3.5 2.5 3 3.2 3Z" stroke="currentColor" strokeWidth="1.4" />
-      <path d="m3.8 11 2.5-2.5 1.9 1.9 2.1-2.3L13 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="10.8" cy="5.6" r="1" fill="currentColor" />
+      <path d="M3 4.2h10M3 8h10M3 11.8h10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ImageFrameIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M3 3.5h10v9H3v-9Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="m3.8 11 2.5-2.5 1.8 1.8 1.8-2 2.3 2.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="10.8" cy="5.8" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function GridIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M3 3h4v4H3V3ZM9 3h4v4H9V3ZM3 9h4v4H3V9ZM9 9h4v4H9V9Z" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function UploadIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M8 11V3.5m0 0L5.3 6.2M8 3.5l2.7 2.7M3.5 10.5v2h9v-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CheckCircleIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="6.2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="m5.2 8 1.8 1.8 3.8-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SparklesIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M6.8 2.4 8 5.3l2.8 1.1L8 7.6l-1.2 3-1.1-3-2.9-1.2 2.9-1.1 1.1-2.9Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="m12.2 9.2.5 1.4 1.3.5-1.3.6-.5 1.3-.6-1.3-1.3-.6 1.3-.5.6-1.4Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -5885,6 +6206,87 @@ function buildAmisFormFillPayload(jobDescription: JobDescriptionSummary) {
     requirements: stringifyStructuredContent(jobDescription.requirements),
     benefits: stringifyStructuredContent(jobDescription.benefits),
   };
+}
+
+function buildAmisJobSnapshotFromJobDescription(jobDescription: JobDescriptionSummary): AmisJobSnapshot {
+  const requirements = stringifyStructuredContent(jobDescription.requirements);
+  const description = stringifyStructuredContent(jobDescription.description)
+    || stringifyStructuredContent(jobDescription.responsibilities)
+    || stringifyStructuredContent(jobDescription.overview)
+    || jobDescription.title;
+  const summary = truncateForMaxLength(
+    stringifyStructuredContent(jobDescription.summary)
+      || stringifyStructuredContent(jobDescription.overview)
+      || description,
+    500,
+  );
+  const location = stringifyStructuredContent(jobDescription.department);
+  const deadline = normalizeAmisSnapshotDeadline(jobDescription.applicationDeadline);
+
+  return {
+    title: jobDescription.title.trim(),
+    ...(summary ? { summary } : {}),
+    description,
+    requirements: {
+      rawText: requirements || description,
+    },
+    benefits: jobDescription.benefits ?? undefined,
+    ...(location ? { location } : {}),
+    ...(deadline ? { deadline } : {}),
+  };
+}
+
+function sanitizeAmisJobSnapshotForApi(snapshot: AmisJobSnapshot): AmisJobSnapshot {
+  const title = stringifyStructuredContent(snapshot.title);
+  const description = stringifyStructuredContent(snapshot.description) || title;
+  const summary = snapshot.summary
+    ? truncateForMaxLength(stringifyStructuredContent(snapshot.summary), 500)
+    : undefined;
+  const rawText = stringifyStructuredContent(snapshot.requirements.rawText) || description;
+  const location = stringifyStructuredContent(snapshot.location);
+  const deadline = normalizeAmisSnapshotDeadline(snapshot.deadline);
+  const benefits = normalizeOptionalSnapshotBenefits(snapshot.benefits);
+
+  return {
+    title,
+    description,
+    ...(summary ? { summary } : {}),
+    requirements: {
+      ...snapshot.requirements,
+      rawText,
+    },
+    ...(benefits !== undefined ? { benefits } : {}),
+    ...(location ? { location } : {}),
+    ...(deadline ? { deadline } : {}),
+  };
+}
+
+function normalizeOptionalSnapshotBenefits(value: AmisJobSnapshot['benefits']) {
+  if (typeof value === 'string') {
+    const normalized = stringifyStructuredContent(value);
+    return normalized || undefined;
+  }
+  return value ?? undefined;
+}
+
+function normalizeAmisSnapshotDeadline(value: string | null | undefined) {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+
+  const vietnameseDateMatch = normalized.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (vietnameseDateMatch) {
+    const [, day, month, year] = vietnameseDateMatch;
+    return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).toISOString();
+  }
+
+  const isoDateMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch;
+    return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).toISOString();
+  }
+
+  const parsedDate = new Date(normalized);
+  return Number.isNaN(parsedDate.getTime()) ? undefined : parsedDate.toISOString();
 }
 
 function stringifyStructuredContent(value: unknown): string {

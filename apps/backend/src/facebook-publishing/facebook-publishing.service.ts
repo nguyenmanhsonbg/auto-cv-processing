@@ -22,6 +22,7 @@ import {
   UpdateFacebookPublishHistoryStatusCheckInput,
 } from './facebook-publishing.types';
 import { DiscoverFacebookGroupsResponseDto } from '../extension-integration/dto';
+import { AmisJobSnapshotDto } from '../extension-integration/dto/sync-amis-job-posting.dto';
 
 interface DiscoverFacebookGroupsInput {
   ownerUserId: string;
@@ -30,6 +31,10 @@ interface DiscoverFacebookGroupsInput {
     targetUrl: string;
     targetExternalId?: string | null;
   }>;
+}
+
+interface GenerateFacebookPreviewContentInput {
+  snapshot: AmisJobSnapshotDto;
 }
 
 @Injectable()
@@ -49,8 +54,9 @@ export class FacebookPublishingService {
     posting: JobPostingEntity,
     ownerUserId: string,
     selectedTargetIds?: string[],
+    customContent?: string | null,
   ): Promise<ExtensionFacebookPublishPlan> {
-    const content = this.contentService.build(posting);
+    const content = this.contentService.build(posting, customContent);
     const targets = await this.resolveActiveTargets(ownerUserId, selectedTargetIds);
 
     return {
@@ -62,6 +68,10 @@ export class FacebookPublishingService {
         maxMs: this.numberEnv('FACEBOOK_PUBLISH_TARGET_DELAY_MAX_MS', 90_000),
       },
     };
+  }
+
+  generateExtensionPreviewContent(input: GenerateFacebookPreviewContentInput) {
+    return this.contentService.buildFromSnapshot(input.snapshot);
   }
 
   async listActiveExtensionGroups(ownerUserId: string): Promise<ResolvedFacebookPublishTarget[]> {

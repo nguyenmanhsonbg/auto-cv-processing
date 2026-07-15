@@ -14,12 +14,14 @@ import type {
   AmisApplicationsForRecruitment,
   AmisCareerCatalogItem,
   AmisCareerQuestionContext,
+  AmisJobSnapshot,
   CreateAmisCareerQuestionRequest,
   CreateFacebookGroupRequest,
   DiscoverFacebookGroupsRequest,
   DiscoverFacebookGroupsResponse,
   ExtensionInstance,
   ExtensionQuestion,
+  ExtensionPreviewPublishPlanResponse,
   ExtensionSyncResponse,
   ExtensionTask,
   ExtensionUser,
@@ -178,7 +180,9 @@ export async function listJobDescriptions(
   searchParams.set('page', String(params.page ?? 1));
   searchParams.set('limit', String(params.limit ?? 20));
   searchParams.set('sourceSystem', params.sourceSystem ?? 'VCS_PORTAL');
-  searchParams.set('status', params.status ?? 'ACTIVE');
+  if (params.status !== 'ALL') {
+    searchParams.set('status', params.status ?? 'ACTIVE');
+  }
   searchParams.set('latestSyncedOnly', String(params.latestSyncedOnly ?? true));
   searchParams.set('sortBy', params.sortBy ?? 'lastSyncedAt');
   searchParams.set('sortOrder', params.sortOrder ?? 'DESC');
@@ -206,6 +210,23 @@ export async function syncAndPublishAmisJob(
     body: payload,
     headers: {
       'Idempotency-Key': idempotencyKey,
+      'X-Request-Id': requestId,
+      'X-Extension-Version': EXTENSION_VERSION,
+    },
+  });
+}
+
+export async function previewAmisJobPublishPlan(
+  accessToken: string,
+  payload: SyncAmisJobPostingRequest,
+) {
+  const requestId = `ext-preview-${crypto.randomUUID()}`;
+
+  return request<ExtensionPreviewPublishPlanResponse>('/extension/amis/job-postings/preview-plan', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+    headers: {
       'X-Request-Id': requestId,
       'X-Extension-Version': EXTENSION_VERSION,
     },
@@ -372,6 +393,21 @@ export async function getFacebookGroups(accessToken: string) {
   return request<FacebookPublishTarget[]>('/extension/facebook/groups', {
     method: 'GET',
     accessToken,
+  });
+}
+
+export async function generateFacebookPreviewContent(
+  accessToken: string,
+  payload: {
+    snapshot: AmisJobSnapshot;
+    mode?: 'TEMPLATE' | 'AI';
+    facebookContent?: string;
+  },
+) {
+  return request<{ content: string; mode?: 'TEMPLATE' | 'AI' }>('/extension/facebook/generate-preview-content', {
+    method: 'POST',
+    accessToken,
+    body: payload,
   });
 }
 

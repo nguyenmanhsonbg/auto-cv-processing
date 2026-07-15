@@ -197,4 +197,13 @@ export class SyncAmisJobPostingDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    description: 'Optional Facebook post content prepared or edited in the extension. {{APPLY_URL}} is replaced after sync.',
+    maxLength: 10000,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  facebookContent?: string;
 }

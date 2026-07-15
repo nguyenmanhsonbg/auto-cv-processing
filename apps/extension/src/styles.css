@@ -14,7 +14,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -1263,6 +1264,69 @@ dd {
 
 .facebook-image-error-row .text-button {
   flex: 0 0 auto;
+}
+
+.facebook-content-panel {
+  gap: 10px;
+  border-color: #a7f3d0;
+  background: #f8fffc;
+}
+
+.facebook-content-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.facebook-content-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.facebook-content-actions .text-button {
+  align-self: center;
+  color: #047857;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.facebook-content-textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 10px 11px;
+  color: #172033;
+  background: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.facebook-content-textarea:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+.facebook-content-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.facebook-content-meta span:last-child {
+  text-align: right;
 }
 
 .channel-option.is-selected {
@@ -3344,6 +3408,890 @@ dd {
   max-height: 520px;
 }
 
+.workspace-panel-posting.is-flat {
+  overflow: visible;
+  border: 0;
+  background: transparent;
+}
+
+.workspace-panel-posting.is-flat .posting-detail-content {
+  padding: 0;
+}
+
+.post-card-section {
+  gap: 16px;
+  border-color: #e0e6ef;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.post-card-section > h2,
+.question-section-header h2 {
+  color: #2d2d2d;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.jd-toolbar {
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 1fr) auto;
+  gap: 10px;
+}
+
+.jd-toolbar input,
+.jd-toolbar select {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+  padding: 0 16px;
+  color: #334155;
+  background: #ffffff;
+  font-size: 14px;
+  outline: none;
+}
+
+.jd-toolbar input::placeholder {
+  color: #a8b2c1;
+}
+
+.jd-toolbar input:focus,
+.jd-toolbar select:focus {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.portal-sync-button {
+  min-height: 46px;
+  border-radius: 8px;
+  padding: 0 18px;
+  background: #12853f;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.jd-list {
+  gap: 12px;
+}
+
+.jd-list li {
+  position: relative;
+  display: block;
+  border-color: #e0e6ef;
+  border-radius: 8px;
+  padding: 0;
+  background: #ffffff;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.jd-list li.is-selected {
+  border-color: #16a34a;
+  background: #dcfce7;
+  box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.45) inset;
+}
+
+.jd-card-button {
+  position: relative;
+  width: 100%;
+  min-height: 112px;
+  border-radius: 8px;
+  padding: 16px 18px;
+}
+
+.jd-list h3 {
+  max-width: calc(100% - 120px);
+  margin: 0 0 10px;
+  color: #334155;
+  font-size: 17px;
+  font-weight: 950;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.jd-list p {
+  max-width: calc(100% - 24px);
+  margin: 0 0 10px;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.jd-list small {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.jd-status-badge {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  min-width: 72px;
+  padding: 7px 13px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.jd-fill-badge {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+}
+
+.status-badge-info {
+  color: #2563eb;
+  background: #bfdbfe;
+}
+
+.status-badge-muted {
+  color: #404040;
+  background: #d4d4d4;
+}
+
+.jd-pagination-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  margin-top: 4px;
+  color: #4b5563;
+  font-size: 13px;
+  text-align: left;
+}
+
+.jd-pagination-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jd-page-button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #4b5563;
+  background: #f0f2f5;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.jd-page-button.is-active {
+  color: #ffffff;
+  background: #12853f;
+}
+
+.jd-page-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.question-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.question-edit-button {
+  min-height: 38px;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #12853f;
+  font-size: 13px;
+}
+
+.question-auto-selected-badge {
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #047857;
+  background: #dcfce7;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.career-question-panel {
+  overflow: visible;
+  padding: 18px;
+  background: #ffffff;
+}
+
+.career-question-content {
+  gap: 12px;
+  padding: 0;
+}
+
+.question-select-alert {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  border-radius: 6px;
+  padding: 11px 16px;
+  color: #ff4d4f;
+  background: #ffe0e3;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.career-question-list {
+  gap: 10px;
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+}
+
+.post-question-card {
+  display: block;
+  min-height: 66px;
+  border-color: #e5e7eb;
+  border-radius: 24px;
+  padding: 16px 18px;
+  background: #ffffff;
+  cursor: default;
+}
+
+.post-question-card.is-selected {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.post-question-card .career-question-title {
+  display: flex;
+  gap: 8px;
+  color: #2d2d2d;
+  font-size: 16px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.post-question-card .career-question-title strong {
+  flex: none;
+}
+
+.post-question-card .career-question-checkbox {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.extension-window .channel-section {
+  gap: 12px;
+}
+
+.extension-window .channel-section .section-title {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.extension-window .channel-option {
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.extension-window .channel-option-row {
+  min-height: 56px;
+  padding: 12px 14px;
+}
+
+.extension-window .channel-option-label input {
+  width: 18px;
+  height: 18px;
+}
+
+.extension-window .channel-option-label span {
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.extension-window .channel-option.is-facebook.is-selected {
+  border-color: #34d399;
+  background: #e9fff5;
+}
+
+.extension-window .channel-subselection {
+  padding: 0 10px 10px;
+}
+
+.channel-subselection-summary {
+  margin: 0;
+  border-bottom: 1px solid #edf1f7;
+  padding: 10px 12px;
+  color: #4b5563;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.facebook-content-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 0;
+  background: #ffffff;
+}
+
+.facebook-preview-title {
+  border: 0;
+  border-bottom: 1px solid #bbf7d0;
+  border-radius: 6px 6px 0 0;
+}
+
+.facebook-preview-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+}
+
+.facebook-preview-card img,
+.facebook-preview-thumb {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 4px;
+  color: #fef3c7;
+  background: #1f2937;
+  font-size: 10px;
+  font-weight: 900;
+  object-fit: cover;
+}
+
+.facebook-preview-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.facebook-preview-copy strong,
+.facebook-preview-copy span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.facebook-preview-copy strong {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.facebook-preview-copy span {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.facebook-preview-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.facebook-generate-button,
+.facebook-full-button {
+  min-height: 38px;
+  border: 1px solid #10b981;
+  border-radius: 5px;
+  color: #047857;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.facebook-full-button svg {
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
+}
+
+.facebook-content-editor {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #dcfce7;
+  padding: 10px;
+}
+
+.facebook-content-editor .facebook-content-actions {
+  justify-content: end;
+}
+
+.facebook-content-textarea {
+  min-height: 180px;
+}
+
+.facebook-content-meta.is-preview {
+  padding: 0 12px 10px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.facebook-preview-backdrop {
+  align-items: flex-start;
+  padding: 28px 14px;
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.facebook-preview-modal,
+.facebook-composer-modal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(760px, calc(100vw - 28px));
+  max-height: calc(100vh - 56px);
+  border: 1px solid #d7dee8;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.34);
+  overflow: hidden;
+}
+
+.facebook-composer-modal {
+  width: min(600px, calc(100vw - 28px));
+}
+
+.facebook-preview-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #d8e0ea;
+  padding: 20px 24px;
+  background: #ffffff;
+}
+
+.facebook-preview-modal-header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.facebook-preview-modal-header .icon-button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.facebook-preview-modal-body {
+  display: grid;
+  gap: 22px;
+  overflow-y: auto;
+  padding: 28px;
+  background: #edf4ff;
+}
+
+.facebook-post-preview-frame {
+  display: grid;
+  gap: 16px;
+  width: min(560px, 100%);
+  justify-self: center;
+  border: 1px solid #cbd5d1;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  color: #172033;
+}
+
+.facebook-post-preview-header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.facebook-post-avatar {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #059669;
+  font-size: 22px;
+  font-weight: 850;
+}
+
+.facebook-post-preview-header span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.facebook-post-preview-header strong {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.facebook-post-preview-header small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.facebook-post-preview-content {
+  color: #172033;
+  font-size: 16px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.facebook-post-preview-image {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  border-radius: 4px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #e2e8f0, #f8fafc);
+}
+
+.facebook-post-preview-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.facebook-post-preview-image div {
+  display: grid;
+  gap: 8px;
+  max-width: 80%;
+  text-align: center;
+}
+
+.facebook-post-preview-image strong {
+  color: #14532d;
+  font-size: 22px;
+  font-weight: 950;
+  line-height: 1.2;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.facebook-post-preview-image span {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.facebook-post-preview-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+  color: #4b5563;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.facebook-post-preview-actions span {
+  min-width: 0;
+  text-align: center;
+}
+
+.facebook-preview-note {
+  width: min(700px, 100%);
+  margin: 0 auto;
+  border: 1px solid #cfe0ff;
+  border-radius: 8px;
+  padding: 16px 18px;
+  color: #314158;
+  background: #e7f0ff;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.facebook-preview-modal-footer {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.75fr) minmax(140px, 1fr) minmax(140px, 1fr);
+  gap: 12px;
+  border-top: 1px solid #d8e0ea;
+  padding: 18px 24px;
+  background: #ffffff;
+}
+
+.facebook-preview-modal > .facebook-preview-modal-footer {
+  grid-template-columns: repeat(3, auto);
+  justify-content: end;
+  padding: 14px 24px;
+}
+
+.facebook-preview-modal-footer button {
+  min-height: 40px;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.facebook-preview-modal-footer button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.facebook-composer-modal .facebook-preview-modal-footer {
+  grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.3fr);
+  padding: 20px 24px;
+}
+
+.facebook-composer-modal .facebook-preview-modal-footer button {
+  min-height: 56px;
+  font-size: 18px;
+}
+
+.facebook-composer-modal .facebook-preview-modal-footer button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.facebook-modal-cancel-button {
+  color: #4b5563;
+  background: #ffffff;
+}
+
+.facebook-modal-secondary-button,
+.facebook-modal-primary-button {
+  color: #ffffff;
+  background: #047857;
+}
+
+.facebook-modal-secondary-button {
+  background: #059669;
+}
+
+.facebook-composer-body {
+  display: grid;
+  gap: 20px;
+  overflow-y: auto;
+  padding: 30px 28px;
+  background: #ffffff;
+}
+
+.facebook-composer-content-heading,
+.facebook-composer-image-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.facebook-composer-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #48554f;
+  font-size: 20px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.facebook-composer-section-title svg {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  color: #48554f;
+}
+
+.facebook-composer-generate-button {
+  min-height: 56px;
+  border-radius: 10px;
+  padding: 0 26px;
+  background: #058763;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.facebook-composer-generate-button svg {
+  width: 24px;
+  height: 24px;
+}
+
+.facebook-composer-textarea-wrap {
+  position: relative;
+  display: grid;
+}
+
+.facebook-composer-textarea {
+  min-height: 390px;
+  border-color: #b7c4bb;
+  border-radius: 8px;
+  padding: 20px 22px 44px;
+  font-family: inherit;
+  font-size: 20px;
+  line-height: 1.45;
+}
+
+.facebook-composer-textarea-wrap > span:last-child {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  color: #6b7280;
+  background: rgba(255, 255, 255, 0.86);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.facebook-composer-image-heading {
+  margin-top: 14px;
+}
+
+.facebook-composer-image-heading > span {
+  color: #6b7280;
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.facebook-composer-image-library {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #c7d2c9;
+  border-radius: 12px;
+  padding: 22px 24px;
+  background: #eef5ff;
+}
+
+.facebook-composer-library-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.facebook-composer-library-header > div,
+.facebook-composer-upload-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.facebook-composer-library-header > div {
+  color: #48554f;
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.facebook-composer-library-header svg {
+  width: 26px;
+  height: 26px;
+}
+
+.facebook-composer-upload-button {
+  color: #047857;
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.facebook-composer-upload-button svg {
+  width: 24px;
+  height: 24px;
+}
+
+.facebook-composer-image-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.facebook-composer-image-card,
+.facebook-composer-add-image-tile {
+  position: relative;
+  display: grid;
+  aspect-ratio: 1.35 / 1;
+  min-height: 112px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.facebook-composer-image-card {
+  border: 1px solid #c7d2c9;
+  background: #ffffff;
+}
+
+.facebook-composer-image-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.facebook-composer-image-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+}
+
+.facebook-composer-image-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.facebook-composer-add-image-tile {
+  place-items: center;
+  border: 2px dashed #b7c4bb;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.38);
+  font-size: 42px;
+  font-weight: 300;
+}
+
+.facebook-composer-add-image-tile:disabled,
+.facebook-composer-upload-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.publish-result-panel h2 {
+  color: #1f2937;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.publish-result-panel {
+  border-radius: 8px;
+}
+
+.extension-window .sync-button {
+  min-height: 50px;
+  border-radius: 4px;
+  background: #166f36;
+  font-size: 15px;
+  font-weight: 950;
+}
+
 .extension-auth-form,
 .extension-loading {
   margin: 16px;
@@ -3365,6 +4313,32 @@ dd {
   .workspace-grid,
   .workspace-grid.is-2-panel {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .facebook-preview-modal,
+  .facebook-composer-modal {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 24px);
+  }
+
+  .facebook-preview-backdrop {
+    padding: 12px 10px;
+  }
+
+  .facebook-preview-modal-body,
+  .facebook-composer-body {
+    padding: 18px 14px;
+  }
+
+  .facebook-preview-modal-footer,
+  .facebook-composer-modal .facebook-preview-modal-footer {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 14px;
+  }
+
+  .facebook-composer-textarea {
+    min-height: 320px;
+    font-size: 16px;
   }
 }
 
@@ -3421,12 +4395,20 @@ dd {
   }
 
   .jd-toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .portal-sync-button,
-  .jd-toolbar .ghost-button {
+  .portal-sync-button {
     width: 100%;
+  }
+
+  .jd-pagination-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .jd-pagination-actions {
+    justify-content: end;
   }
 
   .portal-sync-metrics {

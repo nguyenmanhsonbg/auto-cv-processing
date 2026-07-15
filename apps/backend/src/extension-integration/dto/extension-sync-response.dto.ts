@@ -154,3 +154,17 @@ export class ExtensionSyncResponseDto {
   @ApiPropertyOptional({ type: () => [ExtensionSyncWarningDto] })
   warnings?: ExtensionSyncWarningDto[];
 }
+
+export class ExtensionPreviewPublishPlanResponseDto {
+  @ApiProperty()
+  amisRecruitmentId: string;
+
+  @ApiProperty()
+  snapshotHash: string;
+
+  @ApiPropertyOptional({ type: () => ExtensionFacebookPublishPlanDto })
+  facebookPublishPlan?: ExtensionFacebookPublishPlanDto;
+
+  @ApiPropertyOptional({ type: () => [ExtensionSyncWarningDto] })
+  warnings?: ExtensionSyncWarningDto[];
+}
