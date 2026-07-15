@@ -68,7 +68,30 @@ Candidate ──────────────────────┘
 - **SDK mode**: uses `@anthropic-ai/sdk` directly.
 - **CLI mode**: shells out to `claude --print --model ... --system-prompt ... --output-format=json`. Resolves binary from `~/.local/bin/claude` or PATH.
 
-System prompts keys: `enrich_profile`, `suggest_questions`, `evaluate_session`, `evaluation_summary`. All are seeded to DB on startup and can be edited via `PATCH /api/ai/prompts/:id`. Changes only take effect after `clearPromptCache()` or restart.
+System prompts keys: `enrich_profile`, `suggest_questions`, `evaluate_session`, `evaluation_summary`, `generate_survey_questions`, `suggest_questions_from_survey`, `suggest_next_question`, `detect_profile_anomalies`, `ai_screening`, `final_screening_recommendation`. All are seeded to DB on startup and can be edited via `PATCH /api/ai/prompts/:id`. Changes only take effect after `clearPromptCache()` or restart.
+
+Recruitment Phase 1 AI flow:
+
+```text
+enrich_job_description (external YAML)
+-> enrich_profile
+-> detect_profile_anomalies (optional)
+-> generate_survey_questions / form answers (optional)
+-> ai_screening
+-> final_screening_recommendation
+-> HR review
+```
+
+`enrich_job_description` is maintained in `src/assets/seed/ai-jd-promts.yaml`. Its JSON output is injected into `enrich_profile` as `JD_TARGET_ROLE`, `JD_MIN_YEARS`, `JD_MUST_HAVE_SKILLS`, `JD_ADVANCED_SKILLS`, and `JD_TECH_CHALLENGES`.
+
+Interview flow starts only after HR approval:
+
+```text
+suggest_questions or suggest_questions_from_survey
+-> suggest_next_question
+-> evaluate_session
+-> evaluation_summary
+```
 
 ## Critical conventions
 

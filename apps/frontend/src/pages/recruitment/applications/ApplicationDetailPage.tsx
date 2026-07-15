@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Check,
   Hourglass,
+  Printer,
   Sparkles,
 } from 'lucide-react';
 import {
@@ -19,6 +20,7 @@ import { ApplicationAuditLog } from '@/components/recruitment/ApplicationAuditLo
 import { CvProcessingPanel } from '@/components/recruitment/CvProcessingPanel';
 import { CvVersionHistory } from '@/components/recruitment/CvVersionHistory';
 import { ParsedProfileView } from '@/components/recruitment/ParsedProfileView';
+import { CandidateAiMatchPreview } from '@/components/recruitment/CandidateAiMatchPreview';
 import { WorkflowTimeline } from '@/components/recruitment/WorkflowTimeline';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,21 +44,35 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
+import { exportAiMatchPreviewToPdf } from '@/lib/print-ai-match-preview';
 import {
   getApplication,
   getParsedProfile,
   listApplicationAuditLogs,
   listApplicationTimeline,
   listCvVersions,
+  parseApplicationCv,
+  runApplicationAiScreening,
+  type ApplicationAiScreeningInsight,
+  type ApplicationAiScreeningSummary,
   type ApplicationAuditLogRecord,
   type ApplicationDetailRecord,
+  type ApplicationMappingSummary,
   type ApplicationTimelineRecord,
   type CvVersionRecord,
   type ParsedProfileRecord,
   type RecruitmentPagination,
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
+import type { ParsedProfile } from '@interview-assistant/shared';
 import { useToast } from '@/components/ui/use-toast';
 import {
   getFormDetailsForAdmin,
@@ -101,6 +117,170 @@ function DetailField({
     </div>
   );
 }
+
+function AssessmentBadge({ label }: { label?: string | null }) {
+  if (!label) return null;
+
+  return (
+    <Badge variant="outline" className="shrink-0 text-[11px]">
+      {label}
+    </Badge>
+  );
+}
+
+function AiAssessmentList({
+  title,
+  items,
+  emptyLabel,
+}: {
+  title: string;
+  items?: ApplicationAiScreeningInsight[];
+  emptyLabel: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <h4 className="text-sm font-semibold">{title}</h4>
+      {items?.length ? (
+        <div className="space-y-2">
+          {items.map((item, index) => (
+            <div
+              key={`${title}-${index}`}
+              className="rounded-md border bg-muted/20 p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-medium">
+                  {item.title || `${title} ${index + 1}`}
+                </p>
+                <AssessmentBadge label={item.confidence ?? item.severity} />
+              </div>
+              {item.evidence ? (
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  {item.evidence}
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+      )}
+    </div>
+  );
+}
+
+function ApplicationAiMatchResult({
+  mapping,
+  aiScreening,
+  parsedProfile,
+  screeningLoading,
+  onRunAiScreening,
+}: {
+  mapping?: ApplicationMappingSummary | null;
+  aiScreening?: ApplicationAiScreeningSummary | null;
+  parsedProfile?: ParsedProfileRecord | null;
+  screeningLoading: boolean;
+  onRunAiScreening: () => void;
+}) {
+  const hasAiResult = Boolean(
+    aiScreening?.summary ||
+      aiScreening?.score != null ||
+      aiScreening?.recommendation ||
+      aiScreening?.strengths?.length ||
+      aiScreening?.gaps?.length ||
+      aiScreening?.risks?.length,
+  );
+
+  return (
+    <div className="max-h-[72vh] space-y-5 overflow-y-auto pr-1">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">CV-JD Mapping</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <DetailField label="Score" value={scoreLabel(mapping?.score)} />
+            <DetailField label="Status" value={valueOrDash(mapping?.status)} />
+            <DetailField
+              label="Recommendation"
+              value={valueOrDash(mapping?.recommendation)}
+            />
+            <DetailField label="Updated" value={formatDate(mapping?.createdAt)} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-base">AI Screening</CardTitle>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onRunAiScreening}
+              disabled={screeningLoading}
+            >
+              <Sparkles
+                className={cn(
+                  'mr-2 h-4 w-4',
+                  screeningLoading && 'animate-pulse',
+                )}
+              />
+              {screeningLoading ? 'Running...' : hasAiResult ? 'Refresh AI' : 'Run AI'}
+            </Button>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <DetailField label="Score" value={scoreLabel(aiScreening?.score)} />
+            <DetailField label="Status" value={valueOrDash(aiScreening?.status)} />
+            <DetailField
+              label="Recommendation"
+              value={valueOrDash(aiScreening?.recommendation)}
+            />
+            <DetailField label="Updated" value={formatDate(aiScreening?.createdAt)} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <ParsedProfileView profile={parsedProfile} />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">AI Candidate Assessment</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {aiScreening?.summary ? (
+            <div>
+              <p className="text-sm text-muted-foreground">Summary</p>
+              <p className="mt-1 text-sm leading-6">{aiScreening.summary}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Run AI screening to see candidate assessment and reviewer notes.
+            </p>
+          )}
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <AiAssessmentList
+              title="Strengths"
+              items={aiScreening?.strengths}
+              emptyLabel="No strengths recorded yet."
+            />
+            <AiAssessmentList
+              title="Gaps"
+              items={aiScreening?.gaps}
+              emptyLabel="No gaps recorded yet."
+            />
+            <AiAssessmentList
+              title="Risks"
+              items={aiScreening?.risks}
+              emptyLabel="No risks recorded yet."
+            />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+void ApplicationAiMatchResult;
 
 type FormDisplayStatus =
   | 'NOT_SENT'
@@ -173,6 +353,11 @@ export function ApplicationDetailPage() {
   const [auditPagination, setAuditPagination] = useState<RecruitmentPagination | undefined>();
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
+  const [screeningLoading, setScreeningLoading] = useState(false);
+  const [parseLoading, setParseLoading] = useState(false);
+  const [matchResultOpen, setMatchResultOpen] = useState(false);
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const aiMatchPreviewDialogRef = useRef<HTMLDivElement>(null);
 
   const [formDetails, setFormDetails] = useState<FormAdminDetails | null>(null);
   const [formLoading, setFormLoading] = useState(false);
@@ -312,6 +497,56 @@ export function ApplicationDetailPage() {
     loadFormDetails,
   ]);
 
+  const runAiScreening = useCallback(async () => {
+    if (!applicationId) return;
+
+    setScreeningLoading(true);
+    try {
+      const updated = await runApplicationAiScreening(applicationId);
+      setApplication(updated);
+      // AI screening also generates and persists parsed-profile anomaly data.
+      // Reload that resource so the preview does not keep rendering the old profile.
+      await loadParsedProfile();
+      toast({
+        title: 'AI screening completed',
+        description: 'CV-JD mapping, AI recommendation, and anomaly analysis have been refreshed.',
+      });
+      void loadTimeline();
+      void loadAuditLogs();
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'AI screening failed',
+        description: getInternalSafeErrorMessage(err),
+      });
+    } finally {
+      setScreeningLoading(false);
+    }
+  }, [applicationId, loadAuditLogs, loadParsedProfile, loadTimeline, toast]);
+
+  const reparseCurrentCv = useCallback(async () => {
+    const cvDocumentId = application?.cv?.currentCvDocumentId;
+    if (!applicationId || !cvDocumentId) return;
+
+    setParseLoading(true);
+    try {
+      await parseApplicationCv(applicationId, cvDocumentId);
+      await loadParsedProfile();
+      toast({
+        title: 'CV parsed again',
+        description: 'The parsed profile has been updated from the current CV.',
+      });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'CV parse failed',
+        description: getInternalSafeErrorMessage(err),
+      });
+    } finally {
+      setParseLoading(false);
+    }
+  }, [application?.cv?.currentCvDocumentId, applicationId, loadParsedProfile, toast]);
+
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
@@ -325,6 +560,51 @@ export function ApplicationDetailPage() {
   const sources = application?.sources ?? [];
   const formDisplayStatus = getFormDisplayStatus(formDetails);
   const isMissingQuestionSet = formDisplayStatus === 'MISSING_QUESTION_SET';
+
+  const exportAiMatchPdf = useCallback(async () => {
+    const element = aiMatchPreviewDialogRef.current;
+    if (!element || pdfExporting) return;
+
+    setPdfExporting(true);
+    try {
+      await exportAiMatchPreviewToPdf({
+        element,
+        filename: `ai-match-preview-${candidate?.fullName ?? 'candidate'}.pdf`,
+      });
+      toast({
+        title: 'Đã tải PDF',
+        description: 'Bản preview AI Match đã được tải xuống.',
+      });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Không thể xuất PDF',
+        description: getInternalSafeErrorMessage(err),
+      });
+    } finally {
+      setPdfExporting(false);
+    }
+  }, [candidate?.fullName, pdfExporting, toast]);
+
+  if (!loading && !application && error) {
+    return (
+      <div className="space-y-4">
+        <Button asChild variant="ghost" size="sm" className="-ml-3">
+          <Link to="/recruitment/applications">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to list
+          </Link>
+        </Button>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-6">
+          <h1 className="text-lg font-semibold text-destructive">Application not found</h1>
+          <p className="mt-2 text-sm text-destructive/80">{error}</p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Check the application ID in the address bar and try again.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -351,22 +631,66 @@ export function ApplicationDetailPage() {
           </div>
         </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          onClick={refreshAll}
-          disabled={loading || cvLoading || profileLoading || timelineLoading || auditLoading}
-        >
-          <RefreshCw
-            className={cn(
-              'mr-2 h-4 w-4',
-              (loading || cvLoading || profileLoading || timelineLoading || auditLoading)
-                && 'animate-spin',
-            )}
-          />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setMatchResultOpen(true)}
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            Preview AI Match
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={refreshAll}
+            disabled={loading || cvLoading || profileLoading || timelineLoading || auditLoading}
+          >
+            <RefreshCw
+              className={cn(
+                'mr-2 h-4 w-4',
+                (loading || cvLoading || profileLoading || timelineLoading || auditLoading)
+                  && 'animate-spin',
+              )}
+            />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      <Dialog open={matchResultOpen} onOpenChange={setMatchResultOpen}>
+        <DialogContent ref={aiMatchPreviewDialogRef} className="ai-match-preview-dialog flex max-h-[90vh] max-w-4xl flex-col">
+          <DialogHeader className="pr-8">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <DialogTitle>
+                  AI Match Preview{candidate?.fullName ? ` - ${candidate.fullName}` : ''}
+                </DialogTitle>
+                <DialogDescription>
+                  CV-JD matching and AI screening result for this application.
+                </DialogDescription>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="ai-match-preview-export-button shrink-0"
+                onClick={() => void exportAiMatchPdf()}
+                disabled={pdfExporting}
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                {pdfExporting ? 'Đang tạo PDF...' : 'Xuất PDF'}
+              </Button>
+            </div>
+          </DialogHeader>
+          <CandidateAiMatchPreview
+            profile={(parsedProfile?.parsedData ?? parsedProfile?.profile) as ParsedProfile | undefined}
+            mapping={mapping}
+            aiScreening={aiScreening}
+            candidate={candidate}
+          />
+        </DialogContent>
+      </Dialog>
 
       {error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
@@ -429,43 +753,96 @@ export function ApplicationDetailPage() {
           </TabsContent>
 
           <TabsContent value="job">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Job Posting</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2">
-                  <DetailField
-                    label="Posting"
-                    value={
-                      jobPosting?.jobPostingId ? (
-                        <Link
-                          to={`/recruitment/job-postings/${jobPosting.jobPostingId}`}
-                          className="hover:underline"
-                        >
-                          {jobPosting.title ?? jobPosting.jobPostingId}
-                        </Link>
-                      ) : valueOrDash(jobPosting?.title)
-                    }
-                  />
-                  <DetailField label="Posting ID" value={valueOrDash(jobPosting?.jobPostingId)} />
-                  <DetailField
-                    label="JD version"
-                    value={valueOrDash(jobPosting?.jobDescriptionVersionId)}
-                  />
-                  <DetailField label="Application source" value={valueOrDash(application.source)} />
-                </CardContent>
-              </Card>
+            <div className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Job Posting</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-2">
+                    <DetailField
+                      label="Posting"
+                      value={
+                        jobPosting?.jobPostingId ? (
+                          <Link
+                            to={`/recruitment/job-postings/${jobPosting.jobPostingId}`}
+                            className="hover:underline"
+                          >
+                            {jobPosting.title ?? jobPosting.jobPostingId}
+                          </Link>
+                        ) : valueOrDash(jobPosting?.title)
+                      }
+                    />
+                    <DetailField label="Posting ID" value={valueOrDash(jobPosting?.jobPostingId)} />
+                    <DetailField
+                      label="JD version"
+                      value={valueOrDash(jobPosting?.jobDescriptionVersionId)}
+                    />
+                    <DetailField label="Application source" value={valueOrDash(application.source)} />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle className="text-lg">Scoring Summary</CardTitle>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void runAiScreening()}
+                      disabled={screeningLoading}
+                    >
+                      <Sparkles
+                        className={cn(
+                          'mr-2 h-4 w-4',
+                          screeningLoading && 'animate-pulse',
+                        )}
+                      />
+                      {screeningLoading ? 'Running...' : 'Run AI screening'}
+                    </Button>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-2">
+                    <DetailField label="Mapping score" value={scoreLabel(mapping?.score)} />
+                    <DetailField label="Mapping status" value={valueOrDash(mapping?.status)} />
+                    <DetailField label="AI score" value={scoreLabel(aiScreening?.score)} />
+                    <DetailField label="AI recommendation" value={valueOrDash(aiScreening?.recommendation)} />
+                  </CardContent>
+                </Card>
+              </div>
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Scoring Summary</CardTitle>
+                  <CardTitle className="text-lg">AI Candidate Assessment</CardTitle>
                 </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2">
-                  <DetailField label="Mapping score" value={scoreLabel(mapping?.score)} />
-                  <DetailField label="Mapping status" value={valueOrDash(mapping?.status)} />
-                  <DetailField label="AI score" value={scoreLabel(aiScreening?.score)} />
-                  <DetailField label="AI recommendation" value={valueOrDash(aiScreening?.recommendation)} />
+                <CardContent className="space-y-5">
+                  {aiScreening?.summary ? (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Summary</p>
+                      <p className="mt-1 text-sm leading-6">{aiScreening.summary}</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Run AI screening to see candidate assessment and reviewer notes.
+                    </p>
+                  )}
+
+                  <div className="grid gap-4 lg:grid-cols-3">
+                    <AiAssessmentList
+                      title="Strengths"
+                      items={aiScreening?.strengths}
+                      emptyLabel="No strengths recorded yet."
+                    />
+                    <AiAssessmentList
+                      title="Gaps"
+                      items={aiScreening?.gaps}
+                      emptyLabel="No gaps recorded yet."
+                    />
+                    <AiAssessmentList
+                      title="Risks"
+                      items={aiScreening?.risks}
+                      emptyLabel="No risks recorded yet."
+                    />
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -488,6 +865,9 @@ export function ApplicationDetailPage() {
               loading={profileLoading}
               error={profileError}
               onRefresh={() => void loadParsedProfile()}
+              onReparse={() => void reparseCurrentCv()}
+              reparseLoading={parseLoading}
+              canReparse={Boolean(cv?.currentCvDocumentId && cv?.sanitizeStatus === 'SANITIZED')}
             />
           </TabsContent>
 

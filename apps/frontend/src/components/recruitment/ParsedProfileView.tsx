@@ -16,6 +16,9 @@ interface ParsedProfileViewProps {
   loading?: boolean;
   error?: string | null;
   onRefresh?: () => void;
+  onReparse?: () => void;
+  reparseLoading?: boolean;
+  canReparse?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -531,6 +534,9 @@ export function ParsedProfileView({
   loading = false,
   error,
   onRefresh,
+  onReparse,
+  reparseLoading = false,
+  canReparse = false,
 }: ParsedProfileViewProps) {
   const payload = profilePayload(profile);
   const profileId = profile?.parsedProfileId ?? profile?.id;
@@ -554,18 +560,33 @@ export function ParsedProfileView({
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-lg">Parsed Profile</CardTitle>
-            {onRefresh && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                onClick={onRefresh}
-              >
-                <RefreshCw className={cn('mr-2 h-4 w-4', loading && 'animate-spin')} />
-                Refresh
-              </Button>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {onReparse && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!canReparse || reparseLoading}
+                  onClick={onReparse}
+                  title={!canReparse ? 'A sanitized current CV is required' : 'Parse the current CV again'}
+                >
+                  <RefreshCw className={cn('mr-2 h-4 w-4', reparseLoading && 'animate-spin')} />
+                  {reparseLoading ? 'Re-parsing...' : 'Re-parse CV'}
+                </Button>
+              )}
+              {onRefresh && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={loading}
+                  onClick={onRefresh}
+                >
+                  <RefreshCw className={cn('mr-2 h-4 w-4', loading && 'animate-spin')} />
+                  Refresh
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

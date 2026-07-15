@@ -16,6 +16,7 @@ import {
   getCurrentUser,
   getFacebookGroups,
   getJobDescriptionQuestionSet,
+  generateFacebookPreviewContent,
   listFacebookGroupPublishHistories,
   listJobDescriptions,
   heartbeatExtensionInstance,
@@ -32,6 +33,12 @@ import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChan
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import { DEFAULT_POSTING_CHANNELS, POSTING_CHANNELS } from './config';
 import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
+import {
+  buildFacebookDraftSnapshotFingerprint,
+  clearFacebookContentDraft as clearStoredFacebookContentDraft,
+  getFacebookContentDraft,
+  saveFacebookContentDraft as persistFacebookContentDraft,
+} from './facebook-content-draft-store';
 import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
 import { getValidFacebookGroupPostUrl } from './facebook-post-url';
 import {
@@ -81,6 +88,7 @@ type CvWorkspaceView = 'overview' | 'list';
 type FacebookPostHistoryFilter = 'ALL' | FacebookReviewStatus;
 type FacebookPostHistoryLoadState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type FacebookContentState = 'IDLE' | 'GENERATING' | 'READY' | 'ERROR';
+type FacebookContentSource = 'EMPTY' | 'DEFAULT' | 'AI' | 'CUSTOM';
 type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
@@ -266,6 +274,11 @@ function SidePanel() {
   const facebookGroupVerificationQueueRef = useRef<FacebookPublishTarget[]>([]);
   const facebookGroupVerificationRunningRef = useRef(false);
   const activeFacebookGroupVerificationIdRef = useRef<string | null>(null);
+  const facebookContentRef = useRef('');
+  const facebookContentSourceRef = useRef<FacebookContentSource>('EMPTY');
+  const facebookContentSnapshotKeyRef = useRef<string | null>(null);
+  const facebookContentSnapshotFingerprintRef = useRef<string | null>(null);
+  const facebookContentJobIdentityRef = useRef<string | null>(null);
   const startedFacebookPlanKeys = useRef(new Set<string>());
 
   useEffect(() => {
@@ -297,6 +310,10 @@ function SidePanel() {
   useEffect(() => {
     selectedFacebookGroupIdsRef.current = selectedFacebookGroupIds;
   }, [selectedFacebookGroupIds]);
+
+  useEffect(() => {
+    facebookContentRef.current = facebookContent;
+  }, [facebookContent]);
 
   useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
@@ -402,12 +419,27 @@ function SidePanel() {
   }, [applicationsContext]);
 
   useEffect(() => {
-    setFacebookContent('');
-    setFacebookContentState('IDLE');
-    setFacebookContentMessage(null);
-    if (token && amisRecruitmentId && snapshot) {
-      void generateFacebookPostContent({ forceFacebookChannel: true });
+    let cancelled = false;
+    const nextSnapshot = snapshot;
+    const nextRecruitmentId = amisRecruitmentId;
+
+    async function prepareFacebookContent() {
+      clearFacebookPostContentState();
+      if (!token || !nextRecruitmentId || !nextSnapshot) return;
+
+      const restored = await applyStoredFacebookContentDraft(nextRecruitmentId, nextSnapshot);
+      if (cancelled || restored) return;
+
+      await generateFacebookPostContent({
+        snapshotOverride: nextSnapshot,
+        forceFacebookChannel: true,
+      });
     }
+
+    void prepareFacebookContent();
+    return () => {
+      cancelled = true;
+    };
   }, [
     token,
     amisRecruitmentId,
@@ -441,7 +473,6 @@ function SidePanel() {
 
   const facebookSelected = selectedPostingChannels.includes('FACEBOOK');
   const facebookContentBusy = facebookContentState === 'GENERATING';
-  const facebookContentReady = facebookContent.trim().length > 0;
   const isFacebookImageReading = facebookImageAttachmentState === 'READING';
   const hasFacebookImageAttachmentError = facebookImageAttachmentState === 'ERROR';
   const facebookImageUploadDisabled = facebookRunning || state === 'SYNCING' || isFacebookImageReading;
@@ -615,7 +646,13 @@ function SidePanel() {
   }
 
   function clearFacebookContent() {
+    facebookContentRef.current = '';
+    facebookContentSourceRef.current = 'EMPTY';
+    facebookContentSnapshotKeyRef.current = null;
+    facebookContentSnapshotFingerprintRef.current = null;
+    facebookContentJobIdentityRef.current = null;
     setFacebookContent('');
+    setFacebookContentDraft('');
     setFacebookContentState('IDLE');
     setFacebookContentMessage(null);
   }
@@ -638,18 +675,11 @@ function SidePanel() {
     const sourceSnapshot = options.snapshotOverride
       ?? snapshot
       ?? (selectedJobDescription ? buildAmisJobSnapshotFromJobDescription(selectedJobDescription) : null);
-    if (!sourceSnapshot || !amisRecruitmentId) {
+    if (!sourceSnapshot) {
       setFacebookContentState('ERROR');
       setFacebookContentMessage('Load an AMIS job snapshot before generating Facebook content.');
       return null;
     }
-    const payload = buildAmisJobPostingPayload({
-      includeFacebookContent: false,
-      snapshotOverride: sourceSnapshot,
-      selectedJobDescriptionOverride: options.selectedJobDescriptionOverride,
-      forceFacebookChannel: options.forceFacebookChannel ?? true,
-    });
-    if (!payload) return null;
     const generationSeq = facebookContentGenerationSeqRef.current + 1;
     facebookContentGenerationSeqRef.current = generationSeq;
 
@@ -657,15 +687,58 @@ function SidePanel() {
     setFacebookContentMessage(null);
 
     try {
-      const response = await previewAmisJobPublishPlan(token, payload);
-      if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
-      const content = response.facebookPublishPlan?.content?.trim() ?? '';
+      let content = '';
+      let generatedFromPublishPlan = false;
+
+      if (amisRecruitmentId) {
+        const payload = buildAmisJobPostingPayload({
+          includeFacebookContent: false,
+          snapshotOverride: sourceSnapshot,
+          selectedJobDescriptionOverride: options.selectedJobDescriptionOverride,
+          forceFacebookChannel: options.forceFacebookChannel ?? true,
+        });
+        if (payload) {
+          try {
+            const response = await previewAmisJobPublishPlan(token, payload);
+            if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
+            content = response.facebookPublishPlan?.content?.trim() ?? '';
+            generatedFromPublishPlan = Boolean(content);
+          } catch (err) {
+            if (err instanceof ApiClientError && err.status === 401) throw err;
+          }
+        }
+      }
+
+      if (!content) {
+        const response = await generateFacebookPreviewContent(token, {
+          snapshot: sourceSnapshot,
+          mode: 'TEMPLATE',
+        });
+        if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
+        content = response.content.trim();
+      }
+
       if (!content) {
         throw new Error('Backend did not return Facebook preview content.');
       }
       setFacebookContent(content);
+      facebookContentRef.current = content;
+      facebookContentSourceRef.current = 'AI';
+      facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, sourceSnapshot);
+      facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(sourceSnapshot);
+      facebookContentJobIdentityRef.current = buildFacebookJobIdentity(sourceSnapshot);
       setFacebookContentState('READY');
-      setFacebookContentMessage('Facebook content generated from the same publish plan used for posting.');
+      setFacebookContentMessage(
+        generatedFromPublishPlan
+          ? 'Facebook content generated from the same publish plan used for posting.'
+          : 'Đã sinh nội dung Facebook từ JD hiện tại.',
+      );
+      await persistFacebookContentDraft({
+        content,
+        source: 'AI',
+        recruitmentId: amisRecruitmentId,
+        snapshot: sourceSnapshot,
+      });
       return content;
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -682,7 +755,11 @@ function SidePanel() {
   }
 
   async function openFacebookPreviewModal() {
-    await ensureFacebookDefaultContent();
+    const content = await ensureFacebookDefaultContent();
+    if (content) {
+      facebookContentRef.current = content;
+      setFacebookContent(content);
+    }
     setFacebookPreviewModalMode('PREVIEW');
   }
 
@@ -693,11 +770,12 @@ function SidePanel() {
   }
 
   async function ensureFacebookDefaultContent() {
-    const currentContent = facebookContent.trim();
+    const currentContent = getEffectiveFacebookContent();
     if (currentContent) return currentContent;
 
     const publishPlanContent = getCurrentFacebookPublishPlanContent();
     if (publishPlanContent) {
+      facebookContentRef.current = publishPlanContent;
       setFacebookContent(publishPlanContent);
       setFacebookContentState('READY');
       setFacebookContentMessage('Đang dùng nội dung Facebook mặc định từ kế hoạch đăng hiện tại.');
@@ -715,9 +793,22 @@ function SidePanel() {
     }
   }
 
-  function saveFacebookContentDraft() {
+  async function saveFacebookContentDraft() {
     const content = facebookContentDraft.trim();
     setFacebookContent(content);
+    facebookContentRef.current = content;
+    facebookContentSourceRef.current = 'CUSTOM';
+    if (snapshot) {
+      facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, snapshot);
+      facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(snapshot);
+      facebookContentJobIdentityRef.current = buildFacebookJobIdentity(snapshot);
+      await persistFacebookContentDraft({
+        content,
+        source: 'CUSTOM',
+        recruitmentId: amisRecruitmentId,
+        snapshot,
+      });
+    }
     setFacebookContentState(content ? 'READY' : 'IDLE');
     setFacebookContentMessage(content ? 'Đã lưu thay đổi nội dung Facebook.' : null);
     setFacebookPreviewModalMode('PREVIEW');
@@ -727,6 +818,10 @@ function SidePanel() {
     if (!result?.facebookPublishPlan?.content?.trim()) return '';
     if (amisRecruitmentId && result.amisRecruitmentId !== amisRecruitmentId) return '';
     return result.facebookPublishPlan.content.trim();
+  }
+
+  function getEffectiveFacebookContent() {
+    return facebookContentRef.current.trim() || facebookContent.trim();
   }
 
   function requestFacebookImageAttachDecision(
@@ -1136,18 +1231,30 @@ function SidePanel() {
       setApplicationsContext(null);
       setApplicationsMessage(null);
       setApplicationsState(normalizedRecruitmentId ? 'LOADING' : 'IDLE');
+      const shouldClearFacebookContent = shouldClearFacebookContentForRecruitmentChange(
+        previousRecruitmentId,
+        normalizedRecruitmentId,
+      );
+      if (shouldClearFacebookContent) {
+        clearFacebookPostContentState();
+      }
       if (options.clearPosting === false) {
         postingSnapshotRefreshSeqRef.current += 1;
         activeSnapshotRecruitmentIdRef.current = null;
       } else {
-        clearPostingStateForRecruitmentChange();
+        clearPostingStateForRecruitmentChange({ clearFacebookContent: false });
       }
     }
 
     return previousRecruitmentId !== normalizedRecruitmentId;
   }
 
-  function clearPostingStateForRecruitmentChange() {
+  function shouldClearFacebookContentForRecruitmentChange(previousRecruitmentId: string | null, nextRecruitmentId: string | null) {
+    if (previousRecruitmentId && nextRecruitmentId && previousRecruitmentId !== nextRecruitmentId) return true;
+    return facebookContentSourceRef.current === 'EMPTY' || facebookContentSourceRef.current === 'DEFAULT';
+  }
+
+  function clearPostingStateForRecruitmentChange(options: { clearFacebookContent?: boolean } = {}) {
     postingSnapshotRefreshSeqRef.current += 1;
     activeSnapshotRecruitmentIdRef.current = null;
     setSnapshot(null);
@@ -1156,9 +1263,25 @@ function SidePanel() {
     setAutoSyncState(null);
     setAmisUrl(undefined);
     setError(null);
+    if (options.clearFacebookContent !== false) {
+      clearFacebookPostContentState();
+    }
     setState((current) => (
       current === 'AUTH_LOADING' || current === 'AUTH_REQUIRED' ? current : 'READY'
     ));
+  }
+
+  function clearFacebookPostContentState() {
+    facebookContentSnapshotKeyRef.current = null;
+    facebookContentSnapshotFingerprintRef.current = null;
+    facebookContentJobIdentityRef.current = null;
+    facebookContentRef.current = '';
+    facebookContentSourceRef.current = 'EMPTY';
+    setFacebookContent('');
+    setFacebookContentDraft('');
+    setFacebookContentState('IDLE');
+    setFacebookContentMessage(null);
+    setFacebookPreviewModalMode(null);
   }
 
   async function refreshPostingSnapshotForActiveContext(
@@ -1346,14 +1469,14 @@ function SidePanel() {
   }
 
   async function fillJobDescriptionInAmis(jobDescription: JobDescriptionSummary) {
+    const nextSnapshot = buildAmisJobSnapshotFromJobDescription(jobDescription);
     setSelectedJobDescription(jobDescription);
+    setSnapshot(nextSnapshot);
     setResult(null);
-    setFacebookContent('');
-    setFacebookContentState('IDLE');
-    setFacebookContentMessage(null);
+    clearFacebookContent();
     void loadSelectedJobDescriptionQuestionSet(jobDescription, token, { silent: true, force: true });
     void generateFacebookPostContent({
-      snapshotOverride: buildAmisJobSnapshotFromJobDescription(jobDescription),
+      snapshotOverride: nextSnapshot,
       selectedJobDescriptionOverride: jobDescription,
       forceFacebookChannel: true,
     });
@@ -1506,9 +1629,13 @@ function SidePanel() {
     if (extraction.detected && extraction.snapshot) {
       activeSnapshotRecruitmentIdRef.current = extractionRecruitmentId;
       setSnapshot(extraction.snapshot);
+      void applyStoredFacebookContentDraft(extractionRecruitmentId, extraction.snapshot);
     } else {
       activeSnapshotRecruitmentIdRef.current = null;
       setSnapshot(null);
+      if (facebookContentSourceRef.current === 'EMPTY' || facebookContentSourceRef.current === 'DEFAULT') {
+        clearFacebookPostContentState();
+      }
     }
   }
 
@@ -1668,6 +1795,29 @@ function SidePanel() {
     }
 
     return { groups, selectedIds, discoverySummary };
+  }
+
+  async function applyStoredFacebookContentDraft(
+    recruitmentId: string | null,
+    nextSnapshot: AmisJobSnapshot,
+  ) {
+    const draft = await getFacebookContentDraft({
+      recruitmentId,
+      snapshot: nextSnapshot,
+    });
+    const content = draft?.content.trim();
+    if (!content) return false;
+
+    facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(recruitmentId, nextSnapshot);
+    facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(nextSnapshot);
+    facebookContentJobIdentityRef.current = buildFacebookJobIdentity(nextSnapshot);
+    facebookContentRef.current = content;
+    facebookContentSourceRef.current = draft?.source ?? 'CUSTOM';
+    setFacebookContent(content);
+    setFacebookContentDraft(content);
+    setFacebookContentState('READY');
+    setFacebookContentMessage('Đang dùng bản nháp Facebook đã lưu cho JD hiện tại.');
+    return true;
   }
 
   async function openFacebookGroupSettings(event: React.MouseEvent<HTMLButtonElement>) {
@@ -2332,7 +2482,7 @@ function SidePanel() {
       : selectedPostingChannels;
     const facebookTargetIds = channelsForPayload.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
     const includeFacebookContent = options.includeFacebookContent ?? true;
-    const trimmedFacebookContent = facebookContent.trim();
+    const trimmedFacebookContent = (facebookContentRef.current || facebookContent).trim();
     const jobDescriptionForMetadata = options.selectedJobDescriptionOverride ?? selectedJobDescription;
 
     return {
@@ -2380,6 +2530,14 @@ function SidePanel() {
       setState('ERROR');
       return;
     }
+    if (selectedPostingChannels.includes('FACEBOOK') && !(facebookContentRef.current || facebookContent).trim()) {
+      const generatedContent = await generateFacebookPostContent({ forceFacebookChannel: true });
+      if (!generatedContent) {
+        setError('Facebook post content is required before publishing.');
+        setState('ERROR');
+        return;
+      }
+    }
 
     const payload = buildAmisJobPostingPayload();
     if (!payload) return;
@@ -2415,9 +2573,10 @@ function SidePanel() {
 
   async function startFacebookPublish(plan: FacebookPublishPlan) {
     if (!token) return;
+    const contentResolvedPlan = await resolveFacebookPublishPlanContent(plan);
     const planForPublish: FacebookPublishPlan = facebookImageAttachment
-      ? { ...plan, attachments: [facebookImageAttachment] }
-      : plan;
+      ? { ...contentResolvedPlan, attachments: [facebookImageAttachment] }
+      : contentResolvedPlan;
     const planKey = getFacebookPlanKey(planForPublish);
     if (startedFacebookPlanKeys.current.has(planKey)) return;
 
@@ -2453,6 +2612,10 @@ function SidePanel() {
       const summary = summarizeFacebookPublishResults(facebookResults);
       setResult((current) => current ? updateFacebookChannelStatus(current, facebookResults) : current);
       if (summary.successCount > 0) {
+        await clearStoredFacebookContentDraft({
+          recruitmentId: amisRecruitmentId,
+          snapshot,
+        });
         setState('SUCCESS');
         setError(null);
       } else {
@@ -2479,6 +2642,31 @@ function SidePanel() {
         clearFacebookImageAttachment();
       }
     }
+  }
+
+  async function resolveFacebookPublishPlanContent(plan: FacebookPublishPlan): Promise<FacebookPublishPlan> {
+    const currentFacebookContent = getEffectiveFacebookContent();
+    if (currentFacebookContent) {
+      return {
+        ...plan,
+        content: currentFacebookContent,
+      };
+    }
+
+    if (snapshot) {
+      const draft = await getFacebookContentDraft({
+        recruitmentId: amisRecruitmentId,
+        snapshot,
+      });
+      if (draft?.content.trim()) {
+        return {
+          ...plan,
+          content: draft.content.trim(),
+        };
+      }
+    }
+
+    return plan;
   }
 
   function selectWorkspaceTab(tab: WorkspaceTab) {
@@ -3012,12 +3200,13 @@ function SidePanel() {
   function renderFacebookContentPanel() {
     if (!facebookSelected) return null;
 
+    const effectiveContent = getEffectiveFacebookContent();
     const canGenerate = Boolean(token && snapshot) && !facebookContentBusy;
     const previewTitle = snapshot?.title ?? selectedJobDescription?.title ?? 'Bài đăng tuyển dụng';
-    const previewCopy = facebookContentReady
-      ? summarizeText(facebookContent)
+    const previewCopy = effectiveContent
+      ? summarizeText(effectiveContent)
       : summarizeText(snapshot?.summary ?? snapshot?.description ?? selectedJobDescription?.summary ?? selectedJobDescription?.description);
-    const helperText = facebookContentReady
+    const helperText = effectiveContent
       ? '{{APPLY_URL}} sẽ được thay bằng link tuyển dụng thật sau khi đồng bộ.'
       : 'Sinh bài từ JD/AMIS snapshot hiện tại trước khi đăng.';
 
@@ -3056,7 +3245,7 @@ function SidePanel() {
         </div>
 
         <div className="facebook-content-meta is-preview">
-          <span>{facebookContent.trim().length} ký tự</span>
+          <span>{effectiveContent.length} ký tự</span>
           <span>{helperText}</span>
         </div>
 
@@ -3072,7 +3261,7 @@ function SidePanel() {
   function renderFacebookPreviewModal() {
     if (!facebookPreviewModalMode) return null;
 
-    const content = facebookContent.trim();
+    const content = getEffectiveFacebookContent();
     const previewTitle = snapshot?.title ?? selectedJobDescription?.title ?? 'Bài đăng tuyển dụng';
     const previewImage = facebookImageAttachment?.dataUrl ?? null;
     const canGenerate = Boolean(token && snapshot) && !facebookContentBusy;
@@ -3204,7 +3393,7 @@ function SidePanel() {
               <button
                 type="button"
                 className="primary-button facebook-modal-primary-button"
-                onClick={saveFacebookContentDraft}
+                onClick={() => void saveFacebookContentDraft()}
               >
                 <CheckCircleIcon />
                 <span>Lưu thay đổi</span>
@@ -5972,6 +6161,25 @@ function slugifyForDisplay(value: string) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     || 'job-posting';
+}
+
+function getFacebookContentSnapshotKey(recruitmentId: string | null, snapshot: AmisJobSnapshot) {
+  return [
+    recruitmentId ?? 'snapshot',
+    snapshot.title,
+    snapshot.description,
+    snapshot.requirements.rawText,
+    snapshot.deadline ?? '',
+  ].join('|');
+}
+
+function buildFacebookJobIdentity(snapshot: AmisJobSnapshot) {
+  return (snapshot.title || snapshot.description || snapshot.requirements.rawText)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 function formatMetricValue(value: number | null) {

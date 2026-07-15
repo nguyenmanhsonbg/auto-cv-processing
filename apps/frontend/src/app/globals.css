@@ -40,3 +40,30 @@
 [data-radix-popper-content-wrapper] {
   z-index: 9999 !important;
 }
+
+/* Expand the popup before html2canvas captures it so long previews are not clipped. */
+body.ai-match-preview-exporting .ai-match-preview-dialog {
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  max-height: none !important;
+  transform: none !important;
+  overflow: visible !important;
+}
+
+body.ai-match-preview-exporting .ai-match-preview-dialog > button,
+body.ai-match-preview-exporting .ai-match-preview-export-button {
+  display: none !important;
+}
+
+body.ai-match-preview-exporting .ai-match-preview-scroll {
+  display: block !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  padding-right: 0 !important;
+}

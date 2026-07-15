@@ -173,6 +173,12 @@ Do not invent facts. If a field is not present, omit it or use an empty array.`;
       ? `Level categorization guidelines:\n${this.rules.prompt.level_guidelines}`
       : '';
 
+    const projectExtractionRules = `Project extraction rules:
+- Treat every explicitly named product, system, client project, or solution under the same employer as a separate workExperience.projects item, even when the CV does not label it with the word "project".
+- Never stop after the first named project. Scan the complete employer section until the next employer or major CV section and include every named project.
+- If an employer section contains EDENGUE followed by Viettel HIS, return both as separate projects under that employer.
+- Keep employer projects in workExperience[].projects. Reserve top-level projects for personal, academic, freelance, or side projects.`;
+
     const targetSchema = this.rules?.prompt?.target_schema
       ? JSON.stringify(this.rules.prompt.target_schema, null, 2)
       : `{
@@ -243,6 +249,8 @@ Do not invent facts. If a field is not present, omit it or use an empty array.`;
     return `${systemInstruction}
 
 ${levelGuidelines}
+
+${projectExtractionRules}
 
 Work experience extraction rules:
 - For each workExperience item, extract what the candidate actually did at that workplace.

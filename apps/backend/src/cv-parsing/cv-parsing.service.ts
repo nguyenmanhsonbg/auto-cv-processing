@@ -36,6 +36,7 @@ export interface ParseCleanCvInput {
   actorId?: string | null;
   idempotencyKey?: string | null;
   parserMode?: string | null;
+  force?: boolean;
 }
 
 interface ParseStartContext {
@@ -45,6 +46,7 @@ interface ParseStartContext {
   parsedProfile?: ParsedProfileEntity | null;
   idempotencyKeyHash: string | null;
   parserMode: string;
+  force: boolean;
 }
 
 interface ParseResult {
@@ -102,7 +104,9 @@ export class CvParsingService {
 
     return this.dataSource.transaction(async (manager) => {
       const cleanCvDocument = await this.findCleanCvForParse(manager, applicationId, cvDocumentId);
-      const existingProfile = await this.findExistingParsedProfile(manager, cleanCvDocument.id);
+      const existingProfile = input.force
+        ? null
+        : await this.findExistingParsedProfile(manager, cleanCvDocument.id);
 
       if (existingProfile) {
         await this.recordAuditLog(manager, {
@@ -129,6 +133,7 @@ export class CvParsingService {
           parsedProfile: existingProfile,
           idempotencyKeyHash,
           parserMode,
+          force: Boolean(input.force),
         };
       }
 
@@ -193,6 +198,7 @@ export class CvParsingService {
         parsedProfile: null,
         idempotencyKeyHash,
         parserMode,
+        force: Boolean(input.force),
       };
     });
   }
@@ -283,8 +289,10 @@ export class CvParsingService {
         manager,
         context.cleanCvDocument.id,
       );
-      const existingProfile = await this.findExistingParsedProfile(manager, cleanCvDocument.id);
-      if (existingProfile) return existingProfile;
+      if (!context.force) {
+        const existingProfile = await this.findExistingParsedProfile(manager, cleanCvDocument.id);
+        if (existingProfile) return existingProfile;
+      }
 
       cleanCvDocument.parseStatus = CvParseStatus.PARSED;
       await manager.getRepository(CvDocumentEntity).save(cleanCvDocument);

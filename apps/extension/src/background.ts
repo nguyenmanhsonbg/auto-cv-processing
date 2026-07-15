@@ -24,6 +24,10 @@ import {
 import { clearAccessToken, getAccessToken } from './auth-store';
 import { getSelectedChannels } from './channel-preferences';
 import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
+import {
+  clearFacebookContentDraft as clearStoredFacebookContentDraft,
+  getFacebookContentDraft,
+} from './facebook-content-draft-store';
 import { getSelectedFacebookGroupIds } from './facebook-group-preferences';
 import {
   ensureFacebookSession,
@@ -490,7 +494,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
       const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(sender.tab?.id);
       const result = await syncAndPublishAmisJob(
         accessToken,
-        buildSyncPayload(
+        await buildSyncPayload(
           { ...enrichedCapture, amisRecruitmentId, snapshot },
           channels,
           facebookTargetIds,
@@ -499,20 +503,35 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
       );
 
       if (channels.includes('FACEBOOK') && result.facebookPublishPlan) {
+        const facebookPublishPlan = await resolveFacebookPublishPlanContent(
+          result.facebookPublishPlan,
+          { ...enrichedCapture, amisRecruitmentId, snapshot },
+        );
+        const resultForFacebookPublish = {
+          ...result,
+          facebookPublishPlan,
+        };
+
         await saveLastAutoSyncState(buildAutoSyncState({
           status: 'SYNCING',
           capture: enrichedCapture,
           channels,
-          result,
+          result: resultForFacebookPublish,
         }));
 
-        const facebookResults = await publishFacebookPlan(accessToken, result.facebookPublishPlan, {
+        const facebookResults = await publishFacebookPlan(accessToken, facebookPublishPlan, {
           onProgress: (progress) => {
             void saveLastFacebookPublishProgress(progress);
           },
         });
-        const resultWithFacebookStatus = updateFacebookChannelStatus(result, facebookResults);
+        const resultWithFacebookStatus = updateFacebookChannelStatus(resultForFacebookPublish, facebookResults);
         const facebookSummary = summarizeFacebookPublishResults(facebookResults);
+        if (facebookSummary.successCount > 0) {
+          await clearStoredFacebookContentDraft({
+            recruitmentId: amisRecruitmentId,
+            snapshot,
+          });
+        }
 
         await saveLastAutoSyncState(buildAutoSyncState({
           status: facebookSummary.successCount > 0 ? 'SUCCESS' : 'ERROR',
@@ -739,12 +758,35 @@ async function openPanel(sender: ChromeMessageSender) {
   }
 }
 
-function buildSyncPayload(
+async function resolveFacebookPublishPlanContent(
+  plan: FacebookPublishPlan,
+  capture: Required<Pick<AmisExtractionResult, 'amisRecruitmentId' | 'snapshot'>> & AmisExtractionResult,
+): Promise<FacebookPublishPlan> {
+  const draft = await getFacebookContentDraft({
+    recruitmentId: capture.amisRecruitmentId,
+    snapshot: capture.snapshot,
+  });
+  if (!draft?.content.trim()) return plan;
+
+  return {
+    ...plan,
+    content: draft.content.trim(),
+  };
+}
+
+async function buildSyncPayload(
   capture: Required<Pick<AmisExtractionResult, 'amisRecruitmentId' | 'snapshot'>> & AmisExtractionResult,
   channels: ExtensionChannel[],
   facebookTargetIds: string[],
   selectedQuestionIds: string[] = [],
-): SyncAmisJobPostingRequest {
+): Promise<SyncAmisJobPostingRequest> {
+  const facebookDraft = channels.includes('FACEBOOK')
+    ? await getFacebookContentDraft({
+      recruitmentId: capture.amisRecruitmentId,
+      snapshot: capture.snapshot,
+    })
+    : null;
+
   return {
     sourceSystem: 'AMIS',
     amisRecruitmentId: capture.amisRecruitmentId,
@@ -753,6 +795,7 @@ function buildSyncPayload(
     snapshot: capture.snapshot,
     channels,
     ...(channels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
+    ...(facebookDraft?.content ? { facebookContent: facebookDraft.content } : {}),
     ...(selectedQuestionIds.length ? { selectedQuestionIds } : {}),
     metadata: {
       autoSync: true,

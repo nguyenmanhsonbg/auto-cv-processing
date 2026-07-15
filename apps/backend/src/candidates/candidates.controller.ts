@@ -15,6 +15,8 @@ import {
   UploadedFiles,
   ParseUUIDPipe,
   BadRequestException,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import {
@@ -111,6 +113,7 @@ export class CandidatesController {
   }
 
   @Delete(':idOrSlug')
+  @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.INTERVIEWER)
   @ApiOperation({ summary: 'Delete a candidate' })

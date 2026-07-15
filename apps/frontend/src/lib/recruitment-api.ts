@@ -330,11 +330,22 @@ export interface ApplicationFormSummary {
   createdAt?: string | null;
 }
 
+export interface ApplicationAiScreeningInsight {
+  title?: string | null;
+  evidence?: string | null;
+  confidence?: string | null;
+  severity?: string | null;
+}
+
 export interface ApplicationAiScreeningSummary {
   aiScreeningResultId?: string | null;
   score?: number | null;
   status?: string | null;
   recommendation?: string | null;
+  summary?: string | null;
+  strengths?: ApplicationAiScreeningInsight[];
+  gaps?: ApplicationAiScreeningInsight[];
+  risks?: ApplicationAiScreeningInsight[];
   createdAt?: string | null;
 }
 
@@ -828,6 +839,14 @@ export function getApplication(applicationId: string) {
     .then(unwrapEnvelope);
 }
 
+export function runApplicationAiScreening(applicationId: string) {
+  return apiClient
+    .post<ApiEnvelope<ApplicationDetailRecord> | ApplicationDetailRecord>(
+      `/applications/${encodeURIComponent(applicationId)}/ai-screening/run`,
+    )
+    .then(unwrapEnvelope);
+}
+
 export function listApplicationTimeline(
   applicationId: string,
   params: ApplicationTimelineParams = {},
@@ -878,6 +897,15 @@ export function getParsedProfile(applicationId: string) {
   return apiClient
     .get<ApiEnvelope<ParsedProfileRecord> | ParsedProfileRecord>(
       `/applications/${encodeURIComponent(applicationId)}/parsed-profile`,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function parseApplicationCv(applicationId: string, cvDocumentId: string) {
+  return apiClient
+    .post<ApiEnvelope<ParsedProfileRecord> | ParsedProfileRecord>(
+      `/applications/${encodeURIComponent(applicationId)}/cv/${encodeURIComponent(cvDocumentId)}/parse`,
+      { parserMode: 'GEMINI', force: true },
     )
     .then(unwrapEnvelope);
 }

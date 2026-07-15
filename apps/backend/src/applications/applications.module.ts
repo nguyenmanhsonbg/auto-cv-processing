@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AiModule } from '../ai/ai.module';
 import { AiScreeningResultEntity } from '../ai-screening/entities/ai-screening-result.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -28,6 +29,7 @@ import { ApplicationsService } from './applications.service';
 
 @Module({
   imports: [
+    AiModule,
     WorkflowStateModule,
     TypeOrmModule.forFeature([
       AiScreeningResultEntity,

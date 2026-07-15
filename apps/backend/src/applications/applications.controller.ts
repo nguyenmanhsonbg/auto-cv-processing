@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
   Request,
   UseGuards,
@@ -200,6 +201,23 @@ export class ApplicationsController {
     };
   }
 
+  @Post(':id/ai-screening/run')
+  @Roles(UserRole.ADMIN, UserRole.HR)
+  @ApiOperation({ summary: 'Run CV-JD mapping and AI screening for an application' })
+  async runAiScreening(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any,
+  ) {
+    const application = await this.applicationsService.runAiScreening(id, {
+      actorId: req?.user?.id,
+    });
+    return {
+      success: true,
+      data: this.toDetail(application),
+      meta: this.meta(),
+    };
+  }
+
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.HR)
   @ApiOperation({ summary: 'Get recruitment application detail' })
@@ -327,6 +345,10 @@ export class ApplicationsController {
           score: this.toNumber(latestAiScreening.finalScore),
           status: latestAiScreening.status,
           recommendation: latestAiScreening.recommendation,
+          summary: latestAiScreening.summary,
+          strengths: this.toInsightItems(latestAiScreening.strengths),
+          gaps: this.toInsightItems(latestAiScreening.gaps),
+          risks: this.toInsightItems(latestAiScreening.risks),
           createdAt: latestAiScreening.createdAt?.toISOString(),
         }
         : null,
@@ -494,6 +516,23 @@ export class ApplicationsController {
   private toStringArray(value: unknown) {
     if (!Array.isArray(value)) return [];
     return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  private toInsightItems(value: unknown) {
+    const items = Array.isArray(value)
+      ? value
+      : this.isRecord(value) && Array.isArray(value.items)
+        ? value.items
+        : [];
+
+    return items
+      .filter((item): item is Record<string, unknown> => this.isRecord(item))
+      .map((item) => ({
+        title: typeof item.title === 'string' ? item.title : null,
+        evidence: typeof item.evidence === 'string' ? item.evidence : null,
+        confidence: typeof item.confidence === 'string' ? item.confidence : null,
+        severity: typeof item.severity === 'string' ? item.severity : null,
+      }));
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

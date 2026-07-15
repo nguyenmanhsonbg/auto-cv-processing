@@ -1,5 +1,7 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
+// Temporarily disabled while AI generation is routed through Gemini.
+// import { query } from '@anthropic-ai/claude-agent-sdk';
 import { AiEvaluationSuggestion, ParsedProfile, ProfileAnomalyDetection, TECHNICAL_RATING_LABELS, PERSONALITY_RATING_LABELS, PERSONALITY_CATEGORIES } from '@interview-assistant/shared';
+import { readFileSync } from 'fs';
 import {
   Injectable,
   InternalServerErrorException,
@@ -11,10 +13,11 @@ import { QuestionEntity } from '../questions/entities/question.entity';
 import { PROMPT_DEFAULTS } from './ai-prompts.defaults';
 import { AiPromptsService } from './ai-prompts.service';
 import { AiModelOverridesService } from './ai-model-overrides.service';
+import { normalizeVcsSignals } from './vcs-signals.mapper';
 
 /**
- * Available Claude models with their full identifiers.
- * Users can select specific models per prompt type.
+ * Legacy prompt model identifiers kept for prompt-admin compatibility.
+ * Runtime generation currently uses the Gemini rotation configured below.
  */
 export const AVAILABLE_MODELS = {
   // Opus family (most capable, highest cost)
@@ -34,28 +37,79 @@ export const AVAILABLE_MODELS = {
   'claude-haiku-3.5': 'claude-3-5-haiku-20241022',
 } as const;
 
-type ClaudeModel = string;
+type PromptModel = string;
+
+export interface RecruitmentPhase1AiScreeningInput {
+  enrichedJobDescription: Record<string, unknown>;
+  enrichedProfile: Record<string, unknown>;
+  formAnswers?: Array<Record<string, unknown>>;
+  anomalyResult?: Record<string, unknown> | ProfileAnomalyDetection | null;
+  applicationMetadata?: Record<string, unknown> | null;
+}
+
+export interface RecruitmentPhase1AiScreeningResult {
+  finalScore: number | null;
+  recommendation:
+    | 'WAITING_HR_REVIEW'
+    | 'STRONG_MATCH'
+    | 'MATCH'
+    | 'NEEDS_HR_REVIEW'
+    | 'WEAK_MATCH'
+    | 'REJECT_RECOMMENDED'
+    | 'TALENT_POOL_RECOMMENDED';
+  summary: string;
+  strengths: Array<{
+    title: string;
+    evidence: string;
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  }>;
+  gaps: Array<{
+    title: string;
+    evidence: string;
+    severity: 'HIGH' | 'MEDIUM' | 'LOW';
+  }>;
+  risks: Array<{
+    title: string;
+    evidence: string;
+    severity: 'HIGH' | 'MEDIUM' | 'LOW';
+  }>;
+  status: 'DONE';
+}
+
+export interface FinalScreeningRecommendationInput extends RecruitmentPhase1AiScreeningInput {
+  aiScreening: Record<string, unknown> | RecruitmentPhase1AiScreeningResult;
+}
+
+export interface FinalScreeningRecommendationResult {
+  decisionHint: 'APPROVE' | 'REJECT' | 'REQUEST_MORE_INFO' | 'TALENT_POOL';
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  summary: string;
+  topReasons: string[];
+  openQuestions: string[];
+  doNotExposeToCandidate: boolean;
+}
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   // Cache resolved system prompts for the process lifetime — prompts rarely change
   // and each uncached lookup adds a DB round-trip per request.
-  private readonly promptCache = new Map<string, { systemPrompt: string; model: ClaudeModel }>();
+  private readonly promptCache = new Map<string, { systemPrompt: string; model: PromptModel }>();
+  private nextModelIndex = 0;
 
   constructor(
     private readonly config: ConfigService,
     private readonly prompts: AiPromptsService,
     private readonly modelOverrides: AiModelOverridesService,
   ) {
-    this.logger.log('AI: using Claude Agent SDK');
+    this.logger.log('AI: using Gemini model rotation for text generation');
   }
 
   /**
-   * Map model identifier from DB to actual model identifier.
-   * Supports both legacy shorthand names (sonnet, opus, haiku) and specific model identifiers.
+   * Normalize legacy prompt model fields for compatibility with existing rows.
+   * Gemini generation ignores per-prompt legacy model choices while rotation is active.
    */
-  private resolveModel(model?: string): ClaudeModel {
+  private resolveModel(model?: string): PromptModel {
     if (!model) return AVAILABLE_MODELS['claude-sonnet-4.6'];
 
     // If it's a full model identifier from AVAILABLE_MODELS, return it directly
@@ -99,7 +153,7 @@ export class AiService {
    * To force a refresh (e.g. after an admin edits a prompt), restart the process
    * or call clearPromptCache().
    */
-  private async getSystemPrompt(key: keyof typeof PROMPT_DEFAULTS): Promise<{ systemPrompt: string; model: ClaudeModel }> {
+  private async getSystemPrompt(key: keyof typeof PROMPT_DEFAULTS): Promise<{ systemPrompt: string; model: PromptModel }> {
     if (this.promptCache.has(key)) {
       return this.promptCache.get(key)!;
     }
@@ -122,40 +176,117 @@ export class AiService {
     this.logger.log('AI prompt cache cleared');
   }
 
+  // Temporarily disabled while AI generation is routed through Gemini.
+  //
+  // private async callClaude(
+  //   systemPrompt: string,
+  //   userPrompt: string,
+  //   model: PromptModel,
+  //   _maxTokens = 2048,
+  // ): Promise<string> {
+  //   for await (const message of query({
+  //     prompt: userPrompt,
+  //     options: {
+  //       systemPrompt,
+  //       model,
+  //       tools: [],
+  //       permissionMode: 'bypassPermissions',
+  //       allowDangerouslySkipPermissions: true,
+  //       persistSession: false,
+  //       maxTurns: 1,
+  //     },
+  //   })) {
+  //     if (message.type === 'result') {
+  //       if (message.subtype !== 'success') {
+  //         throw new Error(`Claude error: ${message.subtype}`);
+  //       }
+  //       return message.result;
+  //     }
+  //   }
+  //   throw new Error('No result received from Claude');
+  // }
+
   /**
-   * Send a message to Claude via the Agent SDK.
-   * No built-in tools are enabled — pure text generation.
+   * Recruitment Phase 1 AI screening:
+   * enrich_job_description (external) -> enrich_profile -> optional signals
+   * -> ai_screening. Persistence and workflow transitions are owned by callers.
    */
-  private async callClaude(
-    systemPrompt: string,
-    userPrompt: string,
-    model: ClaudeModel,
-    _maxTokens = 2048,
-  ): Promise<string> {
-    for await (const message of query({
-      prompt: userPrompt,
-      options: {
-        systemPrompt,
-        model,
-        tools: [],
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
-        persistSession: false,
-        maxTurns: 1,
-      },
-    })) {
-      if (message.type === 'result') {
-        if (message.subtype !== 'success') {
-          throw new Error(`Claude error: ${message.subtype}`);
-        }
-        return message.result;
-      }
+  async runRecruitmentPhase1AiScreening(
+    input: RecruitmentPhase1AiScreeningInput,
+  ): Promise<RecruitmentPhase1AiScreeningResult> {
+    const { systemPrompt } = await this.getSystemPrompt('ai_screening');
+    const userPrompt = this.buildRecruitmentPhase1PromptInput({
+      flow: 'enrich_job_description -> enrich_profile -> detect_profile_anomalies? -> generate_survey_questions/form_answers? -> ai_screening',
+      enrichedJobDescription: input.enrichedJobDescription,
+      enrichedProfile: input.enrichedProfile,
+      formAnswers: input.formAnswers ?? [],
+      anomalyResult: input.anomalyResult ?? null,
+      applicationMetadata: input.applicationMetadata ?? null,
+    });
+
+    try {
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
+      return this.extractJson(text) as RecruitmentPhase1AiScreeningResult;
+    } catch (err) {
+      this.logger.error(`runRecruitmentPhase1AiScreening failed: ${err}`);
+      throw new InternalServerErrorException(
+        'Failed to generate AI screening. Please try again.',
+      );
     }
-    throw new Error('No result received from Claude');
   }
 
   /**
-   * Use Claude to enrich regex-extracted CV data and add an AI validation report.
+   * Final advisory hint for HR review after ai_screening has produced a result.
+   * This does not approve/reject by itself; HR remains the decision owner.
+   */
+  async runFinalScreeningRecommendation(
+    input: FinalScreeningRecommendationInput,
+  ): Promise<FinalScreeningRecommendationResult> {
+    const { systemPrompt } = await this.getSystemPrompt('final_screening_recommendation');
+    const userPrompt = this.buildRecruitmentPhase1PromptInput({
+      flow: 'ai_screening -> final_screening_recommendation -> HR review',
+      enrichedJobDescription: input.enrichedJobDescription,
+      enrichedProfile: input.enrichedProfile,
+      formAnswers: input.formAnswers ?? [],
+      anomalyResult: input.anomalyResult ?? null,
+      applicationMetadata: input.applicationMetadata ?? null,
+      aiScreening: input.aiScreening,
+    });
+
+    try {
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
+      return this.extractJson(text) as FinalScreeningRecommendationResult;
+    } catch (err) {
+      this.logger.error(`runFinalScreeningRecommendation failed: ${err}`);
+      throw new InternalServerErrorException(
+        'Failed to generate final screening recommendation. Please try again.',
+      );
+    }
+  }
+
+  async enrichJobDescription(
+    jobDescriptionSnapshot: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const { systemPrompt } = await this.getSystemPrompt('enrich_job_description');
+    const userPrompt = `Raw Job Description JSON:\n${JSON.stringify(jobDescriptionSnapshot, null, 2)}`;
+
+    try {
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
+      return this.extractJson(text) as Record<string, unknown>;
+    } catch (err) {
+      this.logger.error(`enrichJobDescription failed: ${err}`);
+      throw new InternalServerErrorException(
+        'Failed to enrich job description. Please try again.',
+      );
+    }
+  }
+
+  private buildRecruitmentPhase1PromptInput(context: Record<string, unknown>): string {
+    return `Recruitment Phase 1 context:\n${JSON.stringify(context, null, 2)}`;
+  }
+
+  /**
+   * Use Gemini to enrich regex-extracted CV data and add an AI validation report.
    * Returns null on any failure so the upload flow degrades gracefully.
    */
   async enrichParsedProfile(
@@ -164,7 +295,7 @@ export class AiService {
   ): Promise<ParsedProfile | null> {
     const truncated = rawText.slice(0, 36000);
 
-    const { systemPrompt, model } = await this.getSystemPrompt('enrich_profile');
+    const { systemPrompt } = await this.getSystemPrompt('enrich_profile');
 
     const userPrompt = `Regex pre-extraction hints (use as reference, may be inaccurate):
 ${JSON.stringify(regexResult, null, 2)}
@@ -173,9 +304,8 @@ CV Text:
 ${truncated}`;
 
     try {
-      const text = await this.callClaude(systemPrompt, userPrompt, model, 1500);
-      const parsed = this.extractJson(text) as ParsedProfile;
-      return parsed;
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
+      return this.normalizeEnrichedProfileResponse(text);
     } catch (err) {
       this.logger.error(`enrichParsedProfile failed: ${err}`);
       return null;
@@ -183,9 +313,8 @@ ${truncated}`;
   }
 
   /**
-   * Fallback: let Claude read the file directly when the file parser fails
+   * Fallback: send the file directly to Gemini when the file parser fails
    * (e.g. pdf-parse can't extract text from a scanned/image-only PDF).
-   * Uses the Agent SDK's Read tool to access the file on disk.
    */
   async analyzeFileDirectly(filePath: string, mimeType: string): Promise<ParsedProfile | null> {
     const supportedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
@@ -195,33 +324,58 @@ ${truncated}`;
     }
 
     try {
-      const { systemPrompt, model } = await this.getSystemPrompt('enrich_profile');
+      const { systemPrompt } = await this.getSystemPrompt('enrich_profile');
 
-      for await (const message of query({
-        prompt: `Read and extract all CV/resume information from the file at: ${filePath}\n\nReturn the result as JSON.`,
-        options: {
-          systemPrompt,
-          model,
-          tools: ['Read'],
-          allowedTools: ['Read'],
-          permissionMode: 'bypassPermissions',
-          allowDangerouslySkipPermissions: true,
-          persistSession: false,
-          maxTurns: 5,
+      // Temporarily disabled while direct file analysis is routed through Gemini.
+      //
+      // const { model } = await this.getSystemPrompt('enrich_profile');
+      // for await (const message of query({
+      //   prompt: `Read and extract all CV/resume information from the file at: ${filePath}\n\nReturn the result as JSON.`,
+      //   options: {
+      //     systemPrompt,
+      //     model,
+      //     tools: ['Read'],
+      //     allowedTools: ['Read'],
+      //     permissionMode: 'bypassPermissions',
+      //     allowDangerouslySkipPermissions: true,
+      //     persistSession: false,
+      //     maxTurns: 5,
+      //   },
+      // })) {
+      //   if (message.type === 'result') {
+      //     if (message.subtype !== 'success') {
+      //       throw new Error(`Claude error: ${message.subtype}`);
+      //     }
+      //     return this.extractJson(message.result) as ParsedProfile;
+      //   }
+      // }
+      // return null;
+
+      const fileData = readFileSync(filePath);
+      const text = await this.callGeminiWithFileFallback(
+        systemPrompt,
+        'Read and extract all CV/resume information from the attached file. Return the result as JSON.',
+        {
+          mimeType,
+          dataBase64: fileData.toString('base64'),
         },
-      })) {
-        if (message.type === 'result') {
-          if (message.subtype !== 'success') {
-            throw new Error(`Claude error: ${message.subtype}`);
-          }
-          return this.extractJson(message.result) as ParsedProfile;
-        }
-      }
-      return null;
+      );
+      return this.normalizeEnrichedProfileResponse(text);
     } catch (err) {
       this.logger.error(`analyzeFileDirectly failed: ${err}`);
       return null;
     }
+  }
+
+  private normalizeEnrichedProfileResponse(text: string): ParsedProfile {
+    const parsed = this.extractJson(text);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('AI profile response must be a JSON object');
+    }
+    return {
+      ...parsed,
+      vcsSignals: normalizeVcsSignals(parsed),
+    } as ParsedProfile;
   }
 
   /**
@@ -253,7 +407,7 @@ ${truncated}`;
       difficulty: q.difficulty,
     }));
 
-    const { systemPrompt, model } = await this.getSystemPrompt('suggest_questions');
+    const { systemPrompt } = await this.getSystemPrompt('suggest_questions');
 
     const userPrompt = `Candidate: ${profileSummary.name || 'Unknown'}, ${profileSummary.totalYearsExperience || '?'} years experience
 Target: ${targetLevel} ${templatePosition}
@@ -265,7 +419,7 @@ Available questions (${questionList.length} total):
 ${questionList.map((q) => `ID:${q.id} | [${q.subcategory}] ${q.text} | difficulty:${q.difficulty}`).join('\n')}`;
 
     try {
-      const text = await this.callClaude(systemPrompt, userPrompt, model, 800);
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
       const parsed = this.extractJson(text) as Array<{
         questionId: string;
         reasoning: string;
@@ -312,7 +466,7 @@ ${questionList.map((q) => `ID:${q.id} | [${q.subcategory}] ${q.text} | difficult
         .join('\n')
       : '  Không có';
 
-    const { systemPrompt, model } = await this.getSystemPrompt('evaluation_summary');
+    const { systemPrompt } = await this.getSystemPrompt('evaluation_summary');
 
     const userPrompt = `Ứng viên: ${candidate?.name || 'N/A'} — ${candidate?.position || 'N/A'} — ${candidate?.level || 'N/A'}
 Kết quả tổng thể: ${evaluation.overallResult}
@@ -330,7 +484,7 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
 <notes>${evaluation.overallNotes || 'Không có'}</notes>`;
 
     try {
-      const text = await this.callClaude(systemPrompt, userPrompt, model, 512);
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
       return text.trim();
     } catch (err) {
       this.logger.error(`generateEvaluationSummary failed: ${err}`);
@@ -371,14 +525,14 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
       .map((s) => `${s.category}::${s.subcategory}`)
       .join('\n');
 
-    const { systemPrompt, model } = await this.getSystemPrompt('generate_survey_questions');
+    const { systemPrompt } = await this.getSystemPrompt('generate_survey_questions');
 
     const userPrompt =
       `Hồ sơ ứng viên:\n${JSON.stringify(profileSummary, null, 2)}\n\n` +
       `Danh sách subcategory cần đánh giá:\n${subcategoryList}`;
 
     try {
-      const text = await this.callClaude(systemPrompt, userPrompt, model, 2000);
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
       const parsed = this.extractJson(text) as Array<{
         question: string;
         category: string;
@@ -424,7 +578,7 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
 
     const allSubcategories = [...new Set(availableQuestions.map((q) => q.subcategory).filter(Boolean))];
 
-    const { systemPrompt, model } = await this.getSystemPrompt('suggest_questions_from_survey');
+    const { systemPrompt } = await this.getSystemPrompt('suggest_questions_from_survey');
 
     const userPrompt =
       `Ứng viên: ${profileSummary.name || 'Unknown'}, ${profileSummary.totalYearsExperience || '?'} năm kinh nghiệm\n` +
@@ -437,7 +591,7 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
       questionList.map((q) => `ID:${q.id} | [${q.subcategory}] ${q.text} | difficulty:${q.difficulty}`).join('\n');
 
     try {
-      const text = await this.callClaude(systemPrompt, userPrompt, model, 5000);
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
       const parsed = this.extractJson(text) as Array<{
         questionId: string;
         reasoning: string;
@@ -457,7 +611,7 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
     ratedQuestions: Array<{ sqId: string; category: string; subcategory: string; difficulty: number; rating: number; text: string }>,
     unratedQuestions: Array<{ sqId: string; category: string; subcategory: string; difficulty: number; text: string }>,
   ): Promise<{ sessionQuestionId: string; reasoning: string } | null> {
-    const { systemPrompt, model } = await this.getSystemPrompt('suggest_next_question');
+    const { systemPrompt } = await this.getSystemPrompt('suggest_next_question');
 
     const rated = ratedQuestions.map(
       (q) => `ID:${q.sqId} | [${q.category}::${q.subcategory}] difficulty:${q.difficulty} | rating:${q.rating} | ${q.text.slice(0, 80)}`,
@@ -470,7 +624,7 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
     const userPrompt = `Câu hỏi đã đánh giá (${ratedQuestions.length}):\n${rated || 'Chưa có'}\n\nCâu hỏi chưa đánh giá (${unratedQuestions.length}):\n${unrated}`;
 
     try {
-      const text = await this.callClaude(systemPrompt, userPrompt, model, 300);
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
       const parsed = this.extractJson(text) as { sessionQuestionId: string; reasoning: string };
       if (parsed?.sessionQuestionId) return parsed;
       return null;
@@ -541,7 +695,7 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
       profileLines.push(`Dự án: ${projs}`);
     }
 
-    const { systemPrompt, model } = await this.getSystemPrompt('evaluate_session');
+    const { systemPrompt } = await this.getSystemPrompt('evaluate_session');
 
     const surveySection = surveyAnswers?.length
       ? `<survey_answers>\n${surveyAnswers.map((s) => `[${s.category}::${s.subcategory}] Q: ${s.question}\nA: ${s.answer}`).join('\n\n')}\n</survey_answers>\n\n`
@@ -558,7 +712,7 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
       `<interview_transcript>\n${qa || 'Không có câu trả lời nào được ghi nhận.'}\n</interview_transcript>`;
 
     try {
-      const text = await this.callClaude(systemPrompt, userPrompt, model, 3000);
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
       return this.extractJson(text) as AiEvaluationSuggestion;
     } catch (err) {
       this.logger.error(`generateAiEvaluation failed: ${err}`);
@@ -612,14 +766,14 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
       })),
     };
 
-    const { systemPrompt, model } = await this.getSystemPrompt('detect_profile_anomalies');
+    const { systemPrompt } = await this.getSystemPrompt('detect_profile_anomalies');
 
     const userPrompt = `Analyze the following candidate profile for anomalies:
 
 ${JSON.stringify(profileSummary, null, 2)}`;
 
     try {
-      const text = await this.callClaude(systemPrompt, userPrompt, model, 2000);
+      const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
       const parsed = this.extractJson(text) as ProfileAnomalyDetection;
 
       // Add timestamp
@@ -630,5 +784,230 @@ ${JSON.stringify(profileSummary, null, 2)}`;
       this.logger.error(`detectProfileAnomalies failed: ${err}`);
       return null;
     }
+  }
+  /**
+   * Helper to retrieve configured Gemini models
+   */
+  private getModels(): string[] {
+    const configured = this.config.get<string>('GEMINI_CV_PARSE_MODELS');
+    const DEFAULT_GEMINI_MODELS = [
+      'gemini-3.1-flash-lite',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-3.1',
+      'gemini-3.5-flash',
+    ];
+    const GEMINI_MODEL_ALIASES: Record<string, string> = {
+      'gemini 3.1 flash lite': 'gemini-3.1-flash-lite',
+      'gemini 2.5 flash': 'gemini-2.5-flash',
+      'gemini 2.5 flash lite': 'gemini-2.5-flash-lite',
+      'gemini 3.1': 'gemini-3.1',
+      'gemini 3.5 flash': 'gemini-3.5-flash',
+    };
+
+    const models = configured
+      ?.split(',')
+      .map((model) => {
+        const normalized = model.trim();
+        const aliased = GEMINI_MODEL_ALIASES[normalized.toLowerCase()] ?? normalized;
+        return aliased.replace(/^models\//, '');
+      })
+      .filter(Boolean);
+
+    const orderedModels = [...DEFAULT_GEMINI_MODELS];
+    if (!models?.length) {
+      return orderedModels;
+    }
+
+    // Keep the required Gemini rotation order first; env can add extra fallback models.
+    // This prevents an older .env from accidentally bypassing the overload fallback order.
+    for (const model of models) {
+      if (!orderedModels.includes(model)) {
+        orderedModels.push(model);
+      }
+    }
+
+    return orderedModels;
+  }
+
+  private async callGeminiWithFallback(
+    systemInstruction: string,
+    userPrompt: string,
+  ): Promise<string> {
+    const models = this.getModels();
+    const attemptedModels: string[] = [];
+    const startIndex = this.nextModelIndex % models.length;
+    this.nextModelIndex = (this.nextModelIndex + 1) % models.length;
+
+    let lastError: unknown = null;
+    for (let offset = 0; offset < models.length; offset += 1) {
+      const model = models[(startIndex + offset) % models.length];
+      attemptedModels.push(model);
+      try {
+        return await this.callGemini(systemInstruction, userPrompt, model);
+      } catch (error) {
+        lastError = error;
+        this.logger.warn(
+          `Gemini generation failed with model ${model}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+
+    throw lastError || new Error(`All Gemini models failed: ${attemptedModels.join(', ')}`);
+  }
+
+  private async callGeminiWithFileFallback(
+    systemInstruction: string,
+    userPrompt: string,
+    file: { mimeType: string; dataBase64: string },
+  ): Promise<string> {
+    const models = this.getModels();
+    const attemptedModels: string[] = [];
+    const startIndex = this.nextModelIndex % models.length;
+    this.nextModelIndex = (this.nextModelIndex + 1) % models.length;
+
+    let lastError: unknown = null;
+    for (let offset = 0; offset < models.length; offset += 1) {
+      const model = models[(startIndex + offset) % models.length];
+      attemptedModels.push(model);
+      try {
+        return await this.callGeminiWithFile(systemInstruction, userPrompt, model, file);
+      } catch (error) {
+        lastError = error;
+        this.logger.warn(
+          `Gemini file generation failed with model ${model}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+
+    throw lastError || new Error(`All Gemini file models failed: ${attemptedModels.join(', ')}`);
+  }
+
+  /**
+   * Helper to make a request to Gemini API (generateContent)
+   */
+  private async callGemini(
+    systemInstruction: string,
+    userPrompt: string,
+    model = 'gemini-2.5-flash',
+  ): Promise<string> {
+    const apiKey = this.config.get<string>('GEMINI_API_KEY');
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY is not configured in environment variables');
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: userPrompt,
+              },
+            ],
+          },
+        ],
+        systemInstruction: {
+          parts: [
+            {
+              text: systemInstruction,
+            },
+          ],
+        },
+        generationConfig: {
+          temperature: 0.7,
+        },
+      }),
+    });
+
+    const bodyText = await response.text();
+    if (!response.ok) {
+      throw new Error(`Gemini API error (HTTP ${response.status}): ${bodyText.slice(0, 500)}`);
+    }
+
+    const payload = JSON.parse(bodyText);
+    const text = payload.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part.text ?? '')
+      .join('')
+      .trim();
+
+    if (!text) {
+      throw new Error('Empty response from Gemini');
+    }
+
+    return text;
+  }
+
+  private async callGeminiWithFile(
+    systemInstruction: string,
+    userPrompt: string,
+    model: string,
+    file: { mimeType: string; dataBase64: string },
+  ): Promise<string> {
+    const apiKey = this.config.get<string>('GEMINI_API_KEY');
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY is not configured in environment variables');
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: userPrompt,
+              },
+              {
+                inline_data: {
+                  mime_type: file.mimeType,
+                  data: file.dataBase64,
+                },
+              },
+            ],
+          },
+        ],
+        systemInstruction: {
+          parts: [
+            {
+              text: systemInstruction,
+            },
+          ],
+        },
+        generationConfig: {
+          temperature: 0.2,
+        },
+      }),
+    });
+
+    const bodyText = await response.text();
+    if (!response.ok) {
+      throw new Error(`Gemini API error (HTTP ${response.status}): ${bodyText.slice(0, 500)}`);
+    }
+
+    const payload = JSON.parse(bodyText);
+    const text = payload.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part.text ?? '')
+      .join('')
+      .trim();
+
+    if (!text) {
+      throw new Error('Empty response from Gemini');
+    }
+
+    return text;
   }
 }

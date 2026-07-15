@@ -269,6 +269,7 @@ export class CvDocumentsController {
       actorId: req?.user?.id,
       idempotencyKey,
       parserMode: dto.parserMode,
+      force: dto.force,
     });
 
     return {

@@ -81,7 +81,7 @@ export class EvaluationsController {
   @Post(':id/generate-ai-summary')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.INTERVIEWER)
-  @ApiOperation({ summary: 'Generate AI summary for an evaluation using Claude' })
+  @ApiOperation({ summary: 'Generate AI summary for an evaluation using Gemini' })
   generateAiSummary(@Param('id', ParseUUIDPipe) id: string) {
     return this.evaluationsService.generateAiSummary(id);
   }

@@ -1169,6 +1169,21 @@ dd {
   color: #dc2626;
 }
 
+.facebook-post-action-button.is-primary {
+  border-color: #047857;
+  color: #ffffff;
+  background: #047857;
+}
+
+.facebook-post-action-button.is-primary:hover:not(:disabled) {
+  background: #065f46;
+}
+
+.facebook-post-action-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .portal-sync-warning-list {
   display: grid;
   gap: 7px;
