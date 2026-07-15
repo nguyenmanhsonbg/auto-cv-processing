@@ -9,4 +9,7 @@ import { parse } from 'yaml';
 export const PROMPT_DEFAULTS: Record<
   string,
   { name: string; description: string; systemPrompt: string; model?: string }
-> = parse(readFileSync(join(__dirname, '../assets/seed/ai-prompts.yaml'), 'utf8'));
+> = {
+  ...parse(readFileSync(join(__dirname, '../assets/seed/ai-prompts.yaml'), 'utf8')),
+  ...parse(readFileSync(join(__dirname, '../assets/seed/ai-jd-promts.yaml'), 'utf8')),
+};

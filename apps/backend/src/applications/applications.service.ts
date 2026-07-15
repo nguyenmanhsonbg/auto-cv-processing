@@ -4,26 +4,38 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { CandidateLevel, PaginatedResponse } from '@interview-assistant/shared';
+import { CandidateLevel, PaginatedResponse, ParsedProfile } from '@interview-assistant/shared';
 import { createHash } from 'crypto';
 import slugify from 'slugify';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
+import { AiService, RecruitmentPhase1AiScreeningResult } from '../ai/ai.service';
+import { AiScreeningResultEntity } from '../ai-screening/entities/ai-screening-result.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { CandidateEntity } from '../candidates/entities/candidate.entity';
 import { ParsedProfileEntity } from '../cv-documents/entities/parsed-profile.entity';
+import { FormAnswerEntity } from '../form-sessions/entities/form-answer.entity';
+import { FormSessionEntity } from '../form-sessions/entities/form-session.entity';
+import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
+import { MappingResultEntity } from '../mapping/entities/mapping-result.entity';
 import {
+  AiScreeningRecommendation,
+  AiScreeningStatus,
   ApplicationSourceType,
   ApplicationStatus,
   CvDocumentType,
   DuplicateCheckStatus,
   DuplicateCheckType,
+  FormSessionStatus,
   JobDescriptionStatus,
   JobDescriptionVersionStatus,
   JobPostingStatus,
+  MappingRecommendation,
+  MappingStatus,
   RecruitmentChannel,
 } from '../recruitment-common';
 import { WorkflowStateService } from '../workflow-state/workflow-state.service';
@@ -100,6 +112,10 @@ export interface OverrideApplicationStatusResult {
   workflowEventId: string;
 }
 
+export interface RunApplicationAiScreeningInput {
+  actorId?: string | null;
+}
+
 export interface PublicApplyRateLimitInput {
   jobPostingId: string;
   email?: string | null;
@@ -120,6 +136,8 @@ export class ApplicationsService {
     private readonly auditLogsRepo: Repository<AuditLogEntity>,
     private readonly applicationSourcesService: ApplicationSourcesService,
     private readonly workflowStateService: WorkflowStateService,
+    @Optional()
+    private readonly aiService?: AiService,
   ) {}
 
   findOne(id: string) {
@@ -309,6 +327,58 @@ export class ApplicationsService {
         workflowEventId: workflowEvent.id,
       };
     });
+  }
+
+  async runAiScreening(
+    id: string,
+    input: RunApplicationAiScreeningInput = {},
+  ): Promise<ApplicationEntity> {
+    const applicationId = this.requireText(id, 'Application id');
+    if (!this.aiService) {
+      throw new BadRequestException('AI service is not available');
+    }
+
+    const context = await this.buildAiScreeningContext(applicationId);
+    const enrichedJobDescription = await this.getOrCreateEnrichedJobDescription(
+      context.application.jobDescriptionVersion,
+    );
+    const screeningContext = {
+      ...context,
+      enrichedJobDescription,
+    };
+
+    // Application parsing and candidate re-analysis use different pipelines. Make
+    // sure the application pipeline also produces the anomaly result consumed by
+    // the AI screening and preview views.
+    const existingAnomaly =
+      this.asRecord(screeningContext.parsedProfile.parsedData?.anomalyDetection) ??
+      screeningContext.anomalyResult;
+    const anomalyDetection = await this.aiService.detectProfileAnomalies(
+      screeningContext.enrichedProfile as ParsedProfile,
+    );
+    if (anomalyDetection) {
+      screeningContext.parsedProfile.parsedData = {
+        ...screeningContext.parsedProfile.parsedData,
+        anomalyDetection,
+      };
+      screeningContext.enrichedProfile = screeningContext.parsedProfile.parsedData;
+      screeningContext.anomalyResult = anomalyDetection as unknown as Record<string, unknown>;
+      await this.parsedProfilesRepo.save(screeningContext.parsedProfile);
+    } else if (existingAnomaly) {
+      // Preserve the last successful result if the refresh call degrades gracefully.
+      screeningContext.anomalyResult = existingAnomaly;
+    }
+
+    const aiResult = await this.aiService.runRecruitmentPhase1AiScreening({
+      enrichedJobDescription: screeningContext.enrichedJobDescription,
+      enrichedProfile: screeningContext.enrichedProfile,
+      formAnswers: screeningContext.formAnswers,
+      anomalyResult: screeningContext.anomalyResult,
+      applicationMetadata: screeningContext.applicationMetadata,
+    });
+
+    await this.persistAiScreeningResult(applicationId, screeningContext, aiResult, input);
+    return this.findDetail(applicationId);
   }
 
   findByCandidateAndPosting(candidateId: string, jobPostingId: string) {
@@ -842,6 +912,309 @@ export class ApplicationsService {
         phoneHash: this.hashOptional(phone),
       },
     });
+  }
+
+  private async buildAiScreeningContext(applicationId: string) {
+    return this.dataSource.transaction(async (manager) => {
+      const application = await manager.getRepository(ApplicationEntity).findOne({
+        where: { id: applicationId },
+        relations: ['candidate', 'jobPosting', 'jobDescriptionVersion', 'currentCvDocument'],
+      });
+      if (!application) throw new BadRequestException('Application not found');
+      if (!application.currentCvDocumentId || !application.currentCvDocument) {
+        throw new BadRequestException('Application does not have a current clean CV');
+      }
+      if (application.currentCvDocument.documentType !== CvDocumentType.CLEAN) {
+        throw new BadRequestException('AI screening requires the current clean CV');
+      }
+      if (!application.jobDescriptionVersion?.snapshot) {
+        throw new BadRequestException('Application does not have a job description snapshot');
+      }
+
+      const parsedProfile = await this.parsedProfilesRepo.findOne({
+        where: {
+          applicationId,
+          cvDocumentId: application.currentCvDocumentId,
+        },
+        order: { createdAt: 'DESC', id: 'DESC' },
+      });
+      if (!parsedProfile) {
+        throw new BadRequestException('Application does not have a parsed profile for the current CV');
+      }
+
+      const formSession = await manager.getRepository(FormSessionEntity).findOne({
+        where: {
+          applicationId,
+          status: FormSessionStatus.SUBMITTED,
+        },
+        order: {
+          submittedAt: 'DESC',
+          createdAt: 'DESC',
+          id: 'DESC',
+        },
+      });
+      if (!formSession) {
+        throw new BadRequestException('AI screening requires a submitted questionnaire form');
+      }
+
+      const answers = await manager.getRepository(FormAnswerEntity).find({
+        where: {
+          applicationId,
+          formSessionId: formSession.id,
+        },
+        order: { answeredAt: 'ASC', id: 'ASC' },
+      });
+
+      return {
+        application,
+        parsedProfile,
+        formSession,
+        enrichedJobDescription: application.jobDescriptionVersion.snapshot,
+        enrichedProfile: parsedProfile.parsedData,
+        formAnswers: answers.map((answer) => ({
+          questionSetItemId: answer.questionSetItemId,
+          answer: answer.answer,
+          answeredAt: answer.answeredAt?.toISOString?.() ?? answer.answeredAt,
+        })),
+        anomalyResult: this.asRecord(parsedProfile.parsedData?.anomalyResult) ?? null,
+        applicationMetadata: {
+          applicationId: application.id,
+          candidateId: application.candidateId,
+          jobPostingId: application.jobPostingId,
+          jobDescriptionVersionId: application.jobDescriptionVersionId,
+          cleanCvDocumentId: application.currentCvDocumentId,
+          parsedProfileId: parsedProfile.id,
+          formSessionId: formSession.id,
+          status: application.status,
+        },
+      };
+    });
+  }
+
+  private async getOrCreateEnrichedJobDescription(
+    version: JobDescriptionVersionEntity,
+  ): Promise<Record<string, unknown>> {
+    const existingSnapshot = this.asRecord(version.snapshot) ?? {};
+    const existingEnrichment = this.getCachedJobDescriptionEnrichment(existingSnapshot);
+    if (existingEnrichment) return existingEnrichment;
+
+    const latestSnapshot = await this.dataSource.transaction(async (manager) => {
+      const latestVersion = await manager.getRepository(JobDescriptionVersionEntity).findOne({
+        where: { id: version.id },
+      });
+      return this.asRecord(latestVersion?.snapshot) ?? existingSnapshot;
+    });
+    const latestEnrichment = this.getCachedJobDescriptionEnrichment(latestSnapshot);
+    if (latestEnrichment) return latestEnrichment;
+
+    if (!this.aiService) {
+      throw new BadRequestException('AI service is not available');
+    }
+
+    const enrichedJobDescription = await this.aiService.enrichJobDescription(latestSnapshot);
+
+    await this.dataSource.transaction(async (manager) => {
+      const versionsRepo = manager.getRepository(JobDescriptionVersionEntity);
+      const latestVersion = await versionsRepo.findOne({ where: { id: version.id } });
+      const snapshotForSave = this.asRecord(latestVersion?.snapshot) ?? latestSnapshot;
+      if (this.getCachedJobDescriptionEnrichment(snapshotForSave)) return;
+
+      await versionsRepo.save({
+        ...(latestVersion ?? version),
+        snapshot: {
+          ...snapshotForSave,
+          aiEnrichment: {
+            promptKey: 'enrich_job_description',
+            result: enrichedJobDescription,
+            generatedAt: new Date().toISOString(),
+          },
+        },
+      });
+    });
+
+    return enrichedJobDescription;
+  }
+
+  private getCachedJobDescriptionEnrichment(
+    snapshot: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    const aiEnrichment = this.asRecord(snapshot.aiEnrichment);
+    if (aiEnrichment?.promptKey !== 'enrich_job_description') return null;
+    return this.asRecord(aiEnrichment.result);
+  }
+
+  private async persistAiScreeningResult(
+    applicationId: string,
+    context: Awaited<ReturnType<ApplicationsService['buildAiScreeningContext']>>,
+    aiResult: RecruitmentPhase1AiScreeningResult,
+    input: RunApplicationAiScreeningInput,
+  ) {
+    const mappingScore = this.resolveMappingScore(context.parsedProfile.parsedData, aiResult);
+    const mappingRecommendation = this.resolveMappingRecommendation(
+      context.parsedProfile.parsedData,
+      mappingScore,
+      aiResult.recommendation,
+    );
+    const aiRecommendation = this.assertAiRecommendation(aiResult.recommendation);
+
+    await this.dataSource.transaction(async (manager) => {
+      const applicationRepo = manager.getRepository(ApplicationEntity);
+      const mappingRepo = manager.getRepository(MappingResultEntity);
+      const aiResultRepo = manager.getRepository(AiScreeningResultEntity);
+
+      const application = await applicationRepo.findOne({ where: { id: applicationId } });
+      if (!application) throw new BadRequestException('Application not found');
+
+      let mappingResult = await mappingRepo.findOne({
+        where: {
+          applicationId,
+          cleanCvDocumentId: context.application.currentCvDocumentId!,
+          jobDescriptionVersionId: context.application.jobDescriptionVersionId,
+          status: MappingStatus.DONE,
+        },
+        order: { createdAt: 'DESC', id: 'DESC' },
+      });
+
+      if (!mappingResult) {
+        mappingResult = await mappingRepo.save(
+          mappingRepo.create({
+            applicationId,
+            cleanCvDocumentId: context.application.currentCvDocumentId!,
+            jobDescriptionVersionId: context.application.jobDescriptionVersionId,
+            parsedProfileId: context.parsedProfile.id,
+            score: this.scoreToColumn(mappingScore),
+            strengths: this.toJsonObject(aiResult.strengths),
+            gaps: this.toJsonObject(aiResult.gaps),
+            recommendation: mappingRecommendation,
+            status: MappingStatus.DONE,
+            modelVersion: 'ai_screening',
+            evidence: {
+              source: 'ai_screening',
+              parsedProfileId: context.parsedProfile.id,
+              finalScore: aiResult.finalScore,
+              parsedEvaluation: this.asRecord(context.parsedProfile.parsedData?.evaluation),
+            },
+          }),
+        );
+      }
+
+      const existingAiResult = await aiResultRepo.findOne({
+        where: {
+          applicationId,
+          mappingResultId: mappingResult.id,
+          formSessionId: context.formSession.id,
+          status: AiScreeningStatus.DONE,
+        },
+        order: { createdAt: 'DESC', id: 'DESC' },
+      });
+
+      if (!existingAiResult) {
+        await aiResultRepo.save(
+          aiResultRepo.create({
+            applicationId,
+            mappingResultId: mappingResult.id,
+            formSessionId: context.formSession.id,
+            finalScore: aiResult.finalScore == null ? null : this.scoreToColumn(aiResult.finalScore),
+            recommendation: aiRecommendation,
+            summary: this.optionalText(aiResult.summary),
+            strengths: this.toJsonObject(aiResult.strengths),
+            gaps: this.toJsonObject(aiResult.gaps),
+            risks: this.toJsonObject(aiResult.risks),
+            status: AiScreeningStatus.DONE,
+            model: null,
+            promptVersion: 'ai_screening',
+            rawResult: aiResult as unknown as Record<string, unknown>,
+          }),
+        );
+      }
+
+      application.mappingStatus = MappingStatus.DONE;
+      application.aiScreeningStatus = AiScreeningStatus.DONE;
+      application.status = ApplicationStatus.AI_SCREENING_DONE;
+      await applicationRepo.save(application);
+
+      await this.workflowStateService.recordEvent(
+        {
+          applicationId,
+          fromStatus: context.application.status,
+          toStatus: ApplicationStatus.AI_SCREENING_DONE,
+          eventType: 'AI_SCREENING_SUCCEEDED',
+          actorType: input.actorId ? 'USER' : 'SYSTEM',
+          actorId: this.optionalText(input.actorId),
+          metadata: {
+            mappingResultId: mappingResult.id,
+            formSessionId: context.formSession.id,
+            finalScore: aiResult.finalScore,
+            recommendation: aiResult.recommendation,
+          },
+        },
+        manager,
+      );
+    });
+  }
+
+  private resolveMappingScore(
+    parsedData: Record<string, unknown>,
+    aiResult: RecruitmentPhase1AiScreeningResult,
+  ) {
+    const evaluation = this.asRecord(parsedData.evaluation);
+    const summary = this.asRecord(evaluation?.summary);
+    const parsedScore = this.toFiniteNumber(summary?.overallMatchScore);
+    const score = parsedScore ?? this.toFiniteNumber(aiResult.finalScore);
+    if (score == null) {
+      throw new BadRequestException('AI screening did not return a usable score');
+    }
+    return Math.max(0, Math.min(100, Math.round(score)));
+  }
+
+  private resolveMappingRecommendation(
+    parsedData: Record<string, unknown>,
+    mappingScore: number,
+    aiRecommendation: RecruitmentPhase1AiScreeningResult['recommendation'],
+  ) {
+    const evaluation = this.asRecord(parsedData.evaluation);
+    const summary = this.asRecord(evaluation?.summary);
+    const parsedRecommendation = this.optionalText(
+      typeof summary?.recommendation === 'string' ? summary.recommendation : null,
+    );
+    if (
+      parsedRecommendation
+      && Object.values(MappingRecommendation).includes(parsedRecommendation as MappingRecommendation)
+    ) {
+      return parsedRecommendation as MappingRecommendation;
+    }
+    if (aiRecommendation === AiScreeningRecommendation.TALENT_POOL_RECOMMENDED) {
+      return MappingRecommendation.TALENT_POOL;
+    }
+    if (aiRecommendation === AiScreeningRecommendation.REJECT_RECOMMENDED || mappingScore < 40) {
+      return MappingRecommendation.REJECT;
+    }
+    if (mappingScore >= 70) return MappingRecommendation.PASS;
+    return MappingRecommendation.NEEDS_REVIEW;
+  }
+
+  private assertAiRecommendation(value: RecruitmentPhase1AiScreeningResult['recommendation']) {
+    if (!Object.values(AiScreeningRecommendation).includes(value as AiScreeningRecommendation)) {
+      throw new BadRequestException('AI screening recommendation is invalid');
+    }
+    return value as AiScreeningRecommendation;
+  }
+
+  private scoreToColumn(value: number) {
+    return String(Math.max(0, Math.min(100, Math.round(value))));
+  }
+
+  private toFiniteNumber(value: unknown) {
+    if (value == null) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private toJsonObject(value: unknown): Record<string, unknown> | null {
+    if (value == null) return null;
+    if (Array.isArray(value)) return { items: value };
+    if (typeof value === 'object') return value as Record<string, unknown>;
+    return { value };
   }
 
   private async recordDuplicateCheck(

@@ -16,6 +16,37 @@ Tài liệu này không tạo code, không tạo controller/service/module/entit
 
 AI Screening là bước đánh giá tổng hợp sau khi ứng viên đã submit pre-screening form. AI Screening hỗ trợ HR Review bằng cách tổng hợp JD version, clean CV/parsed profile, mapping result và form answers. AI Screening không thay thế quyết định HR.
 
+Runtime prompt flow hien tai:
+
+```text
+enrich_job_description (external YAML)
+-> enrich_profile
+-> detect_profile_anomalies (optional)
+-> generate_survey_questions / form answers (optional)
+-> ai_screening
+-> final_screening_recommendation
+-> HR review
+```
+
+`enrich_job_description` duoc maintain o YAML rieng. JSON output cua prompt nay bind vao `enrich_profile` theo mapping:
+
+| Binding | Source field |
+| ------- | ------------ |
+| `JD_TARGET_ROLE` | `jobInfo.title` |
+| `JD_MIN_YEARS` | `generalCriteria.minYearsExperience` |
+| `JD_MUST_HAVE_SKILLS` | `roleSpecificCriteria.coreMustHaveSkills` |
+| `JD_ADVANCED_SKILLS` | `roleSpecificCriteria.advancedNiceToHaveSkills` |
+| `JD_TECH_CHALLENGES` | `roleSpecificCriteria.expectedTechnicalChallenges` |
+
+Interview flow chi bat dau sau HR approval:
+
+```text
+suggest_questions or suggest_questions_from_survey
+-> suggest_next_question
+-> evaluate_session
+-> evaluation_summary
+```
+
 ## 2. Module scope
 
 | Hạng mục | Nội dung |
@@ -281,6 +312,8 @@ final_screening_recommendation
 ```
 
 Nếu source hiện tại có convention prompt key cụ thể, implementation nên dùng convention đó. Không hardcode prompt trong module `ai-screening`.
+
+Implementation dung `ai_screening` truoc, sau do dung `final_screening_recommendation` de tao decision hint cho HR review. Khong hardcode prompt trong module `ai-screening`.
 
 ### Input prompt payload proposal
 
