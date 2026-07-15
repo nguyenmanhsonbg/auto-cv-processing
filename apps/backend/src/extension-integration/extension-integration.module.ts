@@ -21,7 +21,6 @@ import { ExtensionIntegrationController } from './extension-integration.controll
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { ExtensionInstancesController } from './extension-instances.controller';
 import { ExtensionInstancesService } from './extension-instances.service';
-import { ExtensionTasksController } from './extension-tasks.controller';
 import { ExtensionTasksService } from './extension-tasks.service';
 import { ExtensionVcsPortalController } from './extension-vcs-portal.controller';
 import { QuestionsModule } from '../questions/questions.module';
@@ -56,7 +55,6 @@ import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
     ExtensionIntegrationController,
     ExtensionFacebookController,
     ExtensionInstancesController,
-    ExtensionTasksController,
     ExtensionVcsPortalController,
   ],
   providers: [

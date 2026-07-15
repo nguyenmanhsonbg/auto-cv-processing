@@ -23,6 +23,7 @@ import {
 } from './api-client';
 import { clearAccessToken, getAccessToken } from './auth-store';
 import { getSelectedChannels } from './channel-preferences';
+import { EXTENSION_TASK_QUEUE_ENABLED } from './config';
 import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
 import { getSelectedFacebookGroupIds } from './facebook-group-preferences';
 import {
@@ -41,8 +42,8 @@ import type {
   FacebookImageAttachFailureDecision,
   ExtensionTask,
   FacebookPublishPlan,
-  FacebookPublishTarget,
   FacebookPublishProgress,
+  FacebookPublishTarget,
   SyncAmisJobPostingRequest,
 } from './types';
 
@@ -263,6 +264,8 @@ async function handleFrontendFacebookGroupVerify(
 }
 
 function scheduleExtensionTaskPolling() {
+  if (!EXTENSION_TASK_QUEUE_ENABLED) return;
+
   chrome.alarms?.create(EXTENSION_TASK_POLL_ALARM, {
     delayInMinutes: EXTENSION_TASK_POLL_INTERVAL_MINUTES,
     periodInMinutes: EXTENSION_TASK_POLL_INTERVAL_MINUTES,
@@ -270,7 +273,7 @@ function scheduleExtensionTaskPolling() {
 }
 
 async function runExtensionTaskPoll() {
-  if (extensionTaskPollRunning) return;
+  if (!EXTENSION_TASK_QUEUE_ENABLED || extensionTaskPollRunning) return;
   extensionTaskPollRunning = true;
 
   try {
