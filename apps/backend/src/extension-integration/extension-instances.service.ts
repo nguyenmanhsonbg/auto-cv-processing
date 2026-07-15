@@ -1,7 +1,7 @@
 import { UserRole } from '@interview-assistant/shared';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import {
   HeartbeatExtensionInstanceDto,
   RegisterExtensionInstanceDto,
@@ -25,31 +25,13 @@ export class ExtensionInstancesService {
   }) {
     const installId = this.requireText(input.dto.installId, 'installId', 128);
     const now = new Date();
-    const existing = await this.instancesRepo.findOne({
-      where: {
-        ownerUserId: input.ownerUserId,
-        installId,
-      },
-    });
+    const existing = await this.findByOwnerAndInstallId(input.ownerUserId, installId);
 
     if (existing) {
-      if (existing.status === ExtensionInstanceStatus.DISABLED) {
-        throw new BadRequestException({
-          code: 'EXTENSION_INSTANCE_DISABLED',
-          message: 'This extension instance has been disabled.',
-        });
-      }
-
-      existing.displayName = this.optionalText(input.dto.displayName, 160) ?? existing.displayName;
-      existing.version = this.optionalText(input.dto.version, 64) ?? existing.version;
-      existing.capabilities = this.normalizeCapabilities(input.dto.capabilities);
-      existing.metadata = this.safeMetadata(input.dto.metadata);
-      existing.status = ExtensionInstanceStatus.ONLINE;
-      existing.lastSeenAt = now;
-      return this.instancesRepo.save(existing);
+      return this.refreshRegisteredInstance(existing, input.dto, now);
     }
 
-    return this.instancesRepo.save(this.instancesRepo.create({
+    const instance = this.instancesRepo.create({
       ownerUserId: input.ownerUserId,
       installId,
       displayName: this.optionalText(input.dto.displayName, 160) ?? null,
@@ -60,7 +42,18 @@ export class ExtensionInstancesService {
       registeredAt: now,
       disabledAt: null,
       metadata: this.safeMetadata(input.dto.metadata),
-    }));
+    });
+
+    try {
+      return await this.instancesRepo.save(instance);
+    } catch (error) {
+      if (!this.isOwnerInstallDuplicateError(error)) throw error;
+
+      const racedInstance = await this.findByOwnerAndInstallId(input.ownerUserId, installId);
+      if (!racedInstance) throw error;
+
+      return this.refreshRegisteredInstance(racedInstance, input.dto, new Date());
+    }
   }
 
   async heartbeat(input: {
@@ -193,6 +186,44 @@ export class ExtensionInstancesService {
     }
 
     return instance;
+  }
+
+  private async findByOwnerAndInstallId(ownerUserId: string, installId: string) {
+    return this.instancesRepo.findOne({
+      where: {
+        ownerUserId,
+        installId,
+      },
+    });
+  }
+
+  private refreshRegisteredInstance(
+    instance: ExtensionInstanceEntity,
+    dto: RegisterExtensionInstanceDto,
+    now: Date,
+  ) {
+    if (instance.status === ExtensionInstanceStatus.DISABLED) {
+      throw new BadRequestException({
+        code: 'EXTENSION_INSTANCE_DISABLED',
+        message: 'This extension instance has been disabled.',
+      });
+    }
+
+    instance.displayName = this.optionalText(dto.displayName, 160) ?? instance.displayName;
+    instance.version = this.optionalText(dto.version, 64) ?? instance.version;
+    instance.capabilities = this.normalizeCapabilities(dto.capabilities);
+    instance.metadata = this.safeMetadata(dto.metadata);
+    instance.status = ExtensionInstanceStatus.ONLINE;
+    instance.lastSeenAt = now;
+    return this.instancesRepo.save(instance);
+  }
+
+  private isOwnerInstallDuplicateError(error: unknown) {
+    if (!(error instanceof QueryFailedError)) return false;
+
+    const driverError = error.driverError as { code?: unknown; constraint?: unknown } | undefined;
+    return driverError?.code === '23505'
+      && driverError.constraint === 'UQ_extension_instances_owner_install';
   }
 
   private normalizeCapabilities(value: ExtensionCapability[] | undefined) {
