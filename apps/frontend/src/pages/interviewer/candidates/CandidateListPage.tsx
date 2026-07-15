@@ -11,6 +11,7 @@ import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { SortableHeader, SortOrder } from '@/components/ui/sortable-header';
 import { Plus, Trash2, Search, SlidersHorizontal } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
+import { getInternalSafeErrorMessage } from '@/lib/api-errors';
 import { UserRole } from '@interview-assistant/shared';
 import type { Candidate, PaginatedResponse } from '@interview-assistant/shared';
 
@@ -25,6 +26,8 @@ export function CandidateListPage() {
 
   const [result, setResult] = useState<PaginatedResponse<Candidate>>({ data: [], total: 0, page: 1, limit: LIMIT, totalPages: 0 });
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const latestLoadRef = useRef(0);
   const [levelOptions, setLevelOptions] = useState<{ value: string; label: string }[]>([]);
 
   useEffect(() => {
@@ -51,6 +54,7 @@ export function CandidateListPage() {
   useEffect(() => { setPage(1); }, [debouncedSearch, levelFilter, sortBy, sortOrder]);
 
   const load = useCallback(() => {
+    const loadId = ++latestLoadRef.current;
     setLoading(true);
     apiClient
       .get<PaginatedResponse<Candidate>>('/candidates', {
@@ -61,9 +65,18 @@ export function CandidateListPage() {
         sortBy,
         sortOrder,
       })
-      .then((data) => setResult(data))
+      .then((data) => {
+        if (loadId !== latestLoadRef.current) return;
+        if (data.data.length === 0 && page > 1 && data.total > 0) {
+          setPage(page - 1);
+          return;
+        }
+        setResult(data);
+      })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (loadId === latestLoadRef.current) setLoading(false);
+      });
   }, [page, limit, debouncedSearch, levelFilter, sortBy, sortOrder]);
 
   useEffect(() => { load(); }, [load]);
@@ -71,12 +84,29 @@ export function CandidateListPage() {
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (!confirm('Delete this candidate? This cannot be undone.')) return;
+    if (deletingId) return;
+    setDeletingId(id);
     try {
       await apiClient.delete(`/candidates/${id}`);
       toast({ title: 'Candidate deleted' });
-      load();
-    } catch {
-      toast({ title: 'Delete failed', variant: 'destructive' });
+      setResult((current) => {
+        const data = current.data.filter((candidate) => candidate.id !== id);
+        const total = Math.max(0, current.total - 1);
+        return {
+          ...current,
+          data,
+          total,
+          totalPages: Math.ceil(total / current.limit),
+        };
+      });
+      if (result.data.length === 1 && page > 1) setPage(page - 1);
+    } catch (error) {
+      toast({
+        title: getInternalSafeErrorMessage(error) || 'Delete failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -158,7 +188,7 @@ export function CandidateListPage() {
                 <TableCell>{new Date(c.createdAt).toLocaleDateString()}</TableCell>
                 {isAdmin && (
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => handleDelete(e, c.id)} title="Delete candidate">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => handleDelete(e, c.id)} disabled={deletingId === c.id} title="Delete candidate">
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </TableCell>

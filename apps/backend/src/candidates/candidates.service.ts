@@ -302,17 +302,18 @@ export class CandidatesService {
           .where('application_id IN (:...appIds)', { appIds })
           .execute();
 
-        // Delete form sessions
-        await manager.createQueryBuilder()
-          .delete()
-          .from('form_sessions')
-          .where('application_id IN (:...appIds)', { appIds })
-          .execute();
-
         // Delete ai screening results
         await manager.createQueryBuilder()
           .delete()
           .from('ai_screening_results')
+          .where('application_id IN (:...appIds)', { appIds })
+          .execute();
+
+        // Delete form sessions after ai screening results because those rows
+        // still reference the form session through form_session_id.
+        await manager.createQueryBuilder()
+          .delete()
+          .from('form_sessions')
           .where('application_id IN (:...appIds)', { appIds })
           .execute();
 
@@ -382,8 +383,10 @@ export class CandidatesService {
       // Delete candidate_assignees join table records
       await manager.query('DELETE FROM candidate_assignees WHERE "candidateId" = $1', [id]);
 
-      // 6. Delete the candidate itself
-      await manager.remove(candidate);
+      // 6. Delete by primary key using the transaction manager. The entity was
+      // loaded before the transaction and includes relations; removing that
+      // entity can make TypeORM reuse stale relation state during the delete.
+      await manager.delete('candidates', { id });
     });
   }
 
