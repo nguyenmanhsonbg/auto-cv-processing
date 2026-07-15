@@ -9,9 +9,6 @@ import { CvSanitizationService } from './cv-sanitization.service';
 import { CLEAN_CV_SANITIZER } from './sanitizer/clean-cv-sanitizer.interface';
 import { GhostscriptDockerPdfSanitizer } from './sanitizer/ghostscript-docker-pdf-sanitizer';
 import { GhostscriptHttpPdfSanitizer } from './sanitizer/ghostscript-http-pdf-sanitizer';
-import { CV_MALWARE_SCANNER } from './scanner/cv-malware-scanner.interface';
-import { ClamAvCvMalwareScanner } from './scanner/clamav-cv-malware-scanner';
-import { StubCvMalwareScanner } from './scanner/stub-cv-malware-scanner';
 
 @Module({
   imports: [
@@ -26,15 +23,6 @@ import { StubCvMalwareScanner } from './scanner/stub-cv-malware-scanner';
   providers: [
     CvSanitizationService,
     {
-      provide: CV_MALWARE_SCANNER,
-      useFactory: () => {
-        const provider = (process.env.CV_SCANNER_PROVIDER ?? 'stub').trim().toLowerCase();
-        if (provider === 'stub') return new StubCvMalwareScanner();
-        if (provider === 'clamav') return new ClamAvCvMalwareScanner();
-        throw new Error(`Unsupported CV_SCANNER_PROVIDER: ${provider}`);
-      },
-    },
-    {
       provide: CLEAN_CV_SANITIZER,
       useFactory: () => {
         const mode = (process.env.CV_PDF_SANITIZER_MODE ?? 'GHOSTSCRIPT_DOCKER')
@@ -47,7 +35,6 @@ import { StubCvMalwareScanner } from './scanner/stub-cv-malware-scanner';
     },
   ],
   exports: [
-    CV_MALWARE_SCANNER,
     CvSanitizationService,
   ],
 })

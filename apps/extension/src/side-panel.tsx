@@ -89,6 +89,12 @@ type FacebookPostHistoryFilter = 'ALL' | FacebookReviewStatus;
 type FacebookPostHistoryLoadState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type FacebookContentState = 'IDLE' | 'GENERATING' | 'READY' | 'ERROR';
 type FacebookContentSource = 'EMPTY' | 'DEFAULT' | 'AI' | 'CUSTOM';
+type FacebookContentDraftScope = {
+  tabId?: number | null;
+  pageUrl?: string | null;
+  jobDescriptionId?: string | null;
+  jobDescriptionTitle?: string | null;
+};
 type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
@@ -279,6 +285,7 @@ function SidePanel() {
   const facebookContentSnapshotKeyRef = useRef<string | null>(null);
   const facebookContentSnapshotFingerprintRef = useRef<string | null>(null);
   const facebookContentJobIdentityRef = useRef<string | null>(null);
+  const facebookContentDraftScopeRef = useRef<FacebookContentDraftScope>({});
   const startedFacebookPlanKeys = useRef(new Set<string>());
 
   useEffect(() => {
@@ -310,10 +317,6 @@ function SidePanel() {
   useEffect(() => {
     selectedFacebookGroupIdsRef.current = selectedFacebookGroupIds;
   }, [selectedFacebookGroupIds]);
-
-  useEffect(() => {
-    facebookContentRef.current = facebookContent;
-  }, [facebookContent]);
 
   useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
@@ -657,6 +660,28 @@ function SidePanel() {
     setFacebookContentMessage(null);
   }
 
+  async function getFacebookContentDraftScope(
+    jobDescription: JobDescriptionSummary | null = selectedJobDescription,
+  ): Promise<FacebookContentDraftScope> {
+    const scope: FacebookContentDraftScope = {
+      jobDescriptionId: jobDescription?.id ?? null,
+      jobDescriptionTitle: jobDescription?.title ?? null,
+    };
+
+    try {
+      const activeTab = await getActiveTab();
+      if (activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+        scope.tabId = activeTab.id;
+        scope.pageUrl = activeTab.url;
+      }
+    } catch {
+      // The draft remains usable by JD/recruitment keys when no AMIS tab is active.
+    }
+
+    facebookContentDraftScopeRef.current = scope;
+    return scope;
+  }
+
   function openFacebookImageFilePicker() {
     if (facebookImageUploadDisabled) return;
     facebookImageInputRef.current?.click();
@@ -733,10 +758,14 @@ function SidePanel() {
           ? 'Facebook content generated from the same publish plan used for posting.'
           : 'Đã sinh nội dung Facebook từ JD hiện tại.',
       );
+      const draftScope = await getFacebookContentDraftScope(
+        options.selectedJobDescriptionOverride ?? selectedJobDescription,
+      );
       await persistFacebookContentDraft({
         content,
         source: 'AI',
         recruitmentId: amisRecruitmentId,
+        ...draftScope,
         snapshot: sourceSnapshot,
       });
       return content;
@@ -794,6 +823,7 @@ function SidePanel() {
   }
 
   async function saveFacebookContentDraft() {
+    facebookContentGenerationSeqRef.current += 1;
     const content = facebookContentDraft.trim();
     setFacebookContent(content);
     facebookContentRef.current = content;
@@ -802,10 +832,12 @@ function SidePanel() {
       facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, snapshot);
       facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(snapshot);
       facebookContentJobIdentityRef.current = buildFacebookJobIdentity(snapshot);
+      const draftScope = await getFacebookContentDraftScope();
       await persistFacebookContentDraft({
         content,
         source: 'CUSTOM',
         recruitmentId: amisRecruitmentId,
+        ...draftScope,
         snapshot,
       });
     }
@@ -820,8 +852,9 @@ function SidePanel() {
     return result.facebookPublishPlan.content.trim();
   }
 
-  function getEffectiveFacebookContent() {
-    return facebookContentRef.current.trim() || facebookContent.trim();
+  function getEffectiveFacebookContent(options: { includeDraft?: boolean } = {}) {
+    const draftContent = options.includeDraft ? facebookContentDraft.trim() : '';
+    return draftContent || facebookContentRef.current.trim() || facebookContent.trim();
   }
 
   function requestFacebookImageAttachDecision(
@@ -1801,8 +1834,11 @@ function SidePanel() {
     recruitmentId: string | null,
     nextSnapshot: AmisJobSnapshot,
   ) {
+    const draftScope = await getFacebookContentDraftScope();
     const draft = await getFacebookContentDraft({
       recruitmentId,
+      tabId: draftScope.tabId,
+      jobDescriptionId: draftScope.jobDescriptionId,
       snapshot: nextSnapshot,
     });
     const content = draft?.content.trim();
@@ -2469,6 +2505,7 @@ function SidePanel() {
 
   function buildAmisJobPostingPayload(options: {
     includeFacebookContent?: boolean;
+    facebookContentOverride?: string | null;
     snapshotOverride?: AmisJobSnapshot;
     selectedJobDescriptionOverride?: JobDescriptionSummary | null;
     forceFacebookChannel?: boolean;
@@ -2482,7 +2519,9 @@ function SidePanel() {
       : selectedPostingChannels;
     const facebookTargetIds = channelsForPayload.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
     const includeFacebookContent = options.includeFacebookContent ?? true;
-    const trimmedFacebookContent = (facebookContentRef.current || facebookContent).trim();
+    const trimmedFacebookContent = (
+      options.facebookContentOverride ?? getEffectiveFacebookContent()
+    ).trim();
     const jobDescriptionForMetadata = options.selectedJobDescriptionOverride ?? selectedJobDescription;
 
     return {
@@ -2530,16 +2569,23 @@ function SidePanel() {
       setState('ERROR');
       return;
     }
-    if (selectedPostingChannels.includes('FACEBOOK') && !(facebookContentRef.current || facebookContent).trim()) {
+    const shouldPublishFacebook = selectedPostingChannels.includes('FACEBOOK');
+    let facebookContentForPublish = shouldPublishFacebook
+      ? getEffectiveFacebookContent()
+      : '';
+    if (shouldPublishFacebook && !facebookContentForPublish) {
       const generatedContent = await generateFacebookPostContent({ forceFacebookChannel: true });
       if (!generatedContent) {
         setError('Facebook post content is required before publishing.');
         setState('ERROR');
         return;
       }
+      facebookContentForPublish = generatedContent.trim();
     }
 
-    const payload = buildAmisJobPostingPayload();
+    const payload = buildAmisJobPostingPayload({
+      facebookContentOverride: facebookContentForPublish || null,
+    });
     if (!payload) return;
 
     setState('SYNCING');
@@ -2548,16 +2594,22 @@ function SidePanel() {
     try {
       const response = await syncAndPublishAmisJob(token, payload);
       setResult(response);
-      if (response.facebookPublishPlan?.content && selectedPostingChannels.includes('FACEBOOK')) {
-        setFacebookContent(response.facebookPublishPlan.content);
+      let publishedFacebookPlan: FacebookPublishPlan | null = null;
+      if (response.facebookPublishPlan && shouldPublishFacebook) {
+        publishedFacebookPlan = await startFacebookPublish(response.facebookPublishPlan, facebookContentForPublish);
+      }
+      const confirmedFacebookContent = publishedFacebookPlan?.content
+        ?? response.facebookPublishPlan?.content;
+      if (confirmedFacebookContent && shouldPublishFacebook) {
+        facebookContentRef.current = confirmedFacebookContent;
+        setFacebookContent(confirmedFacebookContent);
         setFacebookContentState('READY');
         setFacebookContentMessage('Đã cập nhật nội dung Facebook theo kế hoạch đăng thật.');
       }
-      if (response.facebookPublishPlan && selectedPostingChannels.includes('FACEBOOK')) {
-        await startFacebookPublish(response.facebookPublishPlan);
-      } else {
-        setState('SUCCESS');
+      if (response.facebookPublishPlan && shouldPublishFacebook) {
+        return;
       }
+      setState('SUCCESS');
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -2571,14 +2623,17 @@ function SidePanel() {
     }
   }
 
-  async function startFacebookPublish(plan: FacebookPublishPlan) {
-    if (!token) return;
-    const contentResolvedPlan = await resolveFacebookPublishPlanContent(plan);
+  async function startFacebookPublish(plan: FacebookPublishPlan, contentOverride?: string | null) {
+    if (!token) return null;
+    const trimmedContentOverride = contentOverride?.trim();
+    const contentResolvedPlan = trimmedContentOverride
+      ? { ...plan, content: hydrateFacebookContentOverride(trimmedContentOverride, plan.content) }
+      : await resolveFacebookPublishPlanContent(plan);
     const planForPublish: FacebookPublishPlan = facebookImageAttachment
       ? { ...contentResolvedPlan, attachments: [facebookImageAttachment] }
       : contentResolvedPlan;
     const planKey = getFacebookPlanKey(planForPublish);
-    if (startedFacebookPlanKeys.current.has(planKey)) return;
+    if (startedFacebookPlanKeys.current.has(planKey)) return planForPublish;
 
     if (planForPublish.targets.length === 0) {
       const progress: FacebookPublishProgress = {
@@ -2591,7 +2646,7 @@ function SidePanel() {
       setFacebookProgress(progress);
       await saveLastFacebookPublishProgress(progress);
       setState('ERROR');
-      return;
+      return planForPublish;
     }
 
     startedFacebookPlanKeys.current.add(planKey);
@@ -2612,8 +2667,12 @@ function SidePanel() {
       const summary = summarizeFacebookPublishResults(facebookResults);
       setResult((current) => current ? updateFacebookChannelStatus(current, facebookResults) : current);
       if (summary.successCount > 0) {
+        const previousDraftScope = facebookContentDraftScopeRef.current;
+        const draftScope = await getFacebookContentDraftScope();
         await clearStoredFacebookContentDraft({
           recruitmentId: amisRecruitmentId,
+          tabId: draftScope.tabId ?? previousDraftScope.tabId,
+          jobDescriptionId: draftScope.jobDescriptionId ?? previousDraftScope.jobDescriptionId,
           snapshot,
         });
         setState('SUCCESS');
@@ -2642,6 +2701,8 @@ function SidePanel() {
         clearFacebookImageAttachment();
       }
     }
+
+    return planForPublish;
   }
 
   async function resolveFacebookPublishPlanContent(plan: FacebookPublishPlan): Promise<FacebookPublishPlan> {
@@ -2654,8 +2715,11 @@ function SidePanel() {
     }
 
     if (snapshot) {
+      const draftScope = await getFacebookContentDraftScope();
       const draft = await getFacebookContentDraft({
         recruitmentId: amisRecruitmentId,
+        tabId: draftScope.tabId,
+        jobDescriptionId: draftScope.jobDescriptionId,
         snapshot,
       });
       if (draft?.content.trim()) {
@@ -6662,6 +6726,7 @@ function getFacebookPlanKey(plan: FacebookPublishPlan) {
   return [
     plan.jobPostingId,
     plan.content.length,
+    hashText(plan.content),
     plan.targets.map((target) => target.targetId ?? target.targetUrl ?? target.targetName).join('|'),
     plan.attachments?.map((attachment) => [
       attachment.type,
@@ -6670,6 +6735,29 @@ function getFacebookPlanKey(plan: FacebookPublishPlan) {
       attachment.size,
     ].join('/')).join('|') ?? '',
   ].join(':');
+}
+
+function hashText(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function hydrateFacebookContentOverride(content: string, planContent: string) {
+  const applyUrl = extractFacebookApplyUrl(planContent);
+  if (!applyUrl) return content.trim();
+
+  return content
+    .replace(/\{\{\s*APPLY_URL\s*\}\}/gi, applyUrl)
+    .replace(/\[\s*APPLY_URL\s*\]/gi, applyUrl)
+    .trim();
+}
+
+function extractFacebookApplyUrl(content: string) {
+  const match = content.match(/(?:https?:\/\/|\/jobs\/)[^\s)]+/i);
+  return match?.[0] ?? null;
 }
 
 function isFacebookGroupLoading(state: FacebookGroupLoadState) {

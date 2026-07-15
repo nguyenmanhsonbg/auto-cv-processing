@@ -35,7 +35,7 @@ import {
   verifyFacebookGroupPostingEligibility,
 } from './facebook-publish-orchestrator';
 import { saveLastFacebookPublishProgress } from './facebook-publish-store';
-import { getSelectedJobQuestionIdsForTab } from './selected-job-question-store';
+import { getSelectedJobQuestionContextForTab, getSelectedJobQuestionIdsForTab } from './selected-job-question-store';
 import type {
   AmisDiagnosticEvent,
   AmisExtractionResult,
@@ -450,7 +450,22 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
   const facebookTargetIds = channels.includes('FACEBOOK')
     ? await getSelectedFacebookGroupIds()
     : [];
-  const autoSyncKey = buildAutoSyncKey(amisRecruitmentId, channels, facebookTargetIds);
+  const selectedJobQuestionContext = await getSelectedJobQuestionContextForTab(sender.tab?.id);
+  const facebookContentDraft = channels.includes('FACEBOOK')
+    ? await getFacebookContentDraft({
+      recruitmentId: amisRecruitmentId,
+      tabId: sender.tab?.id,
+      jobDescriptionId: selectedJobQuestionContext?.jobDescriptionId,
+      snapshot,
+    })
+    : null;
+  const facebookContentForPublish = facebookContentDraft?.content.trim() ?? '';
+  const autoSyncKey = buildAutoSyncKey(
+    amisRecruitmentId,
+    channels,
+    facebookTargetIds,
+    facebookContentForPublish,
+  );
   if (activeAutoSyncKeys.has(autoSyncKey)) {
     await appendAmisDiagnostic({
       type: 'BACKGROUND_RECEIVED_CAPTURE',
@@ -499,6 +514,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
           channels,
           facebookTargetIds,
           selectedQuestionIds,
+          facebookContentForPublish,
         ),
       );
 
@@ -506,6 +522,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
         const facebookPublishPlan = await resolveFacebookPublishPlanContent(
           result.facebookPublishPlan,
           { ...enrichedCapture, amisRecruitmentId, snapshot },
+          facebookContentForPublish,
         );
         const resultForFacebookPublish = {
           ...result,
@@ -529,6 +546,8 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
         if (facebookSummary.successCount > 0) {
           await clearStoredFacebookContentDraft({
             recruitmentId: amisRecruitmentId,
+            tabId: sender.tab?.id,
+            jobDescriptionId: selectedJobQuestionContext?.jobDescriptionId,
             snapshot,
           });
         }
@@ -761,7 +780,16 @@ async function openPanel(sender: ChromeMessageSender) {
 async function resolveFacebookPublishPlanContent(
   plan: FacebookPublishPlan,
   capture: Required<Pick<AmisExtractionResult, 'amisRecruitmentId' | 'snapshot'>> & AmisExtractionResult,
+  contentOverride?: string | null,
 ): Promise<FacebookPublishPlan> {
+  const trimmedContentOverride = contentOverride?.trim();
+  if (trimmedContentOverride) {
+    return {
+      ...plan,
+      content: hydrateFacebookContentOverride(trimmedContentOverride, plan.content),
+    };
+  }
+
   const draft = await getFacebookContentDraft({
     recruitmentId: capture.amisRecruitmentId,
     snapshot: capture.snapshot,
@@ -779,13 +807,16 @@ async function buildSyncPayload(
   channels: ExtensionChannel[],
   facebookTargetIds: string[],
   selectedQuestionIds: string[] = [],
+  facebookContentOverride?: string | null,
 ): Promise<SyncAmisJobPostingRequest> {
-  const facebookDraft = channels.includes('FACEBOOK')
+  const trimmedFacebookContentOverride = facebookContentOverride?.trim();
+  const facebookDraft = channels.includes('FACEBOOK') && !trimmedFacebookContentOverride
     ? await getFacebookContentDraft({
       recruitmentId: capture.amisRecruitmentId,
       snapshot: capture.snapshot,
     })
     : null;
+  const facebookContent = trimmedFacebookContentOverride || facebookDraft?.content.trim() || '';
 
   return {
     sourceSystem: 'AMIS',
@@ -795,7 +826,7 @@ async function buildSyncPayload(
     snapshot: capture.snapshot,
     channels,
     ...(channels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
-    ...(facebookDraft?.content ? { facebookContent: facebookDraft.content } : {}),
+    ...(facebookContent ? { facebookContent } : {}),
     ...(selectedQuestionIds.length ? { selectedQuestionIds } : {}),
     metadata: {
       autoSync: true,
@@ -836,12 +867,37 @@ function buildAutoSyncKey(
   amisRecruitmentId: string,
   channels: ExtensionChannel[],
   facebookTargetIds: string[],
+  facebookContent: string,
 ) {
   return [
     amisRecruitmentId,
     [...channels].sort().join(','),
     [...facebookTargetIds].sort().join(','),
+    hashText(facebookContent),
   ].join(':');
+}
+
+function hydrateFacebookContentOverride(content: string, planContent: string) {
+  const applyUrl = extractFacebookApplyUrl(planContent);
+  if (!applyUrl) return content.trim();
+
+  return content
+    .replace(/\{\{\s*APPLY_URL\s*\}\}/gi, applyUrl)
+    .replace(/\[\s*APPLY_URL\s*\]/gi, applyUrl)
+    .trim();
+}
+
+function extractFacebookApplyUrl(content: string) {
+  const match = content.match(/(?:https?:\/\/|\/jobs\/)[^\s)]+/i);
+  return match?.[0] ?? null;
+}
+
+function hashText(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 async function enrichCaptureFromDom(

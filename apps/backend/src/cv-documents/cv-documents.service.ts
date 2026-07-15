@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  Inject,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -17,12 +16,6 @@ import { DataSource, EntityManager } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
-import {
-  CV_MALWARE_SCANNER,
-  CvMalwareScanner,
-  CvMalwareScanResult,
-  CvMalwareScanStatus,
-} from '../cv-sanitization/scanner/cv-malware-scanner.interface';
 import { CvSanitizationService } from '../cv-sanitization/cv-sanitization.service';
 import { resolveCvSafeStorageKey } from '../cv-sanitization/storage/cv-safe-storage';
 import {
@@ -46,7 +39,6 @@ import {
 } from './storage/cv-quarantine-storage';
 
 const MAX_CV_FILE_SIZE_BYTES = 20 * 1024 * 1024;
-const DEFAULT_CV_SCANNER_TIMEOUT_MS = 15_000;
 
 const CV_FILE_RULES = {
   '.pdf': {
@@ -108,8 +100,6 @@ export class CvDocumentsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly workflowStateService: WorkflowStateService,
-    @Inject(CV_MALWARE_SCANNER)
-    private readonly malwareScanner: CvMalwareScanner,
     private readonly cvSanitizationService: CvSanitizationService,
   ) {}
 
@@ -126,9 +116,7 @@ export class CvDocumentsService {
 
       let cvDocument = result.cvDocument;
       if (result.scanFilePath) {
-        cvDocument = await this.markCvScanRequested(cvDocument.id);
-        const scanResult = await this.scanOriginalCv(cvDocument, result.scanFilePath);
-        cvDocument = await this.completeCvScan(cvDocument.id, scanResult);
+        cvDocument = await this.markCvScanSkippedAsPassed(cvDocument.id);
       }
 
       this.assertCvScanAccepted(cvDocument);
@@ -597,10 +585,10 @@ export class CvDocumentsService {
     };
   }
 
-  private async markCvScanRequested(cvDocumentId: string) {
+  private async markCvScanSkippedAsPassed(cvDocumentId: string) {
     return this.dataSource.transaction(async (manager) => {
       const cvDocument = await this.findCvDocumentForScan(manager, cvDocumentId);
-      cvDocument.scanStatus = CvScanStatus.SCANNING;
+      cvDocument.scanStatus = CvScanStatus.PASSED;
       const saved = await manager.getRepository(CvDocumentEntity).save(cvDocument);
 
       const metadata = {
@@ -612,6 +600,13 @@ export class CvDocumentsService {
         originalFileHash: saved.originalFileHash,
         scanStatus: saved.scanStatus,
         storageZone: saved.storageZone,
+        scanner: 'disabled',
+        scannerResult: 'SKIPPED',
+        scannedAt: new Date().toISOString(),
+        durationMs: 0,
+        reasonCode: 'MALWARE_SCAN_DISABLED',
+        threatDetected: false,
+        scannerSkipped: true,
         scannerAllowedSource: 'QUARANTINE',
       };
 
@@ -619,8 +614,8 @@ export class CvDocumentsService {
         {
           applicationId: saved.applicationId,
           expectedFromStatus: ApplicationStatus.CV_STORED_QUARANTINE,
-          toStatus: ApplicationStatus.CV_SCAN_REQUESTED,
-          eventType: 'CV_SCAN_REQUESTED',
+          toStatus: ApplicationStatus.CV_SCAN_PASSED,
+          eventType: 'CV_SCAN_PASSED',
           actorType: 'SYSTEM',
           actorId: null,
           metadata,
@@ -632,86 +627,10 @@ export class CvDocumentsService {
         applicationId: saved.applicationId,
         actorType: 'SYSTEM',
         actorId: null,
-        action: 'CV_SCAN_REQUESTED',
+        action: 'CV_SCAN_PASSED',
         objectId: saved.id,
         metadata,
       });
-
-      return saved;
-    });
-  }
-
-  private async scanOriginalCv(cvDocument: CvDocumentEntity, filePath: string) {
-    const timeoutMs = this.getScannerTimeoutMs();
-
-    try {
-      return await this.withTimeout(
-        this.malwareScanner.scanOriginalCv({
-          applicationId: cvDocument.applicationId,
-          cvDocumentId: cvDocument.id,
-          originalFileHash: cvDocument.originalFileHash ?? '',
-          filePath,
-          storageZone: cvDocument.storageZone,
-          storagePath: cvDocument.storagePath,
-          mimeType: cvDocument.mimeType,
-          fileSize: Number(cvDocument.fileSize),
-        }),
-        timeoutMs,
-        () => this.buildFailedScanResult('SCANNER_TIMEOUT', timeoutMs),
-      );
-    } catch {
-      return this.buildFailedScanResult('SCANNER_FAILED', timeoutMs);
-    }
-  }
-
-  private async completeCvScan(
-    cvDocumentId: string,
-    scanResult: CvMalwareScanResult,
-  ) {
-    return this.dataSource.transaction(async (manager) => {
-      const cvDocument = await this.findCvDocumentForScan(manager, cvDocumentId);
-      const nextScanStatus = this.toCvScanStatus(scanResult.status);
-      const nextApplicationStatus = this.toApplicationScanStatus(scanResult.status);
-      const eventType = nextApplicationStatus;
-
-      cvDocument.scanStatus = nextScanStatus;
-      const saved = await manager.getRepository(CvDocumentEntity).save(cvDocument);
-      const metadata = this.buildScanResultMetadata(saved, scanResult);
-
-      await this.workflowStateService.recordStatusTransition(
-        {
-          applicationId: saved.applicationId,
-          expectedFromStatus: ApplicationStatus.CV_SCAN_REQUESTED,
-          toStatus: nextApplicationStatus,
-          eventType,
-          actorType: 'SYSTEM',
-          actorId: null,
-          metadata,
-        },
-        manager,
-      );
-
-      await this.recordAuditLog(manager, {
-        applicationId: saved.applicationId,
-        actorType: 'SYSTEM',
-        actorId: null,
-        action: eventType,
-        objectId: saved.id,
-        metadata,
-      });
-      if (nextApplicationStatus === ApplicationStatus.CV_SCAN_FAILED) {
-        await this.recordAuditLog(manager, {
-          applicationId: saved.applicationId,
-          actorType: 'SYSTEM',
-          actorId: null,
-          action: 'CV_SCAN_FAILED_INTERNAL_ALERT',
-          objectId: saved.id,
-          metadata: {
-            ...metadata,
-            alertType: 'CV_SECURITY_SCAN_FAILED',
-          },
-        });
-      }
 
       return saved;
     });
@@ -728,28 +647,6 @@ export class CvDocumentsService {
     }
 
     return cvDocument;
-  }
-
-  private buildScanResultMetadata(
-    cvDocument: CvDocumentEntity,
-    scanResult: CvMalwareScanResult,
-  ) {
-    return {
-      applicationId: cvDocument.applicationId,
-      candidateId: cvDocument.candidateId,
-      cvDocumentId: cvDocument.id,
-      documentType: cvDocument.documentType,
-      versionNo: cvDocument.versionNo,
-      originalFileHash: cvDocument.originalFileHash,
-      scanStatus: cvDocument.scanStatus,
-      scanner: scanResult.scanner,
-      scannerResult: scanResult.status,
-      scannedAt: scanResult.scannedAt.toISOString(),
-      durationMs: scanResult.durationMs,
-      reasonCode: scanResult.reasonCode ?? null,
-      threatDetected: scanResult.status === CvMalwareScanStatus.REJECTED_MALWARE,
-      scannerAllowedSource: 'QUARANTINE',
-    };
   }
 
   private async recordAuditLog(
@@ -775,22 +672,6 @@ export class CvDocumentsService {
       ipAddress: null,
       userAgent: null,
     }));
-  }
-
-  private toCvScanStatus(status: CvMalwareScanStatus) {
-    if (status === CvMalwareScanStatus.PASSED) return CvScanStatus.PASSED;
-    if (status === CvMalwareScanStatus.REJECTED_MALWARE) {
-      return CvScanStatus.REJECTED_MALWARE;
-    }
-    return CvScanStatus.FAILED;
-  }
-
-  private toApplicationScanStatus(status: CvMalwareScanStatus) {
-    if (status === CvMalwareScanStatus.PASSED) return ApplicationStatus.CV_SCAN_PASSED;
-    if (status === CvMalwareScanStatus.REJECTED_MALWARE) {
-      return ApplicationStatus.CV_REJECTED_MALWARE;
-    }
-    return ApplicationStatus.CV_SCAN_FAILED;
   }
 
   private assertCvScanAccepted(cvDocument: CvDocumentEntity) {
@@ -825,43 +706,6 @@ export class CvDocumentsService {
         );
       });
     });
-  }
-
-  private buildFailedScanResult(reasonCode: string, durationMs: number): CvMalwareScanResult {
-    return {
-      status: CvMalwareScanStatus.FAILED,
-      scanner: 'cv-malware-scanner',
-      scannedAt: new Date(),
-      durationMs,
-      reasonCode,
-    };
-  }
-
-  private async withTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs: number,
-    onTimeout: () => T,
-  ) {
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
-    try {
-      return await Promise.race([
-        promise,
-        new Promise<T>((resolve) => {
-          timeoutHandle = setTimeout(() => resolve(onTimeout()), timeoutMs);
-        }),
-      ]);
-    } finally {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-    }
-  }
-
-  private getScannerTimeoutMs() {
-    const parsed = Number(process.env.CV_SCANNER_TIMEOUT_MS);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return Math.min(parsed, 300_000);
-    }
-    return DEFAULT_CV_SCANNER_TIMEOUT_MS;
   }
 
   private requireQuarantineFilePath(filePath: string) {

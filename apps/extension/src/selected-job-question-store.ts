@@ -33,6 +33,12 @@ export async function getSelectedJobQuestionIdsForTab(tabId?: number | null) {
   return dedupeQuestionIds(contexts[String(tabId)]?.questionIds ?? []);
 }
 
+export async function getSelectedJobQuestionContextForTab(tabId?: number | null) {
+  if (typeof tabId !== 'number') return null;
+  const contexts = await readSelectedJobQuestionContexts();
+  return contexts[String(tabId)] ?? null;
+}
+
 async function readSelectedJobQuestionContexts(): Promise<StoredSelectedJobQuestionContexts> {
   try {
     const stored = await chrome.storage?.session?.get(SELECTED_JOB_QUESTION_CONTEXTS_STORAGE_KEY);
