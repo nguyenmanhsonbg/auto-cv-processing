@@ -90,6 +90,9 @@ export class DiscoverFacebookGroupsResponseDto {
   @ApiProperty({ example: 1 })
   duplicates: number;
 
+  @ApiProperty({ example: 12 })
+  filtered: number;
+
   @ApiProperty({ example: 0 })
   skipped: number;
 

@@ -27,6 +27,16 @@ export async function saveSelectedJobQuestionContext(context: Omit<SelectedJobQu
   });
 }
 
+export async function clearSelectedJobQuestionContextForTab(tabId?: number | null) {
+  if (typeof tabId !== 'number') return;
+  const contexts = await readSelectedJobQuestionContexts();
+  delete contexts[String(tabId)];
+
+  await chrome.storage?.session?.set({
+    [SELECTED_JOB_QUESTION_CONTEXTS_STORAGE_KEY]: contexts,
+  });
+}
+
 export async function getSelectedJobQuestionIdsForTab(tabId?: number | null) {
   if (typeof tabId !== 'number') return [];
   const contexts = await readSelectedJobQuestionContexts();

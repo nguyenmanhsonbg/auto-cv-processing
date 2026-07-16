@@ -362,6 +362,7 @@ export interface DiscoverFacebookGroupsResponse {
   updated: number;
   reactivated: number;
   duplicates: number;
+  filtered: number;
   skipped: number;
   conflicts: number;
   errors: string[];

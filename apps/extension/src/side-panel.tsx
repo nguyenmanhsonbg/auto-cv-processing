@@ -49,7 +49,7 @@ import {
 } from './facebook-publish-orchestrator';
 import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { createMockAmisSyncRequest } from './mock-amis';
-import { saveSelectedJobQuestionContext } from './selected-job-question-store';
+import { clearSelectedJobQuestionContextForTab, saveSelectedJobQuestionContext } from './selected-job-question-store';
 import type {
   AmisDiagnosticEvent,
   AmisAutoSyncState,
@@ -113,6 +113,8 @@ type FacebookImageAttachmentState = 'IDLE' | 'READING' | 'READY' | 'ERROR';
 const FACEBOOK_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
 const FACEBOOK_IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const FACEBOOK_IMAGE_ALLOWED_TYPES = new Set(FACEBOOK_IMAGE_ACCEPT.split(','));
+const IT_RECRUITMENT_GROUP_REGEX =
+  /\b(tuyen\s*dung|viec\s*lam|recruitment|jobs?|it|cntt|dev(eloper)?|tester|cong\s*nghe\s*thong\s*tin|tech(nology)?|engineer|frontend|backend|fullstack|react|node|java(script)?|type\s*script|comtor|ba|brse|lap\s*trinh|coder|qa|qc)\b/i;
 type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 
 interface FacebookHistoryGroup {
@@ -138,6 +140,18 @@ interface FacebookGroupsSyncResult {
   groups: FacebookPublishTarget[];
   selectedIds: string[];
   discoverySummary: string | null;
+}
+
+interface FacebookGroupUiItem {
+  key: string;
+  id: string | null;
+  name: string;
+  url?: string | null;
+  eligibilityStatus: FacebookPublishTargetEligibilityStatus;
+  eligibilityReason?: string | null;
+  quotaLabel: string | null;
+  selectable: boolean;
+  disabledReason?: string | null;
 }
 
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
@@ -292,6 +306,7 @@ function SidePanel() {
   const postingSnapshotRefreshSeqRef = useRef(0);
   const postingSnapshotRefreshAttemptsRef = useRef(new Map<string, number>());
   const missedRecruitmentContextCountRef = useRef(0);
+  const lastAmisJobInitiationResetKeyRef = useRef<string | null>(null);
   const tokenRef = useRef<string | null>(null);
   const channelsRef = useRef<ExtensionChannel[]>(channels);
   const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
@@ -507,13 +522,15 @@ function SidePanel() {
     || isFacebookImageReading
     || hasFacebookImageAttachmentError
     || missingFields.length > 0;
+  const validFacebookGroups = useMemo(() => facebookGroups.filter(isItRecruitmentFacebookGroup), [facebookGroups]);
   const visibleFacebookGroups = useMemo(() => {
     if (facebookGroups.length > 0) {
-      return facebookGroups.map(toFacebookGroupUiItem);
+      return validFacebookGroups.map(toFacebookGroupUiItem);
     }
 
     const planTargets = result?.facebookPublishPlan?.targets.map(toFacebookGroupUiItem) ?? [];
-    if (planTargets.length > 0) return planTargets;
+    const validPlanTargets = planTargets.filter(isItRecruitmentFacebookGroupUiItem);
+    if (validPlanTargets.length > 0) return validPlanTargets;
 
     return facebookProgress?.results.map((target) => ({
       key: target.targetId ?? target.targetUrl ?? target.targetName,
@@ -525,8 +542,12 @@ function SidePanel() {
       quotaLabel: null,
       selectable: Boolean(target.targetId),
       disabledReason: target.targetId ? null : 'Facebook group id is missing.',
-    })) ?? [];
-  }, [facebookGroups, facebookProgress, result]);
+    })).filter(isItRecruitmentFacebookGroupUiItem) ?? [];
+  }, [facebookGroups.length, facebookProgress, result, validFacebookGroups]);
+  const visibleSelectedFacebookGroupCount = useMemo(() => {
+    const visibleGroupIds = new Set(visibleFacebookGroups.map((group) => group.id).filter(isString));
+    return selectedFacebookGroupIds.filter((targetId) => visibleGroupIds.has(targetId)).length;
+  }, [selectedFacebookGroupIds, visibleFacebookGroups]);
   const facebookGroupDuplicateUrlError = getDuplicateFacebookGroupUrlError(facebookGroupUrl, facebookGroups);
   const facebookGroupUrlFieldError = facebookGroupDuplicateUrlError ?? facebookGroupUrlError;
   const editFacebookGroupDuplicateUrlError = getDuplicateFacebookGroupUrlError(
@@ -586,8 +607,8 @@ function SidePanel() {
   }
 
   async function reconcileSelectedFacebookGroups(groups: FacebookPublishTarget[], targetIds = selectedFacebookGroupIds) {
-    const selectableGroupIds = new Set(groups.filter(isSelectableFacebookGroup).map((group) => group.targetId).filter(isString));
-    const nextTargetIds = uniqueStrings(targetIds).filter((targetId) => selectableGroupIds.has(targetId));
+    const publishableGroupIds = new Set(groups.filter(isPublishableFacebookGroup).map((group) => group.targetId).filter(isString));
+    const nextTargetIds = uniqueStrings(targetIds).filter((targetId) => publishableGroupIds.has(targetId));
     await updateSelectedFacebookGroupIds(nextTargetIds);
     return nextTargetIds;
   }
@@ -595,6 +616,12 @@ function SidePanel() {
   function toggleFacebookGroupSelection(targetId: string | null | undefined) {
     if (!targetId) return;
     const group = facebookGroups.find((item) => item.targetId === targetId);
+    if (group && !isItRecruitmentFacebookGroup(group)) {
+      setFacebookGroupLoadState('READY');
+      setFacebookGroupMessage('Group name does not match IT recruitment keywords.');
+      return;
+    }
+
     if (group && !isSelectableFacebookGroup(group)) {
       setFacebookGroupLoadState('READY');
       setFacebookGroupMessage(getFacebookGroupDisabledReason(group));
@@ -606,9 +633,8 @@ function SidePanel() {
       : [...selectedFacebookGroupIds, targetId];
     void updateSelectedFacebookGroupIds(nextTargetIds);
     if (selectedPostingChannels.includes('FACEBOOK') && facebookGroups.length > 0) {
-      const selectableCount = countSelectableFacebookGroups(facebookGroups);
       setFacebookGroupLoadState('READY');
-      setFacebookGroupMessage(`${uniqueStrings(nextTargetIds).length}/${selectableCount} eligible Facebook group(s) selected.`);
+      setFacebookGroupMessage(buildFacebookGroupSelectionMessage(uniqueStrings(nextTargetIds), facebookGroups));
     }
   }
 
@@ -1041,11 +1067,20 @@ function SidePanel() {
       if (options.sourceTabId !== undefined && activeTab.id !== options.sourceTabId) return;
 
       if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+        lastAmisJobInitiationResetKeyRef.current = null;
         missedRecruitmentContextCountRef.current = 0;
         setActiveAmisRecruitmentContext(null, null);
         return;
       }
 
+      if (isAmisJobInitiationPage(activeTab.url)) {
+        missedRecruitmentContextCountRef.current = 0;
+        await resetSelectedJobDescriptionForAmisJobInitiation(activeTab);
+        setActiveAmisRecruitmentContext(null, null);
+        return;
+      }
+
+      lastAmisJobInitiationResetKeyRef.current = null;
       const context = parseAmisRecruitmentContextFromUrl(activeTab.url);
       let pageKind: string | null = null;
       if (!context.amisRecruitmentId) {
@@ -1092,6 +1127,24 @@ function SidePanel() {
     } catch (err) {
       if (!options.silent) setApplicationsMessage(toErrorMessage(err));
     }
+  }
+
+  async function resetSelectedJobDescriptionForAmisJobInitiation(activeTab: ChromeTab) {
+    const resetKey = `${activeTab.id}:${normalizeAmisJobInitiationUrl(activeTab.url ?? '')}`;
+    if (lastAmisJobInitiationResetKeyRef.current === resetKey) return;
+    lastAmisJobInitiationResetKeyRef.current = resetKey;
+
+    setSelectedJobDescription(null);
+    setJobDescriptionQuestionContext(null);
+    setSelectedJobQuestionIds(new Set());
+    setCareerQuestionState('IDLE');
+    setCareerQuestionMessage('Select a JD to view its synced question set.');
+    setJobDescriptionFillState('IDLE');
+    setJobDescriptionFillMessage(null);
+    setFillingJobDescriptionId(null);
+    lastJobQuestionContextIdRef.current = null;
+    clearFacebookContent();
+    await clearSelectedJobQuestionContextForTab(activeTab.id);
   }
 
   async function syncAmisApplicationsFromAmisTab(
@@ -1719,8 +1772,7 @@ function SidePanel() {
       const discoverySummary = result.discoverySummary;
       if (groups.length > 0) {
         setFacebookGroupMessage(
-          discoverySummary ? `${discoverySummary}. ${selectedIds.length}/${countSelectableFacebookGroups(groups)} eligible Facebook group(s) selected.`
-            : `${selectedIds.length}/${countSelectableFacebookGroups(groups)} eligible Facebook group(s) selected.`,
+          buildFacebookGroupSelectionMessage(selectedIds, groups, discoverySummary),
         );
       } else {
         setFacebookGroupMessage('No Facebook groups are configured for this account yet.');
@@ -1795,13 +1847,12 @@ function SidePanel() {
     const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken));
     setFacebookGroups(groups);
     const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
-    const selectableCount = countSelectableFacebookGroups(groups);
 
     if (shouldReport) {
       setFacebookGroupLoadState('READY');
       setFacebookGroupMessage(
         groups.length > 0
-          ? `${discoverySummary ? `${discoverySummary}. ` : ''}${selectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`
+          ? buildFacebookGroupSelectionMessage(selectedIds, groups, discoverySummary)
           : 'No Facebook groups are configured for this account yet.',
       );
     }
@@ -2266,7 +2317,7 @@ function SidePanel() {
 
           if (channelsRef.current.includes('FACEBOOK')) {
             setFacebookGroupLoadState('READY');
-            setFacebookGroupMessage(`${nextSelectedIds.length}/${countSelectableFacebookGroups(groups)} eligible Facebook group(s) selected.`);
+            setFacebookGroupMessage(buildFacebookGroupSelectionMessage(nextSelectedIds, groups));
           }
         } catch (err) {
           if (err instanceof ApiClientError && err.status === 401) {
@@ -2352,9 +2403,8 @@ function SidePanel() {
       setFacebookSettingsMessage(`Added "${savedGroup.targetName}". Click Check before using it for publishing.`);
 
       if (selectedPostingChannels.includes('FACEBOOK')) {
-        const selectableCount = countSelectableFacebookGroups(groups);
         setFacebookGroupLoadState('READY');
-        setFacebookGroupMessage(`${nextSelectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`);
+        setFacebookGroupMessage(buildFacebookGroupSelectionMessage(nextSelectedIds, groups));
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -2421,9 +2471,8 @@ function SidePanel() {
       setFacebookSettingsMessage(`Saved "${savedGroup.targetName}". Click Check before using it for publishing.`);
 
       if (selectedPostingChannels.includes('FACEBOOK')) {
-        const selectableCount = countSelectableFacebookGroups(groups);
         setFacebookGroupLoadState('READY');
-        setFacebookGroupMessage(`${nextSelectedIds.length}/${selectableCount} eligible Facebook group(s) selected.`);
+        setFacebookGroupMessage(buildFacebookGroupSelectionMessage(nextSelectedIds, groups));
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -2466,7 +2515,7 @@ function SidePanel() {
         setFacebookGroupLoadState('READY');
         setFacebookGroupMessage(
           groups.length > 0
-            ? `${nextSelectedIds.length}/${countSelectableFacebookGroups(groups)} eligible Facebook group(s) selected.`
+            ? buildFacebookGroupSelectionMessage(nextSelectedIds, groups)
             : 'No Facebook groups are configured for this account yet.',
         );
       }
@@ -3242,6 +3291,7 @@ function SidePanel() {
 
   function renderFacebookContentPanel() {
     if (!facebookSelected) return null;
+    if (!selectedJobDescription) return null;
 
     const effectiveContent = getEffectiveFacebookContent();
     const canGenerate = Boolean(token && snapshot) && !facebookContentBusy;
@@ -3587,7 +3637,7 @@ function SidePanel() {
                       <div className="channel-subselection-list">
                         {visibleFacebookGroups.length > 0 ? (
                           <p className="channel-subselection-summary">
-                            {selectedFacebookGroupIds.length}/{visibleFacebookGroups.length} nhóm Facebook đã được chọn
+                            {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook hợp lệ đã được chọn
                           </p>
                         ) : null}
                         {facebookGroupMessage ? (
@@ -3634,7 +3684,7 @@ function SidePanel() {
                           ))
                         ) : (
                           facebookGroupLoadState === 'READY'
-                            ? <p className="channel-subselection-empty">No Facebook groups are available.</p>
+                            ? <p className="channel-subselection-empty">No valid IT recruitment Facebook groups are available.</p>
                             : null
                         )}
                       </div>
@@ -4499,8 +4549,8 @@ function SidePanel() {
                 <p className="muted-text">Đang tải danh sách nhóm từ backend...</p>
               ) : (
                 <div className="facebook-group-list">
-                  {facebookGroups.length > 0 ? (
-                    facebookGroups.map((group) => {
+                  {validFacebookGroups.length > 0 ? (
+                    validFacebookGroups.map((group) => {
                       const isGroupChecking = Boolean(group.targetId && verifyingFacebookGroupIds.includes(group.targetId));
                       const isGroupQueued = Boolean(group.targetId && queuedFacebookGroupIds.includes(group.targetId));
                       const groupStatusMessage = isGroupChecking
@@ -4583,8 +4633,8 @@ function SidePanel() {
                     })
                   ) : (
                     <div className="facebook-group-empty">
-                      <strong>Chưa có nhóm nào</strong>
-                      <p>Danh sách này chỉ lấy từ backend cho tài khoản HR hiện tại.</p>
+                      <strong>Chưa có nhóm hợp lệ</strong>
+                      <p>Danh sách chỉ hiển thị nhóm pass regex tuyển dụng IT.</p>
                       {!isFacebookGroupFormOpen ? (
                         <button
                           type="button"
@@ -4640,9 +4690,9 @@ function SidePanel() {
                       onClick={() => {
                         setIsFacebookGroupFormOpen(false);
                         setFacebookGroupUrlError(null);
-                        setFacebookSettingsMessage(facebookGroups.length > 0
+                        setFacebookSettingsMessage(validFacebookGroups.length > 0
                           ? null
-                          : 'Chưa có nhóm Facebook nào được cấu hình cho tài khoản này.');
+                          : 'Chưa có nhóm Facebook nào pass regex tuyển dụng IT.');
                         setFacebookSettingsState('READY');
                       }}
                     >
@@ -4933,7 +4983,7 @@ function getJobDescriptionStatusBadge(jobDescription: JobDescriptionSummary) {
   return { label: 'Công khai', className: 'status-badge-success' };
 }
 
-function toFacebookGroupUiItem(group: FacebookPublishTarget) {
+function toFacebookGroupUiItem(group: FacebookPublishTarget): FacebookGroupUiItem {
   return {
     key: group.targetId ?? group.targetExternalId ?? group.targetUrl ?? group.targetName,
     id: group.targetId ?? null,
@@ -5011,8 +5061,50 @@ function isSelectableFacebookGroup(group: FacebookPublishTarget) {
   );
 }
 
-function countSelectableFacebookGroups(groups: FacebookPublishTarget[]) {
-  return groups.filter(isSelectableFacebookGroup).length;
+function isItRecruitmentFacebookGroup(group: FacebookPublishTarget) {
+  return isItRecruitmentFacebookGroupName(group.targetName);
+}
+
+function isPublishableFacebookGroup(group: FacebookPublishTarget) {
+  return isItRecruitmentFacebookGroup(group) && isSelectableFacebookGroup(group);
+}
+
+function countItRecruitmentFacebookGroups(groups: FacebookPublishTarget[]) {
+  return groups.filter(isItRecruitmentFacebookGroup).length;
+}
+
+function isItRecruitmentFacebookGroupUiItem(group: FacebookGroupUiItem) {
+  return isItRecruitmentFacebookGroupName(group.name);
+}
+
+function isItRecruitmentFacebookGroupName(value: string) {
+  return IT_RECRUITMENT_GROUP_REGEX.test(normalizeTextForFacebookGroupRegex(value));
+}
+
+function normalizeTextForFacebookGroupRegex(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'D')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function buildFacebookGroupSelectionMessage(
+  selectedIds: string[],
+  groups: FacebookPublishTarget[],
+  prefix?: string | null,
+) {
+  const validCount = countItRecruitmentFacebookGroups(groups);
+  const validGroupIds = new Set(groups.filter(isItRecruitmentFacebookGroup).map((group) => group.targetId).filter(isString));
+  const selectedValidCount = uniqueStrings(selectedIds).filter((targetId) => validGroupIds.has(targetId)).length;
+  const message = validCount > 0
+    ? `${selectedValidCount}/${validCount} valid IT Facebook group(s) selected.`
+    : 'No valid IT recruitment Facebook groups are available.';
+
+  return prefix ? `${prefix}. ${message}` : message;
 }
 
 function getFacebookEligibilityLabel(status?: FacebookPublishTargetEligibilityStatus | null) {
@@ -5363,11 +5455,15 @@ function uniqueDiscoveredGroups(groups: DiscoveredFacebookGroupItem[]) {
 
 function buildFacebookGroupDiscoverMessage(result: DiscoverFacebookGroupsResponse) {
   const parts: string[] = [];
+  const filtered = result.filtered ?? 0;
+  const duplicates = result.duplicates ?? 0;
   if (result.created > 0) parts.push(`đã tạo ${result.created}`);
   if (result.updated > 0) parts.push(`đã cập nhật ${result.updated}`);
   if (result.reactivated > 0) parts.push(`đã kích hoạt lại ${result.reactivated}`);
-  if (result.skipped > 0) parts.push(`bỏ qua ${result.skipped}`);
-  if (result.duplicates > 0) parts.push(`trùng ${result.duplicates}`);
+  if (filtered > 0) parts.push(`lọc ${filtered} nhóm không phù hợp`);
+  const otherSkipped = Math.max(0, result.skipped - filtered - duplicates);
+  if (otherSkipped > 0) parts.push(`bỏ qua ${otherSkipped}`);
+  if (duplicates > 0) parts.push(`trùng ${duplicates}`);
   if (result.conflicts > 0) parts.push(`trùng lặp DB ${result.conflicts}`);
   const summary = parts.length > 0 ? parts.join(', ') : 'không có thay đổi mới';
   const issueText = result.errors.length > 0 ? ` Có ${result.errors.length} lỗi cần kiểm tra.` : '';
@@ -6549,6 +6645,25 @@ function isLikelyAmisRecruitmentPage(url: string) {
       || target.includes('tuyen-dung');
   } catch {
     return false;
+  }
+}
+
+function isAmisJobInitiationPage(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.hostname.toLowerCase() === 'amisapp.misa.vn'
+      && parsedUrl.pathname.toLowerCase().includes('/job/initiation');
+  } catch {
+    return false;
+  }
+}
+
+function normalizeAmisJobInitiationUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    return `${parsedUrl.origin}${parsedUrl.pathname}`.toLowerCase();
+  } catch {
+    return url.trim().toLowerCase();
   }
 }
 

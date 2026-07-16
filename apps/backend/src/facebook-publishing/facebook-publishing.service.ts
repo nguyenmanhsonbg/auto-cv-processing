@@ -39,6 +39,9 @@ interface GenerateFacebookPreviewContentInput {
 
 @Injectable()
 export class FacebookPublishingService {
+  private readonly IT_RECRUITMENT_GROUP_REGEX =
+    /\b(tuyen\s*dung|viec\s*lam|recruitment|jobs?|it|cntt|dev(eloper)?|tester|cong\s*nghe\s*thong\s*tin|tech(nology)?|engineer|frontend|backend|fullstack|react|node|java(script)?|type\s*script|comtor|ba|brse|lap\s*trinh|coder|qa|qc)\b/i;
+
   constructor(
     @InjectRepository(FacebookPublishTargetEntity)
     private readonly targetsRepo: Repository<FacebookPublishTargetEntity>,
@@ -157,6 +160,7 @@ export class FacebookPublishingService {
       updated: 0,
       reactivated: 0,
       duplicates: 0,
+      filtered: 0,
       skipped: 0,
       conflicts: 0,
       errors: [],
@@ -170,6 +174,20 @@ export class FacebookPublishingService {
         const groupUrl = this.normalizeFacebookGroupUrl(rawItem.targetUrl);
 
         if (!groupUrl.externalId) continue;
+        if (!this.isItRecruitmentFacebookGroupName(name)) {
+          result.filtered += 1;
+          result.skipped += 1;
+          result.items.push({
+            action: 'skipped',
+            targetName: name,
+            targetUrl: groupUrl.url,
+            targetExternalId: groupUrl.externalId,
+            targetId: null,
+            reason: 'Group name does not match IT recruitment keywords.',
+          });
+          continue;
+        }
+
         if (uniqueGroups.has(groupUrl.externalId)) {
           result.duplicates += 1;
           result.skipped += 1;
@@ -950,6 +968,21 @@ export class FacebookPublishingService {
     }
 
     return normalizedValue;
+  }
+
+  private isItRecruitmentFacebookGroupName(value: string) {
+    return this.IT_RECRUITMENT_GROUP_REGEX.test(this.normalizeTextForSearch(value));
+  }
+
+  private normalizeTextForSearch(value: string) {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\u0111/g, 'd')
+      .replace(/\u0110/g, 'D')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
   }
 
   private decodeUrlPathSegment(value: string) {
