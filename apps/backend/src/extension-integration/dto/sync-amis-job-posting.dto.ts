@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayNotEmpty,
   IsArray,
   IsDateString,
   IsDefined,
@@ -167,9 +166,12 @@ export class SyncAmisJobPostingDto {
   @Type(() => AmisJobSnapshotDto)
   snapshot: AmisJobSnapshotDto;
 
-  @ApiProperty({ enum: EXTENSION_SYNC_CHANNELS, isArray: true })
+  @ApiProperty({
+    enum: EXTENSION_SYNC_CHANNELS,
+    isArray: true,
+    description: 'Requested publish channels. Empty input defaults to VCS_PORTAL.',
+  })
   @IsArray()
-  @ArrayNotEmpty()
   @IsIn([...EXTENSION_SYNC_CHANNELS], { each: true })
   channels: ExtensionSyncChannel[];
 

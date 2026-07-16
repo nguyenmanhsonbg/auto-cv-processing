@@ -21,9 +21,12 @@ export const CHANNELS = [
 ] as const;
 
 export const POSTING_CHANNELS = [
+  'VCS_PORTAL',
   'FACEBOOK',
   'TOPCV',
+  'ITVIEC',
+  'VIETNAMWORKS',
   'LINKEDIN',
 ] as const satisfies readonly ExtensionChannel[];
 
-export const DEFAULT_POSTING_CHANNELS: ExtensionChannel[] = ['TOPCV'];
+export const DEFAULT_POSTING_CHANNELS: ExtensionChannel[] = ['VCS_PORTAL'];

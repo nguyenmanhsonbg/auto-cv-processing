@@ -4935,11 +4935,15 @@ function withFacebookHistoryGroupFallback(
 
 function normalizePostingChannels(channels: ExtensionChannel[]) {
   const seen = new Set<ExtensionChannel>();
-  return channels.filter((channel) => {
+  const normalized = channels.filter((channel) => {
     if (!POSTING_CHANNEL_SET.has(channel) || seen.has(channel)) return false;
     seen.add(channel);
     return true;
   });
+
+  return normalized.length > 0
+    ? normalized
+    : [...DEFAULT_POSTING_CHANNELS];
 }
 
 function formatChannelLabel(channel: ExtensionChannel) {

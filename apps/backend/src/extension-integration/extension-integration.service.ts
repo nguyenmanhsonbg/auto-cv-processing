@@ -843,7 +843,7 @@ export class ExtensionIntegrationService {
       });
     }
 
-    const channels = [...new Set(dto.channels)];
+    const channels = this.normalizePublishChannels(dto.channels);
 
     return {
       ...dto,
@@ -870,6 +870,22 @@ export class ExtensionIntegrationService {
       selectedQuestionIds: this.normalizeSelectedQuestionIds(dto.selectedQuestionIds),
       metadata: this.safeMetadata(dto.metadata),
     };
+  }
+
+  private normalizePublishChannels(channels?: ExtensionSyncChannel[]): ExtensionSyncChannel[] {
+    const portalChannel: ExtensionSyncChannel = RecruitmentChannel.VCS_PORTAL;
+    const deduped: ExtensionSyncChannel[] = [];
+    const seen = new Set<ExtensionSyncChannel>();
+
+    for (const channel of Array.isArray(channels) ? channels : []) {
+      if (seen.has(channel)) continue;
+      seen.add(channel);
+      deduped.push(channel);
+    }
+
+    return seen.has(portalChannel)
+      ? deduped
+      : [portalChannel, ...deduped];
   }
 
   private normalizeSelectedQuestionIds(value?: string[]) {

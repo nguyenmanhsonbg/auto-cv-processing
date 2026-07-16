@@ -10,7 +10,7 @@ export async function getSelectedChannels(): Promise<ExtensionChannel[]> {
   if (!isExtensionChannelArray(channels)) return [...DEFAULT_POSTING_CHANNELS];
 
   const sanitizedChannels = sanitizeSelectedChannels(channels);
-  return sanitizedChannels.length > 0 || channels.length === 0
+  return sanitizedChannels.length > 0
     ? sanitizedChannels
     : [...DEFAULT_POSTING_CHANNELS];
 }
