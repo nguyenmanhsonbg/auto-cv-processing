@@ -1,6 +1,7 @@
 import { ApiClientError, reportFacebookPublishResult } from './api-client';
 import { getAccessToken } from './auth-store';
 import { summarizeFacebookPublishResults } from './facebook-channel-status';
+import { FACEBOOK_MAX_IMAGE_ATTACHMENTS } from './config';
 import {
   buildFacebookGroupPostUrl,
   parseFacebookGroupPostUrl,
@@ -1000,7 +1001,7 @@ async function reportAllTargetsFailed(
 function getFacebookPublishImageAttachments(plan: FacebookPublishPlan): FacebookPublishImageAttachment[] {
   return plan.attachments?.filter((attachment): attachment is FacebookPublishImageAttachment => (
     attachment.type === 'IMAGE'
-  )) ?? [];
+  )).slice(0, FACEBOOK_MAX_IMAGE_ATTACHMENTS) ?? [];
 }
 
 async function reportFacebookPublishResultSafely(

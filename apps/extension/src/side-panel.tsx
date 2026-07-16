@@ -32,7 +32,11 @@ import {
 } from './api-client';
 import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChanges } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
-import { DEFAULT_POSTING_CHANNELS, POSTING_CHANNELS } from './config';
+import {
+  DEFAULT_POSTING_CHANNELS,
+  FACEBOOK_MAX_IMAGE_ATTACHMENTS,
+  POSTING_CHANNELS,
+} from './config';
 import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
 import {
   buildFacebookDraftSnapshotFingerprint,
@@ -122,7 +126,6 @@ type FacebookImageAttachmentState = 'IDLE' | 'READING' | 'READY' | 'ERROR';
 
 const FACEBOOK_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
 const FACEBOOK_IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
-const FACEBOOK_IMAGE_MAX_COUNT = 2;
 const FACEBOOK_IMAGE_ALLOWED_TYPES = new Set(FACEBOOK_IMAGE_ACCEPT.split(','));
 type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 
@@ -548,7 +551,7 @@ function SidePanel() {
   const isFacebookImageReading = facebookImageAttachmentState === 'READING';
   const hasFacebookImageAttachmentError = facebookImageAttachmentState === 'ERROR';
   const facebookImageUploadDisabled = facebookRunning || state === 'SYNCING' || isFacebookImageReading;
-  const facebookImageAddDisabled = facebookImageUploadDisabled || facebookImageAttachments.length >= FACEBOOK_IMAGE_MAX_COUNT;
+  const facebookImageAddDisabled = facebookImageUploadDisabled || facebookImageAttachments.length >= FACEBOOK_MAX_IMAGE_ATTACHMENTS;
   const syncDisabled = state === 'EXTRACTING'
     || state === 'SYNCING'
     || facebookRunning
@@ -669,9 +672,9 @@ function SidePanel() {
     event.target.value = '';
     if (!file) return;
 
-    if (facebookImageAttachments.length >= FACEBOOK_IMAGE_MAX_COUNT) {
+    if (facebookImageAttachments.length >= FACEBOOK_MAX_IMAGE_ATTACHMENTS) {
       setFacebookImageAttachmentState('ERROR');
-      setFacebookImageAttachmentError(`Bài đăng chỉ được tối đa ${FACEBOOK_IMAGE_MAX_COUNT} ảnh.`);
+      setFacebookImageAttachmentError(`Bài đăng chỉ được tối đa ${FACEBOOK_MAX_IMAGE_ATTACHMENTS} ảnh.`);
       return;
     }
 
@@ -801,7 +804,7 @@ function SidePanel() {
     try {
       const attachments = await getFacebookImageAttachments(scope);
       if (facebookImageRestoreSeqRef.current !== restoreSeq) return;
-      setFacebookImageAttachments(attachments.slice(0, FACEBOOK_IMAGE_MAX_COUNT));
+      setFacebookImageAttachments(attachments.slice(0, FACEBOOK_MAX_IMAGE_ATTACHMENTS));
       setFacebookImageAttachmentState(attachments.length > 0 ? 'READY' : 'IDLE');
       setFacebookImageAttachmentError(null);
     } catch (err) {
@@ -3665,7 +3668,7 @@ function SidePanel() {
                   <ImageFrameIcon />
                   <strong>Hình ảnh</strong>
                 </div>
-                <span>{imageCount}/5 ảnh</span>
+                <span>{imageCount}/{FACEBOOK_MAX_IMAGE_ATTACHMENTS} ảnh</span>
               </div>
               <div className="facebook-composer-image-library">
                 <div className="facebook-composer-library-header">
