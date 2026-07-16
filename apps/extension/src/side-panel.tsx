@@ -151,7 +151,7 @@ interface FacebookGroupSyncDetailItem {
 }
 
 interface FacebookGroupSyncDetails {
-  added: Array<{ name: string; externalId: string | null }>;
+  accepted: FacebookGroupSyncDetailItem[];
   removed: Array<{ name: string; externalId: string | null }>;
   reactivated: Array<{ name: string; externalId: string | null }>;
   filtered: FacebookGroupSyncDetailItem[];
@@ -3687,10 +3687,11 @@ function SidePanel() {
                           className="secondary-button compact-button channel-sync-button"
                           title="Đồng bộ danh sách nhóm Facebook"
                           aria-label="Đồng bộ danh sách nhóm Facebook"
+                          aria-busy={isFacebookLoading}
                           disabled={!token || isFacebookLoading}
                           onClick={() => void handleSyncFacebookGroups()}
                         >
-                          Sync
+                          {isFacebookLoading ? 'Syncing...' : 'Sync'}
                         </button>
                       ) : null}
                       {isFacebookChannel ? (
@@ -3723,7 +3724,7 @@ function SidePanel() {
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
                             <span>{facebookGroupMessage}</span>
                             {facebookGroupSyncDetails && (
-                              facebookGroupSyncDetails.added.length > 0
+                              facebookGroupSyncDetails.accepted.length > 0
                               || facebookGroupSyncDetails.removed.length > 0
                               || facebookGroupSyncDetails.reactivated.length > 0
                               || facebookGroupSyncDetails.filtered.length > 0
@@ -4974,11 +4975,14 @@ function SidePanel() {
             </header>
             <div className="modal-body facebook-group-sync-details-body">
               <div className="facebook-group-sync-details-list">
-                {facebookGroupSyncDetails.added.length > 0 ? (
+                {facebookGroupSyncDetails.accepted.length > 0 ? (
                   <div className="facebook-group-sync-detail-section">
-                    <strong>Nhóm mới ({facebookGroupSyncDetails.added.length})</strong>
-                    {facebookGroupSyncDetails.added.map((group, index) => (
-                      <p key={`added-${group.externalId ?? group.name}-${index}`}>{group.name}</p>
+                    <strong>Nhóm hợp lệ/đã đồng bộ ({facebookGroupSyncDetails.accepted.length})</strong>
+                    {facebookGroupSyncDetails.accepted.map((group, index) => (
+                      <div className="facebook-group-sync-detail-item" key={`accepted-${group.externalId ?? group.name}-${index}`}>
+                        <p>{group.name}</p>
+                        {group.reason ? <span>{group.reason}</span> : null}
+                      </div>
                     ))}
                   </div>
                 ) : null}
@@ -5640,9 +5644,17 @@ function buildFacebookGroupDiscoverMessage(result: DiscoverFacebookGroupsRespons
 }
 
 function buildFacebookGroupSyncDetails(result: DiscoverFacebookGroupsResponse): FacebookGroupSyncDetails | null {
-  const added = result.items
-    .filter((item) => item.action === 'created')
-    .map((item) => ({ name: item.targetName, externalId: item.targetExternalId }));
+  const accepted = result.items
+    .filter((item) => item.action === 'created' || item.action === 'updated' || item.action === 'reused')
+    .map((item) => ({
+      name: item.targetName,
+      externalId: item.targetExternalId,
+      reason: item.action === 'created'
+        ? 'Đã thêm mới.'
+        : item.action === 'updated'
+          ? 'Đã cập nhật.'
+          : 'Đã có sẵn trong hệ thống.',
+    }));
   const removed = result.items
     .filter((item) => item.action === 'deactivated')
     .map((item) => ({ name: item.targetName, externalId: item.targetExternalId }));
@@ -5667,14 +5679,14 @@ function buildFacebookGroupSyncDetails(result: DiscoverFacebookGroupsResponse): 
   const errors = result.errors ?? [];
 
   if (
-    added.length === 0
+    accepted.length === 0
     && removed.length === 0
     && reactivated.length === 0
     && filtered.length === 0
     && skipped.length === 0
     && errors.length === 0
   ) return null;
-  return { added, removed, reactivated, filtered, skipped, errors };
+  return { accepted, removed, reactivated, filtered, skipped, errors };
 }
 
 async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunResult> {
