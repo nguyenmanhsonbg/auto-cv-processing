@@ -11,6 +11,7 @@ import {
   discoverFacebookGroups,
   deleteFacebookGroup,
   downloadCleanCvFile,
+  getApplicationAiMatchPreview,
   ensureRegisteredExtensionInstance,
   getAmisApplicationsForRecruitment,
   getCurrentUser,
@@ -29,6 +30,7 @@ import {
   updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
 } from './api-client';
+import { createAiEvaluationPdf } from './ai-evaluation-pdf';
 import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChanges } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import { DEFAULT_POSTING_CHANNELS, POSTING_CHANNELS } from './config';
@@ -91,7 +93,7 @@ type CvSortMode = 'SCORE_DESC' | 'SCORE_ASC' | 'APPLIED_DESC' | 'APPLIED_ASC';
 type FacebookPostHistoryFilter = 'ALL' | FacebookReviewStatus;
 type FacebookPostHistoryLoadState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type FacebookContentState = 'IDLE' | 'GENERATING' | 'READY' | 'ERROR';
-type FacebookContentSource = 'EMPTY' | 'DEFAULT' | 'AI' | 'CUSTOM';
+type FacebookContentSource = 'EMPTY' | 'DEFAULT' | 'AI' | 'TEMPLATE' | 'CUSTOM';
 type FacebookContentDraftScope = {
   tabId?: number | null;
   pageUrl?: string | null;
@@ -291,8 +293,10 @@ function SidePanel() {
   const [selectedJobQuestionIds, setSelectedJobQuestionIds] = useState<Set<string>>(new Set());
   const [applicationsState, setApplicationsState] = useState<ApplicationsState>('IDLE');
   const [applicationsContext, setApplicationsContext] = useState<AmisApplicationsForRecruitment | null>(null);
+  const [activeAmisCandidateId, setActiveAmisCandidateId] = useState<string | null>(null);
   const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
   const [cvUploadApplicationId, setCvUploadApplicationId] = useState<string | null>(null);
+  const [aiEvaluationApplicationId, setAiEvaluationApplicationId] = useState<string | null>(null);
   const [selectedCvApplicationIds, setSelectedCvApplicationIds] = useState<Set<string>>(new Set());
   const [cvStatusFilter, setCvStatusFilter] = useState<CvStatusFilter>('ALL');
   const [cvSyncFilter, setCvSyncFilter] = useState<CvSyncFilter>('ALL');
@@ -752,6 +756,7 @@ function SidePanel() {
     try {
       let content = '';
       let generatedFromPublishPlan = false;
+      let contentMode: 'AI' | 'TEMPLATE' = 'AI';
 
       if (amisRecruitmentId) {
         const payload = buildAmisJobPostingPayload({
@@ -775,10 +780,11 @@ function SidePanel() {
       if (!content) {
         const response = await generateFacebookPreviewContent(token, {
           snapshot: sourceSnapshot,
-          mode: 'TEMPLATE',
+          mode: 'AI',
         });
         if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
         content = response.content.trim();
+        contentMode = response.mode === 'AI' ? 'AI' : 'TEMPLATE';
       }
 
       if (!content) {
@@ -786,7 +792,7 @@ function SidePanel() {
       }
       setFacebookContent(content);
       facebookContentRef.current = content;
-      facebookContentSourceRef.current = 'AI';
+      facebookContentSourceRef.current = contentMode;
       facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, sourceSnapshot);
       facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(sourceSnapshot);
       facebookContentJobIdentityRef.current = buildFacebookJobIdentity(sourceSnapshot);
@@ -801,7 +807,7 @@ function SidePanel() {
       );
       await persistFacebookContentDraft({
         content,
-        source: 'AI',
+        source: contentMode,
         recruitmentId: amisRecruitmentId,
         ...draftScope,
         snapshot: sourceSnapshot,
@@ -1069,6 +1075,7 @@ function SidePanel() {
       if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
         lastAmisJobInitiationResetKeyRef.current = null;
         missedRecruitmentContextCountRef.current = 0;
+        setActiveAmisCandidateId(null);
         setActiveAmisRecruitmentContext(null, null);
         return;
       }
@@ -1076,12 +1083,14 @@ function SidePanel() {
       if (isAmisJobInitiationPage(activeTab.url)) {
         missedRecruitmentContextCountRef.current = 0;
         await resetSelectedJobDescriptionForAmisJobInitiation(activeTab);
+        setActiveAmisCandidateId(null);
         setActiveAmisRecruitmentContext(null, null);
         return;
       }
 
       lastAmisJobInitiationResetKeyRef.current = null;
       const context = parseAmisRecruitmentContextFromUrl(activeTab.url);
+      setActiveAmisCandidateId(context.amisCandidateId);
       let pageKind: string | null = null;
       if (!context.amisRecruitmentId) {
         const pageContext = await sendMessageToAmisTab(activeTab.id, {
@@ -1222,6 +1231,47 @@ function SidePanel() {
 
   async function uploadApplicationCvToAmisForm(application: AmisApplicationsForRecruitment['applications'][number]) {
     await uploadApplicationCvsToAmisForm([application]);
+  }
+
+  async function uploadAiEvaluationToAmis(application: AmisApplicationsForRecruitment['applications'][number]) {
+    if (!token) return;
+    setAiEvaluationApplicationId(application.applicationId);
+    setApplicationsMessage(null);
+    try {
+      const activeTab = await getActiveTab();
+      if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+        throw new Error('Open the AMIS candidate documents tab first.');
+      }
+      const detail = await getApplicationAiMatchPreview(token, application.applicationId);
+      const pdfBytes = createAiEvaluationPdf(detail);
+      const response = await sendMessageToAmisTab(activeTab.id, {
+        type: UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
+        payload: {
+          files: [{
+            fileName: `ai-evaluation-${application.candidateName || 'candidate'}.pdf`,
+            mimeType: 'application/pdf',
+            dataBase64: arrayBufferToBase64(pdfBytes),
+          }],
+        },
+      });
+      if (!isUploadAmisCvFileResponse(response) || !response.ok) {
+        throw new Error(isUploadAmisCvFileResponse(response)
+          ? response.error ?? 'AMIS did not accept the AI evaluation PDF.'
+          : 'AMIS tab did not confirm AI evaluation upload.');
+      }
+      setApplicationsMessage('Đã tạo PDF đánh giá AI và đưa vào form Tài liệu AMIS.');
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+      setApplicationsMessage(toErrorMessage(err));
+    } finally {
+      setAiEvaluationApplicationId(null);
+    }
   }
 
   async function uploadApplicationCvsToAmisForm(applications: AmisApplicationsForRecruitment['applications']) {
@@ -4107,7 +4157,10 @@ function SidePanel() {
   function renderCvCandidateListPanel() {
     const applications = applicationsContext?.applications ?? [];
     const stats = getCvOverviewStats(applications);
-    const filteredApplications = getVisibleCvApplications(applications, cvStatusFilter, cvSyncFilter, cvSortMode);
+    const applicationsForCurrentAmisCandidate = activeAmisCandidateId
+      ? applications.filter((application) => application.amisCandidateId === activeAmisCandidateId)
+      : applications;
+    const filteredApplications = getVisibleCvApplications(applicationsForCurrentAmisCandidate, cvStatusFilter, cvSyncFilter, cvSortMode);
     const totalPages = Math.max(1, Math.ceil(filteredApplications.length / CV_APPLICATION_PAGE_SIZE));
     const currentPage = Math.min(cvApplicationPage, totalPages);
     const pageStartIndex = (currentPage - 1) * CV_APPLICATION_PAGE_SIZE;
@@ -4242,6 +4295,14 @@ function SidePanel() {
                       </span>
                     </div>
                     <div className="cv-candidate-footer">
+                      <button
+                        type="button"
+                        className="cv-sync-amis-button"
+                        disabled={Boolean(aiEvaluationApplicationId)}
+                        onClick={() => void uploadAiEvaluationToAmis(application)}
+                      >
+                        {aiEvaluationApplicationId === application.applicationId ? 'Đang tạo PDF...' : 'Tải đánh giá AI'}
+                      </button>
                       <button
                         type="button"
                         className="cv-sync-amis-button"
@@ -6684,21 +6745,28 @@ function parseAmisRecruitmentContextFromUrl(url: string) {
       ?? parsedUrl.searchParams.get('id');
     const queryRoundId = parsedUrl.searchParams.get('recruitmentRoundID')
       ?? parsedUrl.searchParams.get('RecruitmentRoundID')
-      ?? parsedUrl.searchParams.get('recruitmentRoundId');
+      ?? parsedUrl.searchParams.get('recruitmentRoundId')
+      ?? parsedUrl.searchParams.get('roundID')
+      ?? parsedUrl.searchParams.get('RoundID')
+      ?? parsedUrl.searchParams.get('roundId');
 
     return {
       amisRecruitmentId: candidatePathMatch?.[1]
-        ?? queryRecruitmentId
         ?? jobDetailPathMatch?.[1]
+        ?? queryRecruitmentId
         ?? genericRecruitmentMatch?.[1]
         ?? null,
       amisRecruitmentRoundId: queryRoundId,
+      amisCandidateId: jobDetailPathMatch
+        ? parsedUrl.searchParams.get('id')
+        : null,
       sourceUrl: candidatePathMatch?.[1] ? url : null,
     };
   } catch {
     return {
       amisRecruitmentId: null,
       amisRecruitmentRoundId: null,
+      amisCandidateId: null,
       sourceUrl: null,
     };
   }

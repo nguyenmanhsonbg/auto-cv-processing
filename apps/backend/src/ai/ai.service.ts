@@ -176,6 +176,16 @@ export class AiService {
     this.logger.log('AI prompt cache cleared');
   }
 
+  async generateFacebookRecruitmentContent(input: Record<string, unknown>): Promise<string> {
+    const { systemPrompt } = await this.getSystemPrompt('vcs_facebook_recruitment_content_generator');
+    const promptTemplate = PROMPT_DEFAULTS.vcs_facebook_recruitment_content_generator.userPromptTemplate
+      ?? 'Job description input:\n{{JD_INPUT}}';
+    const userPrompt = promptTemplate.replace('{{JD_INPUT}}', JSON.stringify(input, null, 2));
+
+    const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
+    return text.trim();
+  }
+
   // Temporarily disabled while AI generation is routed through Gemini.
   //
   // private async callClaude(

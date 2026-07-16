@@ -608,6 +608,7 @@ export interface SyncVcsPortalJdsResponse {
 export interface AmisApplicationListItem {
   applicationId: string;
   candidateId: string;
+  amisCandidateId: string | null;
   candidateName: string;
   email: string | null;
   mobile: string | null;

@@ -1375,6 +1375,7 @@ export class ExtensionIntegrationService {
           context,
           lastSyncedAt,
         );
+        result.applicationSource.amisCandidateId = item.candidateId;
         await this.dataSource.getRepository(ApplicationSourceEntity).save(result.applicationSource);
       }
     }
@@ -1414,6 +1415,7 @@ export class ExtensionIntegrationService {
         return {
           applicationId: application.id,
           candidateId: application.candidateId,
+          amisCandidateId: source?.amisCandidateId ?? null,
           candidateName: application.candidate?.name ?? '',
           email: application.candidate?.email ?? null,
           mobile: application.candidate?.phone ?? null,

@@ -337,6 +337,16 @@ export async function downloadCleanCvFile(
   };
 }
 
+export async function getApplicationAiMatchPreview(
+  accessToken: string,
+  applicationId: string,
+) {
+  return request<Record<string, unknown>>(`/applications/${encodeURIComponent(applicationId)}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function listAmisCareers(accessToken: string) {
   return request<AmisCareerCatalogItem[]>('/extension/amis/careers', {
     method: 'GET',

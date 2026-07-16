@@ -229,15 +229,15 @@ export class ExtensionFacebookController {
     @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
     await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
-    const content = this.facebookPublishingService.generateExtensionPreviewContent({
+    const result = await this.facebookPublishingService.generateExtensionPreviewContent({
       snapshot: dto.snapshot,
     });
 
     return {
       success: true,
       data: {
-        content,
-        mode: dto.mode ?? 'TEMPLATE',
+        content: result.content,
+        mode: result.mode,
       },
       meta: {
         timestamp: new Date().toISOString(),
