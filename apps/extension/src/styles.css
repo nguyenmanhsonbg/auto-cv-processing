@@ -3852,6 +3852,19 @@ dd {
   object-fit: cover;
 }
 
+.facebook-preview-image-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 42px);
+  gap: 4px;
+  width: 88px;
+  min-width: 0;
+}
+
+.facebook-preview-image-grid img {
+  width: 42px;
+  height: 42px;
+}
+
 .facebook-preview-copy {
   display: grid;
   min-width: 0;
@@ -4065,7 +4078,20 @@ dd {
   object-fit: cover;
 }
 
-.facebook-post-preview-image div {
+.facebook-post-preview-image-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  height: 100%;
+  gap: 2px;
+}
+
+.facebook-post-preview-image-grid img {
+  min-width: 0;
+  min-height: 220px;
+}
+
+.facebook-post-preview-image > div:not(.facebook-post-preview-image-grid) {
   display: grid;
   gap: 8px;
   max-width: 80%;

@@ -41,6 +41,15 @@ import {
   saveFacebookContentDraft as persistFacebookContentDraft,
 } from './facebook-content-draft-store';
 import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
+import {
+  beginFacebookImagePublish,
+  getFacebookImageAttachments,
+  removeFacebookImageAttachments,
+  saveFacebookImageAttachments,
+  syncFacebookImagePublishStatuses,
+  updateFacebookImagePublishTargetStatus,
+  type FacebookImageAttachmentScope,
+} from './facebook-image-attachment-store';
 import { getValidFacebookGroupPostUrl } from './facebook-post-url';
 import {
   ensureFacebookSession,
@@ -113,6 +122,7 @@ type FacebookImageAttachmentState = 'IDLE' | 'READING' | 'READY' | 'ERROR';
 
 const FACEBOOK_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
 const FACEBOOK_IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+const FACEBOOK_IMAGE_MAX_COUNT = 2;
 const FACEBOOK_IMAGE_ALLOWED_TYPES = new Set(FACEBOOK_IMAGE_ACCEPT.split(','));
 type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 
@@ -258,7 +268,7 @@ function SidePanel() {
   const [facebookContentMessage, setFacebookContentMessage] = useState<string | null>(null);
   const [facebookPreviewModalMode, setFacebookPreviewModalMode] = useState<FacebookPreviewModalMode | null>(null);
   const [facebookContentDraft, setFacebookContentDraft] = useState('');
-  const [facebookImageAttachment, setFacebookImageAttachment] = useState<FacebookPublishAttachment | null>(null);
+  const [facebookImageAttachments, setFacebookImageAttachments] = useState<FacebookPublishAttachment[]>([]);
   const [facebookImageAttachmentState, setFacebookImageAttachmentState] = useState<FacebookImageAttachmentState>('IDLE');
   const [facebookImageAttachmentError, setFacebookImageAttachmentError] = useState<string | null>(null);
   const [facebookImageAttachPrompt, setFacebookImageAttachPrompt] = useState<FacebookImageAttachDecisionPrompt | null>(null);
@@ -333,6 +343,7 @@ function SidePanel() {
   const facebookImageInputRef = useRef<HTMLInputElement | null>(null);
   const facebookContentGenerationSeqRef = useRef(0);
   const facebookImageReadSeqRef = useRef(0);
+  const facebookImageRestoreSeqRef = useRef(0);
   const facebookImageAttachPromptResolverRef = useRef<((decision: FacebookImageAttachFailureDecision) => void) | null>(null);
   const facebookGroupVerificationQueueRef = useRef<FacebookPublishTarget[]>([]);
   const facebookGroupVerificationRunningRef = useRef(false);
@@ -483,6 +494,7 @@ function SidePanel() {
 
     async function prepareFacebookContent() {
       clearFacebookPostContentState();
+      await restoreFacebookImageAttachments(nextRecruitmentId, nextSnapshot, selectedJobDescription);
       if (!token || !nextRecruitmentId || !nextSnapshot) return;
 
       const restored = await applyStoredFacebookContentDraft(nextRecruitmentId, nextSnapshot);
@@ -497,6 +509,7 @@ function SidePanel() {
     void prepareFacebookContent();
     return () => {
       cancelled = true;
+      facebookImageRestoreSeqRef.current += 1;
     };
   }, [
     token,
@@ -507,6 +520,7 @@ function SidePanel() {
     snapshot?.requirements.rawText,
     snapshot?.location,
     snapshot?.deadline,
+    selectedJobDescription?.id,
   ]);
 
   const selectedPostingChannels = useMemo(() => normalizePostingChannels(channels), [channels]);
@@ -534,6 +548,7 @@ function SidePanel() {
   const isFacebookImageReading = facebookImageAttachmentState === 'READING';
   const hasFacebookImageAttachmentError = facebookImageAttachmentState === 'ERROR';
   const facebookImageUploadDisabled = facebookRunning || state === 'SYNCING' || isFacebookImageReading;
+  const facebookImageAddDisabled = facebookImageUploadDisabled || facebookImageAttachments.length >= FACEBOOK_IMAGE_MAX_COUNT;
   const syncDisabled = state === 'EXTRACTING'
     || state === 'SYNCING'
     || facebookRunning
@@ -654,44 +669,64 @@ function SidePanel() {
     event.target.value = '';
     if (!file) return;
 
+    if (facebookImageAttachments.length >= FACEBOOK_IMAGE_MAX_COUNT) {
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(`Bài đăng chỉ được tối đa ${FACEBOOK_IMAGE_MAX_COUNT} ảnh.`);
+      return;
+    }
+
     const readSeq = facebookImageReadSeqRef.current + 1;
     facebookImageReadSeqRef.current = readSeq;
     const validationError = getFacebookImageFileValidationError(file);
     if (validationError) {
-      setFacebookImageAttachment(null);
       setFacebookImageAttachmentState('ERROR');
       setFacebookImageAttachmentError(validationError);
       return;
     }
 
-    setFacebookImageAttachment(null);
     setFacebookImageAttachmentState('READING');
     setFacebookImageAttachmentError(null);
     try {
       const dataUrl = await readFileAsDataUrl(file);
       if (facebookImageReadSeqRef.current !== readSeq) return;
-      setFacebookImageAttachment({
+      const attachment: FacebookPublishAttachment = {
         type: 'IMAGE',
         source: 'LOCAL_UPLOAD',
         fileName: file.name || 'facebook-image',
         mimeType: file.type,
         size: file.size,
         dataUrl,
-      });
+      };
+      const nextAttachments = [...facebookImageAttachments, attachment];
+      await saveFacebookImageAttachments(getFacebookImageAttachmentScope(), nextAttachments);
+      if (facebookImageReadSeqRef.current !== readSeq) return;
+      setFacebookImageAttachments(nextAttachments);
       setFacebookImageAttachmentState('READY');
     } catch (err) {
       if (facebookImageReadSeqRef.current !== readSeq) return;
-      setFacebookImageAttachment(null);
       setFacebookImageAttachmentState('ERROR');
       setFacebookImageAttachmentError(toErrorMessage(err));
     }
   }
 
-  function clearFacebookImageAttachment() {
+  async function clearFacebookImageAttachment(index?: number) {
     facebookImageReadSeqRef.current += 1;
-    setFacebookImageAttachment(null);
-    setFacebookImageAttachmentState('IDLE');
-    setFacebookImageAttachmentError(null);
+    const nextAttachments = typeof index === 'number'
+      ? facebookImageAttachments.filter((_, attachmentIndex) => attachmentIndex !== index)
+      : [];
+    try {
+      if (nextAttachments.length > 0) {
+        await saveFacebookImageAttachments(getFacebookImageAttachmentScope(), nextAttachments);
+      } else {
+        await removeFacebookImageAttachments(getFacebookImageAttachmentScope());
+      }
+      setFacebookImageAttachments(nextAttachments);
+      setFacebookImageAttachmentState('IDLE');
+      setFacebookImageAttachmentError(null);
+    } catch (err) {
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(toErrorMessage(err));
+    }
     if (facebookImageInputRef.current) {
       facebookImageInputRef.current.value = '';
     }
@@ -731,8 +766,65 @@ function SidePanel() {
     return scope;
   }
 
+  function getFacebookImageAttachmentScope(
+    recruitmentId: string | null = amisRecruitmentId,
+    nextSnapshot: AmisJobSnapshot | null = snapshot,
+    jobDescription: JobDescriptionSummary | null = selectedJobDescription,
+  ): FacebookImageAttachmentScope {
+    return {
+      recruitmentId,
+      jobDescriptionId: jobDescription?.id ?? null,
+      snapshotFingerprint: nextSnapshot ? buildFacebookDraftSnapshotFingerprint(nextSnapshot) : null,
+    };
+  }
+
+  async function restoreFacebookImageAttachments(
+    recruitmentId: string | null,
+    nextSnapshot: AmisJobSnapshot | null,
+    jobDescription: JobDescriptionSummary | null,
+  ) {
+    const restoreSeq = facebookImageRestoreSeqRef.current + 1;
+    facebookImageRestoreSeqRef.current = restoreSeq;
+    const scope = getFacebookImageAttachmentScope(recruitmentId, nextSnapshot, jobDescription);
+
+    setFacebookImageAttachments([]);
+    setFacebookImageAttachmentState('READING');
+    setFacebookImageAttachmentError(null);
+
+    if (!recruitmentId && !nextSnapshot && !jobDescription?.id) {
+      setFacebookImageAttachments([]);
+      setFacebookImageAttachmentState('IDLE');
+      setFacebookImageAttachmentError(null);
+      return;
+    }
+
+    try {
+      const attachments = await getFacebookImageAttachments(scope);
+      if (facebookImageRestoreSeqRef.current !== restoreSeq) return;
+      setFacebookImageAttachments(attachments.slice(0, FACEBOOK_IMAGE_MAX_COUNT));
+      setFacebookImageAttachmentState(attachments.length > 0 ? 'READY' : 'IDLE');
+      setFacebookImageAttachmentError(null);
+    } catch (err) {
+      if (facebookImageRestoreSeqRef.current !== restoreSeq) return;
+      setFacebookImageAttachments([]);
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(toErrorMessage(err));
+    }
+  }
+
+  function resetFacebookImageAttachmentView() {
+    facebookImageReadSeqRef.current += 1;
+    facebookImageRestoreSeqRef.current += 1;
+    setFacebookImageAttachments([]);
+    setFacebookImageAttachmentState('IDLE');
+    setFacebookImageAttachmentError(null);
+    if (facebookImageInputRef.current) {
+      facebookImageInputRef.current.value = '';
+    }
+  }
+
   function openFacebookImageFilePicker() {
-    if (facebookImageUploadDisabled) return;
+    if (facebookImageAddDisabled) return;
     facebookImageInputRef.current?.click();
   }
 
@@ -1761,7 +1853,7 @@ function SidePanel() {
       setFacebookGroupMessage(null);
       setFacebookGroupSyncDetails(null);
       setIsFacebookGroupSyncDetailsOpen(false);
-      clearFacebookImageAttachment();
+      resetFacebookImageAttachmentView();
       clearFacebookContent();
       void setSelectedChannels(next);
       return;
@@ -1779,6 +1871,7 @@ function SidePanel() {
 
     try {
       const result = await loadFacebookGroupsForFacebookChannel(token);
+      await restoreFacebookImageAttachments(amisRecruitmentId, snapshot, selectedJobDescription);
       const groups = result.groups;
       const selectedIds = result.selectedIds;
       const discoverySummary = result.discoverySummary;
@@ -1950,6 +2043,53 @@ function SidePanel() {
     return true;
   }
 
+  async function syncFacebookImageStatusesFromHistory(items: FacebookPublishHistoryListItem[]) {
+    if (items.length === 0) return;
+
+    try {
+      const released = await syncFacebookImagePublishStatuses(items.map((item) => ({
+        jobPostingId: item.jobPostingId,
+        targetId: item.targetId,
+        targetExternalId: item.targetExternalId,
+        targetName: item.targetName,
+        targetUrl: item.targetUrl,
+        facebookReviewStatus: item.facebookReviewStatus,
+      })));
+      await clearFacebookImageViewIfReleased(released);
+    } catch {
+      // Image lifecycle persistence must not prevent history from loading.
+    }
+  }
+
+  async function syncFacebookImageStatusFromHistoryItem(
+    item: FacebookPublishHistoryListItem,
+    facebookReviewStatus: FacebookReviewStatus,
+  ) {
+    try {
+      const released = await updateFacebookImagePublishTargetStatus({
+        jobPostingId: item.jobPostingId,
+        targetId: item.targetId,
+        targetExternalId: item.targetExternalId,
+        targetName: item.targetName,
+        targetUrl: item.targetUrl,
+        facebookReviewStatus,
+      });
+      await clearFacebookImageViewIfReleased(released);
+    } catch {
+      // Image lifecycle persistence must not prevent a Facebook status refresh from completing.
+    }
+  }
+
+  async function clearFacebookImageViewIfReleased(released: boolean) {
+    if (!released) return;
+    try {
+      const remainingAttachments = await getFacebookImageAttachments(getFacebookImageAttachmentScope());
+      if (remainingAttachments.length === 0) resetFacebookImageAttachmentView();
+    } catch {
+      // A storage read failure must not interrupt history refresh or publish completion.
+    }
+  }
+
   async function openFacebookGroupSettings(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
@@ -2078,6 +2218,7 @@ function SidePanel() {
       setFacebookHistoryPage(data.page);
       setFacebookHistoryLoadState('READY');
       setFacebookHistoryMessage(null);
+      await syncFacebookImageStatusesFromHistory(data.items);
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -2127,6 +2268,7 @@ function SidePanel() {
     try {
       const statusCheck = await refreshFacebookPostReviewStatus(refreshItem);
       await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
+      await syncFacebookImageStatusFromHistoryItem(refreshItem, statusCheck.facebookReviewStatus);
       await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, facebookHistoryPage);
       setFacebookHistoryMessage(statusCheck.message ?? 'Đã refresh trạng thái bài đăng.');
     } catch (err) {
@@ -2186,6 +2328,7 @@ function SidePanel() {
         try {
           const statusCheck = await refreshFacebookPostReviewStatus(item);
           await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
+          await syncFacebookImageStatusFromHistoryItem(item, statusCheck.facebookReviewStatus);
           if (statusCheck.facebookReviewStatus === 'POSTED') postedCount += 1;
           else if (statusCheck.facebookReviewStatus === 'REJECTED') rejectedCount += 1;
           else if (statusCheck.facebookReviewStatus === 'DELETED') deletedCount += 1;
@@ -2724,8 +2867,16 @@ function SidePanel() {
     const contentResolvedPlan = trimmedContentOverride
       ? { ...plan, content: hydrateFacebookContentOverride(trimmedContentOverride, plan.content) }
       : await resolveFacebookPublishPlanContent(plan);
-    const planForPublish: FacebookPublishPlan = facebookImageAttachment
-      ? { ...contentResolvedPlan, attachments: [facebookImageAttachment] }
+    let publishAttachments = facebookImageAttachments;
+    if (publishAttachments.length === 0) {
+      try {
+        publishAttachments = await getFacebookImageAttachments(getFacebookImageAttachmentScope());
+      } catch {
+        // A missing local image store must not block text-only publishing.
+      }
+    }
+    const planForPublish: FacebookPublishPlan = publishAttachments.length > 0
+      ? { ...contentResolvedPlan, attachments: publishAttachments }
       : contentResolvedPlan;
     const planKey = getFacebookPlanKey(planForPublish);
     if (startedFacebookPlanKeys.current.has(planKey)) return planForPublish;
@@ -2744,6 +2895,16 @@ function SidePanel() {
       return planForPublish;
     }
 
+    if (planForPublish.attachments?.length) {
+      const imageScope = getFacebookImageAttachmentScope();
+      await saveFacebookImageAttachments(imageScope, planForPublish.attachments);
+      await beginFacebookImagePublish(
+        imageScope,
+        planForPublish.jobPostingId,
+        planForPublish.targets,
+      );
+    }
+
     startedFacebookPlanKeys.current.add(planKey);
     setFacebookRunning(true);
     setState('SYNCING');
@@ -2759,6 +2920,28 @@ function SidePanel() {
         },
         onImageAttachFailed: requestFacebookImageAttachDecision,
       });
+      if (planForPublish.attachments?.length) {
+        try {
+          const released = await syncFacebookImagePublishStatuses(facebookResults.map((publishResult) => {
+            const target = planForPublish.targets.find((candidate) => (
+              candidate.targetId === publishResult.targetId
+                || candidate.targetUrl === publishResult.targetUrl
+                || candidate.targetName === publishResult.targetName
+            ));
+            return {
+              jobPostingId: planForPublish.jobPostingId,
+              targetId: publishResult.targetId,
+              targetExternalId: target?.targetExternalId ?? null,
+              targetName: publishResult.targetName,
+              targetUrl: publishResult.targetUrl ?? target?.targetUrl ?? null,
+              facebookReviewStatus: publishResult.facebookReviewStatus ?? 'UNKNOWN',
+            };
+          }));
+          await clearFacebookImageViewIfReleased(released);
+        } catch {
+          // Facebook's result is authoritative; a local lifecycle-store failure must not turn a real publish into a false error.
+        }
+      }
       const summary = summarizeFacebookPublishResults(facebookResults);
       setResult((current) => current ? updateFacebookChannelStatus(current, facebookResults) : current);
       if (summary.successCount > 0) {
@@ -2792,9 +2975,6 @@ function SidePanel() {
       startedFacebookPlanKeys.current.delete(planKey);
     } finally {
       setFacebookRunning(false);
-      if (planForPublish.attachments?.length) {
-        clearFacebookImageAttachment();
-      }
     }
 
     return planForPublish;
@@ -3374,8 +3554,12 @@ function SidePanel() {
       <div className="facebook-content-panel">
         <p className="channel-subselection-title facebook-preview-title">Xem trước bài đăng</p>
         <div className="facebook-preview-card">
-          {facebookImageAttachment ? (
-            <img src={facebookImageAttachment.dataUrl} alt="" />
+          {facebookImageAttachments.length > 0 ? (
+            <div className="facebook-preview-image-grid">
+              {facebookImageAttachments.map((attachment, index) => (
+                <img key={`${attachment.fileName}-${attachment.size}-${index}`} src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
+              ))}
+            </div>
           ) : (
             <span className="facebook-preview-thumb" aria-hidden="true">VCS</span>
           )}
@@ -3423,9 +3607,9 @@ function SidePanel() {
 
     const content = getEffectiveFacebookContent();
     const previewTitle = snapshot?.title ?? selectedJobDescription?.title ?? 'Bài đăng tuyển dụng';
-    const previewImage = facebookImageAttachment?.dataUrl ?? null;
+    const previewImages = facebookImageAttachments;
     const canGenerate = Boolean(token && snapshot) && !facebookContentBusy;
-    const imageCount = facebookImageAttachment ? 1 : 0;
+    const imageCount = facebookImageAttachments.length;
 
     if (facebookPreviewModalMode === 'EDIT') {
       return (
@@ -3492,7 +3676,7 @@ function SidePanel() {
                   <button
                     type="button"
                     className="text-button facebook-composer-upload-button"
-                    disabled={facebookImageUploadDisabled}
+                    disabled={facebookImageAddDisabled}
                     onClick={openFacebookImageFilePicker}
                   >
                     <UploadIcon />
@@ -3500,25 +3684,25 @@ function SidePanel() {
                   </button>
                 </div>
                 <div className="facebook-composer-image-grid">
-                  {facebookImageAttachment ? (
-                    <article className="facebook-composer-image-card">
-                      <img src={facebookImageAttachment.dataUrl} alt="" />
+                  {facebookImageAttachments.map((attachment, index) => (
+                    <article className="facebook-composer-image-card" key={`${attachment.fileName}-${attachment.size}-${index}`}>
+                      <img src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
                       <button
                         type="button"
                         className="facebook-composer-image-remove"
                         title="Xóa ảnh"
-                        aria-label="Xóa ảnh"
+                        aria-label={`Xóa ảnh ${index + 1}`}
                         disabled={facebookImageUploadDisabled}
-                        onClick={clearFacebookImageAttachment}
+                        onClick={() => void clearFacebookImageAttachment(index)}
                       >
                         <CloseIcon />
                       </button>
                     </article>
-                  ) : null}
+                  ))}
                   <button
                     type="button"
                     className="facebook-composer-add-image-tile"
-                    disabled={facebookImageUploadDisabled}
+                    disabled={facebookImageAddDisabled}
                     onClick={openFacebookImageFilePicker}
                     aria-label="Tải lên ảnh bài đăng"
                   >
@@ -3534,7 +3718,7 @@ function SidePanel() {
                     <button
                       type="button"
                       className="text-button"
-                      onClick={clearFacebookImageAttachment}
+                      onClick={() => void clearFacebookImageAttachment()}
                     >
                       Bỏ ảnh
                     </button>
@@ -3595,8 +3779,12 @@ function SidePanel() {
               </header>
               <div className="facebook-post-preview-content">{content || 'Chưa có nội dung bài đăng.'}</div>
               <div className="facebook-post-preview-image">
-                {previewImage ? (
-                  <img src={previewImage} alt="" />
+                {previewImages.length > 0 ? (
+                  <div className="facebook-post-preview-image-grid">
+                    {previewImages.map((attachment, index) => (
+                      <img key={`${attachment.fileName}-${attachment.size}-${index}`} src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
+                    ))}
+                  </div>
                 ) : (
                   <div>
                     <strong>{previewTitle}</strong>
@@ -3793,27 +3981,27 @@ function SidePanel() {
                             className="facebook-image-input"
                             onChange={(event) => void handleFacebookImageFileChange(event)}
                           />
-                          {facebookImageAttachment || isFacebookImageReading || facebookImageAttachmentError ? (
+                          {facebookImageAttachments.length > 0 || isFacebookImageReading || facebookImageAttachmentError ? (
                             <div className="facebook-image-upload">
-                              {facebookImageAttachment ? (
-                                <div className="facebook-image-preview">
-                                  <img src={facebookImageAttachment.dataUrl} alt="" />
+                              {facebookImageAttachments.map((attachment, index) => (
+                                <div className="facebook-image-preview" key={`${attachment.fileName}-${attachment.size}-${index}`}>
+                                  <img src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
                                   <div>
-                                    <strong>{facebookImageAttachment.fileName}</strong>
-                                    <span>{formatFileSize(facebookImageAttachment.size)}</span>
+                                    <strong>{attachment.fileName}</strong>
+                                    <span>{formatFileSize(attachment.size)}</span>
                                   </div>
                                   <button
                                     type="button"
                                     className="channel-action-button"
                                     title="Xóa ảnh"
-                                    aria-label="Xóa ảnh"
+                                    aria-label={`Xóa ảnh ${index + 1}`}
                                     disabled={facebookImageUploadDisabled}
-                                    onClick={clearFacebookImageAttachment}
+                                    onClick={() => void clearFacebookImageAttachment(index)}
                                   >
                                     <CloseIcon />
                                   </button>
                                 </div>
-                              ) : null}
+                              ))}
                               {isFacebookImageReading ? (
                                 <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
                               ) : null}
@@ -3823,7 +4011,7 @@ function SidePanel() {
                                   <button
                                     type="button"
                                     className="text-button"
-                                    onClick={clearFacebookImageAttachment}
+                                    onClick={() => void clearFacebookImageAttachment()}
                                   >
                                     Bỏ ảnh
                                   </button>
