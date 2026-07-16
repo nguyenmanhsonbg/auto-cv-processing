@@ -8,6 +8,9 @@ import { FacebookPostContentService } from './content/facebook-post-content.serv
 import { FacebookPublishHistoryEntity } from './entities/facebook-publish-history.entity';
 import { FacebookPublishTargetEntity } from './entities/facebook-publish-target.entity';
 import {
+  FacebookGroupSyncStateEntity,
+} from './entities/facebook-group-sync-state.entity';
+import {
   CreateFacebookGroupInput,
   ExtensionFacebookPublishPlan,
   FacebookReviewStatus,
@@ -26,6 +29,8 @@ import { AmisJobSnapshotDto } from '../extension-integration/dto/sync-amis-job-p
 
 interface DiscoverFacebookGroupsInput {
   ownerUserId: string;
+  ownerExtensionInstanceId?: string | null;
+  scanComplete?: boolean;
   groups: Array<{
     targetName: string;
     targetUrl: string;
@@ -45,6 +50,8 @@ export class FacebookPublishingService {
   constructor(
     @InjectRepository(FacebookPublishTargetEntity)
     private readonly targetsRepo: Repository<FacebookPublishTargetEntity>,
+    @InjectRepository(FacebookGroupSyncStateEntity)
+    private readonly groupSyncStatesRepo: Repository<FacebookGroupSyncStateEntity>,
     @InjectRepository(FacebookPublishHistoryEntity)
     private readonly historiesRepo: Repository<FacebookPublishHistoryEntity>,
     @InjectRepository(JobPostingEntity)
@@ -58,9 +65,10 @@ export class FacebookPublishingService {
     ownerUserId: string,
     selectedTargetIds?: string[],
     customContent?: string | null,
+    ownerExtensionInstanceId?: string | null,
   ): Promise<ExtensionFacebookPublishPlan> {
     const content = this.contentService.build(posting, customContent);
-    const targets = await this.resolveActiveTargets(ownerUserId, selectedTargetIds);
+    const targets = await this.resolveActiveTargets(ownerUserId, selectedTargetIds, ownerExtensionInstanceId);
 
     return {
       jobPostingId: posting.id,
@@ -77,31 +85,52 @@ export class FacebookPublishingService {
     return this.contentService.buildFromSnapshot(input.snapshot);
   }
 
-  async listActiveExtensionGroups(ownerUserId: string): Promise<ResolvedFacebookPublishTarget[]> {
-    const targets = await this.targetsRepo.find({
+  async listActiveExtensionGroups(
+    ownerUserId: string,
+    ownerExtensionInstanceId?: string | null,
+  ): Promise<ResolvedFacebookPublishTarget[]> {
+    const targets = (await this.targetsRepo.find({
       where: {
         active: true,
         ownerUserId,
         type: FacebookPublishTargetType.GROUP,
       },
       order: { priority: 'ASC', createdAt: 'ASC' },
-    });
+    })).filter((target) => this.isTargetInExtensionScope(target.ownerExtensionInstanceId, ownerExtensionInstanceId));
 
     return this.toResolvedTargets(targets);
+  }
+
+  async getExtensionGroupSyncState(ownerUserId: string, extensionInstanceId?: string | null) {
+    const scopeKey = extensionInstanceId?.trim() || 'USER';
+    const state = await this.groupSyncStatesRepo.findOne({ where: { ownerUserId, scopeKey } });
+    return {
+      status: state?.status ?? 'NOT_INITIALIZED',
+      initialScanCompletedAt: state?.initialScanCompletedAt?.toISOString() ?? null,
+      lastScanStartedAt: state?.lastScanStartedAt?.toISOString() ?? null,
+      lastScanCompletedAt: state?.lastScanCompletedAt?.toISOString() ?? null,
+      lastScannedCount: state?.lastScannedCount ?? 0,
+      lastError: state?.lastError ?? null,
+    };
   }
 
   async createExtensionGroup(input: CreateFacebookGroupInput): Promise<ResolvedFacebookPublishTarget> {
     const name = this.requireText(input.targetName, 'targetName');
     const groupUrl = this.normalizeFacebookGroupUrl(input.targetUrl);
     const discoveryTime = new Date();
-    const activeTarget = await this.targetsRepo.findOne({
+    const matches = await this.targetsRepo.find({
       where: {
         ownerUserId: input.ownerUserId,
         type: FacebookPublishTargetType.GROUP,
         externalId: groupUrl.externalId,
-        active: true,
       },
+      order: { createdAt: 'ASC' },
     });
+    const scopedMatches = matches.filter((target) => this.isTargetInExtensionScope(
+      target.ownerExtensionInstanceId,
+      input.ownerExtensionInstanceId,
+    ));
+    const activeTarget = scopedMatches.find((target) => target.active);
     if (activeTarget) {
       throw new BadRequestException({
         code: 'FACEBOOK_GROUP_ALREADY_EXISTS',
@@ -109,14 +138,7 @@ export class FacebookPublishingService {
       });
     }
 
-    const inactiveTarget = await this.targetsRepo.findOne({
-      where: {
-        ownerUserId: input.ownerUserId,
-        type: FacebookPublishTargetType.GROUP,
-        externalId: groupUrl.externalId,
-        active: false,
-      },
-    });
+    const inactiveTarget = scopedMatches.find((target) => !target.active);
     if (inactiveTarget) {
       inactiveTarget.name = name;
       inactiveTarget.url = groupUrl.url;
@@ -164,6 +186,9 @@ export class FacebookPublishingService {
       skipped: 0,
       conflicts: 0,
       errors: [],
+      removed: 0,
+      scanComplete: input.scanComplete === true,
+      reconciliationApplied: false,
       items: [],
     };
 
@@ -183,11 +208,10 @@ export class FacebookPublishingService {
             targetUrl: groupUrl.url,
             targetExternalId: groupUrl.externalId,
             targetId: null,
-            reason: 'Group name does not match IT recruitment keywords.',
+            reason: 'Group name does not match the recruitment filter.',
           });
           continue;
         }
-
         if (uniqueGroups.has(groupUrl.externalId)) {
           result.duplicates += 1;
           result.skipped += 1;
@@ -222,14 +246,17 @@ export class FacebookPublishingService {
 
     for (const item of uniqueItems) {
       try {
-        const matches = await this.targetsRepo.find({
+        const matches = (await this.targetsRepo.find({
           where: {
             ownerUserId: input.ownerUserId,
             type: FacebookPublishTargetType.GROUP,
             externalId: item.externalId,
           },
           order: { createdAt: 'ASC' },
-        });
+        })).filter((target) => this.isTargetInExtensionScope(
+          target.ownerExtensionInstanceId,
+          input.ownerExtensionInstanceId,
+        ));
 
         if (matches.length > 1) {
           result.conflicts += 1;
@@ -242,6 +269,7 @@ export class FacebookPublishingService {
           activeTarget.name = item.targetName;
           activeTarget.externalId = item.externalId;
           activeTarget.url = item.targetUrl;
+          activeTarget.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? activeTarget.ownerExtensionInstanceId;
           activeTarget.lastDiscoveredAt = discoveryTime;
           if (changed) result.updated += 1;
 
@@ -268,6 +296,7 @@ export class FacebookPublishingService {
           inactiveTarget.eligibilityReason = 'Group has not been verified yet.';
           inactiveTarget.lastVerifiedAt = null;
           inactiveTarget.lastDiscoveredAt = discoveryTime;
+          inactiveTarget.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? inactiveTarget.ownerExtensionInstanceId;
 
           const savedTarget = await this.targetsRepo.save(inactiveTarget);
           result.reactivated += 1;
@@ -288,6 +317,7 @@ export class FacebookPublishingService {
           externalId: item.externalId,
           url: item.targetUrl,
           ownerUserId: input.ownerUserId,
+          ownerExtensionInstanceId: input.ownerExtensionInstanceId ?? null,
           active: true,
           priority: nextPriority,
           eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
@@ -325,12 +355,110 @@ export class FacebookPublishingService {
     return result;
   }
 
+  async syncAndReconcileExtensionGroups(input: DiscoverFacebookGroupsInput) {
+    const scopeKey = input.ownerExtensionInstanceId?.trim() || 'USER';
+    let syncState = await this.groupSyncStatesRepo.findOne({
+      where: { ownerUserId: input.ownerUserId, scopeKey },
+    });
+    if (!syncState) {
+      syncState = this.groupSyncStatesRepo.create({
+        ownerUserId: input.ownerUserId,
+        scopeKey,
+        status: 'NOT_INITIALIZED',
+        initialScanCompletedAt: null,
+        lastScanStartedAt: null,
+        lastScanCompletedAt: null,
+        lastScannedCount: 0,
+        lastError: null,
+      });
+    }
+
+    syncState.status = 'SYNCING';
+    syncState.lastScanStartedAt = new Date();
+    syncState.lastError = null;
+    await this.groupSyncStatesRepo.save(syncState);
+
+    try {
+      const result = await this.discoverAndSyncExtensionGroups(input);
+      const completePayload = input.scanComplete === true;
+      const payloadIsConsistent = result.errors.length === 0
+        && result.requested === result.valid + result.filtered + result.duplicates;
+      const reconciliationApplied = completePayload && payloadIsConsistent;
+
+      if (reconciliationApplied) {
+        const activeTargets = await this.targetsRepo.find({
+          where: {
+            ownerUserId: input.ownerUserId,
+            type: FacebookPublishTargetType.GROUP,
+            active: true,
+          },
+        });
+        const discoveredIds = new Set(
+          result.items
+            .map((item) => item.targetExternalId?.trim().toLowerCase())
+            .filter((value): value is string => Boolean(value)),
+        );
+        const removableTargets = activeTargets.filter((target) => (
+          !input.ownerExtensionInstanceId
+            || !target.ownerExtensionInstanceId
+            || target.ownerExtensionInstanceId === input.ownerExtensionInstanceId
+        ));
+
+        for (const target of removableTargets) {
+          const externalId = target.externalId?.trim().toLowerCase();
+          if (!externalId || discoveredIds.has(externalId)) continue;
+
+          target.active = false;
+          target.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
+          target.eligibilityReason = 'Group was not returned by the latest Facebook joined-groups scan.';
+          await this.targetsRepo.save(target);
+          result.removed += 1;
+          result.items.push({
+            action: 'deactivated',
+            targetName: target.name,
+            targetUrl: target.url ?? `https://www.facebook.com/groups/${externalId}`,
+            targetExternalId: target.externalId,
+            targetId: target.id,
+            reason: 'Group was not returned by the latest completed scan.',
+          });
+        }
+      }
+
+      const completedAt = new Date();
+      syncState.status = reconciliationApplied ? 'READY' : 'PARTIAL';
+      syncState.lastScanCompletedAt = reconciliationApplied ? completedAt : null;
+      syncState.lastScannedCount = result.valid;
+      syncState.lastError = reconciliationApplied
+        ? null
+        : completePayload
+          ? 'The scan payload was incomplete, so missing groups were not deactivated.'
+          : 'The hidden Facebook scan did not reach its completion guard.';
+      if (reconciliationApplied && !syncState.initialScanCompletedAt) {
+        syncState.initialScanCompletedAt = completedAt;
+      }
+      await this.groupSyncStatesRepo.save(syncState);
+
+      result.scanComplete = completePayload;
+      result.reconciliationApplied = reconciliationApplied;
+      return result;
+    } catch (error) {
+      syncState.status = 'FAILED';
+      syncState.lastError = error instanceof Error ? error.message : 'Facebook group sync failed.';
+      await this.groupSyncStatesRepo.save(syncState);
+      throw error;
+    }
+  }
+
   async updateExtensionGroup(input: UpdateFacebookGroupInput): Promise<ResolvedFacebookPublishTarget> {
-    const target = await this.findOwnedActiveGroup(input.ownerUserId, input.targetId);
+    const target = await this.findOwnedActiveGroup(
+      input.ownerUserId,
+      input.targetId,
+      input.ownerExtensionInstanceId,
+    );
     const name = this.requireText(input.targetName, 'targetName');
     const groupUrl = this.normalizeFacebookGroupUrl(input.targetUrl);
 
-    const duplicateTarget = await this.targetsRepo.findOne({
+    const duplicateTargets = await this.targetsRepo.find({
       where: {
         ownerUserId: input.ownerUserId,
         type: FacebookPublishTargetType.GROUP,
@@ -338,6 +466,10 @@ export class FacebookPublishingService {
         active: true,
       },
     });
+    const duplicateTarget = duplicateTargets.find((candidate) => this.isTargetInExtensionScope(
+      candidate.ownerExtensionInstanceId,
+      input.ownerExtensionInstanceId,
+    ));
     if (duplicateTarget && duplicateTarget.id !== target.id) {
       throw new BadRequestException({
         code: 'FACEBOOK_GROUP_ALREADY_EXISTS',
@@ -348,6 +480,7 @@ export class FacebookPublishingService {
     target.name = name;
     target.externalId = groupUrl.externalId;
     target.url = groupUrl.url;
+    target.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? target.ownerExtensionInstanceId;
     target.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
     target.eligibilityReason = 'Group has not been verified yet.';
     target.lastVerifiedAt = null;
@@ -359,19 +492,28 @@ export class FacebookPublishingService {
   async updateExtensionGroupVerification(
     input: UpdateFacebookGroupVerificationInput,
   ): Promise<ResolvedFacebookPublishTarget> {
-    const target = await this.findOwnedActiveGroup(input.ownerUserId, input.targetId);
+    const target = await this.findOwnedActiveGroup(
+      input.ownerUserId,
+      input.targetId,
+      input.ownerExtensionInstanceId,
+    );
     const eligibilityStatus = this.normalizeVerificationStatus(input.eligibilityStatus, input.eligibilityReason);
 
     target.eligibilityStatus = eligibilityStatus;
     target.eligibilityReason = input.eligibilityReason?.trim() || null;
     target.lastVerifiedAt = input.verifiedAt ?? new Date();
     target.lastVerifiedByInstanceId = input.lastVerifiedByInstanceId ?? null;
+    target.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? target.ownerExtensionInstanceId;
 
     return this.toResolvedTarget(await this.targetsRepo.save(target));
   }
 
-  async deleteExtensionGroup(ownerUserId: string, targetId: string): Promise<ResolvedFacebookPublishTarget> {
-    const target = await this.findOwnedActiveGroup(ownerUserId, targetId);
+  async deleteExtensionGroup(
+    ownerUserId: string,
+    targetId: string,
+    ownerExtensionInstanceId?: string | null,
+  ): Promise<ResolvedFacebookPublishTarget> {
+    const target = await this.findOwnedActiveGroup(ownerUserId, targetId, ownerExtensionInstanceId);
     target.active = false;
     return this.toResolvedTarget(await this.targetsRepo.save(target));
   }
@@ -631,6 +773,7 @@ export class FacebookPublishingService {
   private async resolveActiveTargets(
     ownerUserId: string,
     selectedTargetIds?: string[],
+    ownerExtensionInstanceId?: string | null,
   ): Promise<ResolvedFacebookPublishTarget[]> {
     if (selectedTargetIds) {
       const uniqueTargetIds = [...new Set(selectedTargetIds.map((targetId) => targetId.trim()).filter(Boolean))];
@@ -641,7 +784,7 @@ export class FacebookPublishingService {
         });
       }
 
-      const selectedTargets = await this.targetsRepo.find({
+      const selectedTargets = (await this.targetsRepo.find({
         where: {
           id: In(uniqueTargetIds),
           active: true,
@@ -649,7 +792,10 @@ export class FacebookPublishingService {
           type: FacebookPublishTargetType.GROUP,
         },
         order: { priority: 'ASC', createdAt: 'ASC' },
-      });
+      })).filter((target) => this.isTargetInExtensionScope(
+        target.ownerExtensionInstanceId,
+        ownerExtensionInstanceId,
+      ));
       if (selectedTargets.length !== uniqueTargetIds.length) {
         throw new BadRequestException({
           code: 'FACEBOOK_TARGETS_INVALID',
@@ -814,7 +960,11 @@ export class FacebookPublishingService {
     return (latestTarget?.priority ?? -1) + 1;
   }
 
-  private async findOwnedActiveGroup(ownerUserId: string, targetId: string) {
+  private async findOwnedActiveGroup(
+    ownerUserId: string,
+    targetId: string,
+    ownerExtensionInstanceId?: string | null,
+  ) {
     const target = await this.targetsRepo.findOne({
       where: {
         id: targetId,
@@ -824,7 +974,7 @@ export class FacebookPublishingService {
       },
     });
 
-    if (!target) {
+    if (!target || !this.isTargetInExtensionScope(target.ownerExtensionInstanceId, ownerExtensionInstanceId)) {
       throw new BadRequestException({
         code: 'FACEBOOK_GROUP_NOT_FOUND',
         message: 'Facebook group not found for this account.',
@@ -832,6 +982,15 @@ export class FacebookPublishingService {
     }
 
     return target;
+  }
+
+  private isTargetInExtensionScope(
+    targetExtensionInstanceId: string | null | undefined,
+    requestedExtensionInstanceId?: string | null,
+  ) {
+    const requested = requestedExtensionInstanceId?.trim();
+    if (!requested) return true;
+    return !targetExtensionInstanceId || targetExtensionInstanceId === requested;
   }
 
   private normalizeFacebookGroupUrl(value: string) {

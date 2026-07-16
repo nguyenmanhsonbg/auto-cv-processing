@@ -30,6 +30,7 @@ import type {
   FacebookPublishHistoryListItem,
   FacebookReviewStatus,
   FacebookPublishTarget,
+  FacebookGroupSyncState,
   FacebookPublishResultPayload,
   JobDescriptionQuestionSetContext,
   JobDescriptionSummary,
@@ -398,6 +399,13 @@ export async function getFacebookGroups(accessToken: string) {
   });
 }
 
+export async function getFacebookGroupSyncState(accessToken: string) {
+  return request<FacebookGroupSyncState>('/extension/facebook/groups/sync-state', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function generateFacebookPreviewContent(
   accessToken: string,
   payload: {
@@ -454,6 +462,17 @@ export async function discoverFacebookGroups(
   payload: DiscoverFacebookGroupsRequest,
 ) {
   return request<DiscoverFacebookGroupsResponse>('/extension/facebook/groups/discover', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function syncFacebookGroups(
+  accessToken: string,
+  payload: DiscoverFacebookGroupsRequest,
+) {
+  return request<DiscoverFacebookGroupsResponse>('/extension/facebook/groups/sync', {
     method: 'POST',
     accessToken,
     body: payload,

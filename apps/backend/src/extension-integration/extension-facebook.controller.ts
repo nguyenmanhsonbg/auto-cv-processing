@@ -48,8 +48,11 @@ export class ExtensionFacebookController {
     @Request() req: ExtensionFacebookRequest,
     @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
-    await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
-    const groups = await this.facebookPublishingService.listActiveExtensionGroups(req.user.id);
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const groups = await this.facebookPublishingService.listActiveExtensionGroups(
+      req.user.id,
+      extensionInstance?.id ?? null,
+    );
 
     return {
       success: true,
@@ -91,10 +94,66 @@ export class ExtensionFacebookController {
   @ApiOperation({ summary: 'Discover and sync Facebook groups from browser scan' })
   @ApiBody({ type: DiscoverFacebookGroupsDto })
   @ApiResponse({ status: 200, description: 'Discovered groups synced.' })
-  async discoverGroups(@Body() dto: DiscoverFacebookGroupsDto, @Request() req: ExtensionFacebookRequest) {
+  async discoverGroups(
+    @Body() dto: DiscoverFacebookGroupsDto,
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const result = await this.facebookPublishingService.discoverAndSyncExtensionGroups({
       ownerUserId: req.user.id,
       groups: dto.groups,
+      ownerExtensionInstanceId: extensionInstance?.id ?? null,
+    });
+
+    return {
+      success: true,
+      data: result,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  @Get('groups/sync-state')
+  @ApiOperation({ summary: 'Get the Facebook group scan state for the current extension account' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
+  @ApiResponse({ status: 200, description: 'Facebook group scan state returned.' })
+  async getGroupsSyncState(
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const state = await this.facebookPublishingService.getExtensionGroupSyncState(
+      req.user.id,
+      extensionInstance?.id ?? null,
+    );
+
+    return {
+      success: true,
+      data: state,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  @Post('groups/sync')
+  @ApiOperation({ summary: 'Reconcile Facebook groups from a completed hidden browser scan' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
+  @ApiBody({ type: DiscoverFacebookGroupsDto })
+  @ApiResponse({ status: 200, description: 'Facebook groups reconciled.' })
+  async syncGroups(
+    @Body() dto: DiscoverFacebookGroupsDto,
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const result = await this.facebookPublishingService.syncAndReconcileExtensionGroups({
+      ownerUserId: req.user.id,
+      groups: dto.groups,
+      scanComplete: dto.scanComplete === true,
+      ownerExtensionInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -117,12 +176,13 @@ export class ExtensionFacebookController {
     @Request() req: ExtensionFacebookRequest,
     @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
-    await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const group = await this.facebookPublishingService.updateExtensionGroup({
       ownerUserId: req.user.id,
       targetId,
       targetName: dto.targetName,
       targetUrl: dto.targetUrl,
+      ownerExtensionInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -153,6 +213,7 @@ export class ExtensionFacebookController {
       eligibilityReason: dto.eligibilityReason,
       verifiedAt: dto.verifiedAt ? new Date(dto.verifiedAt) : null,
       lastVerifiedByInstanceId: extensionInstance?.id ?? null,
+      ownerExtensionInstanceId: extensionInstance?.id ?? null,
     });
 
     return {
@@ -173,8 +234,12 @@ export class ExtensionFacebookController {
     @Request() req: ExtensionFacebookRequest,
     @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
-    await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
-    const group = await this.facebookPublishingService.deleteExtensionGroup(req.user.id, targetId);
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const group = await this.facebookPublishingService.deleteExtensionGroup(
+      req.user.id,
+      targetId,
+      extensionInstance?.id ?? null,
+    );
 
     return {
       success: true,

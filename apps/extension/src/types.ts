@@ -353,6 +353,16 @@ export interface DiscoverFacebookGroupsRequest {
     targetUrl: string;
     targetExternalId?: string | null;
   }>;
+  scanComplete?: boolean;
+}
+
+export interface FacebookGroupSyncState {
+  status: 'NOT_INITIALIZED' | 'SYNCING' | 'READY' | 'PARTIAL' | 'FAILED';
+  initialScanCompletedAt: string | null;
+  lastScanStartedAt: string | null;
+  lastScanCompletedAt: string | null;
+  lastScannedCount: number;
+  lastError: string | null;
 }
 
 export interface DiscoverFacebookGroupsResponse {
@@ -366,8 +376,11 @@ export interface DiscoverFacebookGroupsResponse {
   skipped: number;
   conflicts: number;
   errors: string[];
+  removed: number;
+  scanComplete: boolean;
+  reconciliationApplied: boolean;
   items: Array<{
-    action: 'created' | 'updated' | 'reactivated' | 'reused' | 'conflict' | 'skipped';
+    action: 'created' | 'updated' | 'reactivated' | 'reused' | 'conflict' | 'deactivated' | 'skipped';
     targetName: string;
     targetUrl: string;
     targetExternalId: string | null;
