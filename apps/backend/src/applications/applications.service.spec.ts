@@ -341,3 +341,41 @@ describe('ApplicationsService AI screening', () => {
     expect(aiService.runRecruitmentPhase1AiScreening).not.toHaveBeenCalled();
   });
 });
+
+describe('ApplicationsService AMIS source metadata', () => {
+  it('persists the AMIS candidate ID on the source record', async () => {
+    const applicationSourcesService = {
+      create: jest.fn(async (value: unknown) => value),
+    };
+    const service = new ApplicationsService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      applicationSourcesService as any,
+      {} as any,
+    ) as any;
+    const manager = {} as any;
+
+    await service.createApplicationSource(
+      manager,
+      'application-1',
+      {
+        source: 'CHANNEL',
+        jobPostingId: 'posting-1',
+        externalApplicationId: 'AMIS:recruitment:round:candidate',
+        amisCandidateId: 'amis-candidate-123',
+      },
+      'OTHER',
+      'AMIS:recruitment:round:candidate',
+    );
+
+    expect(applicationSourcesService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        applicationId: 'application-1',
+        amisCandidateId: 'amis-candidate-123',
+      }),
+      manager,
+    );
+  });
+});

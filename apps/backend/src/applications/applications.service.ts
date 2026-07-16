@@ -61,6 +61,7 @@ export interface CreateApplicationBaseInput {
   sourceChannel?: RecruitmentChannel | null;
   externalLeadId?: string | null;
   externalApplicationId?: string | null;
+  amisCandidateId?: string | null;
   rawPayload?: Record<string, unknown> | null;
   createdById?: string | null;
 }
@@ -1488,6 +1489,7 @@ export class ApplicationsService {
         channel: sourceChannel,
         externalLeadId: input.externalLeadId,
         externalApplicationId,
+        amisCandidateId: input.amisCandidateId,
         rawPayload: input.rawPayload,
       },
       manager,
