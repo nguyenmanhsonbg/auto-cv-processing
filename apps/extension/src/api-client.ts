@@ -179,12 +179,14 @@ export async function listJobDescriptions(
   const searchParams = new URLSearchParams();
   searchParams.set('page', String(params.page ?? 1));
   searchParams.set('limit', String(params.limit ?? 20));
-  searchParams.set('sourceSystem', params.sourceSystem ?? 'VCS_PORTAL');
+  if (params.sourceSystem?.trim()) {
+    searchParams.set('sourceSystem', params.sourceSystem.trim());
+  }
   if (params.status !== 'ALL') {
     searchParams.set('status', params.status ?? 'ACTIVE');
   }
-  searchParams.set('latestSyncedOnly', String(params.latestSyncedOnly ?? true));
-  searchParams.set('sortBy', params.sortBy ?? 'lastSyncedAt');
+  searchParams.set('latestSyncedOnly', String(params.latestSyncedOnly ?? false));
+  searchParams.set('sortBy', params.sortBy ?? 'createdAt');
   searchParams.set('sortOrder', params.sortOrder ?? 'DESC');
   if (params.search?.trim()) searchParams.set('search', params.search.trim());
 
