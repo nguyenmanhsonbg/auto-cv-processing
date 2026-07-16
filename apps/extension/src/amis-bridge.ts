@@ -741,8 +741,15 @@ async function uploadAmisCvFile(payload: UploadAmisCvFileMessage['payload']): Pr
     throw new Error('No clean CV files were provided.');
   }
 
-  const input = findAmisCvFileInput();
-  const dropTarget = findAmisCvDropTarget(input);
+  let input = findAmisCvFileInput();
+  let dropTarget = findAmisCvDropTarget(input);
+
+  if (!input && !dropTarget) {
+    openAmisDocumentUploadForm();
+    await waitForAmisUploadTarget(8000);
+    input = findAmisCvFileInput();
+    dropTarget = findAmisCvDropTarget(input);
+  }
 
   if (!input && !dropTarget) {
     throw new Error('AMIS CV upload field was not found. Open the "Thêm ứng viên" modal first.');
@@ -772,6 +779,42 @@ async function uploadAmisCvFile(payload: UploadAmisCvFileMessage['payload']): Pr
     fileCount: files.length,
     target: deliveredTargets.join('+') || undefined,
   };
+}
+
+function openAmisDocumentUploadForm() {
+  const uploadButton = getVisibleElements<HTMLElement>('button, [role="button"], a, span, div')
+    .find((element) => {
+      const text = cleanText(element.innerText || element.textContent).toLowerCase();
+      return text === '\u0074\u1ea3\u0069 \u006c\u00ea\u006e \u0074\u00e0\u0069 \u006c\u0069\u1ec7\u0075'
+        || text.includes('\u0074\u1ea3\u0069 \u006c\u00ea\u006e \u0074\u00e0\u0069 \u006c\u0069\u1ec7\u0075');
+    });
+
+  if (!uploadButton) {
+    throw new Error('AMIS document upload button was not found.');
+  }
+
+  uploadButton.click();
+}
+
+function waitForAmisUploadTarget(timeoutMs: number) {
+  const currentInput = findAmisCvFileInput();
+  if (currentInput || findAmisCvDropTarget(currentInput)) return Promise.resolve();
+
+  return new Promise<void>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      observer.disconnect();
+      reject(new Error('AMIS document upload form did not open in time.'));
+    }, timeoutMs);
+    const observer = new MutationObserver(() => {
+      const input = findAmisCvFileInput();
+      if (!input && !findAmisCvDropTarget(input)) return;
+      window.clearTimeout(timeoutId);
+      observer.disconnect();
+      resolve();
+    });
+
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  });
 }
 
 function decodeBase64ToUint8Array(value: string) {

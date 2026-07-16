@@ -23,6 +23,26 @@ describe('AiService Recruitment Phase 1 screening flow', () => {
     return service as any;
   }
 
+  it('generates Facebook recruitment content through the configured prompt and Gemini', async () => {
+    const service = createService();
+    const callGeminiWithFallback = jest
+      .spyOn(service as any, 'callGeminiWithFallback')
+      .mockResolvedValue('AI Facebook post');
+
+    const result = await service.generateFacebookRecruitmentContent({
+      title: 'Backend Engineer',
+      description: 'Build secure services',
+      requirements: { rawText: 'Node.js' },
+    });
+
+    expect(service.getSystemPrompt.mock.calls[0][0]).toBe('vcs_facebook_recruitment_content_generator');
+    expect(callGeminiWithFallback).toHaveBeenCalledWith(
+      'system:vcs_facebook_recruitment_content_generator',
+      expect.stringContaining('Backend Engineer'),
+    );
+    expect(result).toBe('AI Facebook post');
+  });
+
   it('runs ai_screening with the enriched JD/profile, optional anomaly result, optional form answers, and metadata', async () => {
     const service = createService();
     const screeningResult = {

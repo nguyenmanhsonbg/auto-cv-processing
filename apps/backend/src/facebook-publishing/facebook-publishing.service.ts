@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -23,6 +23,7 @@ import {
 } from './facebook-publishing.types';
 import { DiscoverFacebookGroupsResponseDto } from '../extension-integration/dto';
 import { AmisJobSnapshotDto } from '../extension-integration/dto/sync-amis-job-posting.dto';
+import { AiService } from '../ai/ai.service';
 
 interface DiscoverFacebookGroupsInput {
   ownerUserId: string;
@@ -39,6 +40,7 @@ interface GenerateFacebookPreviewContentInput {
 
 @Injectable()
 export class FacebookPublishingService {
+  private readonly logger = new Logger(FacebookPublishingService.name);
   private readonly IT_RECRUITMENT_GROUP_REGEX =
     /\b(tuyen\s*dung|viec\s*lam|recruitment|jobs?|it|cntt|dev(eloper)?|tester|cong\s*nghe\s*thong\s*tin|tech(nology)?|engineer|frontend|backend|fullstack|react|node|java(script)?|type\s*script|comtor|ba|brse|lap\s*trinh|coder|qa|qc)\b/i;
 
@@ -51,6 +53,7 @@ export class FacebookPublishingService {
     private readonly jobPostingsRepo: Repository<JobPostingEntity>,
     private readonly configService: ConfigService,
     private readonly contentService: FacebookPostContentService,
+    private readonly aiService: AiService,
   ) {}
 
   async prepareExtensionPublishPlan(
@@ -59,7 +62,7 @@ export class FacebookPublishingService {
     selectedTargetIds?: string[],
     customContent?: string | null,
   ): Promise<ExtensionFacebookPublishPlan> {
-    const content = this.contentService.build(posting, customContent);
+    const content = await this.generateContent(posting, customContent);
     const targets = await this.resolveActiveTargets(ownerUserId, selectedTargetIds);
 
     return {
@@ -73,8 +76,42 @@ export class FacebookPublishingService {
     };
   }
 
-  generateExtensionPreviewContent(input: GenerateFacebookPreviewContentInput) {
-    return this.contentService.buildFromSnapshot(input.snapshot);
+  async generateExtensionPreviewContent(input: GenerateFacebookPreviewContentInput) {
+    try {
+      const content = await this.aiService.generateFacebookRecruitmentContent(input.snapshot as unknown as Record<string, unknown>);
+      if (content) return { content, mode: 'AI' as const };
+    } catch (error) {
+      this.logger.warn(`Facebook AI content generation failed; using template fallback: ${error instanceof Error ? error.message : error}`);
+    }
+
+    return {
+      content: this.contentService.buildFromSnapshot(input.snapshot),
+      mode: 'TEMPLATE' as const,
+    };
+  }
+
+  private async generateContent(posting: JobPostingEntity, customContent?: string | null) {
+    if (customContent?.trim()) return this.contentService.build(posting, customContent);
+
+    const snapshot = this.asRecord(posting.jobDescriptionVersion?.snapshot);
+    const jobDescription = this.asRecord(snapshot?.jobDescription) ?? {};
+    try {
+      const content = await this.aiService.generateFacebookRecruitmentContent({
+        title: posting.title || jobDescription.title,
+        ...jobDescription,
+      });
+      if (content) return content;
+    } catch (error) {
+      this.logger.warn(`Facebook AI content generation failed; using template fallback: ${error instanceof Error ? error.message : error}`);
+    }
+
+    return this.contentService.build(posting);
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | null {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null;
   }
 
   async listActiveExtensionGroups(ownerUserId: string): Promise<ResolvedFacebookPublishTarget[]> {

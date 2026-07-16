@@ -19,8 +19,8 @@ export class GenerateFacebookPreviewContentDto {
 
   @ApiPropertyOptional({
     enum: ['TEMPLATE', 'AI'],
-    default: 'TEMPLATE',
-    description: 'AI is accepted for API compatibility; current backend falls back to template generation.',
+    default: 'AI',
+    description: 'Requests AI generation; template is used only when Gemini is unavailable.',
   })
   @IsOptional()
   @IsIn(['TEMPLATE', 'AI'])
