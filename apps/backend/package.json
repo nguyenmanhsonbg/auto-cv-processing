@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "build": "pnpm --filter @interview-assistant/shared build && nest build && tsc -p tsconfig.migrate.json",
-    "dev": "nest start --watch",
+    "dev": "pnpm seed:test-jds && nest start --watch",
     "start": "nest start",
+    "seed:test-jds": "ts-node --project tsconfig.json src/seed/test-jds.seed.ts",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "typecheck": "tsc --noEmit",

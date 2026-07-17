@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
-  ArrayNotEmpty,
+  IsBoolean,
   IsArray,
   IsOptional,
   IsString,
@@ -41,19 +41,23 @@ export class DiscoverFacebookGroupsDto {
     ],
   })
   @IsArray()
-  @ArrayNotEmpty()
   @ArrayMaxSize(2000)
   @ValidateNested({ each: true })
   @Type(() => DiscoverFacebookGroupItemDto)
   groups: DiscoverFacebookGroupItemDto[];
+
+  @ApiPropertyOptional({ description: 'True only when the hidden browser scan reached its completion guard.' })
+  @IsOptional()
+  @IsBoolean()
+  scanComplete?: boolean;
 }
 
 export class DiscoverFacebookGroupsResponseItemDto {
   @ApiProperty({
-    enum: ['created', 'updated', 'reactivated', 'reused', 'conflict', 'skipped'],
+    enum: ['created', 'updated', 'reactivated', 'reused', 'conflict', 'deactivated', 'skipped'],
     example: 'created',
   })
-  action: 'created' | 'updated' | 'reactivated' | 'reused' | 'conflict' | 'skipped';
+  action: 'created' | 'updated' | 'reactivated' | 'reused' | 'conflict' | 'deactivated' | 'skipped';
 
   @ApiProperty({ example: 'Viec lam IT Da Nang' })
   targetName: string;
@@ -101,6 +105,15 @@ export class DiscoverFacebookGroupsResponseDto {
 
   @ApiProperty({ example: [], type: [String] })
   errors: string[];
+
+  @ApiProperty({ example: 2 })
+  removed: number;
+
+  @ApiProperty({ example: true })
+  scanComplete: boolean;
+
+  @ApiProperty({ example: true })
+  reconciliationApplied: boolean;
 
   @ApiProperty({
     type: [DiscoverFacebookGroupsResponseItemDto],

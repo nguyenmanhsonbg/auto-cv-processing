@@ -61,6 +61,7 @@ export interface UpdateFacebookGroupInput extends CreateFacebookGroupInput {
 export interface UpdateFacebookGroupVerificationInput {
   ownerUserId: string;
   targetId: string;
+  ownerExtensionInstanceId?: string | null;
   eligibilityStatus: FacebookPublishTargetEligibilityStatus;
   eligibilityReason?: string | null;
   verifiedAt?: Date | null;

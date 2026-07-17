@@ -164,6 +164,7 @@ export class ExtensionIntegrationService {
         context.actorUserId,
         normalizedDto.facebookTargetIds,
         normalizedDto.facebookContent,
+        context.extensionInstanceId,
       )
       : undefined;
     const warnings = this.buildFacebookPreviewWarnings(normalizedDto.channels, facebookPublishPlan);
@@ -217,6 +218,7 @@ export class ExtensionIntegrationService {
           snapshotHash,
           snapshotChanged: false,
           actorUserId: context.actorUserId,
+          ownerExtensionInstanceId: context.extensionInstanceId,
         });
       }
 
@@ -312,6 +314,7 @@ export class ExtensionIntegrationService {
       snapshotHash,
       snapshotChanged: true,
       actorUserId: context.actorUserId,
+      ownerExtensionInstanceId: context.extensionInstanceId,
     });
   }
 
@@ -389,6 +392,7 @@ export class ExtensionIntegrationService {
       snapshotHash,
       snapshotChanged: true,
       actorUserId: context.actorUserId,
+      ownerExtensionInstanceId: context.extensionInstanceId,
     });
   }
 
@@ -705,6 +709,7 @@ export class ExtensionIntegrationService {
     snapshotHash: string;
     snapshotChanged: boolean;
     actorUserId: string;
+    ownerExtensionInstanceId?: string | null;
   }): Promise<ExtensionSyncResponseDto> {
     const facebookPublishPlan = input.dto.channels.includes(RecruitmentChannel.FACEBOOK)
       ? await this.facebookPublishingService.prepareExtensionPublishPlan(
@@ -712,6 +717,7 @@ export class ExtensionIntegrationService {
         input.actorUserId,
         input.dto.facebookTargetIds,
         input.dto.facebookContent,
+        input.ownerExtensionInstanceId,
       )
       : undefined;
     const warnings: ExtensionSyncWarningDto[] = [];

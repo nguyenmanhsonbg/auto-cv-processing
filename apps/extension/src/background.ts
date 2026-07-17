@@ -23,12 +23,19 @@ import {
 } from './api-client';
 import { clearAccessToken, getAccessToken } from './auth-store';
 import { getSelectedChannels } from './channel-preferences';
+import { EXTENSION_TASK_QUEUE_ENABLED, FACEBOOK_MAX_IMAGE_ATTACHMENTS } from './config';
 import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
 import {
   clearFacebookContentDraft as clearStoredFacebookContentDraft,
+  buildFacebookDraftSnapshotFingerprint,
   getFacebookContentDraft,
 } from './facebook-content-draft-store';
 import { getSelectedFacebookGroupIds } from './facebook-group-preferences';
+import {
+  beginFacebookImagePublish,
+  getFacebookImageAttachments,
+  syncFacebookImagePublishStatuses,
+} from './facebook-image-attachment-store';
 import {
   ensureFacebookSession,
   publishFacebookPlan,
@@ -267,6 +274,8 @@ async function handleFrontendFacebookGroupVerify(
 }
 
 function scheduleExtensionTaskPolling() {
+  if (!EXTENSION_TASK_QUEUE_ENABLED) return;
+
   chrome.alarms?.create(EXTENSION_TASK_POLL_ALARM, {
     delayInMinutes: EXTENSION_TASK_POLL_INTERVAL_MINUTES,
     periodInMinutes: EXTENSION_TASK_POLL_INTERVAL_MINUTES,
@@ -274,7 +283,7 @@ function scheduleExtensionTaskPolling() {
 }
 
 async function runExtensionTaskPoll() {
-  if (extensionTaskPollRunning) return;
+  if (!EXTENSION_TASK_QUEUE_ENABLED || extensionTaskPollRunning) return;
   extensionTaskPollRunning = true;
 
   try {
@@ -519,11 +528,55 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
       );
 
       if (channels.includes('FACEBOOK') && result.facebookPublishPlan) {
-        const facebookPublishPlan = await resolveFacebookPublishPlanContent(
+        const resolvedFacebookPublishPlan = await resolveFacebookPublishPlanContent(
           result.facebookPublishPlan,
           { ...enrichedCapture, amisRecruitmentId, snapshot },
           facebookContentForPublish,
         );
+        const facebookImageScope = {
+          recruitmentId: amisRecruitmentId,
+          jobDescriptionId: selectedJobQuestionContext?.jobDescriptionId ?? null,
+          snapshotFingerprint: buildFacebookDraftSnapshotFingerprint(snapshot),
+        };
+        let facebookPublishPlan = resolvedFacebookPublishPlan;
+        try {
+          const imageAttachments = await getFacebookImageAttachments(facebookImageScope);
+          await appendAmisDiagnostic({
+            type: 'FACEBOOK_IMAGE_ATTACHMENTS_RESOLVED',
+            pageUrl: enrichedCapture.url,
+            timestamp: new Date().toISOString(),
+            details: {
+              attachmentCount: imageAttachments.length,
+              recruitmentId: facebookImageScope.recruitmentId,
+              jobDescriptionId: facebookImageScope.jobDescriptionId,
+            },
+          });
+          if (imageAttachments.length > 0) {
+            facebookPublishPlan = {
+              ...resolvedFacebookPublishPlan,
+              attachments: imageAttachments.slice(0, FACEBOOK_MAX_IMAGE_ATTACHMENTS),
+            };
+            await beginFacebookImagePublish(
+              facebookImageScope,
+              resolvedFacebookPublishPlan.jobPostingId,
+              resolvedFacebookPublishPlan.targets,
+            );
+          }
+        } catch (error) {
+          const message = toExtensionErrorMessage(error, 'Facebook image attachments could not be loaded.');
+          await appendAmisDiagnostic({
+            type: 'FACEBOOK_IMAGE_ATTACHMENTS_RESOLVED',
+            pageUrl: enrichedCapture.url,
+            timestamp: new Date().toISOString(),
+            details: {
+              attachmentCount: null,
+              recruitmentId: facebookImageScope.recruitmentId,
+              jobDescriptionId: facebookImageScope.jobDescriptionId,
+              error: message,
+            },
+          });
+          throw new Error(`FB_IMAGE_ATTACHMENT_STORE_FAILED: ${message}`);
+        }
         const resultForFacebookPublish = {
           ...result,
           facebookPublishPlan,
@@ -541,6 +594,27 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
             void saveLastFacebookPublishProgress(progress);
           },
         });
+        if (facebookPublishPlan.attachments?.length) {
+          try {
+            await syncFacebookImagePublishStatuses(facebookResults.map((publishResult) => {
+              const target = facebookPublishPlan.targets.find((candidate) => (
+                candidate.targetId === publishResult.targetId
+                  || candidate.targetUrl === publishResult.targetUrl
+                  || candidate.targetName === publishResult.targetName
+              ));
+              return {
+                jobPostingId: facebookPublishPlan.jobPostingId,
+                targetId: publishResult.targetId,
+                targetExternalId: target?.targetExternalId ?? null,
+                targetName: publishResult.targetName,
+                targetUrl: publishResult.targetUrl ?? target?.targetUrl ?? null,
+                facebookReviewStatus: publishResult.facebookReviewStatus ?? 'UNKNOWN',
+              };
+            }));
+          } catch {
+            // Facebook results remain authoritative if local attachment cleanup fails.
+          }
+        }
         const resultWithFacebookStatus = updateFacebookChannelStatus(resultForFacebookPublish, facebookResults);
         const facebookSummary = summarizeFacebookPublishResults(facebookResults);
         if (facebookSummary.successCount > 0) {
