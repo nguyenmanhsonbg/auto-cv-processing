@@ -124,6 +124,20 @@ export interface PublicApplyRateLimitInput {
   userAgent?: string | null;
 }
 
+export interface RecordCvContentSimilarityInput {
+  applicationId: string;
+  candidateId: string;
+  jobPostingId: string;
+  previousParsedProfileId: string;
+  previousCvDocumentId: string;
+  oldNormalizedTextHash: string;
+  newNormalizedTextHash: string;
+  score: number;
+  threshold: number;
+  methodVersion: string;
+  decision: 'DUPLICATE_FOUND' | 'PASSED';
+}
+
 @Injectable()
 export class ApplicationsService {
   constructor(
@@ -139,6 +153,79 @@ export class ApplicationsService {
     @Optional()
     private readonly aiService?: AiService,
   ) {}
+
+  async recordCvContentSimilarityCheck(input: RecordCvContentSimilarityInput): Promise<void> {
+    const applicationId = this.requireText(input.applicationId, 'Application id');
+
+    await this.dataSource.transaction(async (manager) => {
+      const application = await manager.getRepository(ApplicationEntity).findOne({
+        where: { id: applicationId },
+      });
+      if (!application) throw new BadRequestException('Application not found');
+
+      const status = input.decision === 'DUPLICATE_FOUND'
+        ? DuplicateCheckStatus.DUPLICATE_FOUND
+        : DuplicateCheckStatus.PASSED;
+      const details = {
+        candidateId: this.requireText(input.candidateId, 'Candidate id'),
+        jobPostingId: this.requireText(input.jobPostingId, 'Job posting id'),
+        previousParsedProfileId: this.requireText(
+          input.previousParsedProfileId,
+          'Previous parsed profile id',
+        ),
+        oldNormalizedTextHash: this.requireText(
+          input.oldNormalizedTextHash,
+          'Old normalized text hash',
+        ),
+        newNormalizedTextHash: this.requireText(
+          input.newNormalizedTextHash,
+          'New normalized text hash',
+        ),
+        threshold: input.threshold,
+        methodVersion: this.requireText(input.methodVersion, 'Similarity method version'),
+        decision: input.decision,
+      };
+
+      await this.recordDuplicateCheck(manager, {
+        applicationId,
+        checkType: DuplicateCheckType.CV_CONTENT_SIMILARITY,
+        status,
+        matchedEntityType: 'CV_DOCUMENT',
+        matchedEntityId: this.requireText(input.previousCvDocumentId, 'Previous CV document id'),
+        score: input.score.toFixed(6),
+        details,
+      });
+      await this.workflowStateService.recordEvent(
+        {
+          applicationId,
+          fromStatus: application.status,
+          toStatus: application.status,
+          eventType: 'CV_CONTENT_SIMILARITY_CHECKED',
+          actorType: 'SYSTEM',
+          actorId: null,
+          metadata: {
+            checkType: DuplicateCheckType.CV_CONTENT_SIMILARITY,
+            ...details,
+            score: input.score,
+          },
+        },
+        manager,
+      );
+      await this.recordApplicationAuditLog(manager, {
+        applicationId,
+        actorType: 'SYSTEM',
+        actorId: null,
+        action: 'CV_CONTENT_SIMILARITY_CHECKED',
+        objectType: 'CV_DOCUMENT',
+        objectId: input.previousCvDocumentId,
+        metadata: {
+          checkType: DuplicateCheckType.CV_CONTENT_SIMILARITY,
+          ...details,
+          score: input.score,
+        },
+      });
+    });
+  }
 
   findOne(id: string) {
     const normalizedId = this.requireText(id, 'Application id');

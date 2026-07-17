@@ -53,6 +53,10 @@ import {
 } from '../common/swagger/api-envelope.schema';
 import { validateResumeSignals } from '../cv-parsing/resume-validation.util';
 import { CvParsingService } from '../cv-parsing/cv-parsing.service';
+import {
+  CvSimilarityIdentity,
+  CvSimilarityService,
+} from '../cv-parsing/cv-similarity.service';
 import { FileParserService } from '../file-parser/file-parser.service';
 import {
   ApplicationStatus,
@@ -93,6 +97,7 @@ type PublicApplyErrorCode =
   | 'CV_PARSE_FAILED'
   | 'CV_NOT_RESUME'
   | 'DUPLICATE_APPLICATION'
+  | 'DUPLICATE_CV_CONTENT'
   | 'DUPLICATE_CV_FILE'
   | 'FILE_TOO_LARGE'
   | 'IDEMPOTENCY_CONFLICT'
@@ -107,6 +112,11 @@ interface PublicApplyError {
   status: number;
   code: PublicApplyErrorCode;
   message: string;
+}
+
+interface UploadedResumeText {
+  rawText: string;
+  normalizedText: string;
 }
 
 const MAX_PUBLIC_APPLY_CV_FILE_SIZE_BYTES = 20 * 1024 * 1024;
@@ -253,6 +263,7 @@ export class PublicJobPostingsController {
     private readonly applicationsService: ApplicationsService,
     private readonly cvDocumentsService: CvDocumentsService,
     private readonly cvParsingService: CvParsingService,
+    private readonly cvSimilarityService: CvSimilarityService,
     private readonly fileParserService: FileParserService,
     private readonly formSessionsService: FormSessionsService,
   ) {}
@@ -331,7 +342,10 @@ export class PublicJobPostingsController {
         ipAddress: this.getClientIp(req),
         userAgent: normalizeHeader(req.headers['user-agent']),
       });
-      await this.assertUploadedFileLooksLikeResume(file);
+      const uploadedResumeText = await this.extractAndValidateUploadedCvText(
+        file,
+        candidate,
+      );
       await this.applicationsService.recordPublicApplyReceived({
         jobPostingId,
         email: candidate.email,
@@ -351,6 +365,11 @@ export class PublicJobPostingsController {
         && applicationResult.duplicateReason !== 'IDEMPOTENT_REPLAY';
       if (isPublicReapply) {
         this.assertPublicReapplyBelongsToSameCandidate(applicationResult, candidate);
+        await this.checkPublicReapplyCvSimilarity({
+          application: applicationResult,
+          candidate,
+          uploadedNormalizedText: uploadedResumeText.normalizedText,
+        });
       }
 
       handedToCvUploadService = true;
@@ -485,12 +504,20 @@ export class PublicJobPostingsController {
     };
   }
 
-  private async assertUploadedFileLooksLikeResume(file: Express.Multer.File) {
+  private async extractAndValidateUploadedCvText(
+    file: Express.Multer.File,
+    identity: CvSimilarityIdentity,
+  ): Promise<UploadedResumeText> {
     const parsedData = await this.fileParserService.parseFile(file.path);
     const rawText = typeof parsedData.rawText === 'string' ? parsedData.rawText : '';
     const validation = validateResumeSignals(parsedData, rawText);
 
-    if (validation.isLikelyCv) return;
+    if (validation.isLikelyCv) {
+      return {
+        rawText,
+        normalizedText: this.cvSimilarityService.normalizeForSimilarity(rawText, identity),
+      };
+    }
 
     throw new UnprocessableEntityException({
       code: 'CV_NOT_RESUME',
@@ -525,6 +552,53 @@ export class PublicJobPostingsController {
       code: 'DUPLICATE_APPLICATION',
       message: 'An application already exists for this job posting.',
     });
+  }
+
+  private async checkPublicReapplyCvSimilarity(input: {
+    application: CreateApplicationResult;
+    candidate: CvSimilarityIdentity;
+    uploadedNormalizedText: string;
+  }): Promise<void> {
+    const parsedProfile = await this.applicationsService.findParsedProfileByApplicationId(
+      input.application.application.id,
+    );
+    if (!parsedProfile) return;
+
+    const parsedRawText = typeof parsedProfile.parsedData?.rawText === 'string'
+      ? parsedProfile.parsedData.rawText
+      : '';
+    const oldText = parsedRawText.trim()
+      ? parsedRawText
+      : await this.cvDocumentsService.extractCleanCvText(parsedProfile.cvDocument);
+    const result = this.cvSimilarityService.compare(
+      oldText,
+      input.uploadedNormalizedText,
+      input.candidate,
+    );
+    const isDuplicate = result.score >= result.threshold;
+    const previousCvDocumentId = parsedProfile.cvDocument?.id ?? parsedProfile.cvDocumentId;
+    const candidateId = input.application.application.candidateId ?? input.application.candidate.id;
+
+    await this.applicationsService.recordCvContentSimilarityCheck({
+      applicationId: input.application.application.id,
+      candidateId,
+      jobPostingId: input.application.application.jobPostingId,
+      previousParsedProfileId: parsedProfile.id,
+      previousCvDocumentId,
+      oldNormalizedTextHash: result.oldNormalizedTextHash,
+      newNormalizedTextHash: result.newNormalizedTextHash,
+      score: result.score,
+      threshold: result.threshold,
+      methodVersion: result.methodVersion,
+      decision: isDuplicate ? 'DUPLICATE_FOUND' : 'PASSED',
+    });
+
+    if (isDuplicate) {
+      throw new ConflictException({
+        code: 'DUPLICATE_CV_CONTENT',
+        message: 'This CV is too similar to a previous CV submitted for this job posting.',
+      });
+    }
   }
 
   private applyMeta(idempotencyKey: string | null) {
@@ -697,6 +771,14 @@ function toPublicApplyError(exception: unknown): PublicApplyError {
       HttpStatus.CONFLICT,
       'DUPLICATE_CV_FILE',
       'This CV file has already been uploaded for this application.',
+    );
+  }
+
+  if (code === 'DUPLICATE_CV_CONTENT') {
+    return buildPublicApplyError(
+      HttpStatus.CONFLICT,
+      'DUPLICATE_CV_CONTENT',
+      'This CV is too similar to a previous CV submitted for this job posting.',
     );
   }
 

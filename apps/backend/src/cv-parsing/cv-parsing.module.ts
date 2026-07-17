@@ -9,6 +9,7 @@ import { FileParserModule } from '../file-parser/file-parser.module';
 import { WorkflowStateModule } from '../workflow-state/workflow-state.module';
 import { GeminiCvParserService } from './gemini-cv-parser.service';
 import { CvParsingService } from './cv-parsing.service';
+import { CvSimilarityService } from './cv-similarity.service';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { CvParsingService } from './cv-parsing.service';
     FileParserModule,
     WorkflowStateModule,
   ],
-  providers: [CvParsingService, GeminiCvParserService],
-  exports: [CvParsingService],
+  providers: [CvParsingService, GeminiCvParserService, CvSimilarityService],
+  exports: [CvParsingService, CvSimilarityService],
 })
 export class CvParsingModule {}

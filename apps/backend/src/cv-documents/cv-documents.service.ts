@@ -18,6 +18,7 @@ import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.e
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { CvSanitizationService } from '../cv-sanitization/cv-sanitization.service';
 import { resolveCvSafeStorageKey } from '../cv-sanitization/storage/cv-safe-storage';
+import { FileParserService } from '../file-parser/file-parser.service';
 import {
   ApplicationStatus,
   CvDocumentType,
@@ -101,7 +102,20 @@ export class CvDocumentsService {
     private readonly dataSource: DataSource,
     private readonly workflowStateService: WorkflowStateService,
     private readonly cvSanitizationService: CvSanitizationService,
+    private readonly fileParserService: FileParserService,
   ) {}
+
+  async extractCleanCvText(cvDocument: CvDocumentEntity): Promise<string> {
+    const filePath = resolveCvSafeStorageKey(cvDocument.storagePath);
+    const parsed = await this.fileParserService.parseFile(filePath);
+    const rawText = typeof parsed.rawText === 'string' ? parsed.rawText : '';
+
+    if (!rawText.trim()) {
+      throw new UnprocessableEntityException('Current CV text is empty');
+    }
+
+    return rawText;
+  }
 
   async uploadOriginalCv(input: UploadCvInput) {
     let keepUploadedFile = false;
