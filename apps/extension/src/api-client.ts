@@ -350,6 +350,16 @@ export async function getApplicationAiMatchPreview(
   });
 }
 
+export async function getApplicationParsedProfile(
+  accessToken: string,
+  applicationId: string,
+) {
+  return request<Record<string, unknown>>(`/applications/${encodeURIComponent(applicationId)}/parsed-profile`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function listAmisCareers(accessToken: string) {
   return request<AmisCareerCatalogItem[]>('/extension/amis/careers', {
     method: 'GET',

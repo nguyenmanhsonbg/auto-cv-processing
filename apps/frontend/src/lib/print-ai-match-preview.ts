@@ -9,6 +9,11 @@ function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
 }
 
+async function settleExportLayout(): Promise<void> {
+  await nextAnimationFrame();
+  await nextAnimationFrame();
+}
+
 function sanitizeFilename(filename: string): string {
   const safeFilename = filename.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-').trim();
   return safeFilename.endsWith('.pdf') ? safeFilename : `${safeFilename}.pdf`;
@@ -29,7 +34,7 @@ export async function exportAiMatchPreviewToPdf({
   document.body.classList.add(EXPORT_CLASS_NAME);
 
   try {
-    await nextAnimationFrame();
+    await settleExportLayout();
     const canvas = await html2canvas(element, {
       backgroundColor: '#ffffff',
       height: element.scrollHeight,
@@ -37,6 +42,19 @@ export async function exportAiMatchPreviewToPdf({
       scale: Math.min(window.devicePixelRatio || 1, 2),
       useCORS: true,
       width: element.scrollWidth,
+      onclone: (clonedDocument) => {
+        const clonedDialog = clonedDocument.querySelector<HTMLElement>('.ai-match-preview-dialog');
+        const clonedScroll = clonedDocument.querySelector<HTMLElement>('.ai-match-preview-scroll');
+        for (const node of [clonedDialog, clonedScroll]) {
+          if (!node) continue;
+          node.style.display = 'block';
+          node.style.position = 'static';
+          node.style.flex = 'none';
+          node.style.height = 'auto';
+          node.style.maxHeight = 'none';
+          node.style.overflow = 'visible';
+        }
+      },
     });
 
     const pdf = new jsPDF({ compress: true, format: 'a4', orientation: 'portrait', unit: 'mm' });

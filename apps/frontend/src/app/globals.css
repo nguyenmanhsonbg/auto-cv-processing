@@ -44,6 +44,8 @@
 /* Expand the popup before html2canvas captures it so long previews are not clipped. */
 body.ai-match-preview-exporting .ai-match-preview-dialog {
   position: relative !important;
+  display: block !important;
+  flex: none !important;
   left: auto !important;
   top: auto !important;
   width: 100% !important;
@@ -61,9 +63,19 @@ body.ai-match-preview-exporting .ai-match-preview-export-button {
 
 body.ai-match-preview-exporting .ai-match-preview-scroll {
   display: block !important;
+  position: static !important;
+  flex: none !important;
   min-height: 0 !important;
   height: auto !important;
   max-height: none !important;
+  width: auto !important;
   overflow: visible !important;
   padding-right: 0 !important;
+}
+
+body.ai-match-preview-exporting .ai-match-preview-scroll > * {
+  position: relative !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
 }

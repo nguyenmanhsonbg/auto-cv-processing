@@ -10,6 +10,7 @@ import {
   createFacebookGroup,
   deleteFacebookGroup,
   downloadCleanCvFile,
+  getApplicationParsedProfile,
   getApplicationAiMatchPreview,
   ensureRegisteredExtensionInstance,
   getAmisApplicationsForRecruitment,
@@ -31,8 +32,8 @@ import {
   updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
 } from './api-client';
-import { createAiEvaluationPdf } from './ai-evaluation-pdf';
 import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChanges } from './auth-store';
+import { createAiMatchPreviewPdf } from './ai-match-preview-pdf';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import {
   DEFAULT_POSTING_CHANNELS,
@@ -1347,15 +1348,21 @@ function SidePanel() {
       if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
         throw new Error('Open the AMIS candidate documents tab first.');
       }
-      const detail = await getApplicationAiMatchPreview(token, application.applicationId);
-      const pdfBytes = createAiEvaluationPdf(detail);
+      const [detail, parsedProfile] = await Promise.all([
+        getApplicationAiMatchPreview(token, application.applicationId),
+        getApplicationParsedProfile(token, application.applicationId),
+      ]);
+      const previewPdf = await createAiMatchPreviewPdf(detail, parsedProfile);
+      if (previewPdf.length < 1000) {
+        throw new Error('PDF đánh giá AI được tạo ra không hợp lệ hoặc đang rỗng.');
+      }
       const response = await sendMessageToAmisTab(activeTab.id, {
         type: UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
         payload: {
           files: [{
-            fileName: `ai-evaluation-${application.candidateName || 'candidate'}.pdf`,
+            fileName: `ai-match-preview-${application.candidateName || 'candidate'}.pdf`,
             mimeType: 'application/pdf',
-            dataBase64: arrayBufferToBase64(pdfBytes),
+            dataBase64: previewPdf,
           }],
         },
       });

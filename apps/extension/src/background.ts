@@ -68,6 +68,8 @@ const FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_R
 const FRONTEND_FACEBOOK_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const FRONTEND_FACEBOOK_PORT = 'frontend-facebook-publish';
 const FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION = 'VCS_FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION';
+const EXPORT_AI_MATCH_PREVIEW_PDF_REQUEST = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF';
+const EXPORT_AI_MATCH_PREVIEW_PDF_RESULT = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_RESULT';
 const EXTENSION_TASK_POLL_ALARM = 'vcs-extension-task-poll';
 const EXTENSION_TASK_POLL_INTERVAL_MINUTES = 1;
 const activeAutoSyncKeys = new Set<string>();
@@ -96,7 +98,7 @@ chrome.alarms?.onAlarm.addListener((alarm) => {
 scheduleExtensionTaskPolling();
 void runExtensionTaskPoll();
 
-chrome.runtime?.onMessage.addListener((message, sender) => {
+chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
   if (isAmisDiagnosticMessage(message)) {
     void appendAmisDiagnostic(message.payload);
     if (message.payload.type === 'BRIDGE_READY') {
@@ -120,10 +122,113 @@ chrome.runtime?.onMessage.addListener((message, sender) => {
     return;
   }
 
+  if (isExportAiMatchPreviewPdfRequest(message)) {
+    void handleExportAiMatchPreviewPdf(message).then(sendResponse);
+    return true;
+  }
+
   if (!isAmisSavedMessage(message)) return;
 
   void handleAmisSaved(message.payload, sender);
 });
+
+async function handleExportAiMatchPreviewPdf(message: { requestId: string; applicationId: string }) {
+  const frontendTabs = await chrome.tabs?.query({
+    url: ['http://localhost:4000/*', 'http://localhost:4001/*'],
+  }) ?? [];
+  const applicationPath = `/recruitment/applications/${message.applicationId}`;
+  let tab = frontendTabs.find((candidate) => candidate.url?.includes(applicationPath));
+  let temporaryTab = false;
+
+  if (!tab?.id) {
+    const ports = [4000, 4001];
+    let lastError = 'Could not open VCS application page.';
+    for (const port of ports) {
+      try {
+        const candidate = await chrome.tabs?.create({
+          url: `http://localhost:${port}${applicationPath}`,
+          active: false,
+        });
+        if (!candidate?.id) continue;
+        temporaryTab = true;
+        await waitForTabReady(candidate.id, 30_000);
+        tab = candidate;
+        break;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+        if (tab?.id) await chrome.tabs?.remove(tab.id).catch(() => undefined);
+        tab = undefined;
+      }
+    }
+    if (!tab?.id) return { ok: false, error: `${lastError} VCS frontend must run on localhost:4000 or localhost:4001.` };
+  }
+
+  try {
+    await waitForTabReady(tab.id, 30_000);
+    const requestId = `${message.requestId}:${Date.now()}`;
+    const resultPromise = waitForFrontendPdfResult(requestId, 60_000);
+    await chrome.tabs?.sendMessage?.(tab.id, {
+      type: 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF',
+      requestId,
+    });
+    return await resultPromise;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Could not export AI Match Preview PDF.' };
+  } finally {
+    if (temporaryTab) await chrome.tabs?.remove(tab.id).catch(() => undefined);
+  }
+}
+
+function waitForTabReady(tabId: number, timeoutMs: number) {
+  const startedAt = Date.now();
+  return new Promise<void>((resolve, reject) => {
+    const poll = async () => {
+      const current = await chrome.tabs?.get(tabId);
+      if (current?.status === 'complete') {
+        resolve();
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        reject(new Error('VCS application page did not finish loading.'));
+        return;
+      }
+      setTimeout(() => void poll(), 250);
+    };
+    void poll();
+  });
+}
+
+function waitForFrontendPdfResult(requestId: string, timeoutMs: number) {
+  return new Promise<{ ok: boolean; dataBase64?: string; error?: string }>((resolve) => {
+    const listener = (message: unknown) => {
+      if (!isFrontendPdfResult(message) || message.requestId !== requestId) return;
+      chrome.runtime?.onMessage.removeListener?.(listener);
+      clearTimeout(timeoutId);
+      resolve(message);
+    };
+    const timeoutId = setTimeout(() => {
+      chrome.runtime?.onMessage.removeListener?.(listener);
+      resolve({ ok: false, error: 'Timed out while exporting AI Match Preview PDF.' });
+    }, timeoutMs);
+    chrome.runtime?.onMessage.addListener(listener);
+  });
+}
+
+function isExportAiMatchPreviewPdfRequest(value: unknown): value is { requestId: string; applicationId: string } {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === EXPORT_AI_MATCH_PREVIEW_PDF_REQUEST
+    && typeof (value as { requestId?: unknown }).requestId === 'string'
+    && typeof (value as { applicationId?: unknown }).applicationId === 'string';
+}
+
+function isFrontendPdfResult(value: unknown): value is { requestId: string; ok: boolean; dataBase64?: string; error?: string } {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === EXPORT_AI_MATCH_PREVIEW_PDF_RESULT
+    && typeof (value as { requestId?: unknown }).requestId === 'string'
+    && typeof (value as { ok?: unknown }).ok === 'boolean';
+}
 
 chrome.runtime?.onConnect?.addListener((port) => {
   if (port.name !== FRONTEND_FACEBOOK_PORT) return;

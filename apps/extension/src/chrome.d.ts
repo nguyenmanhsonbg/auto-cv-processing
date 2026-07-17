@@ -29,6 +29,7 @@ interface ChromeRuntime {
       sender: ChromeMessageSender,
       sendResponse: (response?: unknown) => void,
     ) => boolean | void): void;
+    removeListener?(callback: (...args: any[]) => unknown): void;
   };
   connect?(connectInfo?: { name?: string }): ChromePort;
   sendMessage?(message: unknown): Promise<unknown>;
