@@ -174,6 +174,9 @@ export class AmisApplicationListItemDto {
   @ApiProperty()
   candidateId: string;
 
+  @ApiPropertyOptional()
+  amisCandidateId: string | null;
+
   @ApiProperty()
   candidateName: string;
 

@@ -164,6 +164,7 @@ export class ExtensionIntegrationService {
         context.actorUserId,
         normalizedDto.facebookTargetIds,
         normalizedDto.facebookContent,
+        context.extensionInstanceId,
       )
       : undefined;
     const warnings = this.buildFacebookPreviewWarnings(normalizedDto.channels, facebookPublishPlan);
@@ -217,6 +218,7 @@ export class ExtensionIntegrationService {
           snapshotHash,
           snapshotChanged: false,
           actorUserId: context.actorUserId,
+          ownerExtensionInstanceId: context.extensionInstanceId,
         });
       }
 
@@ -312,6 +314,7 @@ export class ExtensionIntegrationService {
       snapshotHash,
       snapshotChanged: true,
       actorUserId: context.actorUserId,
+      ownerExtensionInstanceId: context.extensionInstanceId,
     });
   }
 
@@ -389,6 +392,7 @@ export class ExtensionIntegrationService {
       snapshotHash,
       snapshotChanged: true,
       actorUserId: context.actorUserId,
+      ownerExtensionInstanceId: context.extensionInstanceId,
     });
   }
 
@@ -705,6 +709,7 @@ export class ExtensionIntegrationService {
     snapshotHash: string;
     snapshotChanged: boolean;
     actorUserId: string;
+    ownerExtensionInstanceId?: string | null;
   }): Promise<ExtensionSyncResponseDto> {
     const facebookPublishPlan = input.dto.channels.includes(RecruitmentChannel.FACEBOOK)
       ? await this.facebookPublishingService.prepareExtensionPublishPlan(
@@ -712,6 +717,7 @@ export class ExtensionIntegrationService {
         input.actorUserId,
         input.dto.facebookTargetIds,
         input.dto.facebookContent,
+        input.ownerExtensionInstanceId,
       )
       : undefined;
     const warnings: ExtensionSyncWarningDto[] = [];
@@ -843,7 +849,7 @@ export class ExtensionIntegrationService {
       });
     }
 
-    const channels = [...new Set(dto.channels)];
+    const channels = this.normalizePublishChannels(dto.channels);
 
     return {
       ...dto,
@@ -870,6 +876,22 @@ export class ExtensionIntegrationService {
       selectedQuestionIds: this.normalizeSelectedQuestionIds(dto.selectedQuestionIds),
       metadata: this.safeMetadata(dto.metadata),
     };
+  }
+
+  private normalizePublishChannels(channels?: ExtensionSyncChannel[]): ExtensionSyncChannel[] {
+    const portalChannel: ExtensionSyncChannel = RecruitmentChannel.VCS_PORTAL;
+    const deduped: ExtensionSyncChannel[] = [];
+    const seen = new Set<ExtensionSyncChannel>();
+
+    for (const channel of Array.isArray(channels) ? channels : []) {
+      if (seen.has(channel)) continue;
+      seen.add(channel);
+      deduped.push(channel);
+    }
+
+    return seen.has(portalChannel)
+      ? deduped
+      : [portalChannel, ...deduped];
   }
 
   private normalizeSelectedQuestionIds(value?: string[]) {
@@ -1359,6 +1381,7 @@ export class ExtensionIntegrationService {
           context,
           lastSyncedAt,
         );
+        result.applicationSource.amisCandidateId = item.candidateId;
         await this.dataSource.getRepository(ApplicationSourceEntity).save(result.applicationSource);
       }
     }
@@ -1398,6 +1421,7 @@ export class ExtensionIntegrationService {
         return {
           applicationId: application.id,
           candidateId: application.candidateId,
+          amisCandidateId: source?.amisCandidateId ?? null,
           candidateName: application.candidate?.name ?? '',
           email: application.candidate?.email ?? null,
           mobile: application.candidate?.phone ?? null,

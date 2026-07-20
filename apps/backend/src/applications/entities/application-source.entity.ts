@@ -43,6 +43,9 @@ export class ApplicationSourceEntity {
   @Column({ name: 'external_application_id', type: 'varchar', nullable: true })
   externalApplicationId: string | null;
 
+  @Column({ name: 'amis_candidate_id', type: 'varchar', nullable: true })
+  amisCandidateId: string | null;
+
   @Column({ name: 'raw_payload', type: 'jsonb', nullable: true })
   rawPayload: Record<string, unknown> | null;
 

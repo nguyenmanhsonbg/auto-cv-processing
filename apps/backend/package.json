@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "build": "pnpm --filter @interview-assistant/shared build && nest build && tsc -p tsconfig.migrate.json",
-    "dev": "nest start --watch",
+    "dev": "node scripts/dev.cjs",
     "start": "nest start",
+    "seed:test-jds": "ts-node --project tsconfig.json src/seed/test-jds.seed.ts",
     "start:prod": "node dist/main",
     "start:pool-manager": "node dist/cv-sanitization/pool-manager.main.js",
     "lint": "eslint \"{src,test}/**/*.ts\"",

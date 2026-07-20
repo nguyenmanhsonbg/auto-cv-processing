@@ -1,6 +1,6 @@
 import type { AmisJobSnapshot } from './types';
 
-export type FacebookContentDraftSource = 'AI' | 'CUSTOM';
+export type FacebookContentDraftSource = 'AI' | 'TEMPLATE' | 'CUSTOM';
 
 export interface FacebookContentDraft {
   content: string;
@@ -159,7 +159,7 @@ function isFacebookContentDraft(value: unknown): value is FacebookContentDraft {
   return typeof value === 'object'
     && value !== null
     && typeof (value as { content?: unknown }).content === 'string'
-    && ((value as { source?: unknown }).source === 'AI' || (value as { source?: unknown }).source === 'CUSTOM')
+    && ['AI', 'TEMPLATE', 'CUSTOM'].includes((value as { source?: unknown }).source as string)
     && typeof (value as { snapshotTitle?: unknown }).snapshotTitle === 'string'
     && typeof (value as { snapshotFingerprint?: unknown }).snapshotFingerprint === 'string';
 }

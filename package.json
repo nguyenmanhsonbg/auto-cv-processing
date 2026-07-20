@@ -10,6 +10,7 @@
     "typecheck": "turbo typecheck",
     "clean": "turbo clean",
     "backend:dev": "pnpm --filter @interview-assistant/backend dev",
+    "seed:test-jds": "pnpm --filter @interview-assistant/backend seed:test-jds",
     "frontend:dev": "pnpm --filter @interview-assistant/frontend dev",
     "shared:build": "pnpm --filter @interview-assistant/shared build"
   },

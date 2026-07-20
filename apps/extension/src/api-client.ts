@@ -30,6 +30,7 @@ import type {
   FacebookPublishHistoryListItem,
   FacebookReviewStatus,
   FacebookPublishTarget,
+  FacebookGroupSyncState,
   FacebookPublishResultPayload,
   JobDescriptionQuestionSetContext,
   JobDescriptionSummary,
@@ -179,12 +180,14 @@ export async function listJobDescriptions(
   const searchParams = new URLSearchParams();
   searchParams.set('page', String(params.page ?? 1));
   searchParams.set('limit', String(params.limit ?? 20));
-  searchParams.set('sourceSystem', params.sourceSystem ?? 'VCS_PORTAL');
+  if (params.sourceSystem?.trim()) {
+    searchParams.set('sourceSystem', params.sourceSystem.trim());
+  }
   if (params.status !== 'ALL') {
     searchParams.set('status', params.status ?? 'ACTIVE');
   }
-  searchParams.set('latestSyncedOnly', String(params.latestSyncedOnly ?? true));
-  searchParams.set('sortBy', params.sortBy ?? 'lastSyncedAt');
+  searchParams.set('latestSyncedOnly', String(params.latestSyncedOnly ?? false));
+  searchParams.set('sortBy', params.sortBy ?? 'createdAt');
   searchParams.set('sortOrder', params.sortOrder ?? 'DESC');
   if (params.search?.trim()) searchParams.set('search', params.search.trim());
 
@@ -337,6 +340,26 @@ export async function downloadCleanCvFile(
   };
 }
 
+export async function getApplicationAiMatchPreview(
+  accessToken: string,
+  applicationId: string,
+) {
+  return request<Record<string, unknown>>(`/applications/${encodeURIComponent(applicationId)}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function getApplicationParsedProfile(
+  accessToken: string,
+  applicationId: string,
+) {
+  return request<Record<string, unknown>>(`/applications/${encodeURIComponent(applicationId)}/parsed-profile`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
 export async function listAmisCareers(accessToken: string) {
   return request<AmisCareerCatalogItem[]>('/extension/amis/careers', {
     method: 'GET',
@@ -391,6 +414,13 @@ export async function updateFacebookPublishHistoryStatusCheck(
 
 export async function getFacebookGroups(accessToken: string) {
   return request<FacebookPublishTarget[]>('/extension/facebook/groups', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function getFacebookGroupSyncState(accessToken: string) {
+  return request<FacebookGroupSyncState>('/extension/facebook/groups/sync-state', {
     method: 'GET',
     accessToken,
   });
@@ -452,6 +482,17 @@ export async function discoverFacebookGroups(
   payload: DiscoverFacebookGroupsRequest,
 ) {
   return request<DiscoverFacebookGroupsResponse>('/extension/facebook/groups/discover', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function syncFacebookGroups(
+  accessToken: string,
+  payload: DiscoverFacebookGroupsRequest,
+) {
+  return request<DiscoverFacebookGroupsResponse>('/extension/facebook/groups/sync', {
     method: 'POST',
     accessToken,
     body: payload,

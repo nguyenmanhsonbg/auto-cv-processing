@@ -8,13 +8,15 @@ import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
 import {
   ApiClientError,
   createFacebookGroup,
-  discoverFacebookGroups,
   deleteFacebookGroup,
   downloadCleanCvFile,
+  getApplicationParsedProfile,
+  getApplicationAiMatchPreview,
   ensureRegisteredExtensionInstance,
   getAmisApplicationsForRecruitment,
   getCurrentUser,
   getFacebookGroups,
+  getFacebookGroupSyncState,
   getJobDescriptionQuestionSet,
   generateFacebookPreviewContent,
   listFacebookGroupPublishHistories,
@@ -24,14 +26,20 @@ import {
   previewAmisJobPublishPlan,
   syncAmisApplications,
   syncAndPublishAmisJob,
+  syncFacebookGroups,
   syncVcsPortalJobDescriptions,
   updateFacebookGroup,
   updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
 } from './api-client';
 import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChanges } from './auth-store';
+import { createAiMatchPreviewPdf } from './ai-match-preview-pdf';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
-import { DEFAULT_POSTING_CHANNELS, POSTING_CHANNELS } from './config';
+import {
+  DEFAULT_POSTING_CHANNELS,
+  FACEBOOK_MAX_IMAGE_ATTACHMENTS,
+  POSTING_CHANNELS,
+} from './config';
 import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
 import {
   buildFacebookDraftSnapshotFingerprint,
@@ -40,6 +48,15 @@ import {
   saveFacebookContentDraft as persistFacebookContentDraft,
 } from './facebook-content-draft-store';
 import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
+import {
+  beginFacebookImagePublish,
+  getFacebookImageAttachments,
+  removeFacebookImageAttachments,
+  saveFacebookImageAttachments,
+  syncFacebookImagePublishStatuses,
+  updateFacebookImagePublishTargetStatus,
+  type FacebookImageAttachmentScope,
+} from './facebook-image-attachment-store';
 import { getValidFacebookGroupPostUrl } from './facebook-post-url';
 import {
   ensureFacebookSession,
@@ -91,7 +108,7 @@ type CvSortMode = 'SCORE_DESC' | 'SCORE_ASC' | 'APPLIED_DESC' | 'APPLIED_ASC';
 type FacebookPostHistoryFilter = 'ALL' | FacebookReviewStatus;
 type FacebookPostHistoryLoadState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type FacebookContentState = 'IDLE' | 'GENERATING' | 'READY' | 'ERROR';
-type FacebookContentSource = 'EMPTY' | 'DEFAULT' | 'AI' | 'CUSTOM';
+type FacebookContentSource = 'EMPTY' | 'DEFAULT' | 'AI' | 'TEMPLATE' | 'CUSTOM';
 type FacebookContentDraftScope = {
   tabId?: number | null;
   pageUrl?: string | null;
@@ -113,8 +130,6 @@ type FacebookImageAttachmentState = 'IDLE' | 'READING' | 'READY' | 'ERROR';
 const FACEBOOK_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
 const FACEBOOK_IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const FACEBOOK_IMAGE_ALLOWED_TYPES = new Set(FACEBOOK_IMAGE_ACCEPT.split(','));
-const IT_RECRUITMENT_GROUP_REGEX =
-  /\b(tuyen\s*dung|viec\s*lam|recruitment|jobs?|it|cntt|dev(eloper)?|tester|cong\s*nghe\s*thong\s*tin|tech(nology)?|engineer|frontend|backend|fullstack|react|node|java(script)?|type\s*script|comtor|ba|brse|lap\s*trinh|coder|qa|qc)\b/i;
 type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 
 interface FacebookHistoryGroup {
@@ -134,12 +149,30 @@ interface DiscoveredFacebookGroupItem {
 
 interface FacebookGroupsScanRunResult {
   groups: DiscoveredFacebookGroupItem[];
+  scanComplete: boolean;
 }
 
 interface FacebookGroupsSyncResult {
   groups: FacebookPublishTarget[];
   selectedIds: string[];
   discoverySummary: string | null;
+  details: FacebookGroupSyncDetails | null;
+  scanComplete: boolean;
+}
+
+interface FacebookGroupSyncDetailItem {
+  name: string;
+  externalId: string | null;
+  reason?: string | null;
+}
+
+interface FacebookGroupSyncDetails {
+  accepted: FacebookGroupSyncDetailItem[];
+  removed: Array<{ name: string; externalId: string | null }>;
+  reactivated: Array<{ name: string; externalId: string | null }>;
+  filtered: FacebookGroupSyncDetailItem[];
+  skipped: FacebookGroupSyncDetailItem[];
+  errors: string[];
 }
 
 interface FacebookGroupUiItem {
@@ -241,12 +274,14 @@ function SidePanel() {
   const [facebookContentMessage, setFacebookContentMessage] = useState<string | null>(null);
   const [facebookPreviewModalMode, setFacebookPreviewModalMode] = useState<FacebookPreviewModalMode | null>(null);
   const [facebookContentDraft, setFacebookContentDraft] = useState('');
-  const [facebookImageAttachment, setFacebookImageAttachment] = useState<FacebookPublishAttachment | null>(null);
+  const [facebookImageAttachments, setFacebookImageAttachments] = useState<FacebookPublishAttachment[]>([]);
   const [facebookImageAttachmentState, setFacebookImageAttachmentState] = useState<FacebookImageAttachmentState>('IDLE');
   const [facebookImageAttachmentError, setFacebookImageAttachmentError] = useState<string | null>(null);
   const [facebookImageAttachPrompt, setFacebookImageAttachPrompt] = useState<FacebookImageAttachDecisionPrompt | null>(null);
   const [facebookGroupLoadState, setFacebookGroupLoadState] = useState<FacebookGroupLoadState>('IDLE');
   const [facebookGroupMessage, setFacebookGroupMessage] = useState<string | null>(null);
+  const [facebookGroupSyncDetails, setFacebookGroupSyncDetails] = useState<FacebookGroupSyncDetails | null>(null);
+  const [isFacebookGroupSyncDetailsOpen, setIsFacebookGroupSyncDetailsOpen] = useState(false);
   const [isFacebookSettingsOpen, setIsFacebookSettingsOpen] = useState(false);
   const [facebookSettingsState, setFacebookSettingsState] = useState<
     'IDLE' | 'LOADING' | 'READY' | 'SAVING' | 'VERIFYING' | 'ERROR' | 'DISCOVERING'
@@ -291,8 +326,10 @@ function SidePanel() {
   const [selectedJobQuestionIds, setSelectedJobQuestionIds] = useState<Set<string>>(new Set());
   const [applicationsState, setApplicationsState] = useState<ApplicationsState>('IDLE');
   const [applicationsContext, setApplicationsContext] = useState<AmisApplicationsForRecruitment | null>(null);
+  const [activeAmisCandidateId, setActiveAmisCandidateId] = useState<string | null>(null);
   const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
   const [cvUploadApplicationId, setCvUploadApplicationId] = useState<string | null>(null);
+  const [aiEvaluationApplicationId, setAiEvaluationApplicationId] = useState<string | null>(null);
   const [selectedCvApplicationIds, setSelectedCvApplicationIds] = useState<Set<string>>(new Set());
   const [cvStatusFilter, setCvStatusFilter] = useState<CvStatusFilter>('ALL');
   const [cvSyncFilter, setCvSyncFilter] = useState<CvSyncFilter>('ALL');
@@ -314,6 +351,7 @@ function SidePanel() {
   const facebookImageInputRef = useRef<HTMLInputElement | null>(null);
   const facebookContentGenerationSeqRef = useRef(0);
   const facebookImageReadSeqRef = useRef(0);
+  const facebookImageRestoreSeqRef = useRef(0);
   const facebookImageAttachPromptResolverRef = useRef<((decision: FacebookImageAttachFailureDecision) => void) | null>(null);
   const facebookGroupVerificationQueueRef = useRef<FacebookPublishTarget[]>([]);
   const facebookGroupVerificationRunningRef = useRef(false);
@@ -464,6 +502,7 @@ function SidePanel() {
 
     async function prepareFacebookContent() {
       clearFacebookPostContentState();
+      await restoreFacebookImageAttachments(nextRecruitmentId, nextSnapshot, selectedJobDescription);
       if (!token || !nextRecruitmentId || !nextSnapshot) return;
 
       const restored = await applyStoredFacebookContentDraft(nextRecruitmentId, nextSnapshot);
@@ -478,6 +517,7 @@ function SidePanel() {
     void prepareFacebookContent();
     return () => {
       cancelled = true;
+      facebookImageRestoreSeqRef.current += 1;
     };
   }, [
     token,
@@ -488,6 +528,7 @@ function SidePanel() {
     snapshot?.requirements.rawText,
     snapshot?.location,
     snapshot?.deadline,
+    selectedJobDescription?.id,
   ]);
 
   const selectedPostingChannels = useMemo(() => normalizePostingChannels(channels), [channels]);
@@ -515,6 +556,7 @@ function SidePanel() {
   const isFacebookImageReading = facebookImageAttachmentState === 'READING';
   const hasFacebookImageAttachmentError = facebookImageAttachmentState === 'ERROR';
   const facebookImageUploadDisabled = facebookRunning || state === 'SYNCING' || isFacebookImageReading;
+  const facebookImageAddDisabled = facebookImageUploadDisabled || facebookImageAttachments.length >= FACEBOOK_MAX_IMAGE_ATTACHMENTS;
   const syncDisabled = state === 'EXTRACTING'
     || state === 'SYNCING'
     || facebookRunning
@@ -522,15 +564,14 @@ function SidePanel() {
     || isFacebookImageReading
     || hasFacebookImageAttachmentError
     || missingFields.length > 0;
-  const validFacebookGroups = useMemo(() => facebookGroups.filter(isItRecruitmentFacebookGroup), [facebookGroups]);
+  const validFacebookGroups = useMemo(() => facebookGroups, [facebookGroups]);
   const visibleFacebookGroups = useMemo(() => {
     if (facebookGroups.length > 0) {
       return validFacebookGroups.map(toFacebookGroupUiItem);
     }
 
     const planTargets = result?.facebookPublishPlan?.targets.map(toFacebookGroupUiItem) ?? [];
-    const validPlanTargets = planTargets.filter(isItRecruitmentFacebookGroupUiItem);
-    if (validPlanTargets.length > 0) return validPlanTargets;
+    if (planTargets.length > 0) return planTargets;
 
     return facebookProgress?.results.map((target) => ({
       key: target.targetId ?? target.targetUrl ?? target.targetName,
@@ -542,7 +583,7 @@ function SidePanel() {
       quotaLabel: null,
       selectable: Boolean(target.targetId),
       disabledReason: target.targetId ? null : 'Facebook group id is missing.',
-    })).filter(isItRecruitmentFacebookGroupUiItem) ?? [];
+    })) ?? [];
   }, [facebookGroups.length, facebookProgress, result, validFacebookGroups]);
   const visibleSelectedFacebookGroupCount = useMemo(() => {
     const visibleGroupIds = new Set(visibleFacebookGroups.map((group) => group.id).filter(isString));
@@ -584,7 +625,6 @@ function SidePanel() {
       setState('READY');
       await loadJobDescriptions(latestToken);
       await loadLatestAutoSyncState({ silent: true });
-      void syncFacebookGroupsFromBrowser(latestToken, { silent: true });
     } catch {
       await clearAccessToken();
       setState('AUTH_REQUIRED');
@@ -616,12 +656,6 @@ function SidePanel() {
   function toggleFacebookGroupSelection(targetId: string | null | undefined) {
     if (!targetId) return;
     const group = facebookGroups.find((item) => item.targetId === targetId);
-    if (group && !isItRecruitmentFacebookGroup(group)) {
-      setFacebookGroupLoadState('READY');
-      setFacebookGroupMessage('Group name does not match IT recruitment keywords.');
-      return;
-    }
-
     if (group && !isSelectableFacebookGroup(group)) {
       setFacebookGroupLoadState('READY');
       setFacebookGroupMessage(getFacebookGroupDisabledReason(group));
@@ -643,44 +677,64 @@ function SidePanel() {
     event.target.value = '';
     if (!file) return;
 
+    if (facebookImageAttachments.length >= FACEBOOK_MAX_IMAGE_ATTACHMENTS) {
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(`Bài đăng chỉ được tối đa ${FACEBOOK_MAX_IMAGE_ATTACHMENTS} ảnh.`);
+      return;
+    }
+
     const readSeq = facebookImageReadSeqRef.current + 1;
     facebookImageReadSeqRef.current = readSeq;
     const validationError = getFacebookImageFileValidationError(file);
     if (validationError) {
-      setFacebookImageAttachment(null);
       setFacebookImageAttachmentState('ERROR');
       setFacebookImageAttachmentError(validationError);
       return;
     }
 
-    setFacebookImageAttachment(null);
     setFacebookImageAttachmentState('READING');
     setFacebookImageAttachmentError(null);
     try {
       const dataUrl = await readFileAsDataUrl(file);
       if (facebookImageReadSeqRef.current !== readSeq) return;
-      setFacebookImageAttachment({
+      const attachment: FacebookPublishAttachment = {
         type: 'IMAGE',
         source: 'LOCAL_UPLOAD',
         fileName: file.name || 'facebook-image',
         mimeType: file.type,
         size: file.size,
         dataUrl,
-      });
+      };
+      const nextAttachments = [...facebookImageAttachments, attachment];
+      await saveFacebookImageAttachments(getFacebookImageAttachmentScope(), nextAttachments);
+      if (facebookImageReadSeqRef.current !== readSeq) return;
+      setFacebookImageAttachments(nextAttachments);
       setFacebookImageAttachmentState('READY');
     } catch (err) {
       if (facebookImageReadSeqRef.current !== readSeq) return;
-      setFacebookImageAttachment(null);
       setFacebookImageAttachmentState('ERROR');
       setFacebookImageAttachmentError(toErrorMessage(err));
     }
   }
 
-  function clearFacebookImageAttachment() {
+  async function clearFacebookImageAttachment(index?: number) {
     facebookImageReadSeqRef.current += 1;
-    setFacebookImageAttachment(null);
-    setFacebookImageAttachmentState('IDLE');
-    setFacebookImageAttachmentError(null);
+    const nextAttachments = typeof index === 'number'
+      ? facebookImageAttachments.filter((_, attachmentIndex) => attachmentIndex !== index)
+      : [];
+    try {
+      if (nextAttachments.length > 0) {
+        await saveFacebookImageAttachments(getFacebookImageAttachmentScope(), nextAttachments);
+      } else {
+        await removeFacebookImageAttachments(getFacebookImageAttachmentScope());
+      }
+      setFacebookImageAttachments(nextAttachments);
+      setFacebookImageAttachmentState('IDLE');
+      setFacebookImageAttachmentError(null);
+    } catch (err) {
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(toErrorMessage(err));
+    }
     if (facebookImageInputRef.current) {
       facebookImageInputRef.current.value = '';
     }
@@ -720,8 +774,65 @@ function SidePanel() {
     return scope;
   }
 
+  function getFacebookImageAttachmentScope(
+    recruitmentId: string | null = amisRecruitmentId,
+    nextSnapshot: AmisJobSnapshot | null = snapshot,
+    jobDescription: JobDescriptionSummary | null = selectedJobDescription,
+  ): FacebookImageAttachmentScope {
+    return {
+      recruitmentId,
+      jobDescriptionId: jobDescription?.id ?? null,
+      snapshotFingerprint: nextSnapshot ? buildFacebookDraftSnapshotFingerprint(nextSnapshot) : null,
+    };
+  }
+
+  async function restoreFacebookImageAttachments(
+    recruitmentId: string | null,
+    nextSnapshot: AmisJobSnapshot | null,
+    jobDescription: JobDescriptionSummary | null,
+  ) {
+    const restoreSeq = facebookImageRestoreSeqRef.current + 1;
+    facebookImageRestoreSeqRef.current = restoreSeq;
+    const scope = getFacebookImageAttachmentScope(recruitmentId, nextSnapshot, jobDescription);
+
+    setFacebookImageAttachments([]);
+    setFacebookImageAttachmentState('READING');
+    setFacebookImageAttachmentError(null);
+
+    if (!recruitmentId && !nextSnapshot && !jobDescription?.id) {
+      setFacebookImageAttachments([]);
+      setFacebookImageAttachmentState('IDLE');
+      setFacebookImageAttachmentError(null);
+      return;
+    }
+
+    try {
+      const attachments = await getFacebookImageAttachments(scope);
+      if (facebookImageRestoreSeqRef.current !== restoreSeq) return;
+      setFacebookImageAttachments(attachments.slice(0, FACEBOOK_MAX_IMAGE_ATTACHMENTS));
+      setFacebookImageAttachmentState(attachments.length > 0 ? 'READY' : 'IDLE');
+      setFacebookImageAttachmentError(null);
+    } catch (err) {
+      if (facebookImageRestoreSeqRef.current !== restoreSeq) return;
+      setFacebookImageAttachments([]);
+      setFacebookImageAttachmentState('ERROR');
+      setFacebookImageAttachmentError(toErrorMessage(err));
+    }
+  }
+
+  function resetFacebookImageAttachmentView() {
+    facebookImageReadSeqRef.current += 1;
+    facebookImageRestoreSeqRef.current += 1;
+    setFacebookImageAttachments([]);
+    setFacebookImageAttachmentState('IDLE');
+    setFacebookImageAttachmentError(null);
+    if (facebookImageInputRef.current) {
+      facebookImageInputRef.current.value = '';
+    }
+  }
+
   function openFacebookImageFilePicker() {
-    if (facebookImageUploadDisabled) return;
+    if (facebookImageAddDisabled) return;
     facebookImageInputRef.current?.click();
   }
 
@@ -752,6 +863,7 @@ function SidePanel() {
     try {
       let content = '';
       let generatedFromPublishPlan = false;
+      let contentMode: 'AI' | 'TEMPLATE' = 'AI';
 
       if (amisRecruitmentId) {
         const payload = buildAmisJobPostingPayload({
@@ -775,10 +887,11 @@ function SidePanel() {
       if (!content) {
         const response = await generateFacebookPreviewContent(token, {
           snapshot: sourceSnapshot,
-          mode: 'TEMPLATE',
+          mode: 'AI',
         });
         if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
         content = response.content.trim();
+        contentMode = response.mode === 'AI' ? 'AI' : 'TEMPLATE';
       }
 
       if (!content) {
@@ -786,7 +899,7 @@ function SidePanel() {
       }
       setFacebookContent(content);
       facebookContentRef.current = content;
-      facebookContentSourceRef.current = 'AI';
+      facebookContentSourceRef.current = contentMode;
       facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, sourceSnapshot);
       facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(sourceSnapshot);
       facebookContentJobIdentityRef.current = buildFacebookJobIdentity(sourceSnapshot);
@@ -801,7 +914,7 @@ function SidePanel() {
       );
       await persistFacebookContentDraft({
         content,
-        source: 'AI',
+        source: contentMode,
         recruitmentId: amisRecruitmentId,
         ...draftScope,
         snapshot: sourceSnapshot,
@@ -933,7 +1046,6 @@ function SidePanel() {
       setState('READY');
       await loadJobDescriptions(auth.accessToken);
       await loadLatestAutoSyncState({ silent: true });
-      void syncFacebookGroupsFromBrowser(auth.accessToken, { silent: true });
     } catch (err) {
       setError(toErrorMessage(err));
       setState('AUTH_REQUIRED');
@@ -1069,6 +1181,7 @@ function SidePanel() {
       if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
         lastAmisJobInitiationResetKeyRef.current = null;
         missedRecruitmentContextCountRef.current = 0;
+        setActiveAmisCandidateId(null);
         setActiveAmisRecruitmentContext(null, null);
         return;
       }
@@ -1076,12 +1189,14 @@ function SidePanel() {
       if (isAmisJobInitiationPage(activeTab.url)) {
         missedRecruitmentContextCountRef.current = 0;
         await resetSelectedJobDescriptionForAmisJobInitiation(activeTab);
+        setActiveAmisCandidateId(null);
         setActiveAmisRecruitmentContext(null, null);
         return;
       }
 
       lastAmisJobInitiationResetKeyRef.current = null;
       const context = parseAmisRecruitmentContextFromUrl(activeTab.url);
+      setActiveAmisCandidateId(context.amisCandidateId);
       let pageKind: string | null = null;
       if (!context.amisRecruitmentId) {
         const pageContext = await sendMessageToAmisTab(activeTab.id, {
@@ -1222,6 +1337,53 @@ function SidePanel() {
 
   async function uploadApplicationCvToAmisForm(application: AmisApplicationsForRecruitment['applications'][number]) {
     await uploadApplicationCvsToAmisForm([application]);
+  }
+
+  async function uploadAiEvaluationToAmis(application: AmisApplicationsForRecruitment['applications'][number]) {
+    if (!token) return;
+    setAiEvaluationApplicationId(application.applicationId);
+    setApplicationsMessage(null);
+    try {
+      const activeTab = await getActiveTab();
+      if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+        throw new Error('Open the AMIS candidate documents tab first.');
+      }
+      const [detail, parsedProfile] = await Promise.all([
+        getApplicationAiMatchPreview(token, application.applicationId),
+        getApplicationParsedProfile(token, application.applicationId),
+      ]);
+      const previewPdf = await createAiMatchPreviewPdf(detail, parsedProfile);
+      if (previewPdf.length < 1000) {
+        throw new Error('PDF đánh giá AI được tạo ra không hợp lệ hoặc đang rỗng.');
+      }
+      const response = await sendMessageToAmisTab(activeTab.id, {
+        type: UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
+        payload: {
+          files: [{
+            fileName: `ai-match-preview-${application.candidateName || 'candidate'}.pdf`,
+            mimeType: 'application/pdf',
+            dataBase64: previewPdf,
+          }],
+        },
+      });
+      if (!isUploadAmisCvFileResponse(response) || !response.ok) {
+        throw new Error(isUploadAmisCvFileResponse(response)
+          ? response.error ?? 'AMIS did not accept the AI evaluation PDF.'
+          : 'AMIS tab did not confirm AI evaluation upload.');
+      }
+      setApplicationsMessage('Đã tạo PDF đánh giá AI và đưa vào form Tài liệu AMIS.');
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+      setApplicationsMessage(toErrorMessage(err));
+    } finally {
+      setAiEvaluationApplicationId(null);
+    }
   }
 
   async function uploadApplicationCvsToAmisForm(applications: AmisApplicationsForRecruitment['applications']) {
@@ -1749,7 +1911,9 @@ function SidePanel() {
       setChannels(next);
       setFacebookGroupLoadState('IDLE');
       setFacebookGroupMessage(null);
-      clearFacebookImageAttachment();
+      setFacebookGroupSyncDetails(null);
+      setIsFacebookGroupSyncDetailsOpen(false);
+      resetFacebookImageAttachmentView();
       clearFacebookContent();
       void setSelectedChannels(next);
       return;
@@ -1766,7 +1930,8 @@ function SidePanel() {
     setError(null);
 
     try {
-      const result = await syncFacebookGroupsFromBrowser(token);
+      const result = await loadFacebookGroupsForFacebookChannel(token);
+      await restoreFacebookImageAttachments(amisRecruitmentId, snapshot, selectedJobDescription);
       const groups = result.groups;
       const selectedIds = result.selectedIds;
       const discoverySummary = result.discoverySummary;
@@ -1794,42 +1959,98 @@ function SidePanel() {
     }
   }
 
-  async function syncFacebookGroupsFromBrowser(
-    accessToken: string,
-    options: { silent?: boolean } = {},
-  ): Promise<FacebookGroupsSyncResult> {
-    const shouldReport = options.silent !== true;
-    if (shouldReport) {
-      setFacebookGroupLoadState('CHECKING_LOGIN');
-      setFacebookGroupMessage('Checking Facebook login in this browser.');
-    }
+  async function loadFacebookGroupsForFacebookChannel(accessToken: string): Promise<FacebookGroupsSyncResult> {
+    setFacebookGroupSyncDetails(null);
+    setFacebookGroupLoadState('CHECKING_LOGIN');
+    setFacebookGroupMessage('Checking Facebook login in this browser.');
 
     await ensureFacebookSession({
       onStatus: (event) => {
-        if (!shouldReport) return;
         setFacebookGroupLoadState(event.status === 'READY' ? 'LOADING_GROUPS' : event.status);
         setFacebookGroupMessage(event.message);
       },
     });
 
-    if (shouldReport) {
-      setFacebookGroupLoadState('LOADING_GROUPS');
-      setFacebookGroupMessage('Đang quét danh sách nhóm đã tham gia trên Facebook...');
+    const syncState = await getFacebookGroupSyncState(accessToken);
+    if (syncState.initialScanCompletedAt && syncState.status === 'READY') {
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken));
+      setFacebookGroups(groups);
+      const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
+      setFacebookGroupLoadState('READY');
+      setFacebookGroupMessage(
+        groups.length > 0
+          ? buildFacebookGroupSelectionMessage(selectedIds, groups)
+          : 'No Facebook groups are configured for this account yet.',
+      );
+      return {
+        groups,
+        selectedIds,
+        discoverySummary: null,
+        details: null,
+        scanComplete: true,
+      };
     }
 
-    const discoveredGroups = await collectJoinedFacebookGroupsFromFacebookPage(
+    return syncFacebookGroupsFromBrowser(accessToken, { sessionReady: true });
+  }
+
+  async function handleSyncFacebookGroups() {
+    if (!token || isFacebookGroupLoading(facebookGroupLoadState)) return;
+
+    try {
+      const result = await syncFacebookGroupsFromBrowser(token);
+      if (result.groups.length === 0) {
+        setFacebookGroupMessage('No Facebook groups are configured for this account yet.');
+      }
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+      }
+      setFacebookGroupLoadState('ERROR');
+      setFacebookGroupMessage(toErrorMessage(err));
+    }
+  }
+
+  async function syncFacebookGroupsFromBrowser(
+    accessToken: string,
+    options: { sessionReady?: boolean } = {},
+  ): Promise<FacebookGroupsSyncResult> {
+    setFacebookGroupSyncDetails(null);
+    if (!options.sessionReady) {
+      setFacebookGroupLoadState('CHECKING_LOGIN');
+      setFacebookGroupMessage('Checking Facebook login in this browser.');
+
+      await ensureFacebookSession({
+        onStatus: (event) => {
+          setFacebookGroupLoadState(event.status === 'READY' ? 'LOADING_GROUPS' : event.status);
+          setFacebookGroupMessage(event.message);
+        },
+      });
+    }
+
+    setFacebookGroupLoadState('LOADING_GROUPS');
+    setFacebookGroupMessage('Đang quét danh sách nhóm đã tham gia trên Facebook...');
+
+    const scanResult = await collectJoinedFacebookGroupsFromFacebookPage(
       (message) => {
-        if (shouldReport && message) setFacebookGroupMessage(message);
+        if (message) setFacebookGroupMessage(message);
       },
       { ensureSession: false },
     );
+    const discoveredGroups = scanResult.groups;
 
     let discoverySummary: string | null = null;
-    if (discoveredGroups.length > 0) {
-      if (shouldReport) {
-        setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm, đang đồng bộ lên VCS...`);
-      }
-      const discoverResult = await discoverFacebookGroups(accessToken, {
+    let details: FacebookGroupSyncDetails | null = null;
+    if (!scanResult.scanComplete) {
+      discoverySummary = 'Quét chưa hoàn tất nên chưa thay đổi dữ liệu nhóm.';
+      setFacebookGroupMessage(discoverySummary);
+    } else {
+      setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm, đang đồng bộ lên VCS...`);
+      const discoverResult = await syncFacebookGroups(accessToken, {
+        scanComplete: true,
         groups: discoveredGroups.map((item) => ({
           targetName: item.targetName,
           targetUrl: item.targetUrl,
@@ -1837,27 +2058,23 @@ function SidePanel() {
         })),
       });
       discoverySummary = buildFacebookGroupDiscoverMessage(discoverResult);
-    } else if (shouldReport) {
-      setFacebookGroupMessage('Không đọc được nhóm nào từ danh sách nhóm đã tham gia, sẽ lấy danh sách đã cấu hình hiện có.');
+      details = buildFacebookGroupSyncDetails(discoverResult);
+      setFacebookGroupSyncDetails(details);
     }
 
-    if (shouldReport) {
-      setFacebookGroupMessage('Đang tải danh sách nhóm Facebook đã đồng bộ...');
-    }
+    setFacebookGroupMessage('Đang tải danh sách nhóm Facebook đã đồng bộ...');
     const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken));
     setFacebookGroups(groups);
     const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
 
-    if (shouldReport) {
-      setFacebookGroupLoadState('READY');
-      setFacebookGroupMessage(
-        groups.length > 0
-          ? buildFacebookGroupSelectionMessage(selectedIds, groups, discoverySummary)
-          : 'No Facebook groups are configured for this account yet.',
-      );
-    }
+    setFacebookGroupLoadState('READY');
+    setFacebookGroupMessage(
+      groups.length > 0
+        ? buildFacebookGroupSelectionMessage(selectedIds, groups, discoverySummary)
+        : 'No Facebook groups are configured for this account yet.',
+    );
 
-    return { groups, selectedIds, discoverySummary };
+    return { groups, selectedIds, discoverySummary, details, scanComplete: scanResult.scanComplete };
   }
 
   async function applyStoredFacebookContentDraft(
@@ -1886,6 +2103,53 @@ function SidePanel() {
     return true;
   }
 
+  async function syncFacebookImageStatusesFromHistory(items: FacebookPublishHistoryListItem[]) {
+    if (items.length === 0) return;
+
+    try {
+      const released = await syncFacebookImagePublishStatuses(items.map((item) => ({
+        jobPostingId: item.jobPostingId,
+        targetId: item.targetId,
+        targetExternalId: item.targetExternalId,
+        targetName: item.targetName,
+        targetUrl: item.targetUrl,
+        facebookReviewStatus: item.facebookReviewStatus,
+      })));
+      await clearFacebookImageViewIfReleased(released);
+    } catch {
+      // Image lifecycle persistence must not prevent history from loading.
+    }
+  }
+
+  async function syncFacebookImageStatusFromHistoryItem(
+    item: FacebookPublishHistoryListItem,
+    facebookReviewStatus: FacebookReviewStatus,
+  ) {
+    try {
+      const released = await updateFacebookImagePublishTargetStatus({
+        jobPostingId: item.jobPostingId,
+        targetId: item.targetId,
+        targetExternalId: item.targetExternalId,
+        targetName: item.targetName,
+        targetUrl: item.targetUrl,
+        facebookReviewStatus,
+      });
+      await clearFacebookImageViewIfReleased(released);
+    } catch {
+      // Image lifecycle persistence must not prevent a Facebook status refresh from completing.
+    }
+  }
+
+  async function clearFacebookImageViewIfReleased(released: boolean) {
+    if (!released) return;
+    try {
+      const remainingAttachments = await getFacebookImageAttachments(getFacebookImageAttachmentScope());
+      if (remainingAttachments.length === 0) resetFacebookImageAttachmentView();
+    } catch {
+      // A storage read failure must not interrupt history refresh or publish completion.
+    }
+  }
+
   async function openFacebookGroupSettings(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
@@ -1907,7 +2171,7 @@ function SidePanel() {
   async function collectJoinedFacebookGroupsFromFacebookPage(
     onMessage?: (message: string) => void,
     options: { ensureSession?: boolean } = {},
-  ): Promise<DiscoveredFacebookGroupItem[]> {
+  ): Promise<FacebookGroupsScanRunResult> {
     if (options.ensureSession !== false) {
       await ensureFacebookSession({
         onStatus: (event) => {
@@ -1931,7 +2195,10 @@ function SidePanel() {
       await sleep(1_000);
 
       const scanResult = await runScriptInTab<FacebookGroupsScanRunResult>(tab.id, collectFacebookGroupsFromPage);
-      return uniqueDiscoveredGroups(scanResult.groups ?? []);
+      return {
+        groups: uniqueDiscoveredGroups(scanResult.groups ?? []),
+        scanComplete: scanResult.scanComplete === true,
+      };
     } finally {
       await closeTabSafely(tab.id);
     }
@@ -2011,6 +2278,7 @@ function SidePanel() {
       setFacebookHistoryPage(data.page);
       setFacebookHistoryLoadState('READY');
       setFacebookHistoryMessage(null);
+      await syncFacebookImageStatusesFromHistory(data.items);
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -2060,6 +2328,7 @@ function SidePanel() {
     try {
       const statusCheck = await refreshFacebookPostReviewStatus(refreshItem);
       await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
+      await syncFacebookImageStatusFromHistoryItem(refreshItem, statusCheck.facebookReviewStatus);
       await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, facebookHistoryPage);
       setFacebookHistoryMessage(statusCheck.message ?? 'Đã refresh trạng thái bài đăng.');
     } catch (err) {
@@ -2119,6 +2388,7 @@ function SidePanel() {
         try {
           const statusCheck = await refreshFacebookPostReviewStatus(item);
           await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
+          await syncFacebookImageStatusFromHistoryItem(item, statusCheck.facebookReviewStatus);
           if (statusCheck.facebookReviewStatus === 'POSTED') postedCount += 1;
           else if (statusCheck.facebookReviewStatus === 'REJECTED') rejectedCount += 1;
           else if (statusCheck.facebookReviewStatus === 'DELETED') deletedCount += 1;
@@ -2657,8 +2927,16 @@ function SidePanel() {
     const contentResolvedPlan = trimmedContentOverride
       ? { ...plan, content: hydrateFacebookContentOverride(trimmedContentOverride, plan.content) }
       : await resolveFacebookPublishPlanContent(plan);
-    const planForPublish: FacebookPublishPlan = facebookImageAttachment
-      ? { ...contentResolvedPlan, attachments: [facebookImageAttachment] }
+    let publishAttachments = facebookImageAttachments;
+    if (publishAttachments.length === 0) {
+      try {
+        publishAttachments = await getFacebookImageAttachments(getFacebookImageAttachmentScope());
+      } catch {
+        // A missing local image store must not block text-only publishing.
+      }
+    }
+    const planForPublish: FacebookPublishPlan = publishAttachments.length > 0
+      ? { ...contentResolvedPlan, attachments: publishAttachments }
       : contentResolvedPlan;
     const planKey = getFacebookPlanKey(planForPublish);
     if (startedFacebookPlanKeys.current.has(planKey)) return planForPublish;
@@ -2677,6 +2955,16 @@ function SidePanel() {
       return planForPublish;
     }
 
+    if (planForPublish.attachments?.length) {
+      const imageScope = getFacebookImageAttachmentScope();
+      await saveFacebookImageAttachments(imageScope, planForPublish.attachments);
+      await beginFacebookImagePublish(
+        imageScope,
+        planForPublish.jobPostingId,
+        planForPublish.targets,
+      );
+    }
+
     startedFacebookPlanKeys.current.add(planKey);
     setFacebookRunning(true);
     setState('SYNCING');
@@ -2692,6 +2980,28 @@ function SidePanel() {
         },
         onImageAttachFailed: requestFacebookImageAttachDecision,
       });
+      if (planForPublish.attachments?.length) {
+        try {
+          const released = await syncFacebookImagePublishStatuses(facebookResults.map((publishResult) => {
+            const target = planForPublish.targets.find((candidate) => (
+              candidate.targetId === publishResult.targetId
+                || candidate.targetUrl === publishResult.targetUrl
+                || candidate.targetName === publishResult.targetName
+            ));
+            return {
+              jobPostingId: planForPublish.jobPostingId,
+              targetId: publishResult.targetId,
+              targetExternalId: target?.targetExternalId ?? null,
+              targetName: publishResult.targetName,
+              targetUrl: publishResult.targetUrl ?? target?.targetUrl ?? null,
+              facebookReviewStatus: publishResult.facebookReviewStatus ?? 'UNKNOWN',
+            };
+          }));
+          await clearFacebookImageViewIfReleased(released);
+        } catch {
+          // Facebook's result is authoritative; a local lifecycle-store failure must not turn a real publish into a false error.
+        }
+      }
       const summary = summarizeFacebookPublishResults(facebookResults);
       setResult((current) => current ? updateFacebookChannelStatus(current, facebookResults) : current);
       if (summary.successCount > 0) {
@@ -2725,9 +3035,6 @@ function SidePanel() {
       startedFacebookPlanKeys.current.delete(planKey);
     } finally {
       setFacebookRunning(false);
-      if (planForPublish.attachments?.length) {
-        clearFacebookImageAttachment();
-      }
     }
 
     return planForPublish;
@@ -3307,8 +3614,12 @@ function SidePanel() {
       <div className="facebook-content-panel">
         <p className="channel-subselection-title facebook-preview-title">Xem trước bài đăng</p>
         <div className="facebook-preview-card">
-          {facebookImageAttachment ? (
-            <img src={facebookImageAttachment.dataUrl} alt="" />
+          {facebookImageAttachments.length > 0 ? (
+            <div className="facebook-preview-image-grid">
+              {facebookImageAttachments.map((attachment, index) => (
+                <img key={`${attachment.fileName}-${attachment.size}-${index}`} src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
+              ))}
+            </div>
           ) : (
             <span className="facebook-preview-thumb" aria-hidden="true">VCS</span>
           )}
@@ -3356,9 +3667,9 @@ function SidePanel() {
 
     const content = getEffectiveFacebookContent();
     const previewTitle = snapshot?.title ?? selectedJobDescription?.title ?? 'Bài đăng tuyển dụng';
-    const previewImage = facebookImageAttachment?.dataUrl ?? null;
+    const previewImages = facebookImageAttachments;
     const canGenerate = Boolean(token && snapshot) && !facebookContentBusy;
-    const imageCount = facebookImageAttachment ? 1 : 0;
+    const imageCount = facebookImageAttachments.length;
 
     if (facebookPreviewModalMode === 'EDIT') {
       return (
@@ -3414,7 +3725,7 @@ function SidePanel() {
                   <ImageFrameIcon />
                   <strong>Hình ảnh</strong>
                 </div>
-                <span>{imageCount}/5 ảnh</span>
+                <span>{imageCount}/{FACEBOOK_MAX_IMAGE_ATTACHMENTS} ảnh</span>
               </div>
               <div className="facebook-composer-image-library">
                 <div className="facebook-composer-library-header">
@@ -3425,7 +3736,7 @@ function SidePanel() {
                   <button
                     type="button"
                     className="text-button facebook-composer-upload-button"
-                    disabled={facebookImageUploadDisabled}
+                    disabled={facebookImageAddDisabled}
                     onClick={openFacebookImageFilePicker}
                   >
                     <UploadIcon />
@@ -3433,25 +3744,25 @@ function SidePanel() {
                   </button>
                 </div>
                 <div className="facebook-composer-image-grid">
-                  {facebookImageAttachment ? (
-                    <article className="facebook-composer-image-card">
-                      <img src={facebookImageAttachment.dataUrl} alt="" />
+                  {facebookImageAttachments.map((attachment, index) => (
+                    <article className="facebook-composer-image-card" key={`${attachment.fileName}-${attachment.size}-${index}`}>
+                      <img src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
                       <button
                         type="button"
                         className="facebook-composer-image-remove"
                         title="Xóa ảnh"
-                        aria-label="Xóa ảnh"
+                        aria-label={`Xóa ảnh ${index + 1}`}
                         disabled={facebookImageUploadDisabled}
-                        onClick={clearFacebookImageAttachment}
+                        onClick={() => void clearFacebookImageAttachment(index)}
                       >
                         <CloseIcon />
                       </button>
                     </article>
-                  ) : null}
+                  ))}
                   <button
                     type="button"
                     className="facebook-composer-add-image-tile"
-                    disabled={facebookImageUploadDisabled}
+                    disabled={facebookImageAddDisabled}
                     onClick={openFacebookImageFilePicker}
                     aria-label="Tải lên ảnh bài đăng"
                   >
@@ -3467,7 +3778,7 @@ function SidePanel() {
                     <button
                       type="button"
                       className="text-button"
-                      onClick={clearFacebookImageAttachment}
+                      onClick={() => void clearFacebookImageAttachment()}
                     >
                       Bỏ ảnh
                     </button>
@@ -3528,8 +3839,12 @@ function SidePanel() {
               </header>
               <div className="facebook-post-preview-content">{content || 'Chưa có nội dung bài đăng.'}</div>
               <div className="facebook-post-preview-image">
-                {previewImage ? (
-                  <img src={previewImage} alt="" />
+                {previewImages.length > 0 ? (
+                  <div className="facebook-post-preview-image-grid">
+                    {previewImages.map((attachment, index) => (
+                      <img key={`${attachment.fileName}-${attachment.size}-${index}`} src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
+                    ))}
+                  </div>
                 ) : (
                   <div>
                     <strong>{previewTitle}</strong>
@@ -3617,6 +3932,19 @@ function SidePanel() {
                       {isFacebookChannel ? (
                         <button
                           type="button"
+                          className="secondary-button compact-button channel-sync-button"
+                          title="Đồng bộ danh sách nhóm Facebook"
+                          aria-label="Đồng bộ danh sách nhóm Facebook"
+                          aria-busy={isFacebookLoading}
+                          disabled={!token || isFacebookLoading}
+                          onClick={() => void handleSyncFacebookGroups()}
+                        >
+                          {isFacebookLoading ? 'Syncing...' : 'Sync'}
+                        </button>
+                      ) : null}
+                      {isFacebookChannel ? (
+                        <button
+                          type="button"
                           className="channel-action-button"
                           title="Cài đặt Group Facebook"
                           aria-label="Cài đặt Group Facebook"
@@ -3642,7 +3970,23 @@ function SidePanel() {
                         ) : null}
                         {facebookGroupMessage ? (
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
-                            {facebookGroupMessage}
+                            <span>{facebookGroupMessage}</span>
+                            {facebookGroupSyncDetails && (
+                              facebookGroupSyncDetails.accepted.length > 0
+                              || facebookGroupSyncDetails.removed.length > 0
+                              || facebookGroupSyncDetails.reactivated.length > 0
+                              || facebookGroupSyncDetails.filtered.length > 0
+                              || facebookGroupSyncDetails.skipped.length > 0
+                              || facebookGroupSyncDetails.errors.length > 0
+                            ) ? (
+                              <button
+                                type="button"
+                                className="text-button"
+                                onClick={() => setIsFacebookGroupSyncDetailsOpen(true)}
+                              >
+                                Xem chi tiết
+                              </button>
+                            ) : null}
                           </p>
                         ) : null}
                         {visibleFacebookGroups.length > 0 ? (
@@ -3697,27 +4041,27 @@ function SidePanel() {
                             className="facebook-image-input"
                             onChange={(event) => void handleFacebookImageFileChange(event)}
                           />
-                          {facebookImageAttachment || isFacebookImageReading || facebookImageAttachmentError ? (
+                          {facebookImageAttachments.length > 0 || isFacebookImageReading || facebookImageAttachmentError ? (
                             <div className="facebook-image-upload">
-                              {facebookImageAttachment ? (
-                                <div className="facebook-image-preview">
-                                  <img src={facebookImageAttachment.dataUrl} alt="" />
+                              {facebookImageAttachments.map((attachment, index) => (
+                                <div className="facebook-image-preview" key={`${attachment.fileName}-${attachment.size}-${index}`}>
+                                  <img src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
                                   <div>
-                                    <strong>{facebookImageAttachment.fileName}</strong>
-                                    <span>{formatFileSize(facebookImageAttachment.size)}</span>
+                                    <strong>{attachment.fileName}</strong>
+                                    <span>{formatFileSize(attachment.size)}</span>
                                   </div>
                                   <button
                                     type="button"
                                     className="channel-action-button"
                                     title="Xóa ảnh"
-                                    aria-label="Xóa ảnh"
+                                    aria-label={`Xóa ảnh ${index + 1}`}
                                     disabled={facebookImageUploadDisabled}
-                                    onClick={clearFacebookImageAttachment}
+                                    onClick={() => void clearFacebookImageAttachment(index)}
                                   >
                                     <CloseIcon />
                                   </button>
                                 </div>
-                              ) : null}
+                              ))}
                               {isFacebookImageReading ? (
                                 <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
                               ) : null}
@@ -3727,7 +4071,7 @@ function SidePanel() {
                                   <button
                                     type="button"
                                     className="text-button"
-                                    onClick={clearFacebookImageAttachment}
+                                    onClick={() => void clearFacebookImageAttachment()}
                                   >
                                     Bỏ ảnh
                                   </button>
@@ -4107,7 +4451,10 @@ function SidePanel() {
   function renderCvCandidateListPanel() {
     const applications = applicationsContext?.applications ?? [];
     const stats = getCvOverviewStats(applications);
-    const filteredApplications = getVisibleCvApplications(applications, cvStatusFilter, cvSyncFilter, cvSortMode);
+    const applicationsForCurrentAmisCandidate = activeAmisCandidateId
+      ? applications.filter((application) => application.amisCandidateId === activeAmisCandidateId)
+      : applications;
+    const filteredApplications = getVisibleCvApplications(applicationsForCurrentAmisCandidate, cvStatusFilter, cvSyncFilter, cvSortMode);
     const totalPages = Math.max(1, Math.ceil(filteredApplications.length / CV_APPLICATION_PAGE_SIZE));
     const currentPage = Math.min(cvApplicationPage, totalPages);
     const pageStartIndex = (currentPage - 1) * CV_APPLICATION_PAGE_SIZE;
@@ -4242,6 +4589,14 @@ function SidePanel() {
                       </span>
                     </div>
                     <div className="cv-candidate-footer">
+                      <button
+                        type="button"
+                        className="cv-sync-amis-button"
+                        disabled={Boolean(aiEvaluationApplicationId)}
+                        onClick={() => void uploadAiEvaluationToAmis(application)}
+                      >
+                        {aiEvaluationApplicationId === application.applicationId ? 'Đang tạo PDF...' : 'Tải đánh giá AI'}
+                      </button>
                       <button
                         type="button"
                         className="cv-sync-amis-button"
@@ -4633,8 +4988,8 @@ function SidePanel() {
                     })
                   ) : (
                     <div className="facebook-group-empty">
-                      <strong>Chưa có nhóm hợp lệ</strong>
-                      <p>Danh sách chỉ hiển thị nhóm pass regex tuyển dụng IT.</p>
+                      <strong>Chưa có nhóm Facebook</strong>
+                      <p>Danh sách sẽ được nạp sau lần đồng bộ đầu tiên.</p>
                       {!isFacebookGroupFormOpen ? (
                         <button
                           type="button"
@@ -4692,7 +5047,7 @@ function SidePanel() {
                         setFacebookGroupUrlError(null);
                         setFacebookSettingsMessage(validFacebookGroups.length > 0
                           ? null
-                          : 'Chưa có nhóm Facebook nào pass regex tuyển dụng IT.');
+                          : 'Chưa có nhóm Facebook nào.');
                         setFacebookSettingsState('READY');
                       }}
                     >
@@ -4853,7 +5208,103 @@ function SidePanel() {
           ) : null}
         </div>
       ) : null}
-      {facebookImageAttachPrompt ? renderFacebookImageAttachPromptModal() : null}
+              {facebookImageAttachPrompt ? renderFacebookImageAttachPromptModal() : null}
+      {isFacebookGroupSyncDetailsOpen && facebookGroupSyncDetails ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="facebook-group-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="facebook-group-sync-details-title"
+          >
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Facebook</p>
+                <h2 id="facebook-group-sync-details-title">Chi tiết đồng bộ nhóm</h2>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                title="Đóng"
+                aria-label="Đóng chi tiết đồng bộ nhóm"
+                onClick={() => setIsFacebookGroupSyncDetailsOpen(false)}
+              >
+                <CloseIcon />
+              </button>
+            </header>
+            <div className="modal-body facebook-group-sync-details-body">
+              <div className="facebook-group-sync-details-list">
+                {facebookGroupSyncDetails.accepted.length > 0 ? (
+                  <div className="facebook-group-sync-detail-section">
+                    <strong>Nhóm hợp lệ/đã đồng bộ ({facebookGroupSyncDetails.accepted.length})</strong>
+                    {facebookGroupSyncDetails.accepted.map((group, index) => (
+                      <div className="facebook-group-sync-detail-item" key={`accepted-${group.externalId ?? group.name}-${index}`}>
+                        <p>{group.name}</p>
+                        {group.reason ? <span>{group.reason}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {facebookGroupSyncDetails.reactivated.length > 0 ? (
+                  <div className="facebook-group-sync-detail-section">
+                    <strong>Nhóm quay lại ({facebookGroupSyncDetails.reactivated.length})</strong>
+                    {facebookGroupSyncDetails.reactivated.map((group, index) => (
+                      <p key={`reactivated-${group.externalId ?? group.name}-${index}`}>{group.name}</p>
+                    ))}
+                  </div>
+                ) : null}
+                {facebookGroupSyncDetails.removed.length > 0 ? (
+                  <div className="facebook-group-sync-detail-section">
+                    <strong>Nhóm đã rời ({facebookGroupSyncDetails.removed.length})</strong>
+                    {facebookGroupSyncDetails.removed.map((group, index) => (
+                      <p key={`removed-${group.externalId ?? group.name}-${index}`}>{group.name}</p>
+                    ))}
+                  </div>
+                ) : null}
+                {facebookGroupSyncDetails.filtered.length > 0 ? (
+                  <div className="facebook-group-sync-detail-section">
+                    <strong>Nhóm không phù hợp bộ lọc tuyển dụng ({facebookGroupSyncDetails.filtered.length})</strong>
+                    {facebookGroupSyncDetails.filtered.map((group, index) => (
+                      <div className="facebook-group-sync-detail-item" key={`filtered-${group.externalId ?? group.name}-${index}`}>
+                        <p>{group.name}</p>
+                        {group.reason ? <span>{group.reason}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {facebookGroupSyncDetails.skipped.length > 0 ? (
+                  <div className="facebook-group-sync-detail-section">
+                    <strong>Mục bị bỏ qua ({facebookGroupSyncDetails.skipped.length})</strong>
+                    {facebookGroupSyncDetails.skipped.map((group, index) => (
+                      <div className="facebook-group-sync-detail-item" key={`skipped-${group.externalId ?? group.name}-${index}`}>
+                        <p>{group.name}</p>
+                        {group.reason ? <span>{group.reason}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {facebookGroupSyncDetails.errors.length > 0 ? (
+                  <div className="facebook-group-sync-detail-section is-error">
+                    <strong>Lỗi cần kiểm tra ({facebookGroupSyncDetails.errors.length})</strong>
+                    {facebookGroupSyncDetails.errors.map((error, index) => (
+                      <p key={`error-${index}`}>{error}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="primary-button compact-button"
+                  onClick={() => setIsFacebookGroupSyncDetailsOpen(false)}
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {selectedFacebookHistoryGroup ? renderFacebookPostHistoryModal() : null}
     </main>
   );
@@ -4935,11 +5386,15 @@ function withFacebookHistoryGroupFallback(
 
 function normalizePostingChannels(channels: ExtensionChannel[]) {
   const seen = new Set<ExtensionChannel>();
-  return channels.filter((channel) => {
+  const normalized = channels.filter((channel) => {
     if (!POSTING_CHANNEL_SET.has(channel) || seen.has(channel)) return false;
     seen.add(channel);
     return true;
   });
+
+  return normalized.length > 0
+    ? normalized
+    : [...DEFAULT_POSTING_CHANNELS];
 }
 
 function formatChannelLabel(channel: ExtensionChannel) {
@@ -5061,35 +5516,12 @@ function isSelectableFacebookGroup(group: FacebookPublishTarget) {
   );
 }
 
-function isItRecruitmentFacebookGroup(group: FacebookPublishTarget) {
-  return isItRecruitmentFacebookGroupName(group.targetName);
-}
-
 function isPublishableFacebookGroup(group: FacebookPublishTarget) {
-  return isItRecruitmentFacebookGroup(group) && isSelectableFacebookGroup(group);
+  return isSelectableFacebookGroup(group);
 }
 
 function countItRecruitmentFacebookGroups(groups: FacebookPublishTarget[]) {
-  return groups.filter(isItRecruitmentFacebookGroup).length;
-}
-
-function isItRecruitmentFacebookGroupUiItem(group: FacebookGroupUiItem) {
-  return isItRecruitmentFacebookGroupName(group.name);
-}
-
-function isItRecruitmentFacebookGroupName(value: string) {
-  return IT_RECRUITMENT_GROUP_REGEX.test(normalizeTextForFacebookGroupRegex(value));
-}
-
-function normalizeTextForFacebookGroupRegex(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+  return groups.length;
 }
 
 function buildFacebookGroupSelectionMessage(
@@ -5098,11 +5530,11 @@ function buildFacebookGroupSelectionMessage(
   prefix?: string | null,
 ) {
   const validCount = countItRecruitmentFacebookGroups(groups);
-  const validGroupIds = new Set(groups.filter(isItRecruitmentFacebookGroup).map((group) => group.targetId).filter(isString));
+  const validGroupIds = new Set(groups.map((group) => group.targetId).filter(isString));
   const selectedValidCount = uniqueStrings(selectedIds).filter((targetId) => validGroupIds.has(targetId)).length;
   const message = validCount > 0
-    ? `${selectedValidCount}/${validCount} valid IT Facebook group(s) selected.`
-    : 'No valid IT recruitment Facebook groups are available.';
+    ? `${selectedValidCount}/${validCount} Facebook group(s) selected.`
+    : 'No Facebook groups are available.';
 
   return prefix ? `${prefix}. ${message}` : message;
 }
@@ -5460,6 +5892,10 @@ function buildFacebookGroupDiscoverMessage(result: DiscoverFacebookGroupsRespons
   if (result.created > 0) parts.push(`đã tạo ${result.created}`);
   if (result.updated > 0) parts.push(`đã cập nhật ${result.updated}`);
   if (result.reactivated > 0) parts.push(`đã kích hoạt lại ${result.reactivated}`);
+  if (result.removed > 0) parts.push(`đã đánh dấu ${result.removed} nhóm đã rời`);
+  if (result.scanComplete && !result.reconciliationApplied) {
+    parts.push('chưa cập nhật thay đổi vì dữ liệu quét chưa đủ để xác nhận');
+  }
   if (filtered > 0) parts.push(`lọc ${filtered} nhóm không phù hợp`);
   const otherSkipped = Math.max(0, result.skipped - filtered - duplicates);
   if (otherSkipped > 0) parts.push(`bỏ qua ${otherSkipped}`);
@@ -5468,6 +5904,52 @@ function buildFacebookGroupDiscoverMessage(result: DiscoverFacebookGroupsRespons
   const summary = parts.length > 0 ? parts.join(', ') : 'không có thay đổi mới';
   const issueText = result.errors.length > 0 ? ` Có ${result.errors.length} lỗi cần kiểm tra.` : '';
   return `Quét xong: ${summary}. Tổng: ${result.valid}/${result.requested} nhóm hợp lệ.${issueText}`;
+}
+
+function buildFacebookGroupSyncDetails(result: DiscoverFacebookGroupsResponse): FacebookGroupSyncDetails | null {
+  const accepted = result.items
+    .filter((item) => item.action === 'created' || item.action === 'updated' || item.action === 'reused')
+    .map((item) => ({
+      name: item.targetName,
+      externalId: item.targetExternalId,
+      reason: item.action === 'created'
+        ? 'Đã thêm mới.'
+        : item.action === 'updated'
+          ? 'Đã cập nhật.'
+          : 'Đã có sẵn trong hệ thống.',
+    }));
+  const removed = result.items
+    .filter((item) => item.action === 'deactivated')
+    .map((item) => ({ name: item.targetName, externalId: item.targetExternalId }));
+  const reactivated = result.items
+    .filter((item) => item.action === 'reactivated')
+    .map((item) => ({ name: item.targetName, externalId: item.targetExternalId }));
+  const skippedItems = result.items.filter((item) => item.action === 'skipped');
+  const filtered = skippedItems
+    .filter((item) => item.reason?.toLowerCase().includes('recruitment filter'))
+    .map((item) => ({
+      name: item.targetName,
+      externalId: item.targetExternalId,
+      reason: 'Không khớp bộ lọc nhóm tuyển dụng.',
+    }));
+  const skipped = skippedItems
+    .filter((item) => !item.reason?.toLowerCase().includes('recruitment filter'))
+    .map((item) => ({
+      name: item.targetName,
+      externalId: item.targetExternalId,
+      reason: item.reason ?? 'Mục này không được đồng bộ.',
+    }));
+  const errors = result.errors ?? [];
+
+  if (
+    accepted.length === 0
+    && removed.length === 0
+    && reactivated.length === 0
+    && filtered.length === 0
+    && skipped.length === 0
+    && errors.length === 0
+  ) return null;
+  return { accepted, removed, reactivated, filtered, skipped, errors };
 }
 
 async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunResult> {
@@ -5495,10 +5977,14 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   const headingKeywords = [
     'nhóm bạn đã tham gia',
     'nhóm đã tham gia',
+    'tất cả các nhóm bạn đã tham gia',
+    'tất cả nhóm bạn đã tham gia',
     'các nhóm của bạn',
     'your joined groups',
     'groups you joined',
     'groups youve joined',
+    'all groups you joined',
+    "all groups you've joined",
     'joined groups',
     'your groups',
   ];
@@ -5516,7 +6002,12 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     'groups you joined',
     'groups youve joined',
     'xem tất cả',
+    'xem nhóm',
     'see more',
+    'view group',
+    'open group',
+    'visit group',
+    'go to group',
     'xem thêm',
     'more',
   ]);
@@ -5903,12 +6394,47 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   };
 
   const collected = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string; order: number }>(collect());
-  const scrollHost = pickScrollableHost(sectionRoot instanceof Element ? sectionRoot : document.documentElement);
+  const scrollScope = sectionRoot ?? fallbackSectionRoot;
+  const scrollHost = pickScrollableHost(scrollScope instanceof Element ? scrollScope : document.documentElement);
+  const scrollHosts: Element[] = [];
+  const addScrollHost = (candidate: Element | null) => {
+    if (!candidate || scrollHosts.includes(candidate)) return;
+    scrollHosts.push(candidate);
+  };
+
+  const discoverScrollHosts = () => {
+    // Facebook can render the joined-group sidebar and the all-groups grid in
+    // separate scroll containers. Scanning only the heading's ancestor misses
+    // the virtualized cards that are loaded while the main page scrolls.
+    addScrollHost(scrollHost);
+    const documentHost = document.documentElement;
+    if (documentHost.scrollHeight > documentHost.clientHeight + 80) {
+      addScrollHost(documentHost);
+    }
+
+    for (const anchor of queryAnchors(document)) {
+      if (!parseGroupFromUrl(anchor.href)) continue;
+
+      let ancestor = anchor.parentElement;
+      for (let depth = 0; depth < 12 && ancestor; depth += 1) {
+        const style = window.getComputedStyle(ancestor);
+        const overflowY = style.overflowY;
+        if (
+          (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
+          && ancestor.scrollHeight > ancestor.clientHeight + 80
+        ) {
+          addScrollHost(ancestor);
+        }
+        ancestor = ancestor.parentElement;
+      }
+    }
+  };
+
+  discoverScrollHosts();
 
   let stablePasses = 0;
   let attempts = 0;
-  let previousScrollHeight = -1;
-  let previousScrollTop = -1;
+  const previousScrollHeights = new Map<Element, number>();
   const maxAttempts = 40;
 
   while (attempts < maxAttempts && stablePasses < 5) {
@@ -5924,49 +6450,43 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     if (revealClicks > 0) {
       await sleepMs(1000);
     }
+    discoverScrollHosts();
 
     const afterSize = collected.size;
-    const sizeChanged = afterSize > beforeSize;
+    const sizeChanged = afterSize > beforeSize || revealClicks > 0;
+    let moved = false;
+    let heightChanged = false;
 
     attempts += 1;
-    if (!sizeChanged) stablePasses += 1; else stablePasses = 0;
 
-    if (stablePasses >= 5) break;
+    for (const host of scrollHosts) {
+      const isDocumentHost = host === document.documentElement || host === document.body;
+      const beforeScrollTop = isDocumentHost ? window.scrollY : host.scrollTop;
+      const beforeScrollHeight = isDocumentHost ? document.documentElement.scrollHeight : host.scrollHeight;
 
-    if (scrollHost instanceof HTMLElement) {
-      const beforeScrollTop = scrollHost.scrollTop;
-      const beforeScrollHeight = scrollHost.scrollHeight;
-      scrollHost.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
-      await sleepMs(1000);
-
-      const afterScrollHeight = scrollHost.scrollHeight;
-      const afterScrollTop = scrollHost.scrollTop;
-      const moved = afterScrollTop > beforeScrollTop || afterScrollHeight > previousScrollHeight;
-      previousScrollHeight = afterScrollHeight;
-
-      if (!moved && !sizeChanged) {
-        stablePasses += 1;
+      if (isDocumentHost) {
+        window.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
+      } else if (host instanceof HTMLElement) {
+        host.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
       }
-      if (afterScrollTop === previousScrollTop && !sizeChanged) {
-        stablePasses += 1;
-      }
-      previousScrollTop = afterScrollTop;
+      await sleepMs(1_100);
 
-      continue;
+      const afterScrollTop = isDocumentHost ? window.scrollY : host.scrollTop;
+      const afterScrollHeight = isDocumentHost ? document.documentElement.scrollHeight : host.scrollHeight;
+      const hostMoved = afterScrollTop !== beforeScrollTop || afterScrollHeight !== beforeScrollHeight;
+      const previousScrollHeight = previousScrollHeights.get(host);
+      const hostHeightChanged = previousScrollHeight !== undefined && afterScrollHeight !== previousScrollHeight;
+      previousScrollHeights.set(host, afterScrollHeight);
+
+      moved = moved || hostMoved;
+      heightChanged = heightChanged || hostHeightChanged;
     }
 
-    const beforeScrollTop = window.scrollY;
-    const beforeScrollHeight = document.documentElement.scrollHeight;
-    window.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
-    await sleepMs(1000);
+    const afterScrollSize = collect().size;
+    const groupsLoadedAfterScroll = afterScrollSize > afterSize;
 
-    const moved = window.scrollY > beforeScrollTop || beforeScrollHeight > previousScrollHeight;
-    const afterScrollHeight = document.documentElement.scrollHeight;
-    previousScrollHeight = afterScrollHeight;
-    previousScrollTop = window.scrollY;
-
-    if (!moved && !sizeChanged) stablePasses += 1;
-    if (afterScrollHeight === previousScrollHeight && !sizeChanged) stablePasses += 1;
+    if (sizeChanged || groupsLoadedAfterScroll || moved || heightChanged) stablePasses = 0;
+    else stablePasses += 1;
   }
 
   const uniqueGroups = Array.from(collected.values())
@@ -5999,7 +6519,10 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     }
   }
 
-  return { groups: Array.from(finalGroups.values()) };
+  return {
+    groups: Array.from(finalGroups.values()),
+    scanComplete: stablePasses >= 5 && Boolean(scrollScope) && scrollHosts.length > 0,
+  };
 }
 
 async function runScriptInTab<Result>(tabId: number, script: () => Result | Promise<Result>) {
@@ -6680,21 +7203,28 @@ function parseAmisRecruitmentContextFromUrl(url: string) {
       ?? parsedUrl.searchParams.get('id');
     const queryRoundId = parsedUrl.searchParams.get('recruitmentRoundID')
       ?? parsedUrl.searchParams.get('RecruitmentRoundID')
-      ?? parsedUrl.searchParams.get('recruitmentRoundId');
+      ?? parsedUrl.searchParams.get('recruitmentRoundId')
+      ?? parsedUrl.searchParams.get('roundID')
+      ?? parsedUrl.searchParams.get('RoundID')
+      ?? parsedUrl.searchParams.get('roundId');
 
     return {
       amisRecruitmentId: candidatePathMatch?.[1]
-        ?? queryRecruitmentId
         ?? jobDetailPathMatch?.[1]
+        ?? queryRecruitmentId
         ?? genericRecruitmentMatch?.[1]
         ?? null,
       amisRecruitmentRoundId: queryRoundId,
+      amisCandidateId: jobDetailPathMatch
+        ? parsedUrl.searchParams.get('id')
+        : null,
       sourceUrl: candidatePathMatch?.[1] ? url : null,
     };
   } catch {
     return {
       amisRecruitmentId: null,
       amisRecruitmentRoundId: null,
+      amisCandidateId: null,
       sourceUrl: null,
     };
   }
