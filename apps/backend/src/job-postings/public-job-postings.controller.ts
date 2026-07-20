@@ -90,6 +90,7 @@ interface PublicJobDescriptionSnapshot extends Record<string, unknown> {
 type PublicApplyErrorCode =
   | 'CV_SCAN_FAILED'
   | 'CV_SANITIZE_FAILED'
+  | 'CV_SANITIZE_TIMEOUT'
   | 'CV_PARSE_FAILED'
   | 'CV_NOT_RESUME'
   | 'DUPLICATE_APPLICATION'
@@ -121,9 +122,11 @@ const PUBLIC_CANDIDATE_CV_UPDATE_ALLOWED_STATUSES = [
   ApplicationStatus.CV_SCAN_REQUESTED,
   ApplicationStatus.CV_SCAN_PASSED,
   ApplicationStatus.CV_SCAN_FAILED,
+  ApplicationStatus.CV_SANITIZE_QUEUED,
   ApplicationStatus.CV_SANITIZING,
   ApplicationStatus.CV_SANITIZED,
   ApplicationStatus.CV_SANITIZE_FAILED,
+  ApplicationStatus.CV_SANITIZE_TIMEOUT,
   ApplicationStatus.CV_PARSED,
   ApplicationStatus.CV_PARSE_FAILED,
   ApplicationStatus.PROFILE_DUPLICATE_CHECKED,
@@ -186,7 +189,7 @@ const publicApplySuccessSchema = apiSuccessEnvelopeSchema({
     nextStep: { type: 'string', example: 'CV_JD_MAPPING_PENDING' },
     message: {
       type: 'string',
-      example: 'CV accepted. Malware scan, sanitization and parsing completed successfully.',
+      example: 'CV accepted. PDF sanitization and parsing completed successfully.',
     },
   },
 });
@@ -470,7 +473,7 @@ export class PublicJobPostingsController {
       currentCvDocumentId: cleanCvDocument.id,
       parsedProfileId: parsedProfile.id,
       nextStep: 'CV_JD_MAPPING_PENDING',
-      message: 'CV accepted. Malware scan, sanitization and parsing completed successfully.',
+      message: 'CV accepted. PDF sanitization and parsing completed successfully.',
     };
   }
 
@@ -637,6 +640,18 @@ function toPublicApplyError(exception: unknown): PublicApplyError {
       HttpStatus.UNPROCESSABLE_ENTITY,
       'MALWARE_DETECTED',
       'CV file does not meet the security policy.',
+    );
+  }
+
+  if (
+    code === 'CV_SANITIZE_TIMEOUT'
+    || normalizedMessage.includes('timed out')
+    || normalizedMessage.includes('timeout')
+  ) {
+    return buildPublicApplyError(
+      HttpStatus.SERVICE_UNAVAILABLE,
+      'CV_SANITIZE_TIMEOUT',
+      'CV sanitization timed out. Please try again later.',
     );
   }
 

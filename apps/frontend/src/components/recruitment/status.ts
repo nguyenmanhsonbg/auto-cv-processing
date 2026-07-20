@@ -23,9 +23,11 @@ const STATUS_LABELS: Record<string, string> = {
   [ApplicationStatus.CV_SCAN_PASSED]: 'CV đã qua kiểm tra bảo mật',
   [ApplicationStatus.CV_SCAN_FAILED]: 'Kiểm tra bảo mật CV gặp lỗi kỹ thuật',
   [ApplicationStatus.CV_REJECTED_MALWARE]: 'CV không đáp ứng chính sách bảo mật',
+  [ApplicationStatus.CV_SANITIZE_QUEUED]: 'CV đang chờ tạo bản sạch',
   [ApplicationStatus.CV_SANITIZING]: 'Đang tạo bản CV sạch',
   [ApplicationStatus.CV_SANITIZED]: 'Đã có clean CV',
   [ApplicationStatus.CV_SANITIZE_FAILED]: 'Không tạo được clean CV',
+  [ApplicationStatus.CV_SANITIZE_TIMEOUT]: 'Tạo clean CV quá thời gian',
   [ApplicationStatus.CV_PARSE_FAILED]: 'Không parse được clean CV',
   [ApplicationStatus.CV_PARSED]: 'Đã parse CV',
 };
@@ -44,9 +46,11 @@ const STATUS_VARIANTS: Record<string, RecruitmentStatusVariant> = {
   [ApplicationStatus.CV_SCAN_PASSED]: 'success',
   [ApplicationStatus.CV_SCAN_FAILED]: 'destructive',
   [ApplicationStatus.CV_REJECTED_MALWARE]: 'destructive',
+  [ApplicationStatus.CV_SANITIZE_QUEUED]: 'warning',
   [ApplicationStatus.CV_SANITIZING]: 'warning',
   [ApplicationStatus.CV_SANITIZED]: 'success',
   [ApplicationStatus.CV_SANITIZE_FAILED]: 'destructive',
+  [ApplicationStatus.CV_SANITIZE_TIMEOUT]: 'destructive',
   [ApplicationStatus.CV_PARSE_FAILED]: 'destructive',
   [ApplicationStatus.CV_PARSED]: 'success',
 };

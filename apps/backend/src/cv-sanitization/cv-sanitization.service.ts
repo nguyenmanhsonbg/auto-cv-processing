@@ -7,8 +7,6 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { createReadStream } from 'fs';
-import { open, stat } from 'fs/promises';
 import * as path from 'path';
 import { DataSource, EntityManager, FindOptionsWhere } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
@@ -32,6 +30,8 @@ import {
   CleanCvSanitizeResult,
   CleanCvSanitizeStatus,
 } from './sanitizer/clean-cv-sanitizer.interface';
+import { CvSanitizationJobEntity } from './jobs/cv-sanitization-job.entity';
+import { CleanPdfOutputValidator } from './output/clean-pdf-output-validator';
 import {
   assertCvSafeFilePath,
   buildCvSafePdfFileName,
@@ -73,6 +73,7 @@ export class CvSanitizationService {
     private readonly dataSource: DataSource,
     private readonly workflowStateService: WorkflowStateService,
     private readonly cvParsingService: CvParsingService,
+    private readonly cleanPdfOutputValidator: CleanPdfOutputValidator,
     @Inject(CLEAN_CV_SANITIZER)
     private readonly cleanCvSanitizer: CleanCvSanitizer,
   ) {}
@@ -228,6 +229,9 @@ export class CvSanitizationService {
       }
 
       const sourceFilePath = resolveCvQuarantineStorageKey(originalCvDocument.storagePath);
+      const sanitizeStartStatus = this.isDisposablePoolMode()
+        ? ApplicationStatus.CV_SANITIZE_QUEUED
+        : ApplicationStatus.CV_SANITIZING;
       originalCvDocument.sanitizeStatus = CvSanitizeStatus.SANITIZING;
       const savedOriginal = await manager.getRepository(CvDocumentEntity).save(originalCvDocument);
       const metadata = {
@@ -242,11 +246,13 @@ export class CvSanitizationService {
         idempotencyKeyHash,
         forceRequested,
         requestedByActorId,
+        sanitizerMode: this.getSanitizerMode(),
       };
 
       await this.recordSanitizeStarted(manager, {
         applicationId,
         fromStatus: application.status,
+        toStatus: sanitizeStartStatus,
         actorType: requestedByActorId ? 'USER' : 'SYSTEM',
         actorId: requestedByActorId,
         metadata,
@@ -256,7 +262,9 @@ export class CvSanitizationService {
         applicationId,
         actorType: requestedByActorId ? 'USER' : 'SYSTEM',
         actorId: requestedByActorId,
-        action: 'CV_SANITIZING',
+        action: sanitizeStartStatus === ApplicationStatus.CV_SANITIZE_QUEUED
+          ? 'CV_SANITIZATION_JOB_CREATED'
+          : 'CV_SANITIZATION_STARTED',
         objectId: savedOriginal.id,
         metadata,
       });
@@ -292,10 +300,12 @@ export class CvSanitizationService {
         application.currentCvDocumentId === originalCvDocument.id ||
         (
           !application.currentCvDocumentId &&
-          (
-            application.status === ApplicationStatus.CV_SANITIZING ||
-            application.status === ApplicationStatus.CV_SANITIZE_FAILED
-          )
+          [
+            ApplicationStatus.CV_SANITIZE_QUEUED,
+            ApplicationStatus.CV_SANITIZING,
+            ApplicationStatus.CV_SANITIZE_FAILED,
+            ApplicationStatus.CV_SANITIZE_TIMEOUT,
+          ].includes(application.status)
         ),
       );
 
@@ -331,6 +341,12 @@ export class CvSanitizationService {
         isCurrent: shouldMarkCleanCurrent,
       });
       const savedClean = await manager.getRepository(CvDocumentEntity).save(cleanCvDocument);
+      if (sanitizeResult.sanitizationJobId) {
+        await manager.getRepository(CvSanitizationJobEntity).update(
+          { id: sanitizeResult.sanitizationJobId },
+          { cleanCvDocumentId: savedClean.id },
+        );
+      }
 
       if (shouldMarkCleanCurrent) {
         application.currentCvDocumentId = savedClean.id;
@@ -349,6 +365,9 @@ export class CvSanitizationService {
         sanitizer: sanitizeResult.sanitizer,
         sanitizedAt: sanitizeResult.sanitizedAt.toISOString(),
         durationMs: sanitizeResult.durationMs,
+        sanitizationJobId: sanitizeResult.sanitizationJobId ?? null,
+        workerId: sanitizeResult.workerId ?? null,
+        attempt: sanitizeResult.attempt ?? null,
         idempotencyKeyHash,
       };
 
@@ -363,7 +382,7 @@ export class CvSanitizationService {
         applicationId: savedClean.applicationId,
         actorType: 'SYSTEM',
         actorId: null,
-        action: 'CV_SANITIZED',
+        action: 'CV_SANITIZATION_SUCCEEDED',
         objectId: savedClean.id,
         metadata,
       });
@@ -384,6 +403,11 @@ export class CvSanitizationService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!application) throw new BadRequestException('Application not found');
+      const timeout = this.isSanitizeTimeout(sanitizeResult);
+      const toStatus = timeout
+        ? ApplicationStatus.CV_SANITIZE_TIMEOUT
+        : ApplicationStatus.CV_SANITIZE_FAILED;
+      const eventType = timeout ? 'CV_SANITIZE_TIMEOUT' : 'CV_SANITIZE_FAILED';
 
       originalCvDocument.sanitizeStatus = CvSanitizeStatus.FAILED;
       if (application.currentCvDocumentId === originalCvDocument.id) {
@@ -403,6 +427,9 @@ export class CvSanitizationService {
         sanitizedAt: sanitizeResult.sanitizedAt.toISOString(),
         durationMs: sanitizeResult.durationMs,
         reasonCode: sanitizeResult.reasonCode ?? 'CV_SANITIZE_FAILED',
+        sanitizationJobId: sanitizeResult.sanitizationJobId ?? null,
+        workerId: sanitizeResult.workerId ?? null,
+        attempt: sanitizeResult.attempt ?? null,
         manualReviewRequired: true,
         retryAllowed: true,
         idempotencyKeyHash,
@@ -410,8 +437,8 @@ export class CvSanitizationService {
 
       await this.recordSanitizeOutcome(manager, {
         applicationId: savedOriginal.applicationId,
-        toStatus: ApplicationStatus.CV_SANITIZE_FAILED,
-        eventType: 'CV_SANITIZE_FAILED',
+        toStatus,
+        eventType,
         metadata,
       });
 
@@ -419,7 +446,7 @@ export class CvSanitizationService {
         applicationId: savedOriginal.applicationId,
         actorType: 'SYSTEM',
         actorId: null,
-        action: 'CV_SANITIZE_FAILED',
+        action: timeout ? 'CV_SANITIZATION_TIMEOUT' : 'CV_SANITIZATION_FAILED',
         objectId: savedOriginal.id,
         metadata,
       });
@@ -485,22 +512,13 @@ export class CvSanitizationService {
 
   private async validateCleanPdfArtifact(filePath: string): Promise<CleanArtifact> {
     const cleanFilePath = assertCvSafeFilePath(filePath);
-    const stats = await stat(cleanFilePath);
-
-    if (!stats.isFile() || stats.size <= 0) {
-      throw new Error('Clean CV output is empty');
-    }
-
-    const magicBytes = await this.readMagicBytes(cleanFilePath, 5);
-    if (!magicBytes.equals(Buffer.from('%PDF-'))) {
-      throw new Error('Clean CV output is not a PDF');
-    }
+    const artifact = await this.cleanPdfOutputValidator.validate(cleanFilePath);
 
     return {
-      cleanFileHash: await this.calculateSha256(cleanFilePath),
-      fileSize: stats.size,
-      mimeType: PDF_MIME_TYPE,
-      storagePath: toCvSafeStorageKey(cleanFilePath),
+      cleanFileHash: artifact.sha256,
+      fileSize: artifact.fileSize,
+      mimeType: artifact.mimeType,
+      storagePath: toCvSafeStorageKey(artifact.filePath),
     };
   }
 
@@ -546,9 +564,12 @@ export class CvSanitizationService {
   }
 
   private toSanitizeException(result: CleanCvSanitizeResult) {
+    const timeout = this.isSanitizeTimeout(result);
     const payload = {
-      code: 'CV_SANITIZE_FAILED',
-      message: 'CV sanitization failed. Manual review or retry is required.',
+      code: timeout ? 'CV_SANITIZE_TIMEOUT' : 'CV_SANITIZE_FAILED',
+      message: timeout
+        ? 'CV sanitization timed out. Please retry later.'
+        : 'CV sanitization failed. Manual review or retry is required.',
     };
 
     if (result.reasonCode === 'UNSUPPORTED_SANITIZER_INPUT') {
@@ -567,6 +588,23 @@ export class CvSanitizationService {
     );
   }
 
+  private getSanitizerMode() {
+    return (process.env.CV_PDF_SANITIZER_MODE ?? 'GHOSTSCRIPT_DOCKER')
+      .trim()
+      .toUpperCase();
+  }
+
+  private isDisposablePoolMode() {
+    return this.getSanitizerMode() === 'DISPOSABLE_POOL';
+  }
+
+  private isSanitizeTimeout(result: CleanCvSanitizeResult) {
+    return [
+      'SANITIZER_TIMEOUT',
+      'SANITIZER_POOL_WAIT_TIMEOUT',
+    ].includes(result.reasonCode ?? '');
+  }
+
   private isSanitizeRetryAfterFailure(
     application: ApplicationEntity,
     originalCvDocument: CvDocumentEntity,
@@ -582,6 +620,7 @@ export class CvSanitizationService {
     input: {
       applicationId: string;
       fromStatus: ApplicationStatus;
+      toStatus: ApplicationStatus.CV_SANITIZE_QUEUED | ApplicationStatus.CV_SANITIZING;
       actorType: string;
       actorId?: string | null;
       metadata: Record<string, unknown>;
@@ -589,14 +628,15 @@ export class CvSanitizationService {
   ) {
     if (
       input.fromStatus === ApplicationStatus.CV_SCAN_PASSED ||
-      input.fromStatus === ApplicationStatus.CV_SANITIZE_FAILED
+      input.fromStatus === ApplicationStatus.CV_SANITIZE_FAILED ||
+      input.fromStatus === ApplicationStatus.CV_SANITIZE_TIMEOUT
     ) {
       await this.workflowStateService.recordStatusTransition(
         {
           applicationId: input.applicationId,
           expectedFromStatus: input.fromStatus,
-          toStatus: ApplicationStatus.CV_SANITIZING,
-          eventType: 'CV_SANITIZING',
+          toStatus: input.toStatus,
+          eventType: input.toStatus,
           actorType: input.actorType,
           actorId: input.actorId,
           metadata: input.metadata,
@@ -611,7 +651,7 @@ export class CvSanitizationService {
         applicationId: input.applicationId,
         fromStatus: input.fromStatus,
         toStatus: input.fromStatus,
-        eventType: 'CV_SANITIZING',
+        eventType: input.toStatus,
         actorType: input.actorType,
         actorId: input.actorId,
         metadata: {
@@ -627,8 +667,10 @@ export class CvSanitizationService {
     manager: EntityManager,
     input: {
       applicationId: string;
-      toStatus: ApplicationStatus.CV_SANITIZED | ApplicationStatus.CV_SANITIZE_FAILED;
-      eventType: 'CV_SANITIZED' | 'CV_SANITIZE_FAILED';
+      toStatus: ApplicationStatus.CV_SANITIZED
+        | ApplicationStatus.CV_SANITIZE_FAILED
+        | ApplicationStatus.CV_SANITIZE_TIMEOUT;
+      eventType: 'CV_SANITIZED' | 'CV_SANITIZE_FAILED' | 'CV_SANITIZE_TIMEOUT';
       metadata: Record<string, unknown>;
     },
   ) {
@@ -637,11 +679,14 @@ export class CvSanitizationService {
     });
     if (!application) throw new BadRequestException('Application not found');
 
-    if (application.status === ApplicationStatus.CV_SANITIZING) {
+    if (
+      application.status === ApplicationStatus.CV_SANITIZING ||
+      application.status === ApplicationStatus.CV_SANITIZE_QUEUED
+    ) {
       await this.workflowStateService.recordStatusTransition(
         {
           applicationId: input.applicationId,
-          expectedFromStatus: ApplicationStatus.CV_SANITIZING,
+          expectedFromStatus: application.status,
           toStatus: input.toStatus,
           eventType: input.eventType,
           actorType: 'SYSTEM',
@@ -693,29 +738,6 @@ export class CvSanitizationService {
       ipAddress: null,
       userAgent: null,
     }));
-  }
-
-  private async readMagicBytes(filePath: string, byteCount: number) {
-    const fileHandle = await open(filePath, 'r');
-
-    try {
-      const buffer = Buffer.alloc(byteCount);
-      const { bytesRead } = await fileHandle.read(buffer, 0, byteCount, 0);
-      return buffer.subarray(0, bytesRead);
-    } finally {
-      await fileHandle.close();
-    }
-  }
-
-  private calculateSha256(filePath: string) {
-    return new Promise<string>((resolve, reject) => {
-      const hash = createHash('sha256');
-      const stream = createReadStream(filePath);
-
-      stream.on('error', reject);
-      stream.on('data', (chunk) => hash.update(chunk));
-      stream.on('end', () => resolve(hash.digest('hex')));
-    });
   }
 
   private hashOptionalText(value?: string | null) {

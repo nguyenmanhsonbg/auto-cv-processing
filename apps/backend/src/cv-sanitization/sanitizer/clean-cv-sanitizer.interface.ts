@@ -24,6 +24,9 @@ export interface CleanCvSanitizeResult {
   outputFilePath?: string | null;
   outputMimeType?: string | null;
   reasonCode?: string | null;
+  sanitizationJobId?: string | null;
+  workerId?: string | null;
+  attempt?: number | null;
 }
 
 export interface CleanCvSanitizer {

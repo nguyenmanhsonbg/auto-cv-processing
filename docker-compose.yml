@@ -30,41 +30,69 @@ services:
       UPLOAD_DIR: /app/apps/backend/uploads
       CV_QUARANTINE_DIR: /app/apps/backend/storage/cv-quarantine
       CV_SAFE_DIR: /app/apps/backend/storage/cv-safe
-      CV_PDF_SANITIZER_MODE: HTTP_SERVICE
-      CV_SANITIZER_SERVICE_URL: http://cv-sanitizer:8080
-      CV_GHOSTSCRIPT_TIMEOUT_MS: 60000
+      CV_PDF_SANITIZER_MODE: DISPOSABLE_POOL
+      CV_SANITIZER_POOL_ENABLED: 'true'
+      CV_SANITIZER_POOL_MANAGER: 'false'
+      CV_SANITIZER_POOL_MIN_READY: 1
+      CV_SANITIZER_POOL_MAX_WORKERS: 2
+      CV_SANITIZER_JOB_TIMEOUT_MS: 60000
+      CV_SANITIZER_MAX_ATTEMPTS: 2
+      CV_SANITIZER_READY_TIMEOUT_MS: 30000
+      CV_SANITIZER_RECONCILE_INTERVAL_MS: 1000
+      CV_SANITIZER_JOB_WAIT_TIMEOUT_MS: 90000
+      CV_SANITIZER_WORKER_IMAGE: auto-cv-processing-cv-sanitizer-worker:latest
+      CV_SANITIZER_CONTROL_DIR: /app/apps/backend/storage/cv-sanitizer-control
     depends_on:
       postgres:
         condition: service_healthy
-      cv-sanitizer:
-        condition: service_healthy
+      sanitizer-pool-manager:
+        condition: service_started
     volumes:
       - uploads:/app/apps/backend/uploads
       - ./storage:/app/apps/backend/storage
 
-  cv-sanitizer:
-    image: auto-cv-processing-cv-sanitizer:latest
+  sanitizer-pool-manager:
+    image: auto-cv-processing-backend:latest
     build:
       context: .
       dockerfile: Dockerfile
-      target: cv-sanitizer
+      target: backend
+    command: ["pnpm", "start:pool-manager"]
     environment:
-      PORT: 8080
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/interview_assistant
+      JWT_SECRET: change-me-in-production
+      NODE_ENV: development
+      TYPEORM_SYNCHRONIZE: 'true'
       CV_QUARANTINE_DIR: /app/apps/backend/storage/cv-quarantine
       CV_SAFE_DIR: /app/apps/backend/storage/cv-safe
-      CV_GHOSTSCRIPT_TIMEOUT_MS: 60000
-    expose:
-      - '8080'
-    ports:
-      - '8080:8080'
+      CV_PDF_SANITIZER_MODE: DISPOSABLE_POOL
+      CV_SANITIZER_POOL_ENABLED: 'true'
+      CV_SANITIZER_POOL_MANAGER: 'true'
+      CV_SANITIZER_POOL_MIN_READY: 1
+      CV_SANITIZER_POOL_MAX_WORKERS: 2
+      CV_SANITIZER_JOB_TIMEOUT_MS: 60000
+      CV_SANITIZER_MAX_ATTEMPTS: 2
+      CV_SANITIZER_READY_TIMEOUT_MS: 30000
+      CV_SANITIZER_RECONCILE_INTERVAL_MS: 1000
+      CV_SANITIZER_JOB_WAIT_TIMEOUT_MS: 90000
+      CV_SANITIZER_WORKER_IMAGE: auto-cv-processing-cv-sanitizer-worker:latest
+      CV_SANITIZER_CONTROL_DIR: /app/apps/backend/storage/cv-sanitizer-control
+    depends_on:
+      postgres:
+        condition: service_healthy
+      cv-sanitizer-worker:
+        condition: service_completed_successfully
     volumes:
       - ./storage:/app/apps/backend/storage
-      - ./apps/cv-sanitizer/server.js:/app/server.js:ro
-    healthcheck:
-      test: ['CMD-SHELL', 'node -e "fetch(''http://127.0.0.1:8080/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  cv-sanitizer-worker:
+    image: auto-cv-processing-cv-sanitizer-worker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cv-sanitizer-worker
+    command: ["true"]
 
   frontend:
     build:
