@@ -187,9 +187,34 @@ interface FacebookGroupUiItem {
   disabledReason?: string | null;
 }
 
+interface AmisCandidateSourceSelectionDiagnostics {
+  fieldFound: boolean;
+  formScrollPasses: number;
+  controlFound: boolean;
+  dropdownOpened: boolean;
+  popupFound: boolean;
+  optionScrollPasses: number;
+  visibleOptionLabels: string[];
+  sourceOptionFound: boolean;
+  sourceOptionClicked: boolean;
+  confirmedFieldValue: string;
+  selectionAttempts: number;
+}
+
+interface AmisCandidateSourceSelectionResponse {
+  ok: boolean;
+  sourceName?: string;
+  sourceId?: string;
+  code?: string;
+  diagnostics?: AmisCandidateSourceSelectionDiagnostics;
+  error?: string;
+}
+
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
 const FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
 const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
+const SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE = 'VCS_SELECT_AMIS_CANDIDATE_SOURCE';
+const AMIS_VCS_PORTAL_SOURCE_NAME = 'VCS Portal';
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
@@ -1492,6 +1517,7 @@ function SidePanel() {
       const cleanCvs = await Promise.all(uploadableApplications.map((application) =>
         downloadCleanCvFile(token, application.applicationId, application.currentCvDocumentId as string),
       ));
+
       const response = await sendMessageToAmisTab(activeTab.id, {
         type: UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
         payload: {
@@ -1510,8 +1536,33 @@ function SidePanel() {
       }
 
       registerPendingAmisUploads(uploadableApplications);
+      const sourceChannels = new Set(uploadableApplications.map((application) =>
+        normalizeAmisSourceChannel(application.sourceChannel),
+      ));
+      const hasVcsPortalSource = sourceChannels.has('VCSPORTAL');
+      let sourceSelectionMessage = '';
+
+      if (hasVcsPortalSource && sourceChannels.size === 1) {
+        try {
+          const sourceResponse = await sendMessageToAmisTab(activeTab.id, {
+            type: SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE,
+            payload: { sourceName: AMIS_VCS_PORTAL_SOURCE_NAME },
+          }, 0);
+          sourceSelectionMessage = isConfirmedAmisCandidateSourceSelection(
+            sourceResponse,
+            AMIS_VCS_PORTAL_SOURCE_NAME,
+          )
+            ? ' Đã chọn nguồn ứng viên VCS Portal trên AMIS.'
+            : ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn VCS Portal.${formatAmisCandidateSourceSelectionFailure(sourceResponse)}`;
+        } catch (error) {
+          sourceSelectionMessage = ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn VCS Portal. ${toErrorMessage(error)}`;
+        }
+      } else if (hasVcsPortalSource) {
+        sourceSelectionMessage = ' CV đã được đưa vào form, nhưng không tự chọn nguồn VCS Portal vì lượt đồng bộ có nhiều nguồn khác nhau.';
+      }
+
       setApplicationsMessage(
-        `Đã đưa ${response.fileCount ?? cleanCvs.length} CV vào form AMIS. Vui lòng bấm Lưu trên AMIS để hoàn tất.`,
+        `Đã đưa ${response.fileCount ?? cleanCvs.length} CV vào form AMIS.${sourceSelectionMessage} Vui lòng bấm Lưu trên AMIS để hoàn tất.`,
       );
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -6668,6 +6719,17 @@ function normalizeOptionalText(value?: string | null) {
   return normalized || null;
 }
 
+function normalizeAmisSourceChannel(value?: string | null) {
+  return normalizeOptionalText(value)
+    ?.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '')
+    ?? null;
+}
+
 function formatStatusText(value: string) {
   return value
     .toLowerCase()
@@ -7046,6 +7108,34 @@ function isUploadAmisCvFileResponse(value: unknown): value is {
     && typeof (value as { ok?: unknown }).ok === 'boolean';
 }
 
+function isSelectAmisCandidateSourceResponse(value: unknown): value is AmisCandidateSourceSelectionResponse {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { ok?: unknown }).ok === 'boolean';
+}
+
+function isConfirmedAmisCandidateSourceSelection(value: unknown, expectedSourceName: string) {
+  if (!isSelectAmisCandidateSourceResponse(value) || !value.ok) return false;
+  const expectedKey = normalizeAmisSourceChannel(expectedSourceName);
+  return normalizeAmisSourceChannel(value.sourceName) === expectedKey
+    && normalizeAmisSourceChannel(value.diagnostics?.confirmedFieldValue) === expectedKey;
+}
+
+function formatAmisCandidateSourceSelectionFailure(value: unknown) {
+  if (!isSelectAmisCandidateSourceResponse(value)) {
+    return ' AMIS không trả về kết quả chọn nguồn hợp lệ.';
+  }
+
+  const code = value.code ? ` [${value.code}]` : '';
+  const diagnostics = value.diagnostics;
+  const visibleSources = diagnostics?.visibleOptionLabels.slice(-6).join(', ') ?? '';
+  const details = diagnostics
+    ? ` Bước: field=${diagnostics.fieldFound ? 'ok' : 'missing'}, control=${diagnostics.controlFound ? 'ok' : 'missing'}, popup=${diagnostics.popupFound ? 'ok' : 'missing'}, scroll=${diagnostics.optionScrollPasses}.`
+    : '';
+  const sources = visibleSources ? ` Nguồn đã thấy: ${visibleSources}.` : '';
+  return `${code} ${value.error ?? 'Hãy chọn nguồn này trên AMIS trước khi lưu.'}${details}${sources}`;
+}
+
 function formatDiagnosticTime(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString();
@@ -7342,18 +7432,18 @@ async function getActiveTab() {
   };
 }
 
-async function sendMessageToAmisTab(tabId: number, message: unknown) {
+async function sendMessageToAmisTab(tabId: number, message: unknown, frameId?: number) {
   if (!chrome.tabs?.sendMessage) {
     throw new Error('Chrome tabs messaging is unavailable.');
   }
 
   try {
-    return await chrome.tabs.sendMessage(tabId, message);
+    return await chrome.tabs.sendMessage(tabId, message, frameId === undefined ? undefined : { frameId });
   } catch (error) {
     if (!isMissingContentScriptError(error)) throw error;
     await injectAmisBridge(tabId);
     await wait(250);
-    return chrome.tabs.sendMessage(tabId, message);
+    return chrome.tabs.sendMessage(tabId, message, frameId === undefined ? undefined : { frameId });
   }
 }
 

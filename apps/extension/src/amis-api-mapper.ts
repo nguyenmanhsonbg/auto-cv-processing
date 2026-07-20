@@ -270,6 +270,9 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
       recruitmentRoundName: cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])),
     } : {}),
     ...(status !== undefined ? { status } : {}),
+    ...(readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']) !== undefined ? {
+      recruitmentChannelId: readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']),
+    } : {}),
     ...(cleanText(readFirst(row, ['ChannelName', 'channelName'])) ? { channelName: cleanText(readFirst(row, ['ChannelName', 'channelName'])) } : {}),
     ...(cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])) ? {
       applyDate: cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])),
@@ -416,6 +419,7 @@ function sanitizeApplicationSnapshot(row: Record<string, unknown>) {
     'SortOrder',
     'CandidateID',
     'CandidateConvertID',
+    'RecruitmentChannelID',
     'AttachmentCVID',
     'AttachmentCVName',
     'ChannelName',

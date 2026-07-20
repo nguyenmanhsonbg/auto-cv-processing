@@ -12,6 +12,7 @@ const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM'
 const FETCH_AMIS_CAREERS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_CAREERS';
 const FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
 const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
+const SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE = 'VCS_SELECT_AMIS_CANDIDATE_SOURCE';
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
@@ -19,6 +20,8 @@ const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANG
 const AMIS_CAREER_DATA_PAGING_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/Career/data_paging';
 const AMIS_CAREER_SORT = 'W3sic2VsZWN0b3IiOiAiVXNhZ2VTdGF0dXMiLCAiZGVzYyI6ICJmYWxzZSJ9LHsic2VsZWN0b3IiOiAiQ2FyZWVyTmFtZSIsICJkZXNjIjogImZhbHNlIn1d';
 const RECRUITMENT_CONTEXT_CACHE_TTL_MS = 10 * 60 * 1000;
+const BRIDGE_WINDOW_MESSAGE_LISTENER_KEY = '__VCS_AMIS_BRIDGE_WINDOW_MESSAGE_LISTENER__';
+const BRIDGE_RUNTIME_MESSAGE_LISTENER_KEY = '__VCS_AMIS_BRIDGE_RUNTIME_MESSAGE_LISTENER__';
 let lastRecruitmentContextCache: {
   amisRecruitmentId: string;
   amisRecruitmentRoundId: string | null;
@@ -86,6 +89,45 @@ interface UploadAmisCvFileResponse {
   error?: string;
 }
 
+interface SelectAmisCandidateSourceMessage {
+  type: typeof SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE;
+  payload: {
+    sourceName: string;
+  };
+}
+
+interface SelectAmisCandidateSourceResponse {
+  ok: boolean;
+  sourceName?: string;
+  sourceId?: string;
+  code?: AmisCandidateSourceErrorCode;
+  diagnostics?: AmisDropdownSelectionDiagnostics;
+  error?: string;
+}
+
+type AmisCandidateSourceErrorCode =
+  | 'AMIS_SOURCE_FIELD_NOT_FOUND'
+  | 'AMIS_SOURCE_CONTROL_NOT_FOUND'
+  | 'AMIS_SOURCE_DROPDOWN_NOT_OPENED'
+  | 'AMIS_SOURCE_POPUP_NOT_FOUND'
+  | 'AMIS_SOURCE_OPTION_NOT_FOUND'
+  | 'AMIS_SOURCE_OPTION_NOT_CLICKED'
+  | 'AMIS_SOURCE_VALUE_NOT_CONFIRMED';
+
+interface AmisDropdownSelectionDiagnostics {
+  fieldFound: boolean;
+  formScrollPasses: number;
+  controlFound: boolean;
+  dropdownOpened: boolean;
+  popupFound: boolean;
+  optionScrollPasses: number;
+  visibleOptionLabels: string[];
+  sourceOptionFound: boolean;
+  sourceOptionClicked: boolean;
+  confirmedFieldValue: string;
+  selectionAttempts: number;
+}
+
 interface QuillLike {
   root?: HTMLElement;
   setText?: (text: string, source?: string) => void;
@@ -102,13 +144,26 @@ interface QuillContainer extends HTMLElement {
 const bridgeWindow = window as Window & {
   [BRIDGE_INSTALLED_KEY]?: boolean;
   [RECRUITMENT_CONTEXT_OBSERVER_INSTALLED_KEY]?: boolean;
+  [BRIDGE_WINDOW_MESSAGE_LISTENER_KEY]?: (event: MessageEvent) => void;
+  [BRIDGE_RUNTIME_MESSAGE_LISTENER_KEY]?: (
+    message: unknown,
+    sender: ChromeMessageSender,
+    sendResponse: (response?: unknown) => void,
+  ) => boolean | void;
 };
 const wasBridgeInstalled = bridgeWindow[BRIDGE_INSTALLED_KEY] === true;
 
-if (!wasBridgeInstalled) {
-  bridgeWindow[BRIDGE_INSTALLED_KEY] = true;
+const previousWindowMessageListener = bridgeWindow[BRIDGE_WINDOW_MESSAGE_LISTENER_KEY];
+if (previousWindowMessageListener) {
+  window.removeEventListener('message', previousWindowMessageListener);
+}
 
-  window.addEventListener('message', (event) => {
+const previousRuntimeMessageListener = bridgeWindow[BRIDGE_RUNTIME_MESSAGE_LISTENER_KEY];
+if (previousRuntimeMessageListener) {
+  chrome.runtime?.onMessage.removeListener?.(previousRuntimeMessageListener);
+}
+
+const windowMessageListener = (event: MessageEvent) => {
     if (event.source !== window) return;
     if (event.origin !== window.location.origin) return;
     if (isCaptureMessage(event.data)) {
@@ -122,9 +177,13 @@ if (!wasBridgeInstalled) {
     if (isDiagnosticMessage(event.data)) {
       sendDiagnostic(event.data.payload);
     }
-  });
+};
 
-  chrome.runtime?.onMessage.addListener((message, _sender, sendResponse) => {
+const runtimeMessageListener = (
+  message: unknown,
+  _sender: ChromeMessageSender,
+  sendResponse: (response?: unknown) => void,
+) => {
     if (isGetSelectedCareerMessage(message)) {
       sendResponse(getSelectedCareerFromPage());
       return;
@@ -180,6 +239,22 @@ if (!wasBridgeInstalled) {
       return true;
     }
 
+    if (isSelectAmisCandidateSourceMessage(message)) {
+      void selectAmisCandidateSource(message.payload)
+        .then((response) => sendResponse(response))
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            ...(error instanceof AmisDropdownSelectionError
+              ? { code: error.code, diagnostics: error.diagnostics }
+              : {}),
+            error: error instanceof Error ? error.message : 'Could not select the AMIS candidate source.',
+          } satisfies SelectAmisCandidateSourceResponse);
+        });
+
+      return true;
+    }
+
     if (!isFillAmisRecruitmentFormMessage(message)) return;
 
     void fillAmisRecruitmentForm(message.payload)
@@ -194,8 +269,15 @@ if (!wasBridgeInstalled) {
       });
 
     return true;
-  });
+};
 
+window.addEventListener('message', windowMessageListener);
+chrome.runtime?.onMessage.addListener(runtimeMessageListener);
+bridgeWindow[BRIDGE_WINDOW_MESSAGE_LISTENER_KEY] = windowMessageListener;
+bridgeWindow[BRIDGE_RUNTIME_MESSAGE_LISTENER_KEY] = runtimeMessageListener;
+bridgeWindow[BRIDGE_INSTALLED_KEY] = true;
+
+if (!wasBridgeInstalled) {
   installSelectedCareerObserver();
 }
 
@@ -477,6 +559,10 @@ function findVisibleTextElement(labelText: string) {
 }
 
 function readControlText(element: HTMLElement) {
+  if (element instanceof HTMLSelectElement) {
+    return cleanText(element.selectedOptions[0]?.textContent);
+  }
+
   const input = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
     ? element
     : element.querySelector<HTMLInputElement | HTMLTextAreaElement>('input, textarea');
@@ -689,6 +775,9 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
       recruitmentRoundName: cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])),
     } : {}),
     ...(status !== undefined ? { status } : {}),
+    ...(readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']) !== undefined ? {
+      recruitmentChannelId: readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']),
+    } : {}),
     ...(cleanText(readFirst(row, ['ChannelName', 'channelName'])) ? { channelName: cleanText(readFirst(row, ['ChannelName', 'channelName'])) } : {}),
     ...(cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])) ? {
       applyDate: cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])),
@@ -714,6 +803,7 @@ function sanitizeApplicationSnapshot(row: Record<string, unknown>) {
     'Status',
     'CandidateID',
     'CandidateConvertID',
+    'RecruitmentChannelID',
     'AttachmentCVID',
     'AttachmentCVName',
     'ChannelName',
@@ -779,6 +869,806 @@ async function uploadAmisCvFile(payload: UploadAmisCvFileMessage['payload']): Pr
     fileCount: files.length,
     target: deliveredTargets.join('+') || undefined,
   };
+}
+
+async function selectAmisCandidateSource(
+  payload: SelectAmisCandidateSourceMessage['payload'],
+): Promise<SelectAmisCandidateSourceResponse> {
+  const sourceName = cleanText(payload.sourceName);
+  if (!sourceName) throw new Error('AMIS candidate source name is required.');
+
+  const diagnostics = createAmisDropdownSelectionDiagnostics();
+  await waitForAmisCandidateFormToSettle(8000);
+
+  let lastError: AmisDropdownSelectionError | null = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    resetAmisDropdownSelectionDiagnostics(diagnostics);
+    diagnostics.selectionAttempts = attempt;
+    try {
+      const selected = await selectAmisDropdownOption({
+        fieldLabel: 'Nguồn ứng viên',
+        optionText: sourceName,
+        diagnostics,
+      });
+      return {
+        ok: true,
+        sourceName: selected.optionText,
+        sourceId: selected.optionId || undefined,
+        diagnostics,
+      };
+    } catch (error) {
+      if (!(error instanceof AmisDropdownSelectionError)) throw error;
+      lastError = error;
+      if (attempt >= 2 || !isRetryableAmisSourceSelectionError(error.code)) throw error;
+      await closeOpenAmisDropdown();
+      await waitForAmisCandidateFormToSettle(5000);
+    }
+  }
+
+  throw lastError ?? new Error('Could not select the AMIS candidate source.');
+}
+
+class AmisDropdownSelectionError extends Error {
+  constructor(
+    readonly code: AmisCandidateSourceErrorCode,
+    message: string,
+    readonly diagnostics: AmisDropdownSelectionDiagnostics,
+  ) {
+    super(message);
+    this.name = 'AmisDropdownSelectionError';
+  }
+}
+
+interface AmisDropdownField {
+  label: HTMLElement;
+  root: HTMLElement;
+  control: HTMLElement;
+  trigger: HTMLElement;
+  nativeSelect: HTMLSelectElement | null;
+}
+
+interface SelectAmisDropdownOptionParams {
+  fieldLabel: string;
+  optionText: string;
+  optionId?: string;
+  diagnostics: AmisDropdownSelectionDiagnostics;
+}
+
+function createAmisDropdownSelectionDiagnostics(): AmisDropdownSelectionDiagnostics {
+  return {
+    fieldFound: false,
+    formScrollPasses: 0,
+    controlFound: false,
+    dropdownOpened: false,
+    popupFound: false,
+    optionScrollPasses: 0,
+    visibleOptionLabels: [],
+    sourceOptionFound: false,
+    sourceOptionClicked: false,
+    confirmedFieldValue: '',
+    selectionAttempts: 0,
+  };
+}
+
+function resetAmisDropdownSelectionDiagnostics(diagnostics: AmisDropdownSelectionDiagnostics) {
+  diagnostics.fieldFound = false;
+  diagnostics.formScrollPasses = 0;
+  diagnostics.controlFound = false;
+  diagnostics.dropdownOpened = false;
+  diagnostics.popupFound = false;
+  diagnostics.optionScrollPasses = 0;
+  diagnostics.visibleOptionLabels = [];
+  diagnostics.sourceOptionFound = false;
+  diagnostics.sourceOptionClicked = false;
+  diagnostics.confirmedFieldValue = '';
+}
+
+async function selectAmisDropdownOption(params: SelectAmisDropdownOptionParams) {
+  const { fieldLabel, optionText, optionId, diagnostics } = params;
+  const targetKey = normalizeAmisUiText(optionText);
+  let field = await waitForAmisDropdownField(fieldLabel, diagnostics, 10000);
+  if (!field) {
+    const code = diagnostics.fieldFound
+      ? 'AMIS_SOURCE_CONTROL_NOT_FOUND'
+      : 'AMIS_SOURCE_FIELD_NOT_FOUND';
+    throwAmisDropdownSelectionError(
+      code,
+      diagnostics.fieldFound
+        ? `Found the AMIS "${fieldLabel}" label but could not locate its dropdown control.`
+        : `AMIS field "${fieldLabel}" was not found. Open the "Thêm ứng viên" form first.`,
+      diagnostics,
+    );
+  }
+
+  const currentValue = readAmisDropdownFieldValue(field);
+  diagnostics.confirmedFieldValue = currentValue;
+  if (normalizeAmisUiText(currentValue) === targetKey) {
+    return { optionText: currentValue || optionText, optionId: '' };
+  }
+
+  if (field.nativeSelect) {
+    const option = await waitForAmisNativeSelectOption(field.nativeSelect, targetKey, optionId, 5000);
+    if (!option) {
+      throwAmisDropdownSelectionError(
+        'AMIS_SOURCE_OPTION_NOT_FOUND',
+        `AMIS source "${optionText}" is not available for the current unit.`,
+        diagnostics,
+      );
+    }
+
+    diagnostics.sourceOptionFound = true;
+    field.nativeSelect.value = option.value;
+    field.nativeSelect.dispatchEvent(new Event('input', { bubbles: true }));
+    field.nativeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    diagnostics.sourceOptionClicked = true;
+    const confirmedValue = await waitForAmisDropdownValue(fieldLabel, targetKey, diagnostics, 4000);
+    return {
+      optionText: confirmedValue || cleanText(option.textContent) || optionText,
+      optionId: cleanText(option.value),
+    };
+  }
+
+  field = findAmisDropdownField(fieldLabel) ?? field;
+  const popupSnapshot = new Set(getVisibleAmisDropdownPopups());
+  let popup = isAmisDropdownExpanded(field)
+    ? findPopupLinkedToAmisDropdown(field, popupSnapshot, popupSnapshot)
+    : null;
+
+  if (!popup) {
+    try {
+      field.trigger.scrollIntoView({ block: 'center', inline: 'nearest' });
+      field.trigger.focus({ preventScroll: true });
+      field.trigger.click();
+    } catch {
+      throwAmisDropdownSelectionError(
+        'AMIS_SOURCE_DROPDOWN_NOT_OPENED',
+        `Could not open the AMIS "${fieldLabel}" dropdown.`,
+        diagnostics,
+      );
+    }
+    popup = await waitForAmisDropdownPopup(field, popupSnapshot, 3000);
+  }
+
+  diagnostics.dropdownOpened = isAmisDropdownExpanded(field) || Boolean(popup);
+  if (!diagnostics.dropdownOpened) {
+    throwAmisDropdownSelectionError(
+      'AMIS_SOURCE_DROPDOWN_NOT_OPENED',
+      `AMIS did not open the "${fieldLabel}" dropdown.`,
+      diagnostics,
+    );
+  }
+  if (!popup) {
+    throwAmisDropdownSelectionError(
+      'AMIS_SOURCE_POPUP_NOT_FOUND',
+      `AMIS opened "${fieldLabel}", but its option popup could not be identified.`,
+      diagnostics,
+    );
+  }
+
+  diagnostics.popupFound = true;
+  const searchInput = findAmisDropdownSearchInput(popup);
+  if (searchInput) {
+    setNativeTextValue(searchInput, optionText);
+    searchInput.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertText',
+      data: optionText,
+    }));
+    searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitForAmisDomUpdate(popup, 350);
+  }
+
+  const option = await waitForAmisDropdownOption({
+    popup,
+    field,
+    optionText,
+    optionId,
+    diagnostics,
+    timeoutMs: 15000,
+  });
+  if (!option) {
+    throwAmisDropdownSelectionError(
+      'AMIS_SOURCE_OPTION_NOT_FOUND',
+      `AMIS source "${optionText}" was not found after scanning the dropdown list.`,
+      diagnostics,
+    );
+  }
+
+  diagnostics.sourceOptionFound = true;
+  const selectedOptionText = cleanText(option.innerText || option.textContent) || optionText;
+  const selectedOptionId = readAmisCandidateSourceOptionId(option);
+  try {
+    if (!option.isConnected) {
+      throw new Error('The AMIS option was re-rendered before it could be selected.');
+    }
+    option.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const clickTarget = option.querySelector<HTMLElement>(
+      '.dx-list-item-content, .non-group-source',
+    ) ?? option;
+    clickTarget.click();
+    diagnostics.sourceOptionClicked = true;
+  } catch {
+    throwAmisDropdownSelectionError(
+      'AMIS_SOURCE_OPTION_NOT_CLICKED',
+      `AMIS source "${optionText}" was found but could not be selected.`,
+      diagnostics,
+    );
+  }
+
+  const confirmedValue = await waitForAmisDropdownValue(fieldLabel, targetKey, diagnostics, 5000);
+  return {
+    optionText: confirmedValue || selectedOptionText,
+    optionId: selectedOptionId,
+  };
+}
+
+function throwAmisDropdownSelectionError(
+  code: AmisCandidateSourceErrorCode,
+  message: string,
+  diagnostics: AmisDropdownSelectionDiagnostics,
+): never {
+  throw new AmisDropdownSelectionError(code, message, {
+    ...diagnostics,
+    visibleOptionLabels: [...diagnostics.visibleOptionLabels],
+  });
+}
+
+function isRetryableAmisSourceSelectionError(code: AmisCandidateSourceErrorCode) {
+  return code === 'AMIS_SOURCE_FIELD_NOT_FOUND'
+    || code === 'AMIS_SOURCE_CONTROL_NOT_FOUND'
+    || code === 'AMIS_SOURCE_DROPDOWN_NOT_OPENED'
+    || code === 'AMIS_SOURCE_POPUP_NOT_FOUND'
+    || code === 'AMIS_SOURCE_OPTION_NOT_CLICKED'
+    || code === 'AMIS_SOURCE_VALUE_NOT_CONFIRMED';
+}
+
+async function waitForAmisDropdownField(
+  fieldLabel: string,
+  diagnostics: AmisDropdownSelectionDiagnostics,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const formRoot = findAmisCandidateFormRoot();
+    const label = formRoot ? findAmisDropdownLabel(formRoot, fieldLabel) : null;
+    diagnostics.fieldFound = diagnostics.fieldFound || Boolean(label);
+    if (label) {
+      label.scrollIntoView({ block: 'center', inline: 'nearest' });
+      await waitForAmisDomUpdate(formRoot ?? document.body, 120);
+      const field = findAmisDropdownField(fieldLabel);
+      if (field) {
+        diagnostics.controlFound = true;
+        return field;
+      }
+    }
+
+    if (advanceAmisCandidateFormScroll()) diagnostics.formScrollPasses += 1;
+    await waitForAmisDomUpdate(formRoot ?? document.body, 140);
+  }
+  return null;
+}
+
+function findAmisDropdownField(fieldLabel: string): AmisDropdownField | null {
+  const formRoot = findAmisCandidateFormRoot();
+  if (!formRoot) return null;
+  const label = findAmisDropdownLabel(formRoot, fieldLabel);
+  if (!label) return null;
+
+  const labelRect = label.getBoundingClientRect();
+  const labelFor = cleanText(label.getAttribute('for'));
+  const labelledControl = labelFor ? document.getElementById(labelFor) as HTMLElement | null : null;
+  const exactAmisSourceControl = normalizeAmisUiText(fieldLabel) === 'nguonungvien'
+    ? Array.from(formRoot.querySelectorAll<HTMLElement>(
+      'dx-select-box.dx-selectbox[displayexpr="SourceCandidateName"][valueexpr="ID"]',
+    )).find((element) => {
+      if (element.closest('[aria-hidden="true"], .dx-state-invisible')) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0
+        && rect.height > 0
+        && rect.top >= labelRect.top - 12
+        && rect.top <= labelRect.bottom + 140
+        && rect.right >= labelRect.left - 20
+        && rect.left <= labelRect.right + 280;
+    }) ?? null
+    : null;
+  const nearbyRoots: HTMLElement[] = [];
+  let ancestor: HTMLElement | null = label.parentElement;
+  for (let depth = 0; depth < 4 && ancestor && formRoot.contains(ancestor); depth += 1) {
+    nearbyRoots.push(ancestor);
+    ancestor = ancestor.parentElement;
+  }
+  const nearbyControls = nearbyRoots.flatMap((root) => Array.from(root.querySelectorAll<HTMLElement>(
+    'select, [role="combobox"], [aria-haspopup="listbox"], .dx-selectbox, .dx-dropdowneditor',
+  )));
+  const controls = [
+    ...(labelledControl ? [labelledControl] : []),
+    ...nearbyControls,
+    ...Array.from(formRoot.querySelectorAll<HTMLElement>(
+      'select, [role="combobox"], [aria-haspopup="listbox"], .dx-selectbox, .dx-dropdowneditor',
+    )),
+  ]
+    .filter((element, index, elements) => elements.indexOf(element) === index)
+    .filter((element) => !element.closest('[aria-hidden="true"], .dx-state-invisible'))
+    .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+    .filter(({ rect }) => rect.width > 0 && rect.height > 0)
+    .filter(({ rect }) => rect.top >= labelRect.top - 8 && rect.top <= labelRect.bottom + 120)
+    .filter(({ rect }) => rect.right >= labelRect.left - 20 && rect.left <= labelRect.right + 240)
+    .sort((left, right) =>
+      scoreAmisDropdownControl(right.element, right.rect, labelRect, nearbyControls, labelledControl)
+      - scoreAmisDropdownControl(left.element, left.rect, labelRect, nearbyControls, labelledControl),
+    );
+  const matchedControl = exactAmisSourceControl ?? controls[0]?.element ?? null;
+  if (!matchedControl) return null;
+
+  const nativeSelect = matchedControl instanceof HTMLSelectElement ? matchedControl : null;
+  const dropdownRoot = matchedControl.matches('.dx-dropdowneditor, .dx-selectbox')
+    ? matchedControl
+    : matchedControl.closest<HTMLElement>('.dx-dropdowneditor, .dx-selectbox');
+  const root = dropdownRoot ?? matchedControl;
+  const control = dropdownRoot ?? matchedControl;
+  const trigger = root.querySelector<HTMLElement>('.dx-dropdowneditor-button')
+    ?? (control.matches('[aria-haspopup="listbox"], [role="combobox"]') ? control : null)
+    ?? root.querySelector<HTMLElement>('[aria-haspopup="listbox"], [role="combobox"]')
+    ?? control;
+  return { label, root, control, trigger, nativeSelect };
+}
+
+function findAmisDropdownLabel(formRoot: HTMLElement, fieldLabel: string) {
+  const targetKey = normalizeAmisUiText(fieldLabel);
+  return Array.from(formRoot.querySelectorAll<HTMLElement>('label, span, div, p'))
+    .filter((element) => !element.closest('[aria-hidden="true"], .dx-state-invisible'))
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    })
+    .find((element) => normalizeAmisUiText(element.innerText || element.textContent) === targetKey)
+    ?? null;
+}
+
+function scoreAmisDropdownControl(
+  element: HTMLElement,
+  rect: DOMRect,
+  labelRect: DOMRect,
+  nearbyControls: HTMLElement[],
+  labelledControl: HTMLElement | null,
+) {
+  let score = 0;
+  if (element === labelledControl || Boolean(labelledControl && element.contains(labelledControl))) score += 500;
+  if (nearbyControls.includes(element)) score += 120;
+  if (element.matches('.dx-dropdowneditor, .dx-selectbox')) score += 30;
+  if (element.matches('[role="combobox"], [aria-haspopup="listbox"]')) score += 20;
+  if (element instanceof HTMLSelectElement) score += 15;
+  score -= Math.abs(rect.left - labelRect.left) / 2;
+  score -= Math.abs(rect.top - labelRect.bottom) / 4;
+  return score;
+}
+
+function readAmisDropdownFieldValue(field: AmisDropdownField) {
+  if (field.nativeSelect) return cleanText(field.nativeSelect.selectedOptions[0]?.textContent);
+  const inputs = Array.from(field.root.querySelectorAll<HTMLInputElement>(
+    'input.dx-texteditor-input, input.dx-dropdowneditor-input, [role="combobox"] input, input',
+  ));
+  const inputValue = inputs.map((input) => cleanText(input.value)).find(Boolean);
+  if (inputValue) return inputValue;
+  return cleanText(field.root.querySelector<HTMLElement>('.dx-selectbox-text, .dx-item-content')?.innerText);
+}
+
+async function waitForAmisNativeSelectOption(
+  select: HTMLSelectElement,
+  targetKey: string,
+  optionId: string | undefined,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const option = Array.from(select.options).find((item) =>
+      (optionId && cleanText(item.value) === optionId)
+      || normalizeAmisUiText(item.textContent) === targetKey,
+    );
+    if (option) return option;
+    await waitForAmisDomUpdate(select, 120);
+  }
+  return null;
+}
+
+function isAmisDropdownExpanded(field: AmisDropdownField) {
+  return [field.root, field.control, field.trigger, ...Array.from(field.root.querySelectorAll<HTMLElement>('[aria-expanded]'))]
+    .some((element) => element.getAttribute('aria-expanded') === 'true');
+}
+
+function getVisibleAmisDropdownPopups() {
+  return getVisibleElements<HTMLElement>(
+    '.dx-dropdowneditor-overlay, .dx-selectbox-popup, .dx-overlay-content, '
+    + '.dx-overlay-wrapper, .dx-popup-wrapper, [role="listbox"], .dx-list',
+  )
+    .filter((root) => isElementInsideViewport(root))
+    .filter((root) => root.matches('[role="listbox"], .dx-list')
+      || Boolean(root.querySelector('[role="listbox"], .dx-list, [role="option"], .dx-list-item')))
+    .filter((root, index, roots) => !roots.some((candidate, candidateIndex) =>
+      candidateIndex !== index
+      && candidate.contains(root)
+      && candidate.matches('.dx-overlay-wrapper, .dx-popup-wrapper'),
+    ));
+}
+
+function findPopupLinkedToAmisDropdown(
+  field: AmisDropdownField,
+  candidates: Set<HTMLElement> | HTMLElement[],
+  previousPopups: Set<HTMLElement>,
+) {
+  const popupCandidates = Array.from(candidates);
+  const controlledIds = [field.root, field.control, field.trigger, ...Array.from(field.root.querySelectorAll<HTMLElement>('*'))]
+    .flatMap((element) => [element.getAttribute('aria-controls'), element.getAttribute('aria-owns')])
+    .flatMap((value) => cleanText(value).split(/\s+/))
+    .filter(Boolean);
+  const linked = controlledIds
+    .map((id) => document.getElementById(id))
+    .find((element): element is HTMLElement => Boolean(element && popupCandidates.some((popup) =>
+      popup === element || popup.contains(element) || element.contains(popup),
+    )));
+  if (linked) {
+    return linked.closest<HTMLElement>(
+      '.dx-dropdowneditor-overlay, .dx-selectbox-popup, .dx-overlay-content, '
+      + '.dx-overlay-wrapper, .dx-popup-wrapper, .dx-popup, .dx-overlay',
+    ) ?? linked;
+  }
+
+  return popupCandidates
+    .map((popup) => ({
+      popup,
+      isNew: previousPopups.has(popup) ? 0 : 1,
+      zIndex: Number.parseInt(window.getComputedStyle(popup).zIndex || '0', 10) || 0,
+    }))
+    .sort((left, right) => right.isNew - left.isNew || right.zIndex - left.zIndex)[0]?.popup
+    ?? null;
+}
+
+async function waitForAmisDropdownPopup(
+  field: AmisDropdownField,
+  previousPopups: Set<HTMLElement>,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const candidates = getVisibleAmisDropdownPopups();
+    const popup = findPopupLinkedToAmisDropdown(field, candidates, previousPopups);
+    if (popup) return popup;
+    await waitForAmisDomUpdate(document.body, 100);
+  }
+  return null;
+}
+
+function findAmisDropdownSearchInput(popup: HTMLElement) {
+  return Array.from(popup.querySelectorAll<HTMLInputElement>('input'))
+    .filter((input) => {
+      const rect = input.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && !input.disabled;
+    })
+    .find((input) => input.type === 'search'
+      || Boolean(input.closest('.dx-searchbox'))
+      || /timkiem|search/.test(normalizeAmisUiText(
+        input.placeholder || input.getAttribute('aria-label') || '',
+      )))
+    ?? null;
+}
+
+async function waitForAmisDropdownOption(params: {
+  popup: HTMLElement;
+  field: AmisDropdownField;
+  optionText: string;
+  optionId?: string;
+  diagnostics: AmisDropdownSelectionDiagnostics;
+  timeoutMs: number;
+}) {
+  const { popup, field, optionText, optionId, diagnostics, timeoutMs } = params;
+  const targetKey = normalizeAmisUiText(optionText);
+  const deadline = Date.now() + timeoutMs;
+  let stablePasses = 0;
+
+  while (Date.now() < deadline && stablePasses < 3) {
+    const options = getVisibleAmisDropdownOptions(popup);
+    recordAmisDropdownOptionLabels(options, diagnostics);
+    const matched = findMatchingAmisDropdownOption(options, targetKey, optionId);
+    if (matched) return matched;
+
+    const beforeSignature = getAmisDropdownOptionSignature(options);
+    diagnostics.optionScrollPasses += 1;
+    const advanced = await advanceAmisDropdownOptionList(popup, field, beforeSignature);
+    const nextSignature = getAmisDropdownOptionSignature(getVisibleAmisDropdownOptions(popup));
+    stablePasses = advanced || nextSignature !== beforeSignature ? 0 : stablePasses + 1;
+  }
+  return null;
+}
+
+function getVisibleAmisDropdownOptions(popup: HTMLElement) {
+  const popupRect = popup.getBoundingClientRect();
+  return Array.from(popup.querySelectorAll<HTMLElement>(
+    '[role="option"], .dx-list-item, li, [class*="option"], [class*="Option"]',
+  ))
+    .filter((element) => !element.closest('[aria-hidden="true"], .dx-state-invisible'))
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0
+        && rect.height > 0
+        && rect.bottom > popupRect.top
+        && rect.top < popupRect.bottom;
+    })
+    .map((element) => element.closest<HTMLElement>('[role="option"], .dx-list-item, li') ?? element)
+    .filter((element, index, elements) => elements.indexOf(element) === index);
+}
+
+function findMatchingAmisDropdownOption(
+  options: HTMLElement[],
+  targetKey: string,
+  optionId?: string,
+) {
+  return options.find((option) => {
+    if (optionId && readAmisCandidateSourceOptionId(option) === optionId) return true;
+    return normalizeAmisUiText(option.innerText || option.textContent) === targetKey;
+  }) ?? null;
+}
+
+function recordAmisDropdownOptionLabels(
+  options: HTMLElement[],
+  diagnostics: AmisDropdownSelectionDiagnostics,
+) {
+  for (const option of options) {
+    const label = cleanText(option.innerText || option.textContent);
+    if (!label || diagnostics.visibleOptionLabels.includes(label)) continue;
+    if (diagnostics.visibleOptionLabels.length >= 60) break;
+    diagnostics.visibleOptionLabels.push(label);
+  }
+}
+
+function getAmisDropdownOptionSignature(options: HTMLElement[]) {
+  return options.map((option) => normalizeAmisUiText(option.innerText || option.textContent)).join('|');
+}
+
+async function advanceAmisDropdownOptionList(
+  popup: HTMLElement,
+  field: AmisDropdownField,
+  beforeSignature: string,
+) {
+  const scrollables = [popup, ...Array.from(popup.querySelectorAll<HTMLElement>(
+    '[role="listbox"], .dx-scrollable-container, .dx-scrollview, .dx-list',
+  ))]
+    .filter((element, index, elements) => elements.indexOf(element) === index)
+    .filter((element) => element.clientHeight > 40)
+    .sort((left, right) =>
+      (right.scrollHeight - right.clientHeight) - (left.scrollHeight - left.clientHeight),
+    );
+
+  for (const scrollable of scrollables) {
+    const previousScrollTop = scrollable.scrollTop;
+    const maxScrollTop = scrollable.scrollHeight - scrollable.clientHeight;
+    if (maxScrollTop <= 4 || previousScrollTop >= maxScrollTop - 2) continue;
+    const deltaY = Math.max(120, Math.floor(scrollable.clientHeight * 0.8));
+    scrollable.scrollTop = Math.min(maxScrollTop, previousScrollTop + deltaY);
+    scrollable.dispatchEvent(new Event('scroll', { bubbles: true }));
+    scrollable.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY,
+    }));
+    const changed = await waitForAmisDropdownOptionChange(popup, beforeSignature, 650);
+    if (changed) return true;
+  }
+
+  const options = getVisibleAmisDropdownOptions(popup);
+  const wheelTarget = options.at(-1) ?? popup;
+  const deltaY = Math.max(160, Math.floor(popup.getBoundingClientRect().height * 0.8));
+  wheelTarget.dispatchEvent(new WheelEvent('wheel', {
+    bubbles: true,
+    cancelable: true,
+    deltaY,
+  }));
+  field.trigger.dispatchEvent(new KeyboardEvent('keydown', {
+    bubbles: true,
+    cancelable: true,
+    key: 'PageDown',
+    code: 'PageDown',
+  }));
+  field.trigger.dispatchEvent(new KeyboardEvent('keyup', {
+    bubbles: true,
+    cancelable: true,
+    key: 'PageDown',
+    code: 'PageDown',
+  }));
+  return waitForAmisDropdownOptionChange(popup, beforeSignature, 650);
+}
+
+async function waitForAmisDropdownOptionChange(
+  popup: HTMLElement,
+  previousSignature: string,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await waitForAmisDomUpdate(popup, 80);
+    const signature = getAmisDropdownOptionSignature(getVisibleAmisDropdownOptions(popup));
+    if (signature && signature !== previousSignature) return true;
+  }
+  return false;
+}
+
+async function waitForAmisDropdownValue(
+  fieldLabel: string,
+  targetKey: string,
+  diagnostics: AmisDropdownSelectionDiagnostics,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let confirmedSince = 0;
+  while (Date.now() < deadline) {
+    const field = findAmisDropdownField(fieldLabel);
+    const value = field ? readAmisDropdownFieldValue(field) : '';
+    diagnostics.confirmedFieldValue = value;
+    if (normalizeAmisUiText(value) === targetKey) {
+      if (!confirmedSince) confirmedSince = Date.now();
+      if (Date.now() - confirmedSince >= 900) return value;
+    } else {
+      confirmedSince = 0;
+    }
+    await waitForAmisDomUpdate(findAmisCandidateFormRoot() ?? document.body, 100);
+  }
+
+  throwAmisDropdownSelectionError(
+    'AMIS_SOURCE_VALUE_NOT_CONFIRMED',
+    'AMIS did not keep the selected candidate source after the form update.',
+    diagnostics,
+  );
+}
+
+async function waitForAmisCandidateFormToSettle(timeoutMs: number) {
+  const formRoot = findAmisCandidateFormRoot();
+  if (!formRoot) return;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  let lastSignature = getAmisCandidateFormSignature(formRoot);
+  let lastChangedAt = startedAt;
+  while (Date.now() < deadline) {
+    await waitForAmisDomUpdate(formRoot, 150);
+    const currentRoot = findAmisCandidateFormRoot() ?? formRoot;
+    const signature = getAmisCandidateFormSignature(currentRoot);
+    if (signature !== lastSignature) {
+      lastSignature = signature;
+      lastChangedAt = Date.now();
+    }
+    if (Date.now() - startedAt >= 1600 && Date.now() - lastChangedAt >= 850) return;
+  }
+}
+
+function getAmisCandidateFormSignature(formRoot: HTMLElement) {
+  const values = Array.from(formRoot.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea'))
+    .slice(0, 30)
+    .map((element) => cleanText(element.value))
+    .join('|');
+  return `${formRoot.scrollHeight}:${cleanText(formRoot.textContent).length}:${values}`;
+}
+
+function waitForAmisDomUpdate(root: Node, timeoutMs: number) {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      observer.disconnect();
+      window.clearTimeout(timeoutId);
+      resolve();
+    };
+    const observer = new MutationObserver(finish);
+    const timeoutId = window.setTimeout(finish, timeoutMs);
+    observer.observe(root, { childList: true, subtree: true, attributes: true });
+  });
+}
+
+function isElementInsideViewport(element: HTMLElement) {
+  const rect = element.getBoundingClientRect();
+  return rect.bottom > 0
+    && rect.right > 0
+    && rect.top < window.innerHeight
+    && rect.left < window.innerWidth;
+}
+
+async function closeOpenAmisDropdown() {
+  if (getVisibleAmisDropdownPopups().length === 0) return;
+  document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', {
+    bubbles: true,
+    cancelable: true,
+    key: 'Escape',
+    code: 'Escape',
+  }));
+  await waitForAmisDomUpdate(document.body, 150);
+}
+
+function findAmisCandidateFormRoot() {
+  const heading = getVisibleElements<HTMLElement>('h1, h2, h3, h4, span, div')
+    .find((element) => normalizeAmisUiText(element.innerText || element.textContent) === 'themungvien');
+  if (!heading) {
+    return findVisibleModalRoots()
+      .find((root) => normalizeAmisUiText(root.innerText || root.textContent).includes('themungvien'))
+      ?? null;
+  }
+
+  let root: HTMLElement | null = heading;
+  for (let depth = 0; depth < 10 && root; depth += 1) {
+    const rect = root.getBoundingClientRect();
+    const hasSaveButton = Array.from(root.querySelectorAll<HTMLElement>('button, [role="button"]'))
+      .some((element) => normalizeAmisUiText(element.innerText || element.textContent) === 'luu');
+    const hasSourceField = Array.from(root.querySelectorAll<HTMLElement>('label, span, div, p'))
+      .some((element) => normalizeAmisUiText(element.innerText || element.textContent) === 'nguonungvien');
+    const hasCandidateFormMarkers = root.matches(
+      '.popup, .popup-container, .popup-content, .form, .infor-candidate, .right-content, '
+      + '[class*="popup"], [class*="candidate"]',
+    ) || Boolean(root.querySelector(
+      '.popup, .popup-container, .popup-content, .form, .infor-candidate, .right-content, '
+      + '.import-cv, input[type="file"]',
+    ));
+    if (rect.width >= 300 && rect.height >= 180 && (hasSaveButton || hasSourceField || hasCandidateFormMarkers)) {
+      return root;
+    }
+    root = root.parentElement;
+  }
+
+  return heading.closest<HTMLElement>(
+    '.dx-popup-wrapper, .dx-overlay-wrapper, [role="dialog"], .modal, .ant-modal, .v-modal, '
+    + '.popup, .popup-container, .popup-content, .form, .infor-candidate, .right-content',
+  );
+}
+
+function advanceAmisCandidateFormScroll() {
+  const formRoot = findAmisCandidateFormRoot();
+  if (!formRoot) return false;
+
+  const heading = getVisibleElements<HTMLElement>('h1, h2, h3, h4, span, div')
+    .find((element) => normalizeAmisUiText(element.innerText || element.textContent) === 'themungvien');
+  const headingRect = heading?.getBoundingClientRect() ?? formRoot.getBoundingClientRect();
+  const scrollables = [formRoot, ...Array.from(formRoot.querySelectorAll<HTMLElement>('*'))]
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width >= 250
+        && rect.height >= 180
+        && rect.left <= headingRect.right
+        && rect.right >= headingRect.left
+        && element.scrollHeight > element.clientHeight + 40;
+    })
+    .sort((left, right) =>
+      (right.scrollHeight - right.clientHeight) - (left.scrollHeight - left.clientHeight),
+    );
+
+  for (const scrollable of scrollables) {
+    const previousScrollTop = scrollable.scrollTop;
+    const maxScrollTop = scrollable.scrollHeight - scrollable.clientHeight;
+    if (previousScrollTop >= maxScrollTop - 2) continue;
+
+    scrollable.scrollTop = Math.min(
+      maxScrollTop,
+      previousScrollTop + Math.max(240, Math.floor(scrollable.clientHeight * 0.75)),
+    );
+    if (scrollable.scrollTop <= previousScrollTop + 1) continue;
+
+    scrollable.dispatchEvent(new Event('scroll', { bubbles: true }));
+    return true;
+  }
+
+  return false;
+}
+
+function readAmisCandidateSourceOptionId(option: HTMLElement) {
+  for (const attribute of ['data-id', 'data-value', 'data-key', 'data-item-id', 'value']) {
+    const value = cleanText(option.getAttribute(attribute));
+    if (value) return value;
+  }
+
+  const valueElement = option.querySelector<HTMLElement>('[data-id], [data-value], [data-key], [value]');
+  if (!valueElement) return '';
+  for (const attribute of ['data-id', 'data-value', 'data-key', 'value']) {
+    const value = cleanText(valueElement.getAttribute(attribute));
+    if (value) return value;
+  }
+
+  return '';
 }
 
 function openAmisDocumentUploadForm() {
@@ -1233,6 +2123,16 @@ function cleanText(value: unknown) {
     .trim();
 }
 
+function normalizeAmisUiText(value: unknown) {
+  return cleanText(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
 function readFirst(data: Record<string, unknown>, keys: string[]) {
   const value = readFirstValue(data, keys);
   if (typeof value === 'string' || typeof value === 'number') return String(value);
@@ -1363,6 +2263,15 @@ function isUploadAmisCvFileMessage(value: unknown): value is UploadAmisCvFileMes
       && typeof (file as { mimeType?: unknown }).mimeType === 'string'
       && typeof (file as { dataBase64?: unknown }).dataBase64 === 'string',
     );
+}
+
+function isSelectAmisCandidateSourceMessage(value: unknown): value is SelectAmisCandidateSourceMessage {
+  if (typeof value !== 'object' || value === null) return false;
+  const payload = (value as { payload?: unknown }).payload;
+  return (value as { type?: unknown }).type === SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE
+    && typeof payload === 'object'
+    && payload !== null
+    && typeof (payload as { sourceName?: unknown }).sourceName === 'string';
 }
 
 function isGetSelectedCareerMessage(value: unknown): value is {

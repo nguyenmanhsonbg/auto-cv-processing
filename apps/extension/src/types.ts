@@ -568,6 +568,7 @@ export interface AmisApplicationItem {
   birthday?: string;
   recruitmentRoundName?: string;
   status?: number;
+  recruitmentChannelId?: number;
   channelName?: string;
   applyDate?: string;
   recruitmentTitle?: string;

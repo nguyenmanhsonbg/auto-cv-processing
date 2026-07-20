@@ -33,34 +33,68 @@ export class ExtensionInstancesService {
     });
 
     if (existing) {
-      if (existing.status === ExtensionInstanceStatus.DISABLED) {
-        throw new BadRequestException({
-          code: 'EXTENSION_INSTANCE_DISABLED',
-          message: 'This extension instance has been disabled.',
-        });
-      }
-
-      existing.displayName = this.optionalText(input.dto.displayName, 160) ?? existing.displayName;
-      existing.version = this.optionalText(input.dto.version, 64) ?? existing.version;
-      existing.capabilities = this.normalizeCapabilities(input.dto.capabilities);
-      existing.metadata = this.safeMetadata(input.dto.metadata);
-      existing.status = ExtensionInstanceStatus.ONLINE;
-      existing.lastSeenAt = now;
-      return this.instancesRepo.save(existing);
+      return this.refreshRegisteredInstance(existing, input.dto, now);
     }
 
-    return this.instancesRepo.save(this.instancesRepo.create({
-      ownerUserId: input.ownerUserId,
-      installId,
-      displayName: this.optionalText(input.dto.displayName, 160) ?? null,
-      version: this.optionalText(input.dto.version, 64) ?? null,
-      capabilities: this.normalizeCapabilities(input.dto.capabilities),
-      status: ExtensionInstanceStatus.ONLINE,
-      lastSeenAt: now,
-      registeredAt: now,
-      disabledAt: null,
-      metadata: this.safeMetadata(input.dto.metadata),
-    }));
+    try {
+      return await this.instancesRepo.save(this.instancesRepo.create({
+        ownerUserId: input.ownerUserId,
+        installId,
+        displayName: this.optionalText(input.dto.displayName, 160) ?? null,
+        version: this.optionalText(input.dto.version, 64) ?? null,
+        capabilities: this.normalizeCapabilities(input.dto.capabilities),
+        status: ExtensionInstanceStatus.ONLINE,
+        lastSeenAt: now,
+        registeredAt: now,
+        disabledAt: null,
+        metadata: this.safeMetadata(input.dto.metadata),
+      }));
+    } catch (error) {
+      if (!this.isOwnerInstallUniqueViolation(error)) throw error;
+
+      // Another registration request won the insert race. Re-read that row and
+      // apply the same refresh semantics as the non-racing path.
+      const concurrentInstance = await this.instancesRepo.findOne({
+        where: {
+          ownerUserId: input.ownerUserId,
+          installId,
+        },
+      });
+      if (!concurrentInstance) throw error;
+
+      return this.refreshRegisteredInstance(concurrentInstance, input.dto, now);
+    }
+  }
+
+  private async refreshRegisteredInstance(
+    instance: ExtensionInstanceEntity,
+    dto: RegisterExtensionInstanceDto,
+    now: Date,
+  ) {
+    if (instance.status === ExtensionInstanceStatus.DISABLED) {
+      throw new BadRequestException({
+        code: 'EXTENSION_INSTANCE_DISABLED',
+        message: 'This extension instance has been disabled.',
+      });
+    }
+
+    instance.displayName = this.optionalText(dto.displayName, 160) ?? instance.displayName;
+    instance.version = this.optionalText(dto.version, 64) ?? instance.version;
+    instance.capabilities = this.normalizeCapabilities(dto.capabilities);
+    instance.metadata = this.safeMetadata(dto.metadata);
+    instance.status = ExtensionInstanceStatus.ONLINE;
+    instance.lastSeenAt = now;
+    return this.instancesRepo.save(instance);
+  }
+
+  private isOwnerInstallUniqueViolation(error: unknown) {
+    if (!error || typeof error !== 'object') return false;
+
+    const driverError = (error as { driverError?: unknown }).driverError;
+    if (!driverError || typeof driverError !== 'object') return false;
+
+    return (driverError as { code?: unknown }).code === '23505'
+      && (driverError as { constraint?: unknown }).constraint === 'UQ_extension_instances_owner_install';
   }
 
   async heartbeat(input: {

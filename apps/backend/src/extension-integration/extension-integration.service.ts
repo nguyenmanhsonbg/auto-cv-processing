@@ -958,6 +958,7 @@ export class ExtensionIntegrationService {
         ...(this.optionalText(item.birthday) ? { birthday: this.optionalText(item.birthday) ?? undefined } : {}),
         ...(this.optionalText(item.recruitmentRoundName) ? { recruitmentRoundName: this.optionalText(item.recruitmentRoundName) ?? undefined } : {}),
         ...(typeof item.status === 'number' ? { status: item.status } : {}),
+        ...(typeof item.recruitmentChannelId === 'number' ? { recruitmentChannelId: item.recruitmentChannelId } : {}),
         ...(this.optionalText(item.channelName) ? { channelName: this.optionalText(item.channelName) ?? undefined } : {}),
         ...(this.optionalText(item.applyDate) ? { applyDate: this.optionalText(item.applyDate) ?? undefined } : {}),
         ...(this.optionalText(item.recruitmentTitle) ? { recruitmentTitle: this.optionalText(item.recruitmentTitle) ?? undefined } : {}),
@@ -1026,6 +1027,7 @@ export class ExtensionIntegrationService {
 
   private resolveAmisApplicationChannel(channelName?: string) {
     const normalized = this.removeVietnameseMarks(channelName ?? '').toUpperCase().replace(/\s+/g, '');
+    if (normalized.includes('VCSPORTAL')) return RecruitmentChannel.VCS_PORTAL;
     if (normalized.includes('FACEBOOK')) return RecruitmentChannel.FACEBOOK;
     if (normalized.includes('TOPCV')) return RecruitmentChannel.TOPCV;
     if (normalized.includes('ITVIEC')) return RecruitmentChannel.ITVIEC;
@@ -1058,6 +1060,7 @@ export class ExtensionIntegrationService {
       candidateId: item.candidateId,
       candidateConvertId: item.candidateConvertId ?? null,
       status: item.status ?? null,
+      recruitmentChannelId: item.recruitmentChannelId ?? null,
       channelName: item.channelName ?? null,
       applyDate: item.applyDate ?? null,
       recruitmentTitle: item.recruitmentTitle ?? null,
