@@ -65,6 +65,13 @@ interface CleanArtifact {
   storagePath: string;
 }
 
+export interface SimilaritySanitizeInput {
+  sourceFilePath: string;
+  sourceStoragePath: string;
+  sourceMimeType: string;
+  originalFileHash: string;
+}
+
 @Injectable()
 export class CvSanitizationService {
   private readonly logger = new Logger(CvSanitizationService.name);
@@ -76,6 +83,48 @@ export class CvSanitizationService {
     @Inject(CLEAN_CV_SANITIZER)
     private readonly cleanCvSanitizer: CleanCvSanitizer,
   ) {}
+
+  async sanitizeFileForSimilarity(input: SimilaritySanitizeInput): Promise<string> {
+    const outputFilePath = this.buildSafeOutputFilePath();
+    const outputStoragePath = toCvSafeStorageKey(outputFilePath);
+
+    try {
+      const sanitizeResult = await this.cleanCvSanitizer.sanitize({
+        applicationId: 'cv-similarity-preflight',
+        cvDocumentId: 'cv-similarity-preflight',
+        originalFileHash: input.originalFileHash,
+        sourceFilePath: input.sourceFilePath,
+        sourceStoragePath: input.sourceStoragePath,
+        sourceMimeType: input.sourceMimeType,
+        outputFilePath,
+        outputStoragePath,
+      });
+
+      if (
+        sanitizeResult.status !== CleanCvSanitizeStatus.SANITIZED
+        || !sanitizeResult.outputFilePath
+      ) {
+        throw this.toSanitizeException(sanitizeResult);
+      }
+
+      await this.validateCleanPdfArtifact(sanitizeResult.outputFilePath);
+      return sanitizeResult.outputFilePath;
+    } catch (error) {
+      await deleteCvSafeFile(outputFilePath);
+
+      if (
+        error instanceof ServiceUnavailableException
+        || error instanceof UnprocessableEntityException
+      ) {
+        throw error;
+      }
+
+      throw new ServiceUnavailableException({
+        code: 'CV_SANITIZE_FAILED',
+        message: 'CV sanitization failed. Manual review or retry is required.',
+      });
+    }
+  }
 
   async sanitizeCvDocument(input: SanitizeCvDocumentInput) {
     let outputFilePath: string | null = null;

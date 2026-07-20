@@ -33,6 +33,28 @@ describe('CvSimilarityService', () => {
     expect(result.score).toBeCloseTo(1, 6);
   });
 
+  it('removes the extracted CV contact header from the similarity text', () => {
+    const normalized = service.normalizeForSimilarity(
+      'Le Quang TinEmail : luntanson@gmail.com\n'
+      + 'Software EngineerGitHub : github.com/TinBip28\n'
+      + 'Phone : +84 337314321\n'
+      + 'Education\n'
+      + 'VNU University of Science\n'
+      + 'Work Experience\n'
+      + 'Built RESTful APIs with Java and MongoDB.',
+      { name: 'Tín Lê', email: 'luntanson@gmail.com', phone: '0337314321' },
+    );
+
+    expect(normalized).toContain('education vnu university of science');
+    expect(normalized).not.toContain('le quang tin');
+    expect(normalized).not.toContain('email');
+    expect(normalized).not.toContain('luntanson');
+    expect(normalized).not.toContain('github');
+    expect(normalized).not.toContain('tinbip28');
+    expect(normalized).not.toContain('phone');
+    expect(normalized).not.toContain('0337314321');
+  });
+
   it('returns a lower score when the experience content changes', () => {
     const result = service.compare(
       'built ETL pipelines with Python and SQL',
@@ -53,6 +75,35 @@ describe('CvSimilarityService', () => {
       'built etl',
       'etl pipelines',
     ]));
+  });
+
+  it('includes character n-grams to tolerate punctuation changes', () => {
+    const features = service.buildCharFeatures('reactjs');
+
+    expect(features).toEqual(expect.arrayContaining([
+      'rea',
+      'eac',
+      'act',
+      'ctj',
+      'tjs',
+    ]));
+  });
+
+  it('uses section-aware scoring when content moves between sections', () => {
+    const result = service.compare(
+      'Education\nJava SQL\nSkills\nPython',
+      'Education\nPython\nSkills\nJava SQL',
+    );
+
+    expect(result.wordScore).toBeGreaterThan(result.sectionScore);
+    expect(result.sectionScore).toBeLessThan(0.95);
+    expect(result.score).toBeLessThan(result.wordScore);
+  });
+
+  it('identifies the hybrid word, character, and section method', () => {
+    const result = service.compare('Education\nJava SQL', 'Education\nJava SQL');
+
+    expect(result.methodVersion).toBe('TFIDF_WORD_CHAR_SECTION_V2');
   });
 
   it('rejects empty comparison text instead of producing a misleading score', () => {

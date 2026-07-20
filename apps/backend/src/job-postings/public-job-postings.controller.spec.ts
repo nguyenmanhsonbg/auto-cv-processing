@@ -1,4 +1,6 @@
+import { ConflictException } from '@nestjs/common';
 import { PublicJobPostingsController } from './public-job-postings.controller';
+import { ApplicationStatus } from '../recruitment-common';
 
 declare const describe: any;
 declare const expect: any;
@@ -25,6 +27,32 @@ describe('PublicJobPostingsController CV preflight', () => {
     expect(parseFile).toHaveBeenCalledWith('cv.pdf');
   });
 
+  it('allows similarity lookup when name, email, and phone identify the same candidate', () => {
+    const controller = Object.create(PublicJobPostingsController.prototype) as any;
+
+    expect(() => controller.assertPublicReapplyBelongsToSameCandidate(
+      {
+        application: {
+          candidate: {
+            name: 'Candidate Name From Form',
+            email: 'candidate@example.com',
+            phone: '0337314321',
+          },
+        },
+        candidate: {
+          name: 'Candidate Name From Form',
+          email: 'candidate@example.com',
+          phone: '0337314321',
+        },
+      },
+      {
+        name: 'Candidate Name From Form',
+        email: 'candidate@example.com',
+        phone: '0337314321',
+      },
+    )).not.toThrow();
+  });
+
   function createApplyFixture(options: {
     duplicate: boolean;
     duplicateReason?: 'CANDIDATE_JOB_MATCH' | 'IDEMPOTENT_REPLAY';
@@ -36,7 +64,7 @@ describe('PublicJobPostingsController CV preflight', () => {
         score: options.score ?? 0.95,
         isDuplicate: (options.score ?? 0.95) >= 0.95,
         threshold: 0.95,
-        methodVersion: 'TFIDF_WORD_NGRAM_V1',
+        methodVersion: 'TFIDF_WORD_CHAR_SECTION_V2',
         oldNormalizedTextHash: 'old-hash',
         newNormalizedTextHash: 'new-hash',
         featureCount: 10,
@@ -76,6 +104,7 @@ describe('PublicJobPostingsController CV preflight', () => {
     const cvDocumentsService = {
       uploadOriginalCv: jest.fn().mockResolvedValue({ id: 'original-cv-1' }),
       sanitizeOriginalCvAfterScanPass: jest.fn().mockResolvedValue({ id: 'clean-cv-1' }),
+      deletePreviousCvVersions: jest.fn(),
       extractCleanCvText: jest.fn(),
     };
     const cvParsingService = {
@@ -141,6 +170,39 @@ describe('PublicJobPostingsController CV preflight', () => {
     expect(fixture.cvParsingService.parseCleanCvDocument).not.toHaveBeenCalled();
   });
 
+  it('returns bounded similarity diagnostics when duplicate CV content is rejected', async () => {
+    const fixture = createApplyFixture({
+      duplicate: true,
+      duplicateReason: 'CANDIDATE_JOB_MATCH',
+      score: 0.95,
+    });
+
+    await expect(
+      fixture.controller.apply(
+        'job-1',
+        fixture.dto,
+        fixture.file,
+        fixture.request,
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DUPLICATE_CV_CONTENT',
+        details: [
+          expect.objectContaining({
+            similarity: expect.objectContaining({
+              score: 0.95,
+              threshold: 0.95,
+              decision: 'DUPLICATE_FOUND',
+              methodVersion: 'TFIDF_WORD_CHAR_SECTION_V2',
+              oldTextPreview: expect.any(String),
+              newTextPreview: expect.any(String),
+            }),
+          }),
+        ],
+      }),
+    });
+  });
+
   it('continues normal upload and AI parsing below 0.95', async () => {
     const fixture = createApplyFixture({
       duplicate: true,
@@ -157,12 +219,23 @@ describe('PublicJobPostingsController CV preflight', () => {
 
     expect(fixture.similarityService.compare).toHaveBeenCalled();
     expect(fixture.cvDocumentsService.uploadOriginalCv).toHaveBeenCalled();
+    expect(fixture.cvDocumentsService.uploadOriginalCv).toHaveBeenCalledWith(
+      expect.objectContaining({ skipExistingOriginalHashCheck: true }),
+    );
     expect(fixture.cvDocumentsService.sanitizeOriginalCvAfterScanPass).toHaveBeenCalled();
     expect(fixture.cvParsingService.parseCleanCvDocument).toHaveBeenCalled();
+    expect(fixture.cvDocumentsService.deletePreviousCvVersions).toHaveBeenCalledWith({
+      applicationId: 'application-1',
+      keepCvDocumentIds: ['original-cv-1', 'clean-cv-1'],
+    });
   });
 
-  it('does not compare a first application', async () => {
-    const fixture = createApplyFixture({ duplicate: false });
+  it('allows a public CV reapply after the form session has been sent', async () => {
+    const fixture = createApplyFixture({
+      duplicate: true,
+      duplicateReason: 'CANDIDATE_JOB_MATCH',
+      score: 0.72,
+    });
 
     await fixture.controller.apply(
       'job-1',
@@ -171,7 +244,84 @@ describe('PublicJobPostingsController CV preflight', () => {
       fixture.request,
     );
 
+    expect(fixture.cvDocumentsService.uploadOriginalCv).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowedApplicationStatuses: expect.arrayContaining([ApplicationStatus.FORM_SENT]),
+      }),
+    );
+  });
+
+  it('returns passed similarity diagnostics after a successful reapply', async () => {
+    const fixture = createApplyFixture({
+      duplicate: true,
+      duplicateReason: 'CANDIDATE_JOB_MATCH',
+      score: 0.72,
+    });
+
+    const response = await fixture.controller.apply(
+      'job-1',
+      fixture.dto,
+      fixture.file,
+      fixture.request,
+    );
+
+    expect(response.data.similarity).toEqual(expect.objectContaining({
+      score: 0.72,
+      threshold: 0.95,
+      decision: 'PASSED',
+      methodVersion: 'TFIDF_WORD_CHAR_SECTION_V2',
+      oldTextPreview: expect.any(String),
+      newTextPreview: expect.any(String),
+    }));
+  });
+
+  it('preserves similarity diagnostics when an already-uploaded file is rejected afterward', async () => {
+    const fixture = createApplyFixture({
+      duplicate: true,
+      duplicateReason: 'CANDIDATE_JOB_MATCH',
+      score: 0.72,
+    });
+    fixture.cvDocumentsService.uploadOriginalCv.mockRejectedValueOnce(
+      new ConflictException({
+        code: 'DUPLICATE_CV_FILE',
+        message: 'This CV file has already been uploaded for this application.',
+      }),
+    );
+
+    await expect(
+      fixture.controller.apply(
+        'job-1',
+        fixture.dto,
+        fixture.file,
+        fixture.request,
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DUPLICATE_CV_FILE',
+        details: [
+          expect.objectContaining({
+            similarity: expect.objectContaining({
+              score: 0.72,
+              decision: 'PASSED',
+            }),
+          }),
+        ],
+      }),
+    });
+  });
+
+  it('does not compare a first application', async () => {
+    const fixture = createApplyFixture({ duplicate: false });
+
+    const response = await fixture.controller.apply(
+      'job-1',
+      fixture.dto,
+      fixture.file,
+      fixture.request,
+    );
+
     expect(fixture.similarityService.compare).not.toHaveBeenCalled();
+    expect(response.data.similarity).toBeUndefined();
     expect(fixture.cvDocumentsService.uploadOriginalCv).toHaveBeenCalled();
   });
 
