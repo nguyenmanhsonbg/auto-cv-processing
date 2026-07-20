@@ -4544,7 +4544,6 @@ function SidePanel() {
         {pageApplications.length > 0 ? (
           <ul className="cv-candidate-list">
             {pageApplications.map((application) => {
-              const cvStatus = getApplicationCvDisplayStatus(application);
               const syncStatus = getApplicationAmisSyncStatus(application);
               const questionStatus = getApplicationQuestionStatus(application);
               const score = getApplicationMatchScore(application);
@@ -4555,6 +4554,8 @@ function SidePanel() {
               return (
                 <li key={application.applicationId} className={isSelected ? 'is-selected' : ''}>
                   <div className="cv-candidate-card">
+                    <b className={`cv-card-score ${scoreTone}`}>{score}</b>
+
                     <div className="cv-candidate-main">
                       <label className="cv-candidate-select" aria-label={`Chọn ${application.candidateName}`}>
                         <input
@@ -4569,16 +4570,19 @@ function SidePanel() {
                         <span>{[application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact'}</span>
                       </div>
                     </div>
+
                     <div className="cv-candidate-meta">
-                      <span>Source: {application.sourceChannel ?? 'VCS Portal'}</span>
-                      <span>Applied: {formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-'}</span>
-                    </div>
-                    <div className="cv-candidate-status-grid">
-                      <span className={`cv-status-cell cv-status-with-score ${cvStatus.tone}`}>
-                        <small>Quét CV</small>
-                        <strong>{cvStatus.label}</strong>
-                        <b className={`cv-score-pill ${scoreTone}`}>{score}</b>
+                      <span className="cv-meta-item">
+                        <span className="cv-meta-icon is-source" aria-hidden="true" />
+                        <span>Nguồn: <strong>{formatCvSourceChannel(application.sourceChannel)}</strong></span>
                       </span>
+                      <span className="cv-meta-item">
+                        <span className="cv-meta-icon is-calendar" aria-hidden="true" />
+                        <span>Ngày ứng tuyển: <strong>{formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-'}</strong></span>
+                      </span>
+                    </div>
+
+                    <div className="cv-candidate-status-grid">
                       <span className={`cv-status-cell ${questionStatus.tone}`}>
                         <small>Câu hỏi</small>
                         <strong>{questionStatus.label}</strong>
@@ -4591,11 +4595,11 @@ function SidePanel() {
                     <div className="cv-candidate-footer">
                       <button
                         type="button"
-                        className="cv-sync-amis-button"
+                        className="cv-evaluation-upload-button"
                         disabled={Boolean(aiEvaluationApplicationId)}
                         onClick={() => void uploadAiEvaluationToAmis(application)}
                       >
-                        {aiEvaluationApplicationId === application.applicationId ? 'Đang tạo PDF...' : 'Tải đánh giá AI'}
+                        {aiEvaluationApplicationId === application.applicationId ? 'Đang tạo PDF...' : 'Tải lên file đánh giá'}
                       </button>
                       <button
                         type="button"
@@ -6744,6 +6748,26 @@ function getCandidateInitials(name: string) {
   if (parts.length === 0) return 'CV';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function formatCvSourceChannel(value: string | null | undefined) {
+  const normalized = normalizeStatus(value);
+  switch (normalized) {
+    case 'FACEBOOK':
+      return 'Facebook';
+    case 'VCS_PORTAL':
+      return 'VCS Portal';
+    case 'TOPCV':
+      return 'TopCV';
+    case 'ITVIEC':
+      return 'ITviec';
+    case 'VIETNAMWORKS':
+      return 'VietnamWorks';
+    case 'LINKEDIN':
+      return 'LinkedIn';
+    default:
+      return value?.trim() || 'VCS Portal';
+  }
 }
 
 function normalizeStatus(value?: string | null) {

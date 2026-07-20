@@ -5417,100 +5417,186 @@ dd {
 }
 
 .cv-candidate-card {
-  gap: 12px;
-  border-color: #dfe4ea;
-  border-radius: 8px;
-  padding: 18px 16px 16px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  position: relative;
+  gap: 16px;
+  border-color: #b7f0d8;
+  border-radius: 18px;
+  padding: 26px 20px 20px;
+  background: #effdf7;
+  box-shadow: 0 14px 32px rgba(15, 118, 110, 0.08);
 }
 
 .cv-candidate-list > li.is-selected .cv-candidate-card {
   border-color: #6ee7bf;
-  background: #eafff7;
-  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.12);
+  background: #eafcf5;
+  box-shadow: 0 14px 34px rgba(16, 185, 129, 0.14);
 }
 
 .cv-candidate-main {
-  grid-template-columns: 18px 50px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 24px 62px minmax(0, 1fr);
+  gap: 14px;
+  padding-right: 64px;
 }
 
 .cv-candidate-select {
-  padding-top: 0;
+  padding-top: 18px;
 }
 
 .cv-candidate-select input {
-  width: 17px;
-  height: 17px;
-  accent-color: #008a4a;
+  position: relative;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 2px solid #10b981;
+  border-radius: 5px;
+  margin: 0;
+  appearance: none;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.cv-candidate-select input:checked {
+  border-color: #059669;
+  background: #059669;
+}
+
+.cv-candidate-select input:checked::after {
+  content: "";
+  width: 5px;
+  height: 9px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
 }
 
 .cv-avatar {
-  width: 50px;
-  height: 50px;
-  border: 2px solid #dbe3ec;
+  width: 62px;
+  height: 62px;
+  border: 3px solid #dce5ef;
   color: #ffffff;
   background:
     radial-gradient(circle at 35% 28%, #ffe1c7 0 14%, transparent 15%),
     linear-gradient(145deg, #29435f, #0f766e);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .cv-candidate-main strong {
   color: #0f1f33;
-  font-size: 17px;
+  font-size: 20px;
+  line-height: 1.15;
 }
 
 .cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge) {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .cv-candidate-meta {
-  justify-content: space-between;
-  border-bottom: 1px solid #e6ebef;
-  padding: 0 0 10px 29px;
-  color: #4b5563;
-  font-size: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  border-bottom: 1px solid rgba(15, 118, 110, 0.1);
+  padding: 4px 16px 12px;
+  color: #5c6877;
+  font-size: 13px;
 }
 
 .cv-candidate-meta strong,
 .cv-candidate-meta span {
-  font-weight: 750;
+  font-weight: 700;
+}
+
+.cv-meta-item {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.cv-meta-item > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv-meta-item strong {
+  color: #102033;
+  font-weight: 900;
+}
+
+.cv-meta-icon {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: #6b7a6f;
+}
+
+.cv-meta-icon.is-source {
+  border: 1.6px solid currentColor;
+  border-radius: 2px;
+}
+
+.cv-meta-icon.is-source::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 2px;
+  width: 5px;
+  height: 3px;
+  border-top: 1.6px solid currentColor;
+}
+
+.cv-meta-icon.is-calendar {
+  border: 1.6px solid currentColor;
+  border-radius: 2px;
+}
+
+.cv-meta-icon.is-calendar::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  border-top: 1.6px solid currentColor;
 }
 
 .cv-candidate-status-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding-left: 29px;
+  gap: 12px;
+  padding: 0 16px;
 }
 
 .cv-status-cell {
   position: relative;
   display: grid;
   gap: 4px;
-  min-height: 48px;
+  min-height: 62px;
   min-width: 0;
-  border: 1px solid #e5e7eb;
-  border-radius: 7px;
-  padding: 10px 11px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  padding: 14px 12px;
   background: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
 }
 
 .cv-sync-status-cell {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .cv-status-cell small {
   color: #667085;
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 950;
   text-transform: uppercase;
 }
 
 .cv-status-cell strong {
   color: #0f1f33;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 950;
   line-height: 1.2;
   text-transform: uppercase;
@@ -5532,47 +5618,75 @@ dd {
   color: #475569;
 }
 
-.cv-status-with-score {
-  padding-right: 52px;
-}
-
-.cv-score-pill {
+.cv-card-score {
   position: absolute;
-  top: 8px;
-  right: 10px;
+  top: 29px;
+  right: 20px;
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   place-items: center;
-  border: 1px solid currentColor;
+  border: 1.5px solid currentColor;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 14px;
   font-style: normal;
   font-weight: 950;
 }
 
-.cv-score-pill.is-success {
+.cv-card-score.is-success {
   color: #007a5a;
-  background: #dff7ef;
+  background: #d9f6ea;
 }
 
-.cv-score-pill.is-warning {
+.cv-card-score.is-warning {
   color: #b76100;
   background: #fff2df;
 }
 
-.cv-score-pill.is-danger {
+.cv-card-score.is-danger {
   color: #dc2626;
   background: #fff1f1;
 }
 
 .cv-candidate-footer {
   justify-content: flex-end;
-  padding-top: 12px;
+  gap: 14px;
+  padding: 10px 0 0;
+}
+
+.cv-evaluation-upload-button,
+.cv-sync-amis-button {
+  min-height: 42px;
+  border-radius: 16px;
+  padding: 0 18px;
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.cv-evaluation-upload-button {
+  min-width: 188px;
+  border: 1px solid #d8d8d8;
+  color: #b8b8b8;
+  background: #f8f7f7;
+}
+
+.cv-evaluation-upload-button:hover:not(:disabled) {
+  color: #6b7280;
+  border-color: #c8c8c8;
+  background: #ffffff;
 }
 
 .cv-sync-amis-button {
-  min-width: 100px;
+  min-width: 118px;
+  border: 1px solid #22c55e;
+  color: #22332a;
+  background: #effdf7;
+}
+
+.cv-sync-amis-button:hover:not(:disabled) {
+  color: #047857;
+  background: #dcfce7;
 }
 
 .cv-list-pagination {
@@ -5640,7 +5754,18 @@ dd {
 
   .cv-candidate-meta {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     justify-content: stretch;
+  }
+
+  .cv-candidate-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cv-evaluation-upload-button,
+  .cv-sync-amis-button {
+    width: 100%;
   }
 
   .cv-list-pagination {
