@@ -236,6 +236,8 @@ const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label:
 ];
 const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
 type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
+
+const AMIS_CV_UPLOAD_CONFIRMATION_TIMEOUT_MS = 60_000;
 type ApplicationQuestionStatusCode = 'ANSWERED' | 'SENT' | 'OPENED' | 'EXPIRED' | 'NOT_SENT';
 type ApplicationQuestionStatus = {
   code: ApplicationQuestionStatusCode;
@@ -329,6 +331,7 @@ function SidePanel() {
   const [activeAmisCandidateId, setActiveAmisCandidateId] = useState<string | null>(null);
   const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
   const [cvUploadApplicationId, setCvUploadApplicationId] = useState<string | null>(null);
+  const [pendingAmisUploadApplicationIds, setPendingAmisUploadApplicationIds] = useState<Set<string>>(new Set());
   const [aiEvaluationApplicationId, setAiEvaluationApplicationId] = useState<string | null>(null);
   const [selectedCvApplicationIds, setSelectedCvApplicationIds] = useState<Set<string>>(new Set());
   const [cvStatusFilter, setCvStatusFilter] = useState<CvStatusFilter>('ALL');
@@ -340,6 +343,8 @@ function SidePanel() {
   const activeAmisRecruitmentIdRef = useRef<string | null>(null);
   const activeSnapshotRecruitmentIdRef = useRef<string | null>(null);
   const applicationsRequestSeqRef = useRef(0);
+  const pendingAmisUploadApplicationIdsRef = useRef(new Set<string>());
+  const pendingAmisUploadTimeoutsRef = useRef(new Map<string, number>());
   const postingSnapshotRefreshSeqRef = useRef(0);
   const postingSnapshotRefreshAttemptsRef = useRef(new Map<string, number>());
   const missedRecruitmentContextCountRef = useRef(0);
@@ -397,6 +402,13 @@ function SidePanel() {
   useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
   }, [amisRecruitmentId]);
+
+  useEffect(() => () => {
+    for (const timeoutId of pendingAmisUploadTimeoutsRef.current.values()) {
+      window.clearTimeout(timeoutId);
+    }
+    pendingAmisUploadTimeoutsRef.current.clear();
+  }, []);
 
   useEffect(() => () => {
     facebookImageAttachPromptResolverRef.current?.('SKIP');
@@ -471,6 +483,7 @@ function SidePanel() {
 
   useEffect(() => {
     if (!token || !amisRecruitmentId) {
+      clearPendingAmisUploads();
       setApplicationsContext(null);
       setApplicationsState('IDLE');
       setApplicationsMessage(null);
@@ -1149,8 +1162,11 @@ function SidePanel() {
       }
 
       setApplicationsContext(context);
+      const hasNewAmisUploadConfirmation = reconcilePendingAmisUploads(context);
       setApplicationsState('READY');
-      setApplicationsMessage(null);
+      if (pendingAmisUploadApplicationIdsRef.current.size === 0 && !hasNewAmisUploadConfirmation) {
+        setApplicationsMessage(null);
+      }
     } catch (err) {
       if (
         requestSeq !== applicationsRequestSeqRef.current ||
@@ -1290,6 +1306,73 @@ function SidePanel() {
     await loadAmisApplications(accessToken, result.amisRecruitmentId, { silent: true });
   }
 
+  function clearPendingAmisUploadTimeout(applicationId: string) {
+    const timeoutId = pendingAmisUploadTimeoutsRef.current.get(applicationId);
+    if (timeoutId === undefined) return;
+
+    window.clearTimeout(timeoutId);
+    pendingAmisUploadTimeoutsRef.current.delete(applicationId);
+  }
+
+  function clearPendingAmisUploads() {
+    for (const applicationId of pendingAmisUploadTimeoutsRef.current.keys()) {
+      clearPendingAmisUploadTimeout(applicationId);
+    }
+    pendingAmisUploadApplicationIdsRef.current = new Set();
+    setPendingAmisUploadApplicationIds(new Set());
+  }
+
+  function registerPendingAmisUploads(applications: ExtensionApplication[]) {
+    const nextPendingIds = new Set(pendingAmisUploadApplicationIdsRef.current);
+
+    for (const application of applications) {
+      const applicationId = application.applicationId;
+      nextPendingIds.add(applicationId);
+      clearPendingAmisUploadTimeout(applicationId);
+
+      const timeoutId = window.setTimeout(() => {
+        const pendingIds = new Set(pendingAmisUploadApplicationIdsRef.current);
+        if (!pendingIds.delete(applicationId)) return;
+
+        pendingAmisUploadApplicationIdsRef.current = pendingIds;
+        pendingAmisUploadTimeoutsRef.current.delete(applicationId);
+        setPendingAmisUploadApplicationIds(pendingIds);
+        setApplicationsMessage('AMIS chưa xác nhận đã lưu CV. Vui lòng kiểm tra form AMIS và thử lại nếu cần.');
+      }, AMIS_CV_UPLOAD_CONFIRMATION_TIMEOUT_MS);
+
+      pendingAmisUploadTimeoutsRef.current.set(applicationId, timeoutId);
+    }
+
+    pendingAmisUploadApplicationIdsRef.current = nextPendingIds;
+    setPendingAmisUploadApplicationIds(nextPendingIds);
+  }
+
+  function reconcilePendingAmisUploads(context: AmisApplicationsForRecruitment) {
+    const pendingIds = pendingAmisUploadApplicationIdsRef.current;
+    if (pendingIds.size === 0) return false;
+
+    const confirmedApplications = context.applications.filter((application) =>
+      pendingIds.has(application.applicationId)
+      && Boolean(application.attachmentCvId || application.attachmentCvName),
+    );
+    if (confirmedApplications.length === 0) return false;
+
+    const nextPendingIds = new Set(pendingIds);
+    for (const application of confirmedApplications) {
+      nextPendingIds.delete(application.applicationId);
+      clearPendingAmisUploadTimeout(application.applicationId);
+    }
+
+    pendingAmisUploadApplicationIdsRef.current = nextPendingIds;
+    setPendingAmisUploadApplicationIds(nextPendingIds);
+    setApplicationsMessage(
+      nextPendingIds.size === 0
+        ? `AMIS đã lưu ${confirmedApplications.length} hồ sơ.`
+        : `AMIS đã lưu ${confirmedApplications.length} hồ sơ. Còn ${nextPendingIds.size} hồ sơ đang chờ xác nhận.`,
+    );
+    return true;
+  }
+
   async function applyApplicationsSyncedMessage(message: {
     payload: {
       amisRecruitmentId: string;
@@ -1388,7 +1471,10 @@ function SidePanel() {
 
   async function uploadApplicationCvsToAmisForm(applications: AmisApplicationsForRecruitment['applications']) {
     if (!token) return;
-    const uploadableApplications = applications.filter(canUploadApplicationCv);
+    const uploadableApplications = applications.filter((application) =>
+      canUploadApplicationCv(application)
+      && !pendingAmisUploadApplicationIdsRef.current.has(application.applicationId),
+    );
     if (uploadableApplications.length === 0) {
       setApplicationsMessage('Select at least one application with a sanitized clean CV.');
       return;
@@ -1423,7 +1509,10 @@ function SidePanel() {
           : `AMIS tab did not confirm CV upload. Response: ${JSON.stringify(response ?? null).slice(0, 160)}`);
       }
 
-      setApplicationsMessage(`Loaded ${response.fileCount ?? cleanCvs.length} CV file(s) into AMIS upload form.`);
+      registerPendingAmisUploads(uploadableApplications);
+      setApplicationsMessage(
+        `Đã đưa ${response.fileCount ?? cleanCvs.length} CV vào form AMIS. Vui lòng bấm Lưu trên AMIS để hoàn tất.`,
+      );
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -1455,6 +1544,7 @@ function SidePanel() {
     if (previousRecruitmentId !== normalizedRecruitmentId) {
       applicationsRequestSeqRef.current += 1;
       lastApplicationsFallbackSyncUrlRef.current = null;
+      clearPendingAmisUploads();
       setApplicationsContext(null);
       setApplicationsMessage(null);
       setApplicationsState(normalizedRecruitmentId ? 'LOADING' : 'IDLE');
@@ -4460,7 +4550,10 @@ function SidePanel() {
     const pageStartIndex = (currentPage - 1) * CV_APPLICATION_PAGE_SIZE;
     const pageApplications = filteredApplications.slice(pageStartIndex, pageStartIndex + CV_APPLICATION_PAGE_SIZE);
     const selectedPageApplications = pageApplications.filter((application) => selectedCvApplicationIds.has(application.applicationId));
-    const selectedPageUploadableCount = selectedPageApplications.filter(canUploadApplicationCv).length;
+    const selectedPageUploadableCount = selectedPageApplications.filter((application) =>
+      canUploadApplicationCv(application)
+      && !pendingAmisUploadApplicationIds.has(application.applicationId),
+    ).length;
     const visibleStart = filteredApplications.length === 0 ? 0 : pageStartIndex + 1;
     const visibleEnd = Math.min(pageStartIndex + pageApplications.length, filteredApplications.length);
     const paginationPages = getPaginationPages(currentPage, totalPages);
@@ -4545,12 +4638,13 @@ function SidePanel() {
           <ul className="cv-candidate-list">
             {pageApplications.map((application) => {
               const cvStatus = getApplicationCvDisplayStatus(application);
-              const syncStatus = getApplicationAmisSyncStatus(application);
+              const isAmisUploadPending = pendingAmisUploadApplicationIds.has(application.applicationId);
+              const syncStatus = getApplicationAmisSyncStatus(application, isAmisUploadPending);
               const questionStatus = getApplicationQuestionStatus(application);
               const score = getApplicationMatchScore(application);
               const scoreTone = getApplicationScoreTone(score);
               const isSelected = selectedCvApplicationIds.has(application.applicationId);
-              const canSyncToAmis = canUploadApplicationCv(application);
+              const canSyncToAmis = canUploadApplicationCv(application) && !isAmisUploadPending;
 
               return (
                 <li key={application.applicationId} className={isSelected ? 'is-selected' : ''}>
@@ -4603,7 +4697,11 @@ function SidePanel() {
                         disabled={!canSyncToAmis || Boolean(cvUploadApplicationId)}
                         onClick={() => void uploadApplicationCvToAmisForm(application)}
                       >
-                        {cvUploadApplicationId === application.applicationId ? 'Đang đồng bộ...' : 'Đồng bộ AMIS'}
+                        {cvUploadApplicationId === application.applicationId
+                          ? 'Đang đồng bộ...'
+                          : isAmisUploadPending
+                            ? 'Chờ AMIS lưu'
+                            : 'Đồng bộ AMIS'}
                       </button>
                     </div>
                   </div>
@@ -6651,9 +6749,10 @@ function getApplicationCvDisplayStatus(application: ExtensionApplication) {
   return { label: 'Chưa có CV', tone: 'is-danger' };
 }
 
-function getApplicationAmisSyncStatus(application: ExtensionApplication) {
+function getApplicationAmisSyncStatus(application: ExtensionApplication, isUploadPending = false) {
   const cvStatus = getApplicationCvDisplayStatus(application);
   if (application.attachmentCvId || application.attachmentCvName) return { label: 'Đã đồng bộ', tone: 'is-success' };
+  if (isUploadPending) return { label: 'Chờ AMIS lưu', tone: 'is-warning' };
   if (cvStatus.tone === 'is-danger') return { label: 'Lỗi đồng bộ', tone: 'is-danger' };
   if (canUploadApplicationCv(application)) return { label: 'Chưa đồng bộ', tone: 'is-warning' };
   return { label: 'Chưa đồng bộ', tone: 'is-warning' };
