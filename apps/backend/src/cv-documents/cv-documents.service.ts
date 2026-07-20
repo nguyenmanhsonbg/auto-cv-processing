@@ -186,6 +186,19 @@ export class CvDocumentsService {
     });
   }
 
+  async findOriginalCvByIdempotencyKey(applicationId: string, idempotencyKey: string) {
+    const normalizedApplicationId = this.requireText(applicationId, 'Application id');
+    const normalizedIdempotencyKey = this.requireText(idempotencyKey, 'Idempotency key');
+    const idempotencyKeyHash = this.calculateTextSha256(normalizedIdempotencyKey);
+    const existingUpload = await this.findExistingUploadByIdempotencyKey(
+      this.dataSource.manager,
+      normalizedApplicationId,
+      idempotencyKeyHash,
+    );
+
+    return existingUpload?.cvDocument ?? null;
+  }
+
   async uploadOriginalCv(input: UploadCvInput) {
     let keepUploadedFile = false;
 

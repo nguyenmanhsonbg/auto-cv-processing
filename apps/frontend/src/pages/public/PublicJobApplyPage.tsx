@@ -43,6 +43,7 @@ interface ApplyResultState {
 }
 
 const NO_PREVIOUS_CV_METHOD_VERSION = 'NO_PREVIOUS_CV_BASELINE_V1';
+const EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION = 'EXACT_ORIGINAL_FILE_HASH_V1';
 
 const INITIAL_FORM: ApplyFormState = {
   fullName: '',
@@ -76,10 +77,15 @@ function isApplyOpen(job: PublicJobPostingDetail) {
 }
 
 function toSuccessResult(response: PublicApplyResponse): ApplyResultState {
+  const isExistingFile = response.similarity?.methodVersion
+    === EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION;
+
   return {
-    type: 'success',
-    title: 'Ung tuyen thanh cong',
-    message: 'CV cua ban da duoc kiem tra an toan va tiep nhan.',
+    type: isExistingFile ? 'error' : 'success',
+    title: isExistingFile ? 'Khong the cap nhat CV' : 'Ung tuyen thanh cong',
+    message: isExistingFile
+      ? 'CV nay da duoc tai len cho ho so ung tuyen. CV hien tai duoc giu nguyen.'
+      : 'CV cua ban da duoc kiem tra an toan va tiep nhan.',
     applicationId: response.applicationId,
     similarity: response.similarity,
   };
@@ -188,10 +194,13 @@ export function PublicJobApplyPage() {
         idempotencyKey,
       );
 
-      setResult(toSuccessResult(response));
-      setForm(INITIAL_FORM);
-      setCvFile(null);
-      setFieldErrors({});
+      const nextResult = toSuccessResult(response);
+      setResult(nextResult);
+      if (nextResult.type === 'success') {
+        setForm(INITIAL_FORM);
+        setCvFile(null);
+        setFieldErrors({});
+      }
       setIdempotencyKey(createIdempotencyKey());
     } catch (err) {
       const similarity = getPublicCvSimilarityDetails(err);
@@ -202,7 +211,7 @@ export function PublicJobApplyPage() {
           score: 1,
           scorePercent: 100,
           decision: 'DUPLICATE_FOUND',
-          methodVersion: 'EXACT_ORIGINAL_FILE_HASH_V1',
+          methodVersion: EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION,
         }
         : similarity;
       setResult({
@@ -292,7 +301,11 @@ export function PublicJobApplyPage() {
                   }`}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold text-foreground">Ket qua check similarity</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {result.similarity.methodVersion === EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION
+                            ? 'Ket qua check trung file'
+                            : 'Ket qua check similarity'}
+                        </p>
                         <p className="text-sm text-muted-foreground">
                           Diem so:{' '}
                           <strong>
@@ -311,7 +324,7 @@ export function PublicJobApplyPage() {
                       }`}>
                         {result.similarity.methodVersion === NO_PREVIOUS_CV_METHOD_VERSION
                           ? 'CV dau tien - chua co baseline'
-                          : result.similarity.methodVersion === 'EXACT_ORIGINAL_FILE_HASH_V1'
+                          : result.similarity.methodVersion === EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION
                           ? 'File CV da ton tai'
                           : result.similarity.decision === 'PASSED'
                           ? 'CV du khac de cap nhat'

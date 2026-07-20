@@ -57,6 +57,7 @@ describe('PublicJobPostingsController CV preflight', () => {
     duplicate: boolean;
     duplicateReason?: 'CANDIDATE_JOB_MATCH' | 'IDEMPOTENT_REPLAY';
     score?: number;
+    completedIdempotentReplay?: boolean;
   }) {
     const similarityService = {
       normalizeForSimilarity: jest.fn().mockReturnValue('normalized-uploaded-cv'),
@@ -64,7 +65,7 @@ describe('PublicJobPostingsController CV preflight', () => {
         score: options.score ?? 0.95,
         isDuplicate: (options.score ?? 0.95) >= 0.95,
         threshold: 0.95,
-        methodVersion: 'TFIDF_WORD_CHAR_SECTION_V2',
+        methodVersion: 'TFIDF_WORD_CHAR_SECTION_V3',
         oldNormalizedTextHash: 'old-hash',
         newNormalizedTextHash: 'new-hash',
         featureCount: 10,
@@ -106,6 +107,15 @@ describe('PublicJobPostingsController CV preflight', () => {
       sanitizeOriginalCvAfterScanPass: jest.fn().mockResolvedValue({ id: 'clean-cv-1' }),
       deletePreviousCvVersions: jest.fn(),
       extractCleanCvText: jest.fn(),
+      findOriginalCvByIdempotencyKey: jest.fn().mockResolvedValue(
+        options.completedIdempotentReplay
+          ?? options.duplicateReason === 'IDEMPOTENT_REPLAY'
+          ? { id: 'original-cv-1' }
+          : null,
+      ),
+      extractSanitizedCvTextForSimilarity: jest.fn().mockResolvedValue(
+        'Candidate candidate@example.com Python built ETL pipelines '.repeat(8),
+      ),
     };
     const cvParsingService = {
       parseCleanCvDocument: jest.fn().mockResolvedValue(parsedProfile),
@@ -193,7 +203,7 @@ describe('PublicJobPostingsController CV preflight', () => {
               score: 0.95,
               threshold: 0.95,
               decision: 'DUPLICATE_FOUND',
-              methodVersion: 'TFIDF_WORD_CHAR_SECTION_V2',
+              methodVersion: 'TFIDF_WORD_CHAR_SECTION_V3',
               oldTextPreview: expect.any(String),
               newTextPreview: expect.any(String),
             }),
@@ -269,7 +279,7 @@ describe('PublicJobPostingsController CV preflight', () => {
       score: 0.72,
       threshold: 0.95,
       decision: 'PASSED',
-      methodVersion: 'TFIDF_WORD_CHAR_SECTION_V2',
+      methodVersion: 'TFIDF_WORD_CHAR_SECTION_V3',
       oldTextPreview: expect.any(String),
       newTextPreview: expect.any(String),
     }));
@@ -310,7 +320,7 @@ describe('PublicJobPostingsController CV preflight', () => {
     });
   });
 
-  it('does not compare a first application', async () => {
+  it('returns a baseline similarity result for a first application', async () => {
     const fixture = createApplyFixture({ duplicate: false });
 
     const response = await fixture.controller.apply(
@@ -321,7 +331,11 @@ describe('PublicJobPostingsController CV preflight', () => {
     );
 
     expect(fixture.similarityService.compare).not.toHaveBeenCalled();
-    expect(response.data.similarity).toBeUndefined();
+    expect(response.data.similarity).toEqual(expect.objectContaining({
+      score: 0,
+      decision: 'PASSED',
+      methodVersion: 'NO_PREVIOUS_CV_BASELINE_V1',
+    }));
     expect(fixture.cvDocumentsService.uploadOriginalCv).toHaveBeenCalled();
   });
 
@@ -341,5 +355,28 @@ describe('PublicJobPostingsController CV preflight', () => {
 
     expect(fixture.similarityService.compare).not.toHaveBeenCalled();
     expect(fixture.cvDocumentsService.uploadOriginalCv).toHaveBeenCalled();
+  });
+
+  it('rechecks similarity when the previous request with the same key did not complete', async () => {
+    const fixture = createApplyFixture({
+      duplicate: true,
+      duplicateReason: 'IDEMPOTENT_REPLAY',
+      score: 0.95,
+      completedIdempotentReplay: false,
+    });
+
+    await expect(
+      fixture.controller.apply(
+        'job-1',
+        fixture.dto,
+        fixture.file,
+        fixture.request,
+        'same-request-key',
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DUPLICATE_CV_CONTENT' }),
+    });
+    expect(fixture.similarityService.compare).toHaveBeenCalled();
+    expect(fixture.cvDocumentsService.uploadOriginalCv).not.toHaveBeenCalled();
   });
 });

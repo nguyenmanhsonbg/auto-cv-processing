@@ -100,13 +100,44 @@ describe('CvSimilarityService', () => {
     expect(result.score).toBeLessThan(result.wordScore);
   });
 
+  it('is invariant to reordering complete CV sections', () => {
+    const oldText = [
+      'Education',
+      'VNU University of Science',
+      'Work Experience',
+      'Built ETL pipelines with Java and SQL.',
+      'Personal Projects',
+      'Built a Kafka ticket platform.',
+      'Technical Skills',
+      'Java SQL Kafka',
+    ].join('\n');
+    const reorderedText = [
+      'Education',
+      'VNU University of Science',
+      'Technical Skills',
+      'Java SQL Kafka',
+      'Work Experience',
+      'Built ETL pipelines with Java and SQL.',
+      'Personal Projects',
+      'Built a Kafka ticket platform.',
+    ].join('\n');
+
+    expect(service.normalizeForSimilarity(oldText)).toBe(
+      service.normalizeForSimilarity(reorderedText),
+    );
+
+    const result = service.compare(oldText, reorderedText);
+    expect(result.score).toBeGreaterThanOrEqual(0.95);
+  });
+
   it('identifies the hybrid word, character, and section method', () => {
     const result = service.compare('Education\nJava SQL', 'Education\nJava SQL');
 
-    expect(result.methodVersion).toBe('TFIDF_WORD_CHAR_SECTION_V2');
+    expect(result.methodVersion).toBe('TFIDF_WORD_CHAR_SECTION_V3');
   });
 
   it('rejects empty comparison text instead of producing a misleading score', () => {
     expect(() => service.compare('', 'Python SQL')).toThrow('CV text is empty');
   });
+
 });

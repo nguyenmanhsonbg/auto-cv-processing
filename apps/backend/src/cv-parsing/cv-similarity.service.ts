@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 
 export const CV_SIMILARITY_THRESHOLD = 0.95;
 export const CV_EXACT_FILE_HASH_METHOD_VERSION = 'EXACT_ORIGINAL_FILE_HASH_V1' as const;
-export const CV_SIMILARITY_METHOD_VERSION = 'TFIDF_WORD_CHAR_SECTION_V2' as const;
+export const CV_SIMILARITY_METHOD_VERSION = 'TFIDF_WORD_CHAR_SECTION_V3' as const;
 
 type CvSectionName =
   | 'summary'
@@ -32,6 +32,26 @@ const CV_SECTION_WEIGHTS: Record<CvSectionName, number> = {
   summary: 0.05,
   certifications: 0.05,
   other: 0.05,
+};
+
+const CV_SECTION_ORDER: CvSectionName[] = [
+  'summary',
+  'education',
+  'experience',
+  'projects',
+  'skills',
+  'certifications',
+  'other',
+];
+
+const CV_SECTION_LABELS: Record<CvSectionName, string> = {
+  summary: 'summary',
+  education: 'education',
+  experience: 'experience',
+  projects: 'projects',
+  skills: 'skills',
+  certifications: 'certifications',
+  other: 'other',
 };
 
 export interface CvSimilarityIdentity {
@@ -185,7 +205,15 @@ export class CvSimilarityService {
     }
 
     return {
-      text: this.normalizeSimilarityText(sourceText, identity),
+      text: CV_SECTION_ORDER
+        .map((sectionName) => {
+          const sectionText = normalizedSections.get(sectionName);
+          return sectionText
+            ? `${CV_SECTION_LABELS[sectionName]} ${sectionText}`
+            : '';
+        })
+        .filter(Boolean)
+        .join(' '),
       sections: normalizedSections,
     };
   }
@@ -241,7 +269,7 @@ export class CvSimilarityService {
       },
       {
         name: 'projects',
-        pattern: /^(?:projects?|selected\s+projects|dự\s+án|du\s+an)(?:\s*[:\-]\s*(.*))?$/iu,
+        pattern: /^(?:personal\s+projects|projects?|selected\s+projects|dự\s+án|du\s+an)(?:\s*[:\-]\s*(.*))?$/iu,
       },
       {
         name: 'skills',
@@ -400,4 +428,5 @@ export class CvSimilarityService {
   private escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
+
 }

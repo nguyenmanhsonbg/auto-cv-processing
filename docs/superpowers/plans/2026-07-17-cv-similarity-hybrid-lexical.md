@@ -37,7 +37,7 @@ Compare two CVs whose words are identical but assigned to different `Education` 
 
 - [x] **Step 3: Add a failing method-version test**
 
-Assert the result method version is `TFIDF_WORD_CHAR_SECTION_V2`.
+Assert the result method version is `TFIDF_WORD_CHAR_SECTION_V3`.
 
 - [x] **Step 4: Run the focused test and verify it fails for the missing behavior**
 
@@ -61,7 +61,7 @@ Expected: the new character, section, and method-version assertions fail while t
 
 - [x] **Step 1: Replace the method version**
 
-Set `CV_SIMILARITY_METHOD_VERSION` to `TFIDF_WORD_CHAR_SECTION_V2`.
+Set `CV_SIMILARITY_METHOD_VERSION` to `TFIDF_WORD_CHAR_SECTION_V3`.
 
 - [x] **Step 2: Add section normalization and heading detection**
 
@@ -91,7 +91,7 @@ Run the command from Task 1 and expect all tests to pass.
 
 - [x] **Step 1: Update public method-version examples and fixtures**
 
-Change stale `TFIDF_WORD_NGRAM_V1` examples or mock results to `TFIDF_WORD_CHAR_SECTION_V2` where they represent the active scorer. Leave generic persistence tests unchanged if they intentionally test arbitrary method-version storage.
+Change stale `TFIDF_WORD_NGRAM_V1` examples or mock results to `TFIDF_WORD_CHAR_SECTION_V3` where they represent the active scorer. Leave generic persistence tests unchanged if they intentionally test arbitrary method-version storage.
 
 - [x] **Step 2: Run similarity and public-apply tests**
 

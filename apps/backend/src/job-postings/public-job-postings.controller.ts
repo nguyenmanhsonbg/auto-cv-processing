@@ -410,11 +410,17 @@ export class PublicJobPostingsController {
       applicationIdForRollback = applicationResult.application.id;
       previousCurrentCvDocumentId = applicationResult.application.currentCvDocumentId;
       previousApplicationStatus = applicationResult.application.status;
-      canRollbackUploadedCv = applicationResult.duplicateReason !== 'IDEMPOTENT_REPLAY';
 
-      const isPublicReapply = applicationResult.duplicate
-        && applicationResult.duplicateReason !== 'IDEMPOTENT_REPLAY';
       const isIdempotentReplay = applicationResult.duplicateReason === 'IDEMPOTENT_REPLAY';
+      const completedIdempotentReplay = isIdempotentReplay
+        && Boolean(normalizedIdempotencyKey)
+        && typeof this.cvDocumentsService.findOriginalCvByIdempotencyKey === 'function'
+        && Boolean(await this.cvDocumentsService.findOriginalCvByIdempotencyKey(
+          applicationResult.application.id,
+          normalizedIdempotencyKey as string,
+        ));
+      canRollbackUploadedCv = !completedIdempotentReplay;
+      const isPublicReapply = applicationResult.duplicate && !completedIdempotentReplay;
       if (isPublicReapply) {
         this.assertPublicReapplyBelongsToSameCandidate(applicationResult, candidate);
         similarity = await this.checkPublicReapplyCvSimilarity({
