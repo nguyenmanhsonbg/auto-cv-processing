@@ -1,4 +1,7 @@
-import { CvSimilarityService } from './cv-similarity.service';
+import {
+  CV_SECTION_WEIGHTS,
+  CvSimilarityService,
+} from './cv-similarity.service';
 
 declare const describe: any;
 declare const expect: any;
@@ -53,6 +56,31 @@ describe('CvSimilarityService', () => {
     expect(normalized).not.toContain('tinbip28');
     expect(normalized).not.toContain('phone');
     expect(normalized).not.toContain('0337314321');
+  });
+
+  it('recognizes Vietnamese skill and project headings with qualifiers', () => {
+    const normalized = service.normalizeForSimilarity([
+      '1. Kỹ năng kỹ thuật',
+      'Java Spring Boot PostgreSQL',
+      '2) Dự án cá nhân',
+      'Built an event ticket platform with Kafka.',
+      'Kinh nghiệm làm việc',
+      'Built backend APIs with Java.',
+    ].join('\n'));
+
+    expect(normalized).toContain('skills java spring boot postgresql');
+    expect(normalized).toContain('projects built an event ticket platform');
+    expect(normalized).toContain('experience built backend apis with java');
+  });
+
+  it('gives project and skill sections more weight than the previous profile', () => {
+    expect(CV_SECTION_WEIGHTS).toEqual(expect.objectContaining({
+      experience: 0.3,
+      projects: 0.3,
+      skills: 0.2,
+    }));
+    expect((Object.values(CV_SECTION_WEIGHTS) as number[]).reduce((sum, weight) => sum + weight, 0))
+      .toBeCloseTo(1, 6);
   });
 
   it('returns a lower score when the experience content changes', () => {
@@ -127,13 +155,19 @@ describe('CvSimilarityService', () => {
     );
 
     const result = service.compare(oldText, reorderedText);
-    expect(result.score).toBeGreaterThanOrEqual(0.95);
+    expect(result.score).toBeGreaterThanOrEqual(0.98);
   });
 
   it('identifies the hybrid word, character, and section method', () => {
     const result = service.compare('Education\nJava SQL', 'Education\nJava SQL');
 
     expect(result.methodVersion).toBe('TFIDF_WORD_CHAR_SECTION_V3');
+  });
+
+  it('uses a 98 percent threshold for content duplicates', () => {
+    const result = service.compare('Education\nJava SQL', 'Education\nJava SQL');
+
+    expect(result.threshold).toBe(0.98);
   });
 
   it('rejects empty comparison text instead of producing a misleading score', () => {

@@ -53,8 +53,8 @@ describe('ApplicationsService CV content similarity recording', () => {
       previousCvDocumentId: 'cv-document-1',
       oldNormalizedTextHash: 'old-hash',
       newNormalizedTextHash: 'new-hash',
-      score: 0.95,
-      threshold: 0.95,
+      score: 0.98,
+      threshold: 0.98,
       methodVersion: 'TFIDF_WORD_NGRAM_V1',
       decision: 'DUPLICATE_FOUND',
     });
@@ -65,7 +65,7 @@ describe('ApplicationsService CV content similarity recording', () => {
       status: DuplicateCheckStatus.DUPLICATE_FOUND,
       matchedEntityType: 'CV_DOCUMENT',
       matchedEntityId: 'cv-document-1',
-      score: '0.950000',
+      score: '0.980000',
     }));
     expect(duplicateCheckSave.mock.calls[0][0].details).toEqual(expect.objectContaining({
       candidateId: 'candidate-1',
@@ -73,7 +73,7 @@ describe('ApplicationsService CV content similarity recording', () => {
       previousParsedProfileId: 'profile-1',
       oldNormalizedTextHash: 'old-hash',
       newNormalizedTextHash: 'new-hash',
-      threshold: 0.95,
+      threshold: 0.98,
       methodVersion: 'TFIDF_WORD_NGRAM_V1',
       decision: 'DUPLICATE_FOUND',
     }));

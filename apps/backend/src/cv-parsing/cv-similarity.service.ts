@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
 
-export const CV_SIMILARITY_THRESHOLD = 0.95;
+export const CV_SIMILARITY_THRESHOLD = 0.98;
 export const CV_EXACT_FILE_HASH_METHOD_VERSION = 'EXACT_ORIGINAL_FILE_HASH_V1' as const;
 export const CV_SIMILARITY_METHOD_VERSION = 'TFIDF_WORD_CHAR_SECTION_V3' as const;
 
@@ -24,14 +24,14 @@ interface SectionHeadingMatch {
   content: string;
 }
 
-const CV_SECTION_WEIGHTS: Record<CvSectionName, number> = {
-  experience: 0.35,
-  projects: 0.25,
-  skills: 0.15,
+export const CV_SECTION_WEIGHTS: Record<CvSectionName, number> = {
+  experience: 0.3,
+  projects: 0.3,
+  skills: 0.2,
   education: 0.1,
   summary: 0.05,
-  certifications: 0.05,
-  other: 0.05,
+  certifications: 0.03,
+  other: 0.02,
 };
 
 const CV_SECTION_ORDER: CvSectionName[] = [
@@ -257,11 +257,14 @@ export class CvSimilarityService {
   }
 
   private matchSectionHeading(line: string): SectionHeadingMatch | null {
-    const trimmedLine = line.trim();
+    const trimmedLine = line
+      .trim()
+      .replace(/^(?:\d+[.)-]|[•▪])\s*/u, '')
+      .trim();
     const patterns: Array<{ name: CvSectionName; pattern: RegExp }> = [
       {
         name: 'experience',
-        pattern: /^(?:work\s+experience|professional\s+experience|employment(?:\s+history)?|kinh\s+nghiệm(?:\s+làm\s+việc)?|kinh\s+nghiem)(?:\s*[:\-]\s*(.*))?$/iu,
+        pattern: /^(?:work\s+experience|professional\s+experience|employment(?:\s+history)?|career\s+history|kinh\s+nghiệm(?:\s+làm\s+việc)?|kinh\s+nghiem)(?:\s*[:\-]\s*(.*))?$/iu,
       },
       {
         name: 'education',
@@ -269,11 +272,11 @@ export class CvSimilarityService {
       },
       {
         name: 'projects',
-        pattern: /^(?:personal\s+projects|projects?|selected\s+projects|dự\s+án|du\s+an)(?:\s*[:\-]\s*(.*))?$/iu,
+        pattern: /^(?:personal\s+projects?|project\s+experience|projects?|selected\s+projects?|dự\s+án(?:\s+(?:cá\s+nhân|chọn\s+lọc))?|du\s+an(?:\s+(?:ca\s+nhan|chon\s+loc))?)(?:\s*[:\-]\s*(.*))?$/iu,
       },
       {
         name: 'skills',
-        pattern: /^(?:technical\s+skills|skills?|competencies|kỹ\s+năng|ky\s+nang)(?:\s*[:\-]\s*(.*))?$/iu,
+        pattern: /^(?:technical\s+skills?|core\s+competencies|skills?|competencies|expertise|kỹ\s+năng(?:\s+(?:kỹ\s+thuật|chuyên\s+môn))?|ky\s+nang(?:\s+(?:ky\s+thuat|chuyen\s+mon))?)(?:\s*[:\-]\s*(.*))?$/iu,
       },
       {
         name: 'certifications',
@@ -281,7 +284,7 @@ export class CvSimilarityService {
       },
       {
         name: 'summary',
-        pattern: /^(?:professional\s+summary|summary|profile|objective|about\s+me|tóm\s+tắt|tom\s+tat|mục\s+tiêu|muc\s+tieu|giới\s+thiệu|gioi\s+thieu)(?:\s*[:\-]\s*(.*))?$/iu,
+        pattern: /^(?:professional\s+summary|career\s+objective|summary|profile|objective|about\s+me|tóm\s+tắt|tom\s+tat|mục\s+tiêu(?:\s+nghề\s+nghiệp)?|muc\s+tieu(?:\s+nghe\s+nghiep)?|giới\s+thiệu|gioi\s+thieu)(?:\s*[:\-]\s*(.*))?$/iu,
       },
     ];
 
@@ -369,7 +372,7 @@ export class CvSimilarityService {
 
   private stripExtractedCvHeader(text: string): string {
     const firstSectionHeading = text.search(
-      /(?:^|\n)\s*(?:professional\s+summary|summary|profile|objective|education|work\s+experience|professional\s+experience|experience|employment|technical\s+skills|skills|projects|certifications|achievements|awards|volunteer\s+experience|references|học\s+vấn|hoc\s+van|kinh\s+nghiệm|kinh\s+nghiem|kỹ\s+năng|ky\s+nang|dự\s+án|du\s+an|chứng\s+chỉ|chung\s+chi)\b/iu,
+      /(?:^|\n)\s*(?:(?:\d+[.)-]|[•▪])\s*)?(?:professional\s+summary|summary|profile|objective|education|work\s+experience|professional\s+experience|experience|employment|technical\s+skills|skills|projects|certifications|achievements|awards|volunteer\s+experience|references|học\s+vấn|hoc\s+van|kinh\s+nghiệm|kinh\s+nghiem|kỹ\s+năng|ky\s+nang|dự\s+án|du\s+an|chứng\s+chỉ|chung\s+chi)\b/iu,
     );
 
     return firstSectionHeading > 0 ? text.slice(firstSectionHeading) : text;

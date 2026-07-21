@@ -62,9 +62,9 @@ describe('PublicJobPostingsController CV preflight', () => {
     const similarityService = {
       normalizeForSimilarity: jest.fn().mockReturnValue('normalized-uploaded-cv'),
       compare: jest.fn().mockReturnValue({
-        score: options.score ?? 0.95,
-        isDuplicate: (options.score ?? 0.95) >= 0.95,
-        threshold: 0.95,
+        score: options.score ?? 0.98,
+        isDuplicate: (options.score ?? 0.98) >= 0.98,
+        threshold: 0.98,
         methodVersion: 'TFIDF_WORD_CHAR_SECTION_V3',
         oldNormalizedTextHash: 'old-hash',
         newNormalizedTextHash: 'new-hash',
@@ -158,11 +158,11 @@ describe('PublicJobPostingsController CV preflight', () => {
     };
   }
 
-  it('rejects same candidate and same job at or above 0.95 before CV upload', async () => {
+  it('rejects same candidate and same job at or above 0.98 before CV upload', async () => {
     const fixture = createApplyFixture({
       duplicate: true,
       duplicateReason: 'CANDIDATE_JOB_MATCH',
-      score: 0.95,
+      score: 0.98,
     });
 
     await expect(
@@ -184,7 +184,7 @@ describe('PublicJobPostingsController CV preflight', () => {
     const fixture = createApplyFixture({
       duplicate: true,
       duplicateReason: 'CANDIDATE_JOB_MATCH',
-      score: 0.95,
+      score: 0.98,
     });
 
     await expect(
@@ -200,8 +200,8 @@ describe('PublicJobPostingsController CV preflight', () => {
         details: [
           expect.objectContaining({
             similarity: expect.objectContaining({
-              score: 0.95,
-              threshold: 0.95,
+              score: 0.98,
+              threshold: 0.98,
               decision: 'DUPLICATE_FOUND',
               methodVersion: 'TFIDF_WORD_CHAR_SECTION_V3',
               oldTextPreview: expect.any(String),
@@ -213,11 +213,11 @@ describe('PublicJobPostingsController CV preflight', () => {
     });
   });
 
-  it('continues normal upload and AI parsing below 0.95', async () => {
+  it('continues normal upload and AI parsing below 0.98', async () => {
     const fixture = createApplyFixture({
       duplicate: true,
       duplicateReason: 'CANDIDATE_JOB_MATCH',
-      score: 0.949999,
+      score: 0.979999,
     });
 
     await fixture.controller.apply(
@@ -277,7 +277,7 @@ describe('PublicJobPostingsController CV preflight', () => {
 
     expect(response.data.similarity).toEqual(expect.objectContaining({
       score: 0.72,
-      threshold: 0.95,
+      threshold: 0.98,
       decision: 'PASSED',
       methodVersion: 'TFIDF_WORD_CHAR_SECTION_V3',
       oldTextPreview: expect.any(String),
@@ -361,7 +361,7 @@ describe('PublicJobPostingsController CV preflight', () => {
     const fixture = createApplyFixture({
       duplicate: true,
       duplicateReason: 'IDEMPOTENT_REPLAY',
-      score: 0.95,
+      score: 0.98,
       completedIdempotentReplay: false,
     });
 

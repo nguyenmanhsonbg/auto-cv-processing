@@ -226,8 +226,8 @@ const publicApplySuccessSchema = apiSuccessEnvelopeSchema({
       properties: {
         score: { type: 'number', example: 0.72 },
         scorePercent: { type: 'number', example: 72 },
-        threshold: { type: 'number', example: 0.95 },
-        thresholdPercent: { type: 'number', example: 95 },
+        threshold: { type: 'number', example: 0.98 },
+        thresholdPercent: { type: 'number', example: 98 },
         decision: { type: 'string', example: 'PASSED' },
         methodVersion: { type: 'string', example: CV_SIMILARITY_METHOD_VERSION },
         oldNormalizedTextHash: { type: 'string' },
