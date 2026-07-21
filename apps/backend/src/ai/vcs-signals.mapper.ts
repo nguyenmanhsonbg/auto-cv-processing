@@ -2,8 +2,6 @@ import type { VcsSignals } from '@interview-assistant/shared';
 
 type AnyRecord = Record<string, unknown>;
 
-const SENIOR_ROLE_PATTERN = /\b(senior|lead|principal|architect|manager|head)\b/i;
-
 export function normalizeVcsSignals(input: unknown): VcsSignals {
   const root = asRecord(input);
   const parsedProfile = asRecord(root?.parsedProfile);
@@ -114,7 +112,9 @@ function normalizeSeniorRoles(
   profile: AnyRecord | null,
 ): VcsSignals['seniorRoles'] {
   const evidence = text(explicit?.evidence) ?? text(legacy?.note) ?? '';
-  const items = normalizeRoleItems(explicit?.items) ?? seniorRoleItems(profile?.workExperience, evidence);
+  // Senior roles must come from explicit AI evidence. Inferring seniority from
+  // every work-experience title creates false positives without scope or context.
+  const items = normalizeRoleItems(explicit?.items);
   const result: VcsSignals['seniorRoles'] = {
     ok: booleanOr(explicit?.ok, Boolean(items?.length) || scoreAtLeast(legacy?.score, 6)),
     evidence,
@@ -158,24 +158,6 @@ function normalizeChallengeItems(value: unknown): VcsSignals['technicalChallenge
 
 function normalizeRoleItems(value: unknown): VcsSignals['seniorRoles']['items'] | undefined {
   return normalizeItemRecords(value, 'role') as VcsSignals['seniorRoles']['items'] | undefined;
-}
-
-function seniorRoleItems(
-  value: unknown,
-  evidence: string,
-): VcsSignals['seniorRoles']['items'] | undefined {
-  if (!Array.isArray(value)) return undefined;
-
-  const items = value
-    .map((item) => {
-      const record = asRecord(item);
-      const role = text(record?.role);
-      if (!role || !SENIOR_ROLE_PATTERN.test(role)) return null;
-      return { role, evidence };
-    })
-    .filter((item): item is { role: string; evidence: string } => item !== null);
-
-  return items.length ? items : undefined;
 }
 
 function productCompanies(value: unknown): string[] | undefined {

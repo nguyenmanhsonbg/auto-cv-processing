@@ -179,16 +179,27 @@ export class FileParserService {
 
     // Extract common tech keywords
     const techKeywords = [
-      'JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Golang', 'C#', 'C\\+\\+',
+      'JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Golang', 'C#', 'C++',
       'Node.js', 'React', 'Angular', 'Vue', 'Next.js', 'NestJS', 'Spring Boot',
       'Docker', 'Kubernetes', 'AWS', 'PostgreSQL', 'MySQL', 'MongoDB', 'Redis',
       'Kafka', 'GraphQL', 'REST', 'Microservices', 'Git',
     ];
     const foundSkills = techKeywords.filter((kw) =>
-      new RegExp(kw, 'i').test(text),
+      this.hasStandaloneSkillMention(kw, text),
     );
     if (foundSkills.length > 0) info['skills'] = foundSkills;
 
     return info;
+  }
+
+  private hasStandaloneSkillMention(keyword: string, text: string) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const exactPattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}([^\\p{L}\\p{N}]|$)`, 'iu');
+    if (exactPattern.test(text)) return true;
+
+    // Some PDF extractors insert spaces between every character, e.g. "J a v a".
+    // Permit layout whitespace only between characters of a known keyword.
+    const spacedKeyword = [...keyword].map((character) => character.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
+    return new RegExp(`(^|[^\\p{L}\\p{N}])${spacedKeyword}([^\\p{L}\\p{N}]|$)`, 'iu').test(text);
   }
 }
