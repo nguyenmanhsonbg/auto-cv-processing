@@ -120,6 +120,9 @@ interface AmisDropdownSelectionDiagnostics {
   controlFound: boolean;
   dropdownOpened: boolean;
   popupFound: boolean;
+  searchInputFound: boolean;
+  searchInputLocation: 'FIELD' | 'POPUP' | null;
+  searchQuery: string;
   optionScrollPasses: number;
   visibleOptionLabels: string[];
   sourceOptionFound: boolean;
@@ -755,6 +758,16 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
   const candidateName = cleanText(readFirst(row, ['CandidateName', 'candidateName', 'Name', 'name']));
   const email = cleanText(readFirst(row, ['Email', 'email']));
   const mobile = cleanText(readFirst(row, ['Mobile', 'Phone', 'phone', 'mobile']));
+  const channelName = cleanText(readFirst(row, [
+    'ChannelName',
+    'channelName',
+    'RecruitmentChannelName',
+    'recruitmentChannelName',
+    'SourceCandidateName',
+    'sourceCandidateName',
+    'SourceName',
+    'sourceName',
+  ]));
   if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) return null;
   if (!email && !mobile) return null;
 
@@ -778,7 +791,7 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
     ...(readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']) !== undefined ? {
       recruitmentChannelId: readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']),
     } : {}),
-    ...(cleanText(readFirst(row, ['ChannelName', 'channelName'])) ? { channelName: cleanText(readFirst(row, ['ChannelName', 'channelName'])) } : {}),
+    ...(channelName ? { channelName } : {}),
     ...(cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])) ? {
       applyDate: cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])),
     } : {}),
@@ -804,6 +817,9 @@ function sanitizeApplicationSnapshot(row: Record<string, unknown>) {
     'CandidateID',
     'CandidateConvertID',
     'RecruitmentChannelID',
+    'RecruitmentChannelName',
+    'SourceCandidateName',
+    'SourceName',
     'AttachmentCVID',
     'AttachmentCVName',
     'ChannelName',
@@ -861,6 +877,10 @@ async function uploadAmisCvFile(payload: UploadAmisCvFileMessage['payload']): Pr
     dispatchDropEvents(dropTarget, dataTransfer);
     deliveredTargets.push('drop-target');
   }
+
+  // AMIS parses the uploaded CV asynchronously. Wait for the parsed profile to
+  // reach the form before another automation step changes a dependent field.
+  await waitForAmisCandidateFormToPopulate(12_000);
 
   return {
     ok: true,
@@ -941,6 +961,9 @@ function createAmisDropdownSelectionDiagnostics(): AmisDropdownSelectionDiagnost
     controlFound: false,
     dropdownOpened: false,
     popupFound: false,
+    searchInputFound: false,
+    searchInputLocation: null,
+    searchQuery: '',
     optionScrollPasses: 0,
     visibleOptionLabels: [],
     sourceOptionFound: false,
@@ -956,6 +979,9 @@ function resetAmisDropdownSelectionDiagnostics(diagnostics: AmisDropdownSelectio
   diagnostics.controlFound = false;
   diagnostics.dropdownOpened = false;
   diagnostics.popupFound = false;
+  diagnostics.searchInputFound = false;
+  diagnostics.searchInputLocation = null;
+  diagnostics.searchQuery = '';
   diagnostics.optionScrollPasses = 0;
   diagnostics.visibleOptionLabels = [];
   diagnostics.sourceOptionFound = false;
@@ -1046,18 +1072,21 @@ async function selectAmisDropdownOption(params: SelectAmisDropdownOptionParams) 
   }
 
   diagnostics.popupFound = true;
-  const searchInput = findAmisDropdownSearchInput(popup);
+  const searchQuery = getAmisDropdownSearchQuery(optionText);
+  const searchInput = findAmisDropdownFilterInput(field, popup);
+  diagnostics.searchQuery = searchQuery;
   if (searchInput) {
-    setNativeTextValue(searchInput, optionText);
-    searchInput.dispatchEvent(new InputEvent('input', {
-      bubbles: true,
-      cancelable: true,
-      inputType: 'insertText',
-      data: optionText,
-    }));
-    searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-    await waitForAmisDomUpdate(popup, 350);
+    diagnostics.searchInputFound = true;
+    diagnostics.searchInputLocation = searchInput.location;
+    typeIntoAmisDropdownFilter(searchInput.element, searchQuery);
+    await waitForAmisDomUpdate(popup, 800);
   }
+
+  // Filtering can replace the DevExtreme popup node. Re-resolve the field and
+  // popup after the query so option scanning always uses the current DOM.
+  field = findAmisDropdownField(fieldLabel) ?? field;
+  const refreshedPopups = new Set(getVisibleAmisDropdownPopups());
+  popup = findPopupLinkedToAmisDropdown(field, refreshedPopups, popupSnapshot) ?? popup;
 
   const option = await waitForAmisDropdownOption({
     popup,
@@ -1083,11 +1112,23 @@ async function selectAmisDropdownOption(params: SelectAmisDropdownOptionParams) 
       throw new Error('The AMIS option was re-rendered before it could be selected.');
     }
     option.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    const clickTarget = option.querySelector<HTMLElement>(
-      '.dx-list-item-content, .non-group-source',
-    ) ?? option;
+    const clickTarget = option;
     clickTarget.click();
     diagnostics.sourceOptionClicked = true;
+
+    // DevExtreme normally handles the bubbling click above. Some AMIS builds
+    // bind the selection handler to the list item pointer sequence instead,
+    // so only replay a real mouse sequence when the first click did not update
+    // the displayed value and the option popup is still open.
+    await waitForAmisDomUpdate(field.root, 180);
+    if (
+      normalizeAmisUiText(readAmisDropdownFieldValue(field)) !== targetKey
+      && option.getAttribute('aria-selected') !== 'true'
+      && option.isConnected
+      && getVisibleAmisDropdownPopups().length > 0
+    ) {
+      dispatchAmisPointerClick(clickTarget);
+    }
   } catch {
     throwAmisDropdownSelectionError(
       'AMIS_SOURCE_OPTION_NOT_CLICKED',
@@ -1159,18 +1200,7 @@ function findAmisDropdownField(fieldLabel: string): AmisDropdownField | null {
   const labelFor = cleanText(label.getAttribute('for'));
   const labelledControl = labelFor ? document.getElementById(labelFor) as HTMLElement | null : null;
   const exactAmisSourceControl = normalizeAmisUiText(fieldLabel) === 'nguonungvien'
-    ? Array.from(formRoot.querySelectorAll<HTMLElement>(
-      'dx-select-box.dx-selectbox[displayexpr="SourceCandidateName"][valueexpr="ID"]',
-    )).find((element) => {
-      if (element.closest('[aria-hidden="true"], .dx-state-invisible')) return false;
-      const rect = element.getBoundingClientRect();
-      return rect.width > 0
-        && rect.height > 0
-        && rect.top >= labelRect.top - 12
-        && rect.top <= labelRect.bottom + 140
-        && rect.right >= labelRect.left - 20
-        && rect.left <= labelRect.right + 280;
-    }) ?? null
+    ? findAmisCandidateSourceControl(formRoot, label, labelRect)
     : null;
   const nearbyRoots: HTMLElement[] = [];
   let ancestor: HTMLElement | null = label.parentElement;
@@ -1214,6 +1244,41 @@ function findAmisDropdownField(fieldLabel: string): AmisDropdownField | null {
   return { label, root, control, trigger, nativeSelect };
 }
 
+function findAmisCandidateSourceControl(
+  formRoot: HTMLElement,
+  label: HTMLElement,
+  labelRect: DOMRect,
+) {
+  const labelRow = label.closest<HTMLElement>('.dup-row, .m-row, [class*="row"]')
+    ?? label.parentElement;
+
+  return Array.from(document.querySelectorAll<HTMLElement>('dx-select-box.dx-selectbox, .dx-selectbox'))
+    .filter((element, index, elements) => elements.indexOf(element) === index)
+    .filter((element) => !element.closest('[aria-hidden="true"], .dx-state-invisible'))
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    })
+    .filter((element) => {
+      const displayExpression = normalizeAmisUiText(element.getAttribute('displayexpr'));
+      const placeholder = element.querySelector<HTMLElement>('[data-dx_placeholder]')
+        ?.getAttribute('data-dx_placeholder');
+      return displayExpression === 'sourcecandidatename'
+        || normalizeAmisUiText(placeholder).includes('chonnguonungvien');
+    })
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      let score = 0;
+      if (formRoot.contains(element)) score += 1000;
+      if (labelRow?.contains(element)) score += 500;
+      score -= Math.abs(rect.top - labelRect.bottom);
+      score -= Math.abs(rect.left - labelRect.left) / 4;
+      return { element, score };
+    })
+    .sort((left, right) => right.score - left.score)[0]?.element
+    ?? null;
+}
+
 function findAmisDropdownLabel(formRoot: HTMLElement, fieldLabel: string) {
   const targetKey = normalizeAmisUiText(fieldLabel);
   return Array.from(formRoot.querySelectorAll<HTMLElement>('label, span, div, p'))
@@ -1247,11 +1312,49 @@ function scoreAmisDropdownControl(
 function readAmisDropdownFieldValue(field: AmisDropdownField) {
   if (field.nativeSelect) return cleanText(field.nativeSelect.selectedOptions[0]?.textContent);
   const inputs = Array.from(field.root.querySelectorAll<HTMLInputElement>(
-    'input.dx-texteditor-input, input.dx-dropdowneditor-input, [role="combobox"] input, input',
-  ));
+    'input.dx-texteditor-input, input.dx-dropdowneditor-input, [role="combobox"] input',
+  ))
+    .filter((input) => input.type !== 'hidden')
+    .filter((input) => !input.closest('[aria-hidden="true"], .dx-state-invisible'))
+    .filter((input) => {
+      const rect = input.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
   const inputValue = inputs.map((input) => cleanText(input.value)).find(Boolean);
   if (inputValue) return inputValue;
-  return cleanText(field.root.querySelector<HTMLElement>('.dx-selectbox-text, .dx-item-content')?.innerText);
+
+  const selectedOption = Array.from(field.root.querySelectorAll<HTMLElement>(
+    '[role="option"][aria-selected="true"], .dx-item[aria-selected="true"]',
+  ))
+    .filter((option) => !option.closest('[aria-hidden="true"], .dx-state-invisible'))
+    .map((option) => cleanText(option.innerText || option.textContent))
+    .find(Boolean);
+  if (selectedOption) return selectedOption;
+
+  return cleanText(field.root.querySelector<HTMLElement>('.dx-selectbox-text')?.innerText);
+}
+
+function dispatchAmisPointerClick(element: HTMLElement) {
+  const eventInit: PointerEventInit = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    pointerId: 1,
+    pointerType: 'mouse',
+    isPrimary: true,
+  };
+  if (typeof PointerEvent === 'function') {
+    element.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+  }
+  element.dispatchEvent(new MouseEvent('mousedown', eventInit));
+  element.dispatchEvent(new MouseEvent('mouseup', eventInit));
+  if (typeof PointerEvent === 'function') {
+    element.dispatchEvent(new PointerEvent('pointerup', eventInit));
+  }
+  element.dispatchEvent(new MouseEvent('click', eventInit));
+  // DevExtreme's delegated list handler is commonly wired to its synthetic
+  // dxclick event rather than the browser click event.
+  element.dispatchEvent(new MouseEvent('dxclick', eventInit));
 }
 
 async function waitForAmisNativeSelectOption(
@@ -1343,7 +1446,7 @@ function findAmisDropdownSearchInput(popup: HTMLElement) {
   return Array.from(popup.querySelectorAll<HTMLInputElement>('input'))
     .filter((input) => {
       const rect = input.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && !input.disabled;
+      return rect.width > 0 && rect.height > 0 && !input.disabled && !input.readOnly;
     })
     .find((input) => input.type === 'search'
       || Boolean(input.closest('.dx-searchbox'))
@@ -1351,6 +1454,35 @@ function findAmisDropdownSearchInput(popup: HTMLElement) {
         input.placeholder || input.getAttribute('aria-label') || '',
       )))
     ?? null;
+}
+
+function findAmisDropdownFilterInput(field: AmisDropdownField, popup: HTMLElement) {
+  const fieldInput = Array.from(field.root.querySelectorAll<HTMLInputElement>(
+    'input.dx-texteditor-input, input.dx-dropdowneditor-input, [role="combobox"] input',
+  ))
+    .filter(isEditableVisibleAmisInput)
+    .find((input) => input.type !== 'search' || input.closest('.dx-selectbox, .dx-dropdowneditor'));
+
+  if (fieldInput) return { element: fieldInput, location: 'FIELD' as const };
+
+  const popupInput = findAmisDropdownSearchInput(popup);
+  return popupInput ? { element: popupInput, location: 'POPUP' as const } : null;
+}
+
+function isEditableVisibleAmisInput(input: HTMLInputElement) {
+  const rect = input.getBoundingClientRect();
+  return rect.width > 0
+    && rect.height > 0
+    && input.type !== 'hidden'
+    && !input.disabled
+    && !input.readOnly
+    && input.getAttribute('aria-readonly') !== 'true'
+    && !input.closest('[aria-hidden="true"], .dx-state-invisible');
+}
+
+function getAmisDropdownSearchQuery(optionText: string) {
+  const cleaned = cleanText(optionText);
+  return cleaned.split(/\s+/).filter(Boolean)[0] ?? cleaned;
 }
 
 async function waitForAmisDropdownOption(params: {
@@ -1367,6 +1499,14 @@ async function waitForAmisDropdownOption(params: {
   let stablePasses = 0;
 
   while (Date.now() < deadline && stablePasses < 3) {
+    // AMIS can render the complete option collection in the open popup while
+    // only a subset is inside the scroll viewport. Search the rendered DOM
+    // first so a valid source is not lost when DevExtreme's simulated scroll
+    // does not update native scrollTop.
+    const renderedOptions = getAmisDropdownOptions(popup);
+    const renderedMatch = findMatchingAmisDropdownOption(renderedOptions, targetKey, optionId);
+    if (renderedMatch) return renderedMatch;
+
     const options = getVisibleAmisDropdownOptions(popup);
     recordAmisDropdownOptionLabels(options, diagnostics);
     const matched = findMatchingAmisDropdownOption(options, targetKey, optionId);
@@ -1381,12 +1521,18 @@ async function waitForAmisDropdownOption(params: {
   return null;
 }
 
-function getVisibleAmisDropdownOptions(popup: HTMLElement) {
-  const popupRect = popup.getBoundingClientRect();
+function getAmisDropdownOptions(popup: HTMLElement) {
   return Array.from(popup.querySelectorAll<HTMLElement>(
     '[role="option"], .dx-list-item, li, [class*="option"], [class*="Option"]',
   ))
     .filter((element) => !element.closest('[aria-hidden="true"], .dx-state-invisible'))
+    .map((element) => element.closest<HTMLElement>('[role="option"], .dx-list-item, li') ?? element)
+    .filter((element, index, elements) => elements.indexOf(element) === index);
+}
+
+function getVisibleAmisDropdownOptions(popup: HTMLElement) {
+  const popupRect = popup.getBoundingClientRect();
+  return getAmisDropdownOptions(popup)
     .filter((element) => {
       const rect = element.getBoundingClientRect();
       return rect.width > 0
@@ -1394,8 +1540,6 @@ function getVisibleAmisDropdownOptions(popup: HTMLElement) {
         && rect.bottom > popupRect.top
         && rect.top < popupRect.bottom;
     })
-    .map((element) => element.closest<HTMLElement>('[role="option"], .dx-list-item, li') ?? element)
-    .filter((element, index, elements) => elements.indexOf(element) === index);
 }
 
 function findMatchingAmisDropdownOption(
@@ -1506,7 +1650,7 @@ async function waitForAmisDropdownValue(
     diagnostics.confirmedFieldValue = value;
     if (normalizeAmisUiText(value) === targetKey) {
       if (!confirmedSince) confirmedSince = Date.now();
-      if (Date.now() - confirmedSince >= 900) return value;
+      if (Date.now() - confirmedSince >= 1_500) return value;
     } else {
       confirmedSince = 0;
     }
@@ -1518,6 +1662,47 @@ async function waitForAmisDropdownValue(
     'AMIS did not keep the selected candidate source after the form update.',
     diagnostics,
   );
+}
+
+function typeIntoAmisDropdownFilter(input: HTMLInputElement, value: string) {
+  input.focus({ preventScroll: true });
+  input.select();
+  setNativeTextValue(input, '');
+  input.dispatchEvent(new InputEvent('input', {
+    bubbles: true,
+    cancelable: true,
+    inputType: 'deleteContentBackward',
+    data: null,
+  }));
+
+  for (const character of value) {
+    const key = character.toUpperCase();
+    const code = character === ' ' ? 'Space' : `Key${key}`;
+    const eventInit: KeyboardEventInit = {
+      bubbles: true,
+      cancelable: true,
+      key: character,
+      code,
+    };
+    input.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+    input.dispatchEvent(new KeyboardEvent('keypress', eventInit));
+    input.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertText',
+      data: character,
+    }));
+    setNativeTextValue(input, `${input.value}${character}`);
+    input.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertText',
+      data: character,
+    }));
+    input.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+  }
+
+  input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 async function waitForAmisCandidateFormToSettle(timeoutMs: number) {
@@ -1537,6 +1722,42 @@ async function waitForAmisCandidateFormToSettle(timeoutMs: number) {
     }
     if (Date.now() - startedAt >= 1600 && Date.now() - lastChangedAt >= 850) return;
   }
+}
+
+async function waitForAmisCandidateFormToPopulate(timeoutMs: number) {
+  const formRoot = findAmisCandidateFormRoot();
+  if (!formRoot) return;
+
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  const initialSignature = getAmisCandidateFormSignature(formRoot);
+  let parsedProfileObserved = false;
+
+  while (Date.now() < deadline) {
+    await waitForAmisDomUpdate(formRoot, 180);
+    const currentRoot = findAmisCandidateFormRoot() ?? formRoot;
+    const currentSignature = getAmisCandidateFormSignature(currentRoot);
+    const profileValueCount = getAmisCandidateProfileValueCount(currentRoot);
+
+    if (currentSignature !== initialSignature) parsedProfileObserved = true;
+    if (parsedProfileObserved && profileValueCount > 0) {
+      await waitForAmisCandidateFormToSettle(Math.min(4_000, deadline - Date.now()));
+      return;
+    }
+  }
+
+  await waitForAmisCandidateFormToSettle(2_000);
+}
+
+function getAmisCandidateProfileValueCount(formRoot: HTMLElement) {
+  return Array.from(formRoot.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+    'input, textarea',
+  ))
+    .filter((element) => element instanceof HTMLTextAreaElement || element.type !== 'file')
+    .filter((element) => element.type !== 'hidden' && element.type !== 'search')
+    .filter((element) => !element.closest('[aria-hidden="true"], .dx-state-invisible'))
+    .filter((element) => cleanText(element.value).length > 0)
+    .length;
 }
 
 function getAmisCandidateFormSignature(formRoot: HTMLElement) {

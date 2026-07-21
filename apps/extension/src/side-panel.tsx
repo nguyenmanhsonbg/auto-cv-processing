@@ -193,6 +193,9 @@ interface AmisCandidateSourceSelectionDiagnostics {
   controlFound: boolean;
   dropdownOpened: boolean;
   popupFound: boolean;
+  searchInputFound: boolean;
+  searchInputLocation: 'FIELD' | 'POPUP' | null;
+  searchQuery: string;
   optionScrollPasses: number;
   visibleOptionLabels: string[];
   sourceOptionFound: boolean;
@@ -4681,6 +4684,10 @@ function SidePanel() {
           </label>
         </div>
 
+        {applicationsMessage ? (
+          <p className={applicationsState === 'ERROR' ? 'error-text' : 'muted-text'}>{applicationsMessage}</p>
+        ) : null}
+
         {applicationsState === 'LOADING' && applications.length === 0 ? (
           <p className="muted-text">Loading applications for this AMIS recruitment...</p>
         ) : null}
@@ -4715,7 +4722,7 @@ function SidePanel() {
                       </div>
                     </div>
                     <div className="cv-candidate-meta">
-                      <span>Source: {application.sourceChannel ?? 'VCS Portal'}</span>
+                      <span>Source: {application.sourceChannel ?? 'Chưa xác định'}</span>
                       <span>Applied: {formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-'}</span>
                     </div>
                     <div className="cv-candidate-status-grid">
@@ -7118,7 +7125,9 @@ function isConfirmedAmisCandidateSourceSelection(value: unknown, expectedSourceN
   if (!isSelectAmisCandidateSourceResponse(value) || !value.ok) return false;
   const expectedKey = normalizeAmisSourceChannel(expectedSourceName);
   return normalizeAmisSourceChannel(value.sourceName) === expectedKey
-    && normalizeAmisSourceChannel(value.diagnostics?.confirmedFieldValue) === expectedKey;
+    && normalizeAmisSourceChannel(value.diagnostics?.confirmedFieldValue) === expectedKey
+    && value.diagnostics?.sourceOptionFound === true
+    && value.diagnostics?.sourceOptionClicked === true;
 }
 
 function formatAmisCandidateSourceSelectionFailure(value: unknown) {
@@ -7130,7 +7139,7 @@ function formatAmisCandidateSourceSelectionFailure(value: unknown) {
   const diagnostics = value.diagnostics;
   const visibleSources = diagnostics?.visibleOptionLabels.slice(-6).join(', ') ?? '';
   const details = diagnostics
-    ? ` Bước: field=${diagnostics.fieldFound ? 'ok' : 'missing'}, control=${diagnostics.controlFound ? 'ok' : 'missing'}, popup=${diagnostics.popupFound ? 'ok' : 'missing'}, scroll=${diagnostics.optionScrollPasses}.`
+    ? ` Bước: field=${diagnostics.fieldFound ? 'ok' : 'missing'}, control=${diagnostics.controlFound ? 'ok' : 'missing'}, popup=${diagnostics.popupFound ? 'ok' : 'missing'}, search=${diagnostics.searchInputFound ? `${diagnostics.searchInputLocation ?? 'unknown'}:${diagnostics.searchQuery}` : 'fallback-option-scan'}, scroll=${diagnostics.optionScrollPasses}.`
     : '';
   const sources = visibleSources ? ` Nguồn đã thấy: ${visibleSources}.` : '';
   return `${code} ${value.error ?? 'Hãy chọn nguồn này trên AMIS trước khi lưu.'}${details}${sources}`;
