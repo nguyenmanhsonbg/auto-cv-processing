@@ -217,7 +217,14 @@ const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM'
 const FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
 const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
 const SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE = 'VCS_SELECT_AMIS_CANDIDATE_SOURCE';
-const AMIS_VCS_PORTAL_SOURCE_NAME = 'VCS Portal';
+const AMIS_SOURCE_NAME_BY_CHANNEL: Readonly<Record<string, string>> = {
+  VCSPORTAL: 'VCS Portal',
+  FACEBOOK: 'Facebook',
+  TOPCV: 'TopCV',
+  ITVIEC: 'ITViec',
+  LINKEDIN: 'LinkedIn',
+  VIETNAMWORKS: 'VietnamWorks',
+};
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
@@ -1542,24 +1549,30 @@ function SidePanel() {
       const sourceChannels = new Set(uploadableApplications.map((application) =>
         normalizeAmisSourceChannel(application.sourceChannel),
       ));
+      const uniqueSourceChannel = sourceChannels.size === 1
+        ? [...sourceChannels][0]
+        : null;
+      const amisSourceName = getAmisSourceName(uniqueSourceChannel);
       const hasVcsPortalSource = sourceChannels.has('VCSPORTAL');
       let sourceSelectionMessage = '';
 
-      if (hasVcsPortalSource && sourceChannels.size === 1) {
+      if (amisSourceName && (uploadableApplications.length === 1 || uniqueSourceChannel === 'VCSPORTAL')) {
         try {
           const sourceResponse = await sendMessageToAmisTab(activeTab.id, {
             type: SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE,
-            payload: { sourceName: AMIS_VCS_PORTAL_SOURCE_NAME },
+            payload: { sourceName: amisSourceName },
           }, 0);
           sourceSelectionMessage = isConfirmedAmisCandidateSourceSelection(
             sourceResponse,
-            AMIS_VCS_PORTAL_SOURCE_NAME,
+            amisSourceName,
           )
-            ? ' Đã chọn nguồn ứng viên VCS Portal trên AMIS.'
-            : ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn VCS Portal.${formatAmisCandidateSourceSelectionFailure(sourceResponse)}`;
+            ? ` Đã chọn nguồn ứng viên ${amisSourceName} trên AMIS.`
+            : ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn ${amisSourceName}.${formatAmisCandidateSourceSelectionFailure(sourceResponse)}`;
         } catch (error) {
-          sourceSelectionMessage = ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn VCS Portal. ${toErrorMessage(error)}`;
+          sourceSelectionMessage = ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn ${amisSourceName}. ${toErrorMessage(error)}`;
         }
+      } else if (uploadableApplications.length === 1 && uniqueSourceChannel) {
+        sourceSelectionMessage = ` Không tìm thấy mapping nguồn AMIS cho "${uploadableApplications[0].sourceChannel ?? uniqueSourceChannel}"; extension không tự gán nguồn.`;
       } else if (hasVcsPortalSource) {
         sourceSelectionMessage = ' CV đã được đưa vào form, nhưng không tự chọn nguồn VCS Portal vì lượt đồng bộ có nhiều nguồn khác nhau.';
       }
@@ -6735,6 +6748,11 @@ function normalizeAmisSourceChannel(value?: string | null) {
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '')
     ?? null;
+}
+
+function getAmisSourceName(sourceChannel?: string | null) {
+  const normalizedChannel = normalizeAmisSourceChannel(sourceChannel);
+  return normalizedChannel ? AMIS_SOURCE_NAME_BY_CHANNEL[normalizedChannel] ?? null : null;
 }
 
 function formatStatusText(value: string) {
