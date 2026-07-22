@@ -322,7 +322,7 @@ function AiRiskAssessmentCard({ anomalyDetection, risks }: { anomalyDetection?: 
   </CardContent></Card>;
 }
 
-function profilePayload(profile?: ParsedProfile | null): ParsedProfile {
+export function profilePayload(profile?: ParsedProfile | null): ParsedProfile {
   const root = (profile ?? {}) as ParsedProfile & Record<string, unknown>;
   const parsedProfile = asRecord(root.parsedProfile);
   const evaluation = asRecord(root.evaluation);
