@@ -222,9 +222,6 @@ export class AmisApplicationListItemDto {
   externalApplicationId: string | null;
 
   @ApiPropertyOptional()
-  amisCandidateId: string | null;
-
-  @ApiPropertyOptional()
   amisRecruitmentRoundId: string | null;
 
   @ApiPropertyOptional()

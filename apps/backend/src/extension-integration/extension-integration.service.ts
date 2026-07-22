@@ -1450,7 +1450,6 @@ export class ExtensionIntegrationService {
           cvDocumentType: application.currentCvDocument?.documentType ?? null,
           sourceChannel: application.sourceChannel,
           externalApplicationId: application.externalApplicationId,
-          amisCandidateId: source?.amisCandidateId ?? null,
           amisRecruitmentRoundId: this.optionalText(rawPayload.recruitmentRoundId),
           amisRecruitmentRoundName: this.optionalText(rawPayload.recruitmentRoundName),
           amisStatus: typeof rawPayload.status === 'number' ? rawPayload.status : null,
