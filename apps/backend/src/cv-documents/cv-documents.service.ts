@@ -12,12 +12,16 @@ import { createReadStream } from 'fs';
 import { open, stat } from 'fs/promises';
 import type { Stats } from 'fs';
 import * as path from 'path';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { CvSanitizationService } from '../cv-sanitization/cv-sanitization.service';
-import { resolveCvSafeStorageKey } from '../cv-sanitization/storage/cv-safe-storage';
+import {
+  deleteCvSafeFile,
+  resolveCvSafeStorageKey,
+} from '../cv-sanitization/storage/cv-safe-storage';
+import { FileParserService } from '../file-parser/file-parser.service';
 import {
   ApplicationStatus,
   CvDocumentType,
@@ -32,9 +36,11 @@ import {
 import { WorkflowEventEntity } from '../workflow-state/entities/workflow-event.entity';
 import { WorkflowStateService } from '../workflow-state/workflow-state.service';
 import { CvDocumentEntity } from './entities/cv-document.entity';
+import { ParsedProfileEntity } from './entities/parsed-profile.entity';
 import {
   assertCvQuarantineFilePath,
   deleteCvQuarantineFile,
+  resolveCvQuarantineStorageKey,
   toCvQuarantineStorageKey,
 } from './storage/cv-quarantine-storage';
 
@@ -62,11 +68,27 @@ export interface UploadCvInput {
   applicationId: string;
   file: Express.Multer.File;
   replaceCurrent?: boolean;
+  skipExistingOriginalHashCheck?: boolean;
+  /** Keeps the legacy skip flag compatible while forcing the public reapply guard. */
+  forceExistingOriginalHashCheck?: boolean;
   reason?: string | null;
   actorId?: string | null;
   idempotencyKey?: string | null;
   allowedApplicationStatuses?: readonly ApplicationStatus[];
   scheduleSanitizeAfterScanPass?: boolean;
+}
+
+export interface DeletePreviousCvVersionsInput {
+  applicationId: string;
+  keepCvDocumentIds: string[];
+}
+
+export interface RollbackPublicCvUploadInput {
+  applicationId: string;
+  originalCvDocumentId: string;
+  cleanCvDocumentId?: string | null;
+  restoreCurrentCvDocumentId?: string | null;
+  restoreApplicationStatus?: ApplicationStatus | null;
 }
 
 export interface SanitizeOriginalCvInput {
@@ -85,6 +107,12 @@ export interface CleanCvFileAccessInput {
   accessMode?: 'inline' | 'attachment';
 }
 
+export interface SanitizedSimilarityCvTextInput {
+  filePath: string;
+  sourceMimeType: string;
+  originalFileHash: string;
+}
+
 export interface CleanCvFileAccessResult {
   cvDocument: CvDocumentEntity;
   filePath: string;
@@ -101,7 +129,75 @@ export class CvDocumentsService {
     private readonly dataSource: DataSource,
     private readonly workflowStateService: WorkflowStateService,
     private readonly cvSanitizationService: CvSanitizationService,
+    private readonly fileParserService: FileParserService,
   ) {}
+
+  async extractCleanCvText(cvDocument: CvDocumentEntity): Promise<string> {
+    const filePath = resolveCvSafeStorageKey(cvDocument.storagePath);
+    const parsed = await this.fileParserService.parseFile(filePath);
+    const rawText = typeof parsed.rawText === 'string' ? parsed.rawText : '';
+
+    if (!rawText.trim()) {
+      throw new UnprocessableEntityException('Current CV text is empty');
+    }
+
+    return rawText;
+  }
+
+  async extractSanitizedCvTextForSimilarity(
+    input: SanitizedSimilarityCvTextInput,
+  ): Promise<string> {
+    const quarantineFilePath = this.requireQuarantineFilePath(input.filePath);
+    const cleanFilePath = await this.cvSanitizationService.sanitizeFileForSimilarity({
+      sourceFilePath: quarantineFilePath,
+      sourceStoragePath: toCvQuarantineStorageKey(quarantineFilePath),
+      sourceMimeType: input.sourceMimeType,
+      originalFileHash: this.requireText(input.originalFileHash, 'Original CV hash'),
+    });
+
+    try {
+      const parsed = await this.fileParserService.parseFile(cleanFilePath);
+      const rawText = typeof parsed.rawText === 'string' ? parsed.rawText : '';
+
+      if (!rawText.trim()) {
+        throw new UnprocessableEntityException('Sanitized CV text is empty');
+      }
+
+      return rawText;
+    } finally {
+      await deleteCvSafeFile(cleanFilePath);
+    }
+  }
+
+  async findOriginalCvByHash(applicationId: string, originalFileHash: string) {
+    const normalizedApplicationId = this.requireText(applicationId, 'Application id');
+    const normalizedHash = this.requireText(originalFileHash, 'Original CV hash');
+
+    return this.dataSource.getRepository(CvDocumentEntity).findOne({
+      where: {
+        applicationId: normalizedApplicationId,
+        documentType: CvDocumentType.ORIGINAL,
+        originalFileHash: normalizedHash,
+      },
+      order: {
+        versionNo: 'DESC',
+        createdAt: 'DESC',
+      },
+    });
+  }
+
+  async findOriginalCvByIdempotencyKey(applicationId: string, idempotencyKey: string) {
+    const normalizedApplicationId = this.requireText(applicationId, 'Application id');
+    const normalizedIdempotencyKey = this.requireText(idempotencyKey, 'Idempotency key');
+    const idempotencyKeyHash = this.calculateTextSha256(normalizedIdempotencyKey);
+    const existingUpload = await this.findExistingUploadByIdempotencyKey(
+      this.dataSource.manager,
+      normalizedApplicationId,
+      idempotencyKeyHash,
+    );
+
+    return existingUpload?.cvDocument ?? null;
+  }
 
   async uploadOriginalCv(input: UploadCvInput) {
     let keepUploadedFile = false;
@@ -264,6 +360,80 @@ export class CvDocumentsService {
     });
   }
 
+  async deletePreviousCvVersions(input: DeletePreviousCvVersionsInput) {
+    const applicationId = this.requireText(input.applicationId, 'Application id');
+    const keepCvDocumentIds = input.keepCvDocumentIds
+      .map((id) => this.optionalText(id))
+      .filter((id): id is string => Boolean(id));
+
+    if (!keepCvDocumentIds.length) {
+      throw new BadRequestException('At least one current CV document id is required');
+    }
+
+    const previousDocuments = await this.dataSource.transaction(async (manager) => {
+      const documents = await manager.getRepository(CvDocumentEntity).find({
+        where: { applicationId },
+      });
+      const keepIds = new Set(keepCvDocumentIds);
+      const staleDocuments = documents.filter((document) => !keepIds.has(document.id));
+
+      if (!staleDocuments.length) return [];
+
+      const staleDocumentIds = staleDocuments.map((document) => document.id);
+      await manager.getRepository(ParsedProfileEntity).delete({
+        applicationId,
+        cvDocumentId: In(staleDocumentIds),
+      });
+      await manager.getRepository(CvDocumentEntity).delete(staleDocumentIds);
+
+      return staleDocuments;
+    });
+
+    await Promise.all(previousDocuments.map((document) => this.deleteStoredCvDocument(document)));
+  }
+
+  async rollbackPublicCvUpload(input: RollbackPublicCvUploadInput) {
+    const applicationId = this.requireText(input.applicationId, 'Application id');
+    const cvDocumentIds = [input.originalCvDocumentId, input.cleanCvDocumentId]
+      .map((id) => this.optionalText(id))
+      .filter((id): id is string => Boolean(id));
+    const uniqueCvDocumentIds = [...new Set(cvDocumentIds)];
+
+    if (!uniqueCvDocumentIds.length) return;
+
+    const uploadedDocuments = await this.dataSource.transaction(async (manager) => {
+      const application = await manager.getRepository(ApplicationEntity).findOne({
+        where: { id: applicationId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!application) return [];
+
+      const documents = await manager.getRepository(CvDocumentEntity).find({
+        where: {
+          applicationId,
+          id: In(uniqueCvDocumentIds),
+        },
+      });
+      if (!documents.length) return [];
+
+      await manager.getRepository(ParsedProfileEntity).delete({
+        applicationId,
+        cvDocumentId: In(documents.map((document) => document.id)),
+      });
+
+      application.currentCvDocumentId = input.restoreCurrentCvDocumentId ?? null;
+      if (input.restoreApplicationStatus) {
+        application.status = input.restoreApplicationStatus;
+      }
+      await manager.getRepository(ApplicationEntity).save(application);
+      await manager.getRepository(CvDocumentEntity).delete(documents.map((document) => document.id));
+
+      return documents;
+    });
+
+    await Promise.all(uploadedDocuments.map((document) => this.deleteStoredCvDocument(document)));
+  }
+
   private async createOriginalCv(input: UploadCvInput) {
     if (!input.file) throw new BadRequestException('CV file is required');
     const applicationId = this.requireText(input.applicationId, 'Application id');
@@ -348,6 +518,8 @@ export class CvDocumentsService {
         manager,
         applicationId,
         validatedFile.originalFileHash,
+        input.skipExistingOriginalHashCheck,
+        input.forceExistingOriginalHashCheck,
       );
       if (existingFileHash) {
         await this.recordFileDuplicateDetected(manager, {
@@ -804,6 +976,20 @@ export class CvDocumentsService {
     await deleteCvQuarantineFile(file?.path);
   }
 
+  private async deleteStoredCvDocument(document: Pick<CvDocumentEntity, 'id' | 'storageZone' | 'storagePath'>) {
+    try {
+      if (document.storageZone === StorageZone.SAFE) {
+        await deleteCvSafeFile(resolveCvSafeStorageKey(document.storagePath));
+      } else if (document.storageZone === StorageZone.QUARANTINE) {
+        await deleteCvQuarantineFile(resolveCvQuarantineStorageKey(document.storagePath));
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Previous CV file cleanup failed cvDocumentId=${document.id} message=${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
   private async findExistingUploadByIdempotencyKey(
     manager: EntityManager,
     applicationId: string,
@@ -846,7 +1032,11 @@ export class CvDocumentsService {
     manager: EntityManager,
     applicationId: string,
     originalFileHash: string,
+    skipLookup = false,
+    forceLookup = false,
   ) {
+    if (skipLookup && !forceLookup) return null;
+
     return manager.getRepository(CvDocumentEntity).findOne({
       where: {
         applicationId,

@@ -1,3 +1,4 @@
+import type { PublicCvSimilarityDetails } from '@/lib/api-errors';
 import { apiClient } from '@/lib/api-client';
 
 interface ApiEnvelope<T> {
@@ -55,6 +56,7 @@ export interface PublicApplyResponse {
   nextStatus?: string;
   nextStep?: string;
   message?: string;
+  similarity?: PublicCvSimilarityDetails;
 }
 
 function unwrapEnvelope<T>(response: T | ApiEnvelope<T>): T {

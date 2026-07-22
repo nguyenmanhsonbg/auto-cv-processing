@@ -124,6 +124,22 @@ export interface PublicApplyRateLimitInput {
   userAgent?: string | null;
 }
 
+const PUBLIC_APPLY_RATE_LIMIT_WINDOW_MS = 15_000;
+
+export interface RecordCvContentSimilarityInput {
+  applicationId: string;
+  candidateId: string;
+  jobPostingId: string;
+  previousParsedProfileId: string;
+  previousCvDocumentId: string;
+  oldNormalizedTextHash: string;
+  newNormalizedTextHash: string;
+  score: number;
+  threshold: number;
+  methodVersion: string;
+  decision: 'DUPLICATE_FOUND' | 'PASSED';
+}
+
 @Injectable()
 export class ApplicationsService {
   constructor(
@@ -139,6 +155,79 @@ export class ApplicationsService {
     @Optional()
     private readonly aiService?: AiService,
   ) {}
+
+  async recordCvContentSimilarityCheck(input: RecordCvContentSimilarityInput): Promise<void> {
+    const applicationId = this.requireText(input.applicationId, 'Application id');
+
+    await this.dataSource.transaction(async (manager) => {
+      const application = await manager.getRepository(ApplicationEntity).findOne({
+        where: { id: applicationId },
+      });
+      if (!application) throw new BadRequestException('Application not found');
+
+      const status = input.decision === 'DUPLICATE_FOUND'
+        ? DuplicateCheckStatus.DUPLICATE_FOUND
+        : DuplicateCheckStatus.PASSED;
+      const details = {
+        candidateId: this.requireText(input.candidateId, 'Candidate id'),
+        jobPostingId: this.requireText(input.jobPostingId, 'Job posting id'),
+        previousParsedProfileId: this.requireText(
+          input.previousParsedProfileId,
+          'Previous parsed profile id',
+        ),
+        oldNormalizedTextHash: this.requireText(
+          input.oldNormalizedTextHash,
+          'Old normalized text hash',
+        ),
+        newNormalizedTextHash: this.requireText(
+          input.newNormalizedTextHash,
+          'New normalized text hash',
+        ),
+        threshold: input.threshold,
+        methodVersion: this.requireText(input.methodVersion, 'Similarity method version'),
+        decision: input.decision,
+      };
+
+      await this.recordDuplicateCheck(manager, {
+        applicationId,
+        checkType: DuplicateCheckType.CV_CONTENT_SIMILARITY,
+        status,
+        matchedEntityType: 'CV_DOCUMENT',
+        matchedEntityId: this.requireText(input.previousCvDocumentId, 'Previous CV document id'),
+        score: input.score.toFixed(6),
+        details,
+      });
+      await this.workflowStateService.recordEvent(
+        {
+          applicationId,
+          fromStatus: application.status,
+          toStatus: application.status,
+          eventType: 'CV_CONTENT_SIMILARITY_CHECKED',
+          actorType: 'SYSTEM',
+          actorId: null,
+          metadata: {
+            checkType: DuplicateCheckType.CV_CONTENT_SIMILARITY,
+            ...details,
+            score: input.score,
+          },
+        },
+        manager,
+      );
+      await this.recordApplicationAuditLog(manager, {
+        applicationId,
+        actorType: 'SYSTEM',
+        actorId: null,
+        action: 'CV_CONTENT_SIMILARITY_CHECKED',
+        objectType: 'CV_DOCUMENT',
+        objectId: input.previousCvDocumentId,
+        metadata: {
+          checkType: DuplicateCheckType.CV_CONTENT_SIMILARITY,
+          ...details,
+          score: input.score,
+        },
+      });
+    });
+  }
 
   findOne(id: string) {
     const normalizedId = this.requireText(id, 'Application id');
@@ -433,14 +522,13 @@ export class ApplicationsService {
     const emailHash = this.hashOptional(this.normalizeEmail(input.email));
     const phoneHash = this.hashOptional(this.optionalText(input.phone));
     const ipAddress = this.optionalText(input.ipAddress);
-    const oneMinuteAgo = new Date(Date.now() - 60_000);
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rateLimitWindowStart = new Date(Date.now() - PUBLIC_APPLY_RATE_LIMIT_WINDOW_MS);
 
     if (ipAddress) {
       const attemptsByIp = await this.auditLogsRepo
         .createQueryBuilder('auditLog')
         .where('auditLog.action = :action', { action: 'PUBLIC_APPLY_RECEIVED' })
-        .andWhere('auditLog.createdAt >= :since', { since: oneMinuteAgo })
+        .andWhere('auditLog.createdAt >= :since', { since: rateLimitWindowStart })
         .andWhere("auditLog.metadata ->> 'jobPostingId' = :jobPostingId", { jobPostingId })
         .andWhere('auditLog.ipAddress = :ipAddress', { ipAddress })
         .getCount();
@@ -461,7 +549,7 @@ export class ApplicationsService {
       const identityQb = this.auditLogsRepo
         .createQueryBuilder('auditLog')
         .where('auditLog.action = :action', { action: 'PUBLIC_APPLY_RECEIVED' })
-        .andWhere('auditLog.createdAt >= :since', { since: oneDayAgo })
+        .andWhere('auditLog.createdAt >= :since', { since: rateLimitWindowStart })
         .andWhere("auditLog.metadata ->> 'jobPostingId' = :jobPostingId", { jobPostingId });
 
       if (emailHash && phoneHash) {
@@ -825,11 +913,24 @@ export class ApplicationsService {
       jobPostingId,
     };
 
-    if (email) {
+    const name = this.normalizeCandidateName(candidateInput.name)
+      ?? this.normalizeCandidateName(candidate.name);
+
+    if (name && email && phone) {
+      conditions.push(
+        '(LOWER(TRIM(candidate.name)) = :name AND LOWER(candidate.email) = :email AND candidate.phone = :phone)',
+      );
+      params.name = name;
+      params.email = email;
+      params.phone = phone;
+    } else if (email && phone) {
+      conditions.push('(LOWER(candidate.email) = :email AND candidate.phone = :phone)');
+      params.email = email;
+      params.phone = phone;
+    } else if (email) {
       conditions.push('LOWER(candidate.email) = :email');
       params.email = email;
-    }
-    if (phone) {
+    } else if (phone) {
       conditions.push('candidate.phone = :phone');
       params.phone = phone;
     }
@@ -1357,13 +1458,14 @@ export class ApplicationsService {
 
     const email = this.normalizeEmail(candidateInput.email);
     const phone = this.optionalText(candidateInput.phone);
+    const name = this.normalizeCandidateName(candidateInput.name);
     if (!email && !phone) {
       throw new BadRequestException('Candidate email or phone is required');
     }
 
     if (email) await this.lockCandidateLookup(manager, `email:${email}`);
     if (phone) await this.lockCandidateLookup(manager, `phone:${phone}`);
-    const existing = await this.findExistingCandidate(manager, email, phone);
+    const existing = await this.findExistingCandidate(manager, name, email, phone);
     if (existing) {
       return this.mergeCandidateProfile(manager, existing, candidateInput);
     }
@@ -1373,12 +1475,22 @@ export class ApplicationsService {
 
   private async findExistingCandidate(
     manager: EntityManager,
+    name: string | null,
     email: string | null,
     phone: string | null,
   ) {
     const qb = manager.getRepository(CandidateEntity).createQueryBuilder('candidate');
-    if (email && phone) {
-      qb.where('(LOWER(candidate.email) = :email OR candidate.phone = :phone)', {
+    if (name && email && phone) {
+      qb.where(
+        '(LOWER(TRIM(candidate.name)) = :name AND LOWER(candidate.email) = :email AND candidate.phone = :phone)',
+        {
+          name,
+          email,
+          phone,
+        },
+      );
+    } else if (email && phone) {
+      qb.where('(LOWER(candidate.email) = :email AND candidate.phone = :phone)', {
         email,
         phone,
       });
@@ -1608,6 +1720,14 @@ export class ApplicationsService {
   private optionalText(value?: string | null) {
     const normalized = value?.trim();
     return normalized || null;
+  }
+
+  private normalizeCandidateName(value?: string | null) {
+    return this.optionalText(value)
+      ?.normalize('NFC')
+      .replace(/\s+/g, ' ')
+      .toLocaleLowerCase('vi')
+      ?? null;
   }
 
   private asRecord(value: unknown): Record<string, unknown> | null {

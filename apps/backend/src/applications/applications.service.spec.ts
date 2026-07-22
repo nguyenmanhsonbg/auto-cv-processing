@@ -341,3 +341,34 @@ describe('ApplicationsService AI screening', () => {
     expect(aiService.runRecruitmentPhase1AiScreening).not.toHaveBeenCalled();
   });
 });
+
+describe('ApplicationsService public apply rate limit', () => {
+  it('counts identity attempts only within the fifteen-second window', async () => {
+    const now = 1_750_000_000_000;
+    const identityQueryBuilder: any = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getCount: jest.fn().mockResolvedValue(0),
+    };
+    const service = Object.create(ApplicationsService.prototype) as ApplicationsService;
+    (service as any).auditLogsRepo = {
+      createQueryBuilder: jest.fn().mockReturnValue(identityQueryBuilder),
+    };
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+
+    try {
+      await (service as any).assertPublicApplyRateLimit({
+        jobPostingId: 'job-1',
+        email: 'candidate@example.com',
+        phone: '0337314321',
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    const createdAtFilter = identityQueryBuilder.andWhere.mock.calls.find(
+      (call: unknown[]) => String(call[0]).includes('createdAt >= :since'),
+    );
+    expect(createdAtFilter[1].since).toEqual(new Date(now - 15_000));
+  });
+});

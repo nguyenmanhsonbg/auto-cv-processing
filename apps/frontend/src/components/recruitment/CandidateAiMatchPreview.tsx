@@ -55,17 +55,17 @@ function yearRange(start?: number | null, end?: number | null) {
 }
 
 function companyTypeBadge(type?: string) {
-  if (!type) return null;
   const styles: Record<string, string> = {
     PRODUCT: 'bg-blue-600 text-white',
     STARTUP: 'bg-purple-600 text-white',
     ENTERPRISE: 'bg-slate-600 text-white',
     OUTSOURCE: 'bg-orange-500 text-white',
   };
-  return <Badge className={`text-xs ${styles[type] ?? 'bg-slate-500 text-white'}`}>{type}</Badge>;
+  const resolvedType = type ?? 'UNKNOWN';
+  return <Badge className={`text-xs ${styles[resolvedType] ?? 'bg-slate-500 text-white'}`}>{resolvedType}</Badge>;
 }
 
-function ProjectRow({ project }: { project: ParsedProject }) {
+function ProjectRow({ project, showCvExcerpt = true }: { project: ParsedProject; showCvExcerpt?: boolean }) {
   const [open, setOpen] = useState(false);
   const techstack = normalizeProjectTechstack(project.techstack);
   const responsibilities = normalizeStringList(project.responsibilities);
@@ -100,7 +100,7 @@ function ProjectRow({ project }: { project: ParsedProject }) {
           {project.description && <p className="italic">{project.description}</p>}
           {responsibilities.length ? <ProjectBulletList label="Responsibilities" items={responsibilities} /> : null}
           {achievements.length ? <ProjectBulletList label="Achievements" items={achievements} /> : null}
-          {project.rawDescription && <details className="rounded border bg-muted/20 p-2"><summary className="cursor-pointer font-medium">CV excerpt</summary><p className="mt-2 whitespace-pre-wrap">{project.rawDescription}</p></details>}
+          {showCvExcerpt && project.rawDescription && <details className="rounded border bg-muted/20 p-2"><summary className="cursor-pointer font-medium">CV excerpt</summary><p className="mt-2 whitespace-pre-wrap">{project.rawDescription}</p></details>}
         </div>
       )}
     </div>
@@ -130,7 +130,7 @@ function normalizeStringList(value: unknown) {
   return values.map((item) => String(item).trim()).filter(Boolean);
 }
 
-function CompanyRow({ entry }: { entry: WorkExperience }) {
+function CompanyRow({ entry, companyTypeByName }: { entry: WorkExperience; companyTypeByName?: Record<string, string> }) {
   const [open, setOpen] = useState(true);
   const projects = entry.projects?.length ? entry.projects : deriveProjectsFromRawDescription(entry);
   const responsibilities = normalizeStringList(entry.responsibilities);
@@ -142,7 +142,7 @@ function CompanyRow({ entry }: { entry: WorkExperience }) {
         {open ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
         <span className="font-semibold text-sm flex-1">{entry.company}</span>
         {yearRange(entry.startYear, entry.endYear) && <span className="text-xs text-muted-foreground">{yearRange(entry.startYear, entry.endYear)}</span>}
-        {companyTypeBadge(entry.companyType)}
+        {companyTypeBadge(entry.companyType ?? companyTypeByName?.[entry.company])}
       </button>
       {open && <div className="px-4 pb-3 space-y-3 text-sm">
         {entry.role && <p className="text-xs text-muted-foreground pl-7">{entry.role}</p>}
@@ -150,9 +150,8 @@ function CompanyRow({ entry }: { entry: WorkExperience }) {
         {responsibilities.length ? <ProjectBulletList label="Responsibilities" items={responsibilities} /> : null}
         {achievements.length ? <ProjectBulletList label="Achievements" items={achievements} /> : null}
         {technologies.length ? <div className="flex flex-wrap gap-1 pl-7">{technologies.map((technology) => <Badge key={technology} variant="secondary" className="text-xs">{technology}</Badge>)}</div> : null}
-        {projects.length ? <div className="space-y-1 pl-4">{projects.map((project, index) => <ProjectRow key={index} project={project} />)}</div> : null}
-        {entry.rawDescription && <details className="ml-7 rounded border bg-muted/20 p-2"><summary className="cursor-pointer text-xs font-medium">CV excerpt</summary><p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{entry.rawDescription}</p></details>}
-        {!responsibilities.length && !achievements.length && !technologies.length && !projects.length && !entry.summary && !entry.rawDescription && <p className="pl-7 text-xs text-muted-foreground italic">No details listed</p>}
+        {projects.length ? <div className="space-y-1 pl-4">{projects.map((project, index) => <ProjectRow key={index} project={project} showCvExcerpt={false} />)}</div> : null}
+        {!responsibilities.length && !achievements.length && !technologies.length && !projects.length && !entry.summary && <p className="pl-7 text-xs text-muted-foreground italic">No details listed</p>}
       </div>}
     </div>
   );
@@ -182,8 +181,15 @@ function deriveProjectsFromRawDescription(entry: WorkExperience): ParsedProject[
   });
 }
 
-function WorkExperienceCard({ workExperience, sectionScore }: { workExperience: WorkExperience[]; sectionScore?: ProfileSectionScore }) {
-  return <Card><CardHeader><CardTitle className="flex items-center gap-3">Work Experience {sectionScore && <SectionScoreBadge score={sectionScore} />}</CardTitle></CardHeader><CardContent className="space-y-3">{workExperience.map((entry, index) => <CompanyRow key={index} entry={entry} />)}</CardContent></Card>;
+function WorkExperienceCard({ workExperience, sectionScore, companyTypeByName }: { workExperience: WorkExperience[]; sectionScore?: ProfileSectionScore; companyTypeByName?: Record<string, string> }) {
+  return <Card><CardHeader><CardTitle className="flex items-center gap-3">Work Experience {sectionScore && <SectionScoreBadge score={sectionScore} />}</CardTitle></CardHeader><CardContent className="space-y-3">{workExperience.map((entry, index) => <CompanyRow key={index} entry={entry} companyTypeByName={companyTypeByName} />)}</CardContent></Card>;
+}
+
+function formatExperienceYears(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) return undefined;
+  if (value > 3 && value <= 3.5) return '3.5';
+  if (value > 3.5) return String(Math.ceil(value));
+  return String(value);
 }
 
 function InfoRow({ label, value }: { label: string; value?: string | number }) {
@@ -221,11 +227,11 @@ function ScoreBar({ score }: { score: number }) {
   return <div className="flex items-center gap-2 min-w-0"><div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden"><div className={`h-full rounded-full ${color}`} style={{ width: `${Math.round((score / 10) * 100)}%` }} /></div></div>;
 }
 
-function AiAnalysisCard({ validation, screening }: { validation?: AiValidation; screening?: ApplicationAiScreeningSummary | null }) {
-  if (!validation && !screening) return null;
-  const completeness = validation?.completenessScore ?? screening?.score ?? 0;
+function AiAnalysisCard({ validation }: { validation?: AiValidation; screening?: ApplicationAiScreeningSummary | null }) {
+  if (!validation) return null;
+  const completeness = validation.completenessScore;
   const overallLabel = completeness >= 80 ? 'Good' : completeness >= 60 ? 'Fair' : 'Weak';
-  return <Card><CardHeader><CardTitle className="flex items-center gap-3">AI Profile Analysis <span className="text-sm font-normal px-2 py-0.5 rounded border text-green-700 bg-green-50 border-green-200">Overall: {completeness}{validation ? '/100' : ''} - {overallLabel}</span></CardTitle></CardHeader><CardContent className="space-y-4 text-sm">{(validation?.summary ?? screening?.summary) && <p className="text-muted-foreground leading-relaxed">{validation?.summary ?? screening?.summary}</p>}{validation?.sectionScores?.length ? <div><p className="font-semibold mb-3">Category Scores</p><div className="space-y-2">{validation.sectionScores.map((score) => <div key={score.section} className="grid grid-cols-[120px_1fr_60px_56px] items-center gap-2"><span className="text-muted-foreground text-xs">{SECTION_LABELS[score.section] ?? score.section}</span><ScoreBar score={score.score} /><span className="text-xs text-muted-foreground text-right">{score.score}/10</span><span className="text-xs font-semibold">{score.label}</span></div>)}</div></div> : null}{validation?.highlights?.length ? <div><p className="font-semibold mb-2 text-green-700">Highlights</p><ul className="space-y-1">{validation.highlights.map((item, index) => <li key={index} className="flex gap-2"><span className="text-green-600">✓</span><span>{item}</span></li>)}</ul></div> : null}{validation?.concerns?.length ? <div><p className="font-semibold mb-2 text-destructive">Concerns</p><ul className="space-y-1">{validation.concerns.map((item, index) => <li key={index} className="flex gap-2"><span className="text-destructive">!</span><span>{item}</span></li>)}</ul></div> : null}{screening && <div className="grid gap-3 sm:grid-cols-3"><div><p className="text-muted-foreground">Recommendation</p><p className="font-medium">{screening.recommendation ?? '-'}</p></div><div><p className="text-muted-foreground">Strengths</p><p className="font-medium">{screening.strengths?.length ?? 0}</p></div><div><p className="text-muted-foreground">Risks</p><p className="font-medium">{screening.risks?.length ?? 0}</p></div></div>}</CardContent></Card>;
+  return <Card><CardHeader><CardTitle className="flex items-center gap-3">AI Profile Analysis <span className="text-sm font-normal px-2 py-0.5 rounded border text-green-700 bg-green-50 border-green-200">Overall: {completeness}/100 - {overallLabel}</span></CardTitle></CardHeader><CardContent className="space-y-4 text-sm">{validation.summary && <p className="text-muted-foreground leading-relaxed">{validation.summary}</p>}{validation.sectionScores?.length ? <div><p className="font-semibold mb-3">Category Scores</p><div className="space-y-2">{validation.sectionScores.map((score) => <div key={score.section} className="grid grid-cols-[120px_1fr_60px_56px] items-center gap-2"><span className="text-muted-foreground text-xs">{SECTION_LABELS[score.section] ?? score.section}</span><ScoreBar score={score.score} /><span className="text-xs text-muted-foreground text-right">{score.score}/10</span><span className="text-xs font-semibold">{score.label}</span></div>)}</div></div> : null}{validation.highlights?.length ? <div><p className="font-semibold mb-2 text-green-700">Highlights</p><ul className="space-y-1">{validation.highlights.map((item, index) => <li key={index} className="flex gap-2"><span className="text-green-600">✓</span><span>{item}</span></li>)}</ul></div> : null}{validation.concerns?.length ? <div><p className="font-semibold mb-2 text-destructive">Concerns</p><ul className="space-y-1">{validation.concerns.map((item, index) => <li key={index} className="flex gap-2"><span className="text-destructive">!</span><span>{item}</span></li>)}</ul></div> : null}</CardContent></Card>;
 }
 
 function AiStrengthsWeaknessesCard({ validation, screening }: { validation?: AiValidation; screening?: ApplicationAiScreeningSummary | null }) {
@@ -249,6 +255,26 @@ function OkBadge({ ok }: { ok: boolean }) { return ok ? <span className="inline-
 function Evidence({ text }: { text?: string | null }) { return text ? <p className="text-xs text-muted-foreground italic mt-1 pl-1 border-l-2 border-muted">&gt; {text}</p> : null; }
 function SignalRow({ icon, label, ok, children }: { icon: string; label: string; ok: boolean; children: ReactNode }) { return <div className="space-y-1.5"><div className="flex items-center justify-between"><span className="font-semibold text-sm flex items-center gap-2"><span>{icon}</span>{label}</span><OkBadge ok={ok} /></div><div className="pl-6 space-y-1">{children}</div></div>; }
 
+function MatchScoreBar({ score }: { score: number }) {
+  const color = score >= 70 ? 'bg-green-500' : score >= 50 ? 'bg-blue-500' : score >= 35 ? 'bg-orange-400' : 'bg-red-400';
+  return <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${Math.max(0, Math.min(100, score))}%` }} /></div>;
+}
+
+function recommendationLabel(value?: string | null) {
+  if (!value) return 'Not available';
+  return value.replaceAll('_', ' ');
+}
+
+function MatchAssessmentCard({ mapping, screening }: { mapping?: ApplicationMappingSummary | null; screening?: ApplicationAiScreeningSummary | null }) {
+  if (!mapping && !screening) return null;
+  const score = screening?.score ?? mapping?.score;
+  const scoreLabel = score == null ? '—' : String(score);
+  const recommendation = screening?.recommendation ?? mapping?.recommendation;
+  const scoreTone = score == null ? 'text-muted-foreground' : score >= 70 ? 'text-green-700' : score >= 50 ? 'text-blue-700' : 'text-orange-700';
+
+  return <Card className="overflow-hidden border border-indigo-200 shadow-sm"><CardHeader className="bg-indigo-50/50 pb-3"><div className="flex items-start justify-between gap-4"><div><CardTitle className="text-lg">CV–JD Match</CardTitle><p className="mt-1 text-xs text-muted-foreground">How well the candidate fits this job description</p></div><Badge className="bg-indigo-600 text-white">{screening?.status ?? mapping?.status ?? 'PENDING'}</Badge></div></CardHeader><CardContent className="space-y-4 pt-4"><div className="flex items-center gap-3"><div className="flex-1">{score != null ? <MatchScoreBar score={score} /> : <div className="h-2 rounded-full bg-muted" />}</div><span className={`min-w-14 text-right text-sm font-semibold ${scoreTone}`}>{scoreLabel}/100</span></div>{screening?.summary && <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3"><p className="mb-1 text-sm font-semibold text-indigo-900">JD Fit Assessment</p><p className="text-sm leading-6 text-foreground">{screening.summary}</p></div>}<div className="grid gap-3 border-t pt-3 sm:grid-cols-2"><div><p className="text-xs text-muted-foreground">Recommendation</p><p className="text-sm font-semibold capitalize">{recommendationLabel(recommendation)}</p></div><div><p className="text-xs text-muted-foreground">Screening status</p><p className="text-sm font-semibold">{screening?.status ?? mapping?.status ?? '—'}</p></div></div></CardContent></Card>;
+}
+
 function CandidateInformationCard({
   candidate,
   profile,
@@ -269,7 +295,7 @@ function CandidateInformationCard({
 function InterestedInformationCard({ signals }: { signals: VcsSignals }) {
   const rows = [
     { icon: 'Education', label: 'Education', signal: signals.university, content: <>{signals.university.name && <div className="flex flex-wrap items-center gap-2"><span className="text-sm">{signals.university.name}</span>{signals.university.topMatch && <Badge className="bg-green-600 text-white text-xs">{TOP_UNIVERSITY_LABELS[signals.university.topMatch]}</Badge>}</div>}<Evidence text={signals.university.evidence} /></> },
-    { icon: 'Company', label: 'Company Type', signal: signals.companyType, content: <>{signals.companyType.companies?.length ? <div className="flex flex-wrap gap-1">{signals.companyType.companies.map((item) => <Badge key={item} variant="outline" className="text-xs">{item}</Badge>)}</div> : null}<Evidence text={signals.companyType.evidence} /></> },
+    { icon: 'Company', label: 'Company Type', signal: signals.companyType, content: <>{signals.companyType.companies?.length ? <div className="flex flex-wrap gap-1">{signals.companyType.companies.map((item) => <Badge key={item} variant="outline" className="text-xs">{item}</Badge>)}</div> : null}<Evidence text={signals.companyType.evidence || (signals.companyType.ok ? 'Product-company experience detected.' : 'No qualifying product-company evidence found.')} /></> },
     { icon: 'Skills', label: 'Advanced Skills', signal: signals.advancedSkills, content: <>{signals.advancedSkills.items?.length ? signals.advancedSkills.items.map((item, index) => <div key={index}><Badge className="bg-blue-600 text-white text-xs">{item.skill}</Badge><Evidence text={item.evidence} /></div>) : <Evidence text={signals.advancedSkills.evidence} />}</> },
     { icon: 'Projects', label: 'Technical Challenges', signal: signals.technicalChallenges, content: <>{signals.technicalChallenges.items?.length ? signals.technicalChallenges.items.map((item, index) => <div key={index}><p className="text-sm">- {item.challenge}{item.projectSize && <span className="ml-1.5 text-xs text-muted-foreground">({item.projectSize})</span>}</p><Evidence text={item.evidence} /></div>) : <Evidence text={signals.technicalChallenges.evidence} />}</> },
     { icon: 'Roles', label: 'Senior Roles', signal: signals.seniorRoles, content: <>{signals.seniorRoles.items?.length ? signals.seniorRoles.items.map((item, index) => <div key={index}><p className="text-sm">- {item.role}{item.projectSize && <span className="ml-1.5 text-xs text-muted-foreground">({item.projectSize})</span>}</p><Evidence text={item.evidence} /></div>) : <Evidence text={signals.seniorRoles.evidence} />}</> },
@@ -277,38 +303,13 @@ function InterestedInformationCard({ signals }: { signals: VcsSignals }) {
   return <Card className="border-2 border-blue-300 shadow-md"><CardHeader className="bg-blue-50/60 rounded-t-lg pb-3"><CardTitle className="text-lg flex items-center gap-2">Interested Information</CardTitle><p className="text-xs text-muted-foreground">AI evaluated from CV content</p></CardHeader><CardContent className="pt-5 space-y-5 divide-y divide-muted">{rows.map((row, index) => <div key={row.label} className={index ? 'pt-4' : ''}><SignalRow icon={row.icon} label={row.label} ok={row.signal.ok}>{row.content}</SignalRow></div>)}</CardContent></Card>;
 }
 
-function TechnicalAndSeniorAssessment({
-  signals,
-  validation,
-  workExperience,
-}: {
-  signals?: VcsSignals;
-  validation?: AiValidation;
-  workExperience?: WorkExperience[];
-}) {
-  const technicalSignal = signals?.technicalChallenges;
-  const seniorSignal = signals?.seniorRoles;
-  const technicalScore = validation?.sectionScores?.find((score) => score.section === 'projects');
-  const seniorScore = validation?.sectionScores?.find((score) => score.section === 'seniority');
-  const projectEvidence = (workExperience ?? []).flatMap((entry) =>
-    (entry.projects ?? []).map((project) => ({
-      title: project.name,
-      detail: project.description ?? project.businessDescription ?? project.rawDescription,
-    })),
-  ).filter((item) => item.detail);
-  const seniorEvidence = (workExperience ?? [])
-    .filter((entry) => entry.role)
-    .map((entry) => ({ title: entry.role!, detail: entry.company }));
-
-  if (!technicalSignal && !seniorSignal && !technicalScore && !seniorScore && !projectEvidence.length && !seniorEvidence.length) {
-    return null;
-  }
-
-  return <Card className="border-2 border-blue-300 shadow-md"><CardHeader className="bg-blue-50/60 rounded-t-lg pb-3"><CardTitle className="text-lg">Interested Information</CardTitle><p className="text-xs text-muted-foreground">AI evaluated from CV content</p></CardHeader><CardContent className="grid gap-5 lg:grid-cols-2 text-sm">
-    <div className="space-y-2"><div className="flex items-center gap-2"><p className="font-semibold">Technical Challenges</p>{technicalScore && <SectionScoreBadge score={technicalScore} />}</div>{technicalSignal?.items?.length ? technicalSignal.items.map((item, index) => <div key={`challenge-${index}`} className="rounded border p-3"><p className="font-medium">{item.challenge}</p>{item.projectSize && <p className="text-xs text-muted-foreground">Project size: {item.projectSize}</p>}<Evidence text={item.evidence} /></div>) : projectEvidence.length ? projectEvidence.slice(0, 6).map((item, index) => <div key={`project-evidence-${index}`} className="rounded border p-3"><p className="font-medium">{item.title}</p><p className="mt-1 text-muted-foreground">{item.detail}</p></div>) : <Evidence text={technicalSignal?.evidence ?? technicalScore?.note} />}</div>
-    <div className="space-y-2"><div className="flex items-center gap-2"><p className="font-semibold">Senior Roles</p>{seniorScore && <SectionScoreBadge score={seniorScore} />}</div>{seniorSignal?.items?.length ? seniorSignal.items.map((item, index) => <div key={`senior-role-${index}`} className="rounded border p-3"><p className="font-medium">{item.role}</p>{item.projectSize && <p className="text-xs text-muted-foreground">Project size: {item.projectSize}</p>}<Evidence text={item.evidence} /></div>) : seniorEvidence.length ? seniorEvidence.slice(0, 6).map((item, index) => <div key={`role-evidence-${index}`} className="rounded border p-3"><p className="font-medium">{item.title}</p><p className="mt-1 text-muted-foreground">Company: {item.detail}</p></div>) : <Evidence text={seniorSignal?.evidence ?? seniorScore?.note} />}</div>
-  </CardContent></Card>;
-}
+const EMPTY_VCS_SIGNALS: VcsSignals = {
+  university: { ok: false, evidence: 'No university signal was returned by profile analysis.' },
+  companyType: { ok: false, evidence: 'No company-type signal was returned by profile analysis.' },
+  advancedSkills: { ok: false, items: [], evidence: 'No advanced-skill signal was returned by profile analysis.' },
+  technicalChallenges: { ok: false, items: [], evidence: 'No technical-challenge signal was returned by profile analysis.' },
+  seniorRoles: { ok: false, items: [], evidence: 'No qualifying senior-role evidence was returned by profile analysis.' },
+};
 
 function RiskLevelBadge({ level }: { level: ProfileAnomalyDetection['riskLevel'] }) { return <span className="text-xs font-normal px-2 py-0.5 rounded border text-orange-700 bg-orange-50 border-orange-200">{level.toUpperCase()}</span>; }
 function AnomalyDetectionCard({ anomalyDetection }: { anomalyDetection: ProfileAnomalyDetection }) { return <Card><CardHeader><CardTitle className="flex items-center gap-3">Anomaly Detection <RiskLevelBadge level={anomalyDetection.riskLevel} /></CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="flex items-center gap-3"><div className="h-2 flex-1 rounded-full bg-muted overflow-hidden"><div className="h-full bg-orange-500" style={{ width: `${anomalyDetection.overallRiskScore}%` }} /></div><span className="font-semibold">{anomalyDetection.overallRiskScore}/100</span></div><p className="text-muted-foreground">{anomalyDetection.summary}</p>{anomalyDetection.anomalies.map((anomaly, index) => <div key={index} className="rounded border p-3"><div className="flex items-center gap-2 font-medium"><AlertTriangle className="h-4 w-4" />{anomaly.type}</div><p className="mt-1">{anomaly.description}</p><p className="mt-1 text-xs text-muted-foreground">{anomaly.evidence}</p></div>)}</CardContent></Card>; }
@@ -321,7 +322,94 @@ function AiRiskAssessmentCard({ anomalyDetection, risks }: { anomalyDetection?: 
   </CardContent></Card>;
 }
 
-function profilePayload(profile?: ParsedProfile | null) { return profile ?? {}; }
+export function profilePayload(profile?: ParsedProfile | null): ParsedProfile {
+  const root = (profile ?? {}) as ParsedProfile & Record<string, unknown>;
+  const parsedProfile = asRecord(root.parsedProfile);
+  const evaluation = asRecord(root.evaluation);
+  const generalCriteria = asRecord(evaluation?.generalCriteria);
+  const roleSpecificCriteria = asRecord(evaluation?.roleSpecificCriteria);
+  const summary = asRecord(evaluation?.summary);
+
+  // The enrich_profile prompt returns parsedProfile/evaluation as nested objects,
+  // while older application records store the canonical fields at the root. Read
+  // both shapes so the preview stays consistent across existing and new analyses.
+  const normalized = {
+    ...parsedProfile,
+    ...root,
+    aiValidation: root.aiValidation ?? buildAiValidation(generalCriteria, roleSpecificCriteria, summary),
+  } as ParsedProfile;
+
+  return normalized;
+}
+
+function buildAiValidation(
+  generalCriteria: Record<string, unknown> | null,
+  roleSpecificCriteria: Record<string, unknown> | null,
+  summary: Record<string, unknown> | null,
+): AiValidation | undefined {
+  if (!generalCriteria && !roleSpecificCriteria && !summary) return undefined;
+
+  const sectionSources: Array<[ProfileSectionScore['section'], unknown]> = [
+    ['education', generalCriteria?.education],
+    ['workExperience', generalCriteria?.workHistory],
+    ['skills', roleSpecificCriteria?.mustHaveSkills],
+    ['projects', roleSpecificCriteria?.technicalChallenges],
+    ['seniority', generalCriteria?.seniority],
+  ];
+  const sectionScores: ProfileSectionScore[] = [];
+  for (const [section, value] of sectionSources) {
+    const record = asRecord(value);
+    const score = numberValue(record?.score);
+    const label = textValue(record?.label);
+    if (score == null || !isProfileScoreLabel(label)) continue;
+    sectionScores.push({ section, score, label, ...(textValue(record?.note) ? { note: textValue(record?.note) } : {}) });
+  }
+  const completenessScore = numberValue(summary?.overallMatchScore);
+  const highlights = stringList(summary?.highlights);
+  const concerns = stringList(summary?.redFlagsOrGaps);
+  const shortSummary = textValue(summary?.shortSummary);
+
+  return {
+    completenessScore: completenessScore ?? 0,
+    highlights,
+    concerns,
+    summary: shortSummary ?? '',
+    ...(sectionScores.length ? { sectionScores } : {}),
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function textValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => Boolean(textValue(item))).map((item) => textValue(item)!) : [];
+}
+
+function normalizeCompanyTypes(value: unknown): Record<string, string> {
+  if (!Array.isArray(value)) return {};
+  return Object.fromEntries(value.flatMap((item) => {
+    const record = asRecord(item);
+    const name = textValue(record?.name);
+    const type = textValue(record?.type);
+    return name && type ? [[name, type]] : [];
+  }));
+}
+
+function isProfileScoreLabel(value: string | undefined): value is ProfileSectionScore['label'] {
+  return value === 'Strong' || value === 'Good' || value === 'Fair' || value === 'Weak';
+}
 
 export function CandidateAiMatchPreview({
   profile,
@@ -339,6 +427,7 @@ export function CandidateAiMatchPreview({
   const groupedSkills = normalizeGroupedSkills(data.groupedSkills);
   const skills = normalizeStringList(data.skills);
   const certifications = normalizeStringList(data.certifications);
+  const companyTypeByName = normalizeCompanyTypes((data as ParsedProfile & { companies?: unknown }).companies);
   const hasEducationSkills = Boolean(data.education || data.totalYearsExperience != null || Object.keys(groupedSkills).length || skills.length || certifications.length || Object.keys(data.experienceByLanguage ?? {}).length);
   const hasAnyResult = Boolean(data.vcsSignals || validation || data.anomalyDetection || data.workExperience?.length || data.projects?.length || hasEducationSkills || mapping || aiScreening);
   const getSectionScore = (section: ProfileSectionScore['section']) => validation?.sectionScores?.find((score) => score.section === section);
@@ -347,13 +436,13 @@ export function CandidateAiMatchPreview({
 
   return <div className="ai-match-preview-scroll min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
     <CandidateInformationCard candidate={candidate} profile={data} />
-    {data.vcsSignals ? <InterestedInformationCard signals={data.vcsSignals} /> : <TechnicalAndSeniorAssessment signals={data.vcsSignals} validation={validation} workExperience={data.workExperience} />}
-    {data.workExperience?.length ? <WorkExperienceCard workExperience={data.workExperience} sectionScore={getSectionScore('workExperience')} /> : null}
+    <InterestedInformationCard signals={data.vcsSignals ?? EMPTY_VCS_SIGNALS} />
+    {data.workExperience?.length ? <WorkExperienceCard workExperience={data.workExperience} sectionScore={getSectionScore('workExperience')} companyTypeByName={companyTypeByName} /> : null}
     {data.projects?.length ? <Card><CardHeader><CardTitle>Side Projects</CardTitle></CardHeader><CardContent className="space-y-1">{data.projects.map((project, index) => <ProjectRow key={`${project.name}-${index}`} project={project} />)}</CardContent></Card> : null}
-    {hasEducationSkills && <Card><CardHeader><CardTitle className="flex items-center gap-3">Education &amp; Skills {getSectionScore('education') && <SectionScoreBadge score={getSectionScore('education')!} />}</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3"><InfoRow label="Education" value={data.education} /><InfoRow label="Total Experience" value={data.totalYearsExperience != null ? `${data.totalYearsExperience} years` : undefined} /></div>{Object.keys(groupedSkills).length ? <GroupedSkillsSection data={groupedSkills} /> : skills.length ? <TagSection label="Skills" items={skills} /> : null}{certifications.length ? <TagSection label="Certifications" items={certifications} /> : null}{data.experienceByLanguage && typeof data.experienceByLanguage === 'object' && !Array.isArray(data.experienceByLanguage) && <ExperienceByLanguage data={data.experienceByLanguage} />}</CardContent></Card>}
+    {hasEducationSkills && <Card><CardHeader><CardTitle className="flex items-center gap-3">Education &amp; Skills {getSectionScore('education') && <SectionScoreBadge score={getSectionScore('education')!} />}</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3"><InfoRow label="Education" value={data.education} /><InfoRow label="Total Experience" value={formatExperienceYears(data.totalYearsExperience) ? `${formatExperienceYears(data.totalYearsExperience)} years` : undefined} /></div>{Object.keys(groupedSkills).length ? <GroupedSkillsSection data={groupedSkills} /> : skills.length ? <TagSection label="Skills" items={skills} /> : null}{certifications.length ? <TagSection label="Certifications" items={certifications} /> : null}{data.experienceByLanguage && typeof data.experienceByLanguage === 'object' && !Array.isArray(data.experienceByLanguage) && <ExperienceByLanguage data={data.experienceByLanguage} />}</CardContent></Card>}
     <AiAnalysisCard validation={validation} screening={aiScreening} />
+    <MatchAssessmentCard mapping={mapping} screening={aiScreening} />
     <AiStrengthsWeaknessesCard validation={validation} screening={aiScreening} />
-    {(mapping || aiScreening) && <Card><CardContent className="grid gap-3 sm:grid-cols-4 pt-6"><div><p className="text-xs text-muted-foreground">Mapping score</p><p className="font-semibold">{mapping?.score ?? '-'}</p></div><div><p className="text-xs text-muted-foreground">AI score</p><p className="font-semibold">{aiScreening?.score ?? '-'}</p></div><div><p className="text-xs text-muted-foreground">Recommendation</p><p className="font-semibold">{aiScreening?.recommendation ?? mapping?.recommendation ?? '-'}</p></div><div><p className="text-xs text-muted-foreground">Status</p><p className="font-semibold">{aiScreening?.status ?? mapping?.status ?? '-'}</p></div></CardContent></Card>}
     <AiRiskAssessmentCard anomalyDetection={data.anomalyDetection} risks={aiScreening?.risks} />
   </div>;
 }

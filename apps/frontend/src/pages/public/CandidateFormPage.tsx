@@ -312,7 +312,7 @@ export function CandidateFormPage() {
                       {q.text}
                     </CardTitle>
                     <CardDescription className="text-xs text-slate-400 uppercase tracking-wider">
-                      {q.type === 'OPEN_ENDED' && 'Câu hỏi tự luận'}
+                      {(q.type === 'OPEN_ENDED' || q.type === 'ARCHITECTURE' || q.type === 'SCENARIO') && 'Câu hỏi tự luận'}
                       {q.type === 'SINGLE_CHOICE' && 'Chọn một đáp án'}
                       {q.type === 'MULTIPLE_CHOICE' && 'Chọn nhiều đáp án'}
                     </CardDescription>
@@ -321,9 +321,13 @@ export function CandidateFormPage() {
               </CardHeader>
               <CardContent className="pt-2">
                 {/* OPEN ENDED */}
-                {q.type === 'OPEN_ENDED' && (
+                {(q.type === 'OPEN_ENDED' || q.type === 'ARCHITECTURE' || q.type === 'SCENARIO') && (
                   <Textarea
-                    placeholder="Nhập câu trả lời của bạn ở đây..."
+                    placeholder={
+                      q.type === 'ARCHITECTURE'
+                        ? 'Mô tả kiến trúc, các thành phần và luồng dữ liệu của bạn...'
+                        : 'Nhập câu trả lời của bạn ở đây...'
+                    }
                     className="min-h-[120px] bg-slate-950 border-slate-800 focus-visible:ring-primary text-slate-200"
                     value={answers[q.questionSetItemId] || ''}
                     onChange={(e) => handleTextChange(q.questionSetItemId, e.target.value)}

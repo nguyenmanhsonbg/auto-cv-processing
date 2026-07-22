@@ -154,7 +154,7 @@ export class GeminiCvParserService implements OnModuleInit {
         throw new Error('GEMINI_RESPONSE_NOT_OBJECT');
       }
 
-      return this.normalizeGeminiProfile(parsed);
+      return this.normalizeGeminiProfile(parsed, input.rawText);
     } finally {
       clearTimeout(timeout);
     }
@@ -187,6 +187,7 @@ Do not invent facts. If a field is not present, omit it or use an empty array.`;
   "phone": string,
   "birthYear": number,
   "education": string,
+  "currentCompany": string,
   "totalYearsExperience": number,
   "experienceByLanguage": { "JavaScript": number },
   "skills": string[],
@@ -197,6 +198,8 @@ Do not invent facts. If a field is not present, omit it or use an empty array.`;
   "workExperience": [
     {
       "company": string,
+      "startDate": "YYYY-MM or original CV date",
+      "endDate": "YYYY-MM or null when current",
       "role": string,
       "startYear": number,
       "endYear": number | null,
@@ -253,6 +256,11 @@ ${levelGuidelines}
 ${projectExtractionRules}
 
 Work experience extraction rules:
+- Extract every employer/workplace mentioned in the CV, most recent first. Do not stop after the first employer or after the first two employers; include internships and short engagements when they are explicitly work experience.
+- Scan the complete CV from the work-experience heading until the next major section before writing JSON. Internally count each employer heading and verify that the output contains the same employers.
+- A job remains a workExperience item even when it is short, old, marked as an internship, or has fewer bullet points than another job.
+- Each employer must be a separate workExperience item with company, companyType, dates, primary role, responsibilities, technologies, and all explicitly named employer projects nested under that employer.
+- Preserve the most precise employment dates available in startDate/endDate using YYYY-MM when the CV gives month precision. Use endDate: null for an explicitly current job. Keep startYear/endYear for backward compatibility.
 - For each workExperience item, extract what the candidate actually did at that workplace.
 - Put day-to-day duties and delivered work in responsibilities as concise bullets.
 - Split responsibilities into separate list items. Do not combine many duties into one paragraph.
@@ -262,11 +270,40 @@ Work experience extraction rules:
 - Put the closest original CV wording for that workplace in rawDescription. Keep the candidate's wording as much as possible, but remove obvious layout noise.
 - Do not invent responsibilities. If the CV only has a title/company and no duties, use empty arrays.
 - Project responsibilities belong in projects[].responsibilities, not in projects[].description.
+- Keep projects performed for an employer in that employer's workExperience[].projects. Use top-level projects only for personal, academic, freelance, or side projects.
 - Do not output "[REDACTED]" placeholders. If a value is unknown or unavailable, omit it or use an empty array.
 - Preserve technical terms and product names exactly.
+- Never copy a technology from schema examples, instructions, or other candidate-like text. A skill is valid only when the supplied CV text contains direct evidence for it. In particular, do not output Go/Golang unless the CV contains the standalone term "Go" or "Golang"; do not treat MongoDB or URLs as evidence for Go.
+- PDF text may contain layout spacing inside words (for example "J a v a" or "S p r i n g B o o t"). Normalize that layout noise mentally before extracting known technology names, but do not turn arbitrary substrings into skills.
+- Extract languages separately from technical skills. Preserve the exact proficiency level, certificate name, score, band, or listening/reading breakdown when present. Recognize certificates such as TOEIC, IELTS, TOEFL, HSK, JLPT, Cambridge, and equivalent tests without inventing a score or level.
+- Put language evidence in languages as readable strings such as "English - TOEIC 725 (Listening & Reading)" and put the certificate itself in certifications, preserving the exact score/level from the CV. Use an empty array when no language or certificate evidence is present.
+- For every workExperience item, also return companyType as one of PRODUCT, OUTSOURCE, STARTUP, or ENTERPRISE. PRODUCT means the company builds its own product/platform; OUTSOURCE means it delivers projects for external clients; STARTUP means a small early-stage company; ENTERPRISE means a large corporation when no more specific classification is evidenced.
+- Return aiValidation with completenessScore (0-100), highlights, concerns, summary, and sectionScores for exactly education, workExperience, skills, projects, and seniority. Each section score is 0-10 with label Strong (8-10), Good (6-7), Fair (4-5), or Weak (0-3).
+- Return vcsSignals with university, companyType, advancedSkills, technicalChallenges, and seniorRoles. Every signal must include ok and evidence; use false and empty arrays when evidence is missing.
+- seniorRoles may include only professional senior/leadership roles with explicit responsibility or scope. Academic or personal project leadership alone is not a senior professional role.
+- Return currentCompany as the employer whose endDate is null or whose CV date is explicitly "present/current/nay". Do not select a project or client as currentCompany.
+- Calculate totalYearsExperience from non-overlapping employment intervals only. Use the date precision in startDate/endDate, count a current interval through the parse date, and round to one decimal place. If dates are too incomplete, return the best evidence-based value and add a warning.
 
 Target JSON shape:
 ${targetSchema}
+
+Required profile analysis additions:
+{
+  "aiValidation": {
+    "completenessScore": number,
+    "highlights": string[],
+    "concerns": string[],
+    "summary": string,
+    "sectionScores": [{ "section": "education | workExperience | skills | projects | seniority", "score": number, "label": "Strong | Good | Fair | Weak", "note": string }]
+  },
+  "vcsSignals": {
+    "university": { "ok": boolean, "name": string | null, "topMatch": "HUST | UET | PTIT | null", "evidence": string },
+    "companyType": { "ok": boolean, "companies": string[], "evidence": string },
+    "advancedSkills": { "ok": boolean, "items": [{ "skill": string, "evidence": string }], "evidence": string | null },
+    "technicalChallenges": { "ok": boolean, "items": [{ "challenge": string, "projectSize": string | null, "evidence": string }], "evidence": string | null },
+    "seniorRoles": { "ok": boolean, "items": [{ "role": string, "projectSize": string | null, "evidence": string }], "evidence": string | null }
+  }
+}
 
 Regex/parser hints, may be incomplete or wrong:
 ${JSON.stringify(input.parserHints, null, 2)}
@@ -275,21 +312,100 @@ CV text:
 ${rawText}`;
   }
 
-  private normalizeGeminiProfile(profile: Record<string, unknown>) {
+  private normalizeGeminiProfile(profile: Record<string, unknown>, rawText: string) {
     const normalized = this.sanitizeJsonbValue(profile);
     const record = this.isRecord(normalized) ? normalized : {};
+    const workExperience = this.normalizeWorkExperience(record.workExperience);
+    const timeline = this.deriveEmploymentSummary(workExperience);
 
     return this.compactRecord({
       ...record,
-      skills: this.toStringArray(record.skills),
+      workExperience,
+      currentCompany: this.optionalText(record.currentCompany) ?? timeline.currentCompany,
+      skills: this.removeUnsupportedGo(this.collectSkills(record), rawText),
       techstack: this.toStringArray(record.techstack),
       certifications: this.toStringArray(record.certifications),
       languages: this.toStringArray(record.languages),
       warnings: this.toStringArray(record.warnings),
-      totalYearsExperience: this.toOptionalNumber(record.totalYearsExperience),
+      totalYearsExperience: timeline.totalYearsExperience ?? this.toOptionalNumber(record.totalYearsExperience),
       birthYear: this.toOptionalInteger(record.birthYear),
       parseConfidence: this.clampConfidence(record.parseConfidence),
     });
+  }
+
+  private normalizeWorkExperience(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is Record<string, unknown> => this.isRecord(item));
+  }
+
+  private deriveEmploymentSummary(workExperience: Array<Record<string, unknown>>) {
+    const current = workExperience.find((entry) =>
+      entry.endDate == null || entry.endYear == null || /present|current|now|nay|hiện tại/i.test(String(entry.endDate ?? '')),
+    );
+    const intervals = workExperience
+      .map((entry) => this.toMonthInterval(entry))
+      .filter((interval): interval is { start: number; end: number } => interval !== null)
+      .sort((a, b) => a.start - b.start);
+
+    if (!intervals.length) return { currentCompany: this.optionalText(current?.company), totalYearsExperience: undefined };
+
+    let totalMonths = 0;
+    let mergedStart = intervals[0].start;
+    let mergedEnd = intervals[0].end;
+    for (const interval of intervals.slice(1)) {
+      if (interval.start > mergedEnd) {
+        totalMonths += mergedEnd - mergedStart;
+        mergedStart = interval.start;
+        mergedEnd = interval.end;
+      } else {
+        mergedEnd = Math.max(mergedEnd, interval.end);
+      }
+    }
+    totalMonths += mergedEnd - mergedStart;
+
+    return {
+      currentCompany: this.optionalText(current?.company),
+      totalYearsExperience: Math.round((totalMonths / 12) * 10) / 10,
+    };
+  }
+
+  private toMonthInterval(entry: Record<string, unknown>) {
+    const start = this.parseYearMonth(entry.startDate, entry.startYear);
+    if (start === null) return null;
+    const end = this.parseYearMonth(entry.endDate, entry.endYear) ?? (entry.endDate == null || entry.endYear == null ? this.currentMonthIndex() : null);
+    if (end === null || end <= start) return null;
+    return { start, end };
+  }
+
+  private parseYearMonth(date: unknown, year: unknown) {
+    const dateText = this.optionalText(date);
+    const dateMatch = dateText?.match(/(19|20)\d{2}(?:[-/]([01]\d))?/);
+    const numericYear = this.toOptionalInteger(year);
+    const parsedYear = dateMatch ? Number(dateMatch[0].slice(0, 4)) : numericYear;
+    if (!parsedYear) return null;
+    const month = dateMatch?.[2] ? Number(dateMatch[2]) : 1;
+    return parsedYear * 12 + Math.max(0, Math.min(11, month - 1));
+  }
+
+  private currentMonthIndex() {
+    const now = new Date();
+    return now.getFullYear() * 12 + now.getMonth();
+  }
+
+  private removeUnsupportedGo(skills: string[], rawText: string) {
+    const hasGoEvidence = /(^|[^\p{L}\p{N}])(?:go|golang)([^\p{L}\p{N}]|$)/iu.test(rawText);
+    if (hasGoEvidence) return skills;
+    return skills.filter((skill) => !/^go(?:lang)?$/iu.test(skill.trim()));
+  }
+
+  private collectSkills(record: Record<string, unknown>) {
+    const directSkills = this.toStringArray(record.skills) ?? [];
+    const techstack = this.toStringArray(record.techstack) ?? [];
+    const groupedSkills = this.isRecord(record.groupedSkills)
+      ? Object.values(record.groupedSkills).flatMap((value) => this.toStringArray(value) ?? [])
+      : [];
+
+    return [...new Set([...directSkills, ...techstack, ...groupedSkills])];
   }
 
   private extractJson(text: string): unknown {
@@ -400,8 +516,8 @@ ${rawText}`;
     return /^\[?\s*redacted\s*\]?$/i.test(value);
   }
 
-  private optionalText(value?: string | null) {
-    const normalized = value?.trim();
+  private optionalText(value?: unknown) {
+    const normalized = typeof value === 'string' ? value.trim() : '';
     return normalized || null;
   }
 }

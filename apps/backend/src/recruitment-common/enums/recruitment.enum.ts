@@ -165,6 +165,7 @@ export enum DuplicateCheckType {
   FILE_DUPLICATE = 'FILE_DUPLICATE',
   CV_FILE_HASH = 'CV_FILE_HASH',
   PARSED_PROFILE = 'PARSED_PROFILE',
+  CV_CONTENT_SIMILARITY = 'CV_CONTENT_SIMILARITY',
 }
 
 export enum DuplicateCheckStatus {

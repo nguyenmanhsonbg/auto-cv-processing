@@ -2,7 +2,13 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { ApiError } from '@/lib/api-client';
-import { getPublicSafeErrorMessage } from '@/lib/api-errors';
+import {
+  API_ERROR_CODES,
+  getApiErrorCode,
+  getPublicCvSimilarityDetails,
+  getPublicSafeErrorMessage,
+  type PublicCvSimilarityDetails,
+} from '@/lib/api-errors';
 import {
   getPublicJobPosting,
   submitPublicApplication,
@@ -33,7 +39,11 @@ interface ApplyResultState {
   title: string;
   message: string;
   applicationId?: string;
+  similarity?: PublicCvSimilarityDetails;
 }
+
+const NO_PREVIOUS_CV_METHOD_VERSION = 'NO_PREVIOUS_CV_BASELINE_V1';
+const EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION = 'EXACT_ORIGINAL_FILE_HASH_V1';
 
 const INITIAL_FORM: ApplyFormState = {
   fullName: '',
@@ -67,11 +77,17 @@ function isApplyOpen(job: PublicJobPostingDetail) {
 }
 
 function toSuccessResult(response: PublicApplyResponse): ApplyResultState {
+  const isExistingFile = response.similarity?.methodVersion
+    === EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION;
+
   return {
-    type: 'success',
-    title: 'Ung tuyen thanh cong',
-    message: 'CV cua ban da duoc kiem tra an toan va tiep nhan.',
+    type: isExistingFile ? 'error' : 'success',
+    title: isExistingFile ? 'Khong the cap nhat CV' : 'Ung tuyen thanh cong',
+    message: isExistingFile
+      ? 'CV nay da duoc tai len cho ho so ung tuyen. CV hien tai duoc giu nguyen.'
+      : 'CV cua ban da duoc kiem tra an toan va tiep nhan.',
     applicationId: response.applicationId,
+    similarity: response.similarity,
   };
 }
 
@@ -178,16 +194,31 @@ export function PublicJobApplyPage() {
         idempotencyKey,
       );
 
-      setResult(toSuccessResult(response));
-      setForm(INITIAL_FORM);
-      setCvFile(null);
-      setFieldErrors({});
+      const nextResult = toSuccessResult(response);
+      setResult(nextResult);
+      if (nextResult.type === 'success') {
+        setForm(INITIAL_FORM);
+        setCvFile(null);
+        setFieldErrors({});
+      }
       setIdempotencyKey(createIdempotencyKey());
     } catch (err) {
+      const similarity = getPublicCvSimilarityDetails(err);
+      const errorCode = getApiErrorCode(err);
+      const displayedSimilarity = similarity && errorCode === API_ERROR_CODES.DUPLICATE_CV_FILE
+        ? {
+          ...similarity,
+          score: 1,
+          scorePercent: 100,
+          decision: 'DUPLICATE_FOUND',
+          methodVersion: EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION,
+        }
+        : similarity;
       setResult({
         type: 'error',
         title: 'Chua the gui ho so',
         message: getPublicSafeErrorMessage(err),
+        ...(displayedSimilarity ? { similarity: displayedSimilarity } : {}),
       });
     } finally {
       setSubmitting(false);
@@ -261,6 +292,71 @@ export function PublicJobApplyPage() {
               <div className="space-y-1">
                 <h2 className="font-semibold">{result.title}</h2>
                 <p className="text-sm text-muted-foreground">{result.message}</p>
+                {result.similarity && (
+                  <div className={`mt-4 w-full min-w-0 space-y-3 rounded-md border bg-white/70 p-3 text-left ${
+                    (result.similarity.decision === 'PASSED'
+                      || result.similarity.methodVersion === NO_PREVIOUS_CV_METHOD_VERSION)
+                      ? 'border-green-200'
+                      : 'border-red-200'
+                  }`}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">
+                          {result.similarity.methodVersion === EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION
+                            ? 'Ket qua check trung file'
+                            : 'Ket qua check similarity'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Diem so:{' '}
+                          <strong>
+                            {result.similarity.methodVersion === NO_PREVIOUS_CV_METHOD_VERSION
+                              ? 'Chua ap dung'
+                              : `${result.similarity.scorePercent.toFixed(2)}%`}
+                          </strong>
+                          {' · '}Nguong chan: {result.similarity.thresholdPercent.toFixed(2)}%
+                        </p>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        (result.similarity.decision === 'PASSED'
+                          || result.similarity.methodVersion === NO_PREVIOUS_CV_METHOD_VERSION)
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}>
+                        {result.similarity.methodVersion === NO_PREVIOUS_CV_METHOD_VERSION
+                          ? 'CV dau tien - chua co baseline'
+                          : result.similarity.methodVersion === EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION
+                          ? 'File CV da ton tai'
+                          : result.similarity.decision === 'PASSED'
+                          ? 'CV du khac de cap nhat'
+                          : 'CV qua tuong dong'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Phuong phap: {result.similarity.methodVersion}
+                    </p>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <details open className="min-w-0 rounded border bg-slate-50 p-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-foreground">
+                          CV da nop truoc do
+                        </summary>
+                        <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+                          {result.similarity.oldTextPreview}
+                        </pre>
+                      </details>
+                      <details open className="min-w-0 rounded border bg-slate-50 p-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-foreground">
+                          CV vua tai len
+                        </summary>
+                        <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+                          {result.similarity.newTextPreview}
+                        </pre>
+                      </details>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Text da chuan hoa va loai thong tin dinh danh truoc khi so sanh.
+                    </p>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

@@ -519,6 +519,9 @@ export class CvParsingService {
       ? await manager.getRepository(ParsedProfileEntity)
         .createQueryBuilder('parsedProfile')
         .where('parsedProfile.normalizedTextHash = :normalizedTextHash', { normalizedTextHash })
+        .andWhere('parsedProfile.applicationId = :applicationId', {
+          applicationId: parsedProfile.applicationId,
+        })
         .andWhere('parsedProfile.id != :parsedProfileId', {
           parsedProfileId: parsedProfile.id,
         })
