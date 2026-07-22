@@ -9,6 +9,7 @@ export type ApiErrorCode =
   | 'CV_SANITIZE_FAILED'
   | 'CV_PARSE_FAILED'
   | 'DUPLICATE_APPLICATION'
+  | 'DUPLICATE_CV_CONTENT'
   | 'DUPLICATE_CV_FILE'
   | 'IDEMPOTENCY_CONFLICT'
   | 'INVALID_STATE_TRANSITION'
@@ -24,6 +25,19 @@ export interface ApiErrorLike {
   details?: unknown;
 }
 
+export interface PublicCvSimilarityDetails {
+  score: number;
+  scorePercent: number;
+  threshold: number;
+  thresholdPercent: number;
+  decision: string;
+  methodVersion: string;
+  oldTextPreview: string;
+  newTextPreview: string;
+  oldNormalizedTextHash?: string;
+  newNormalizedTextHash?: string;
+}
+
 export const API_ERROR_CODES = {
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   UNSUPPORTED_FILE_TYPE: 'UNSUPPORTED_FILE_TYPE',
@@ -35,6 +49,7 @@ export const API_ERROR_CODES = {
   CV_SANITIZE_FAILED: 'CV_SANITIZE_FAILED',
   CV_PARSE_FAILED: 'CV_PARSE_FAILED',
   DUPLICATE_APPLICATION: 'DUPLICATE_APPLICATION',
+  DUPLICATE_CV_CONTENT: 'DUPLICATE_CV_CONTENT',
   DUPLICATE_CV_FILE: 'DUPLICATE_CV_FILE',
   IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
@@ -59,6 +74,7 @@ const PUBLIC_SAFE_MESSAGES: Record<string, string> = {
   [API_ERROR_CODES.CV_SANITIZE_FAILED]: 'Hồ sơ đang cần được xử lý thêm.',
   [API_ERROR_CODES.CV_PARSE_FAILED]: 'Hồ sơ đang cần được xử lý thêm.',
   [API_ERROR_CODES.DUPLICATE_APPLICATION]: 'Hồ sơ ứng tuyển cho vị trí này đã tồn tại.',
+  [API_ERROR_CODES.DUPLICATE_CV_CONTENT]: 'CV quá tương đồng với CV đã nộp trước đó cho vị trí này.',
   [API_ERROR_CODES.DUPLICATE_CV_FILE]: 'CV này đã được tải lên cho hồ sơ ứng tuyển.',
   [API_ERROR_CODES.IDEMPOTENCY_CONFLICT]:
     'Yêu cầu gửi lại không khớp với lần gửi trước. Vui lòng thử lại.',
@@ -79,6 +95,7 @@ const INTERNAL_SAFE_MESSAGES: Record<string, string> = {
   [API_ERROR_CODES.CV_SANITIZE_FAILED]: 'Sanitize clean CV thất bại.',
   [API_ERROR_CODES.CV_PARSE_FAILED]: 'Parse clean CV thất bại hoặc text rỗng.',
   [API_ERROR_CODES.DUPLICATE_APPLICATION]: 'Application đã tồn tại cho candidate/job posting.',
+  [API_ERROR_CODES.DUPLICATE_CV_CONTENT]: 'CV content similarity vượt ngưỡng cho phép.',
   [API_ERROR_CODES.DUPLICATE_CV_FILE]: 'CV file hash đã tồn tại cho application.',
   [API_ERROR_CODES.IDEMPOTENCY_CONFLICT]:
     'Idempotency key bị dùng lại với payload hoặc file khác.',
@@ -103,6 +120,63 @@ export function getApiErrorCode(error: unknown): string | undefined {
   }
 
   return undefined;
+}
+
+export function getPublicCvSimilarityDetails(
+  error: unknown,
+): PublicCvSimilarityDetails | null {
+  if (!isRecord(error) || !Array.isArray(error.details)) return null;
+
+  const firstDetail = error.details[0];
+  if (!isRecord(firstDetail) || !isRecord(firstDetail.similarity)) return null;
+
+  const similarity = firstDetail.similarity;
+  const score = toFiniteNumber(similarity.score);
+  const threshold = toFiniteNumber(similarity.threshold);
+  const oldTextPreview = typeof similarity.oldTextPreview === 'string'
+    ? similarity.oldTextPreview
+    : null;
+  const newTextPreview = typeof similarity.newTextPreview === 'string'
+    ? similarity.newTextPreview
+    : null;
+  const methodVersion = typeof similarity.methodVersion === 'string'
+    ? similarity.methodVersion
+    : null;
+
+  if (
+    score === null
+    || threshold === null
+    || oldTextPreview === null
+    || newTextPreview === null
+    || methodVersion === null
+  ) {
+    return null;
+  }
+
+  const scorePercent = toFiniteNumber(similarity.scorePercent) ?? score * 100;
+  const thresholdPercent = toFiniteNumber(similarity.thresholdPercent) ?? threshold * 100;
+
+  return {
+    score,
+    scorePercent,
+    threshold,
+    thresholdPercent,
+    decision: typeof similarity.decision === 'string' ? similarity.decision : 'DUPLICATE_FOUND',
+    methodVersion,
+    oldTextPreview,
+    newTextPreview,
+    ...(typeof similarity.oldNormalizedTextHash === 'string'
+      ? { oldNormalizedTextHash: similarity.oldNormalizedTextHash }
+      : {}),
+    ...(typeof similarity.newNormalizedTextHash === 'string'
+      ? { newNormalizedTextHash: similarity.newNormalizedTextHash }
+      : {}),
+  };
+}
+
+function toFiniteNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  return null;
 }
 
 export function getPublicSafeErrorMessage(error: unknown): string {

@@ -40,6 +40,15 @@ function readString(source: Record<string, unknown>, keys: string[]) {
   return '-';
 }
 
+function formatExperienceYears(source: Record<string, unknown>) {
+  const raw = source.experienceYears ?? source.totalYearsExperience;
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(value)) return '-';
+  if (value > 3 && value <= 3.5) return '3.5';
+  if (value > 3.5) return String(Math.ceil(value));
+  return String(value);
+}
+
 function readStringArray(source: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const value = source[key];
@@ -635,7 +644,7 @@ export function ParsedProfileView({
                 <DetailField label="Phone" value={readString(payload, ['phone', 'phoneNumber'])} />
                 <DetailField
                   label="Experience years"
-                  value={readString(payload, ['experienceYears', 'totalYearsExperience'])}
+                  value={formatExperienceYears(payload)}
                 />
                 <DetailField label="Level" value={readString(payload, ['level', 'seniority'])} />
                 <DetailField

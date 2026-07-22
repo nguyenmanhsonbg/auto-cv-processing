@@ -562,13 +562,15 @@ export function ApplicationDetailPage() {
   const isMissingQuestionSet = formDisplayStatus === 'MISSING_QUESTION_SET';
 
   const exportAiMatchPdf = useCallback(async () => {
-    const element = aiMatchPreviewDialogRef.current;
-    if (!element || pdfExporting) return;
+    if (pdfExporting) return;
 
     setPdfExporting(true);
     try {
       await exportAiMatchPreviewToPdf({
-        element,
+        profile: (parsedProfile?.parsedData ?? parsedProfile?.profile) as ParsedProfile | undefined,
+        mapping,
+        screening: aiScreening,
+        candidate,
         filename: `ai-match-preview-${candidate?.fullName ?? 'candidate'}.pdf`,
       });
       toast({
@@ -584,7 +586,7 @@ export function ApplicationDetailPage() {
     } finally {
       setPdfExporting(false);
     }
-  }, [candidate?.fullName, pdfExporting, toast]);
+  }, [aiScreening, candidate, mapping, parsedProfile, pdfExporting, toast]);
 
   if (!loading && !application && error) {
     return (

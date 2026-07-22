@@ -8,6 +8,7 @@ import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.e
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { CvParsingModule } from '../cv-parsing/cv-parsing.module';
 import { CvSanitizationModule } from '../cv-sanitization/cv-sanitization.module';
+import { FileParserModule } from '../file-parser/file-parser.module';
 import { WorkflowStateModule } from '../workflow-state/workflow-state.module';
 import { CvDocumentsController } from './cv-documents.controller';
 import { CvDocumentsService } from './cv-documents.service';
@@ -31,6 +32,7 @@ const allowedCvUploadExtensions = new Set(['.pdf', '.docx', '.xlsx']);
     ]),
     CvParsingModule,
     CvSanitizationModule,
+    FileParserModule,
     WorkflowStateModule,
     MulterModule.register({
       storage: diskStorage({
