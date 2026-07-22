@@ -154,9 +154,9 @@ function createController(): AmisSourceColumnController {
     const response = await requestSourceData(recruitmentId);
     if (disposed || sequence !== requestSequence || recruitmentId !== activeRecruitmentId) return;
 
-    sourceLookup = response?.ok && response.amisRecruitmentId === recruitmentId
-      ? buildSourceLookup(response.items)
-      : createEmptyLookup();
+    if (response?.ok && response.amisRecruitmentId === recruitmentId) {
+      sourceLookup = buildSourceLookup(response.items);
+    }
     scheduleReconcile();
   }
 
@@ -172,7 +172,6 @@ function createController(): AmisSourceColumnController {
     const grid = findCandidateGrid();
     if (!grid) {
       detachGridScrollListener();
-      removeInjectedSourceColumnElements();
       return;
     }
 
@@ -226,7 +225,6 @@ function findCandidateGrid() {
 }
 
 function renderSourceColumn(grid: HTMLElement, sourceLookup: SourceLookup) {
-  removeInjectedSourceColumnElements();
   ensureSourceColumnStyles();
 
   const tables = findCandidateGridTables(grid);
@@ -295,13 +293,18 @@ function addSourceColumnToTable(
     : -1;
   const colGroup = table.querySelector<HTMLElement>('colgroup');
   if (colGroup) {
-    const sourceCol = document.createElement('col');
-    sourceCol.setAttribute(SOURCE_COLUMN_LAYER_ATTRIBUTE, 'true');
-    sourceCol.style.width = `${SOURCE_COLUMN_WIDTH_PX}px`;
+    const sourceCol = ensureSingleInjectedElement(
+      colGroup,
+      'col',
+      () => document.createElement('col'),
+    );
+    if (sourceCol.style.width !== `${SOURCE_COLUMN_WIDTH_PX}px`) {
+      sourceCol.style.width = `${SOURCE_COLUMN_WIDTH_PX}px`;
+    }
     const insertIndex = isFixedTable
       ? Math.max(0, colGroup.children.length - 1)
       : actionColumnIndex >= 0 ? actionColumnIndex : colGroup.children.length;
-    colGroup.insertBefore(sourceCol, colGroup.children[insertIndex] ?? null);
+    insertElementAtPosition(colGroup, sourceCol, colGroup.children[insertIndex] ?? null);
   }
 
   if (isFixedTable) {
@@ -309,34 +312,74 @@ function addSourceColumnToTable(
     return;
   }
 
-  if (expandedScrollableTableWidth !== null) {
-    setScrollableTableWidth(table, expandedScrollableTableWidth);
-  }
+  configureScrollableTableWidth(table, expandedScrollableTableWidth);
 
   if (tablePart === 'header' && headerRow) {
-    const sourceHeader = document.createElement('td');
-    sourceHeader.className = 'vcs-amis-source-column-header dx-cell-focus-disabled';
-    sourceHeader.setAttribute(SOURCE_COLUMN_LAYER_ATTRIBUTE, 'true');
+    const sourceHeader = ensureSingleInjectedElement(
+      headerRow,
+      'td',
+      () => {
+        const cell = document.createElement('td');
+        cell.className = 'vcs-amis-source-column-header dx-cell-focus-disabled';
+        return cell;
+      },
+    );
     sourceHeader.setAttribute('role', 'columnheader');
     sourceHeader.setAttribute('aria-label', 'Cột Nguồn');
     sourceHeader.setAttribute('aria-colindex', getSourceColumnAriaIndex(actionCell));
-    sourceHeader.textContent = 'Nguồn';
+    if (sourceHeader.textContent !== 'Nguồn') sourceHeader.textContent = 'Nguồn';
     insertBeforeActionCell(headerRow, sourceHeader);
     return;
   }
 
   for (const row of getBodyRows(table)) {
-    const sourceCell = document.createElement('td');
-    sourceCell.className = 'vcs-amis-source-column-cell';
-    sourceCell.setAttribute(SOURCE_COLUMN_LAYER_ATTRIBUTE, 'true');
+    const sourceCell = ensureSingleInjectedElement(
+      row,
+      'td',
+      () => {
+        const cell = document.createElement('td');
+        cell.className = 'vcs-amis-source-column-cell';
+        return cell;
+      },
+    );
     sourceCell.setAttribute('role', 'gridcell');
     sourceCell.setAttribute('aria-colindex', getSourceColumnAriaIndex(actionCell));
     sourceCell.setAttribute('aria-rowindex', row.getAttribute('aria-rowindex') ?? '');
-    sourceCell.textContent = row.matches('.dx-data-row')
+    const sourceText = row.matches('.dx-data-row')
       ? sourceByRowIndex.get(row.getAttribute('aria-rowindex') ?? '') ?? ''
       : '';
+    if (sourceCell.textContent !== sourceText) sourceCell.textContent = sourceText;
     insertBeforeActionCell(row, sourceCell);
   }
+}
+
+function ensureSingleInjectedElement<T extends HTMLElement>(
+  parent: HTMLElement,
+  tagName: string,
+  createElement: () => T,
+) {
+  const injectedElements = Array.from(parent.children)
+    .filter((element): element is T => (
+      element.tagName.toLowerCase() === tagName
+      && element.getAttribute(SOURCE_COLUMN_LAYER_ATTRIBUTE) === 'true'
+    ));
+  const element = injectedElements.shift() ?? createElement();
+  element.setAttribute(SOURCE_COLUMN_LAYER_ATTRIBUTE, 'true');
+  injectedElements.forEach((duplicate) => duplicate.remove());
+  return element;
+}
+
+function insertElementAtPosition(
+  parent: HTMLElement,
+  element: HTMLElement,
+  reference: Element | null,
+) {
+  if (reference === element) return;
+  if (reference) {
+    if (element.nextElementSibling !== reference) parent.insertBefore(element, reference);
+    return;
+  }
+  if (element.parentElement !== parent || element.nextElementSibling !== null) parent.appendChild(element);
 }
 
 function expandFixedTableSpans(table: HTMLTableElement) {
@@ -358,6 +401,24 @@ function measureTableWidth(table: HTMLTableElement) {
 }
 
 function getExpandedScrollableTableWidth(table: HTMLTableElement) {
+  const widthState = table.getAttribute(SOURCE_COLUMN_TABLE_WIDTH_ATTRIBUTE);
+  if (widthState !== null) {
+    try {
+      const parsedState = JSON.parse(widthState) as { expandedWidth?: unknown };
+      return typeof parsedState.expandedWidth === 'number'
+        && Number.isFinite(parsedState.expandedWidth)
+        ? parsedState.expandedWidth
+        : null;
+    } catch {
+      const configuredWidth = /^\d+(?:\.\d+)?px$/.test(table.style.width)
+        ? Number.parseFloat(table.style.width)
+        : Number.NaN;
+      return Number.isFinite(configuredWidth) && configuredWidth > 0
+        ? configuredWidth
+        : null;
+    }
+  }
+
   const scrollContainer = table.closest<HTMLElement>('.dx-scrollable-container');
   const visibleWidth = scrollContainer?.clientWidth ?? table.parentElement?.clientWidth ?? 0;
   const currentWidth = measureTableWidth(table);
@@ -367,16 +428,22 @@ function getExpandedScrollableTableWidth(table: HTMLTableElement) {
     : null;
 }
 
-function setScrollableTableWidth(table: HTMLTableElement, expandedWidth: number) {
-  if (!table.hasAttribute(SOURCE_COLUMN_TABLE_WIDTH_ATTRIBUTE)) {
-    table.setAttribute(SOURCE_COLUMN_TABLE_WIDTH_ATTRIBUTE, JSON.stringify({
-      width: table.style.width,
-      minWidth: table.style.minWidth,
-    }));
-  }
+function configureScrollableTableWidth(
+  table: HTMLTableElement,
+  expandedWidth: number | null,
+) {
+  if (table.hasAttribute(SOURCE_COLUMN_TABLE_WIDTH_ATTRIBUTE)) return;
 
-  table.style.width = `${expandedWidth}px`;
-  table.style.minWidth = `${expandedWidth}px`;
+  table.setAttribute(SOURCE_COLUMN_TABLE_WIDTH_ATTRIBUTE, JSON.stringify({
+    width: table.style.width,
+    minWidth: table.style.minWidth,
+    expandedWidth: expandedWidth ?? null,
+  }));
+
+  if (expandedWidth !== null) {
+    table.style.width = `${expandedWidth}px`;
+    table.style.minWidth = `${expandedWidth}px`;
+  }
 }
 
 function getDataRows(table: HTMLTableElement) {
@@ -391,7 +458,7 @@ function getBodyRows(table: HTMLTableElement) {
 
 function insertBeforeActionCell(row: HTMLTableRowElement, cell: HTMLTableCellElement) {
   const actionCell = row.querySelector<HTMLTableCellElement>('.dx-command-edit');
-  row.insertBefore(cell, actionCell ?? null);
+  insertElementAtPosition(row, cell, actionCell);
 }
 
 function getSourceColumnAriaIndex(actionCell: HTMLTableCellElement | null) {
@@ -463,6 +530,11 @@ function ensureSourceColumnStyles() {
 
 function isOwnMutation(mutation: MutationRecord) {
   if (mutation.type !== 'childList') return false;
+
+  if (
+    mutation.target instanceof Element
+    && mutation.target.closest(`[${SOURCE_COLUMN_LAYER_ATTRIBUTE}="true"]`)
+  ) return true;
 
   const nodes = [...Array.from(mutation.addedNodes), ...Array.from(mutation.removedNodes)];
   return nodes.length > 0 && nodes.every((node) => (

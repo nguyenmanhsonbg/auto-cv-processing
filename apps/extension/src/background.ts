@@ -873,9 +873,13 @@ async function handleAmisCareersCaptured(capture: AmisCareerCapture, _sender: Ch
   }
 }
 
-async function handleAmisApplicationsCaptured(capture: AmisApplicationsCapture, _sender: ChromeMessageSender) {
+async function handleAmisApplicationsCaptured(
+  capture: AmisApplicationsCapture,
+  sender: ChromeMessageSender,
+  options: { force?: boolean } = {},
+) {
   const signature = buildApplicationsSyncSignature(capture);
-  if (signature === lastApplicationsSyncSignature) {
+  if (!options.force && signature === lastApplicationsSyncSignature) {
     await appendAmisDiagnostic({
       type: 'APPLICATIONS_AUTO_SYNC_SKIPPED',
       pageUrl: capture.pageUrl,
@@ -935,7 +939,7 @@ async function handleAmisApplicationsCaptured(capture: AmisApplicationsCapture, 
       },
     });
 
-    void chrome.runtime?.sendMessage?.({
+    const syncedMessage = {
       type: AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE,
       payload: {
         amisRecruitmentId: result.amisRecruitmentId,
@@ -944,7 +948,12 @@ async function handleAmisApplicationsCaptured(capture: AmisApplicationsCapture, 
         createdCount: result.createdCount,
         updatedCount: result.updatedCount,
       },
-    });
+    };
+
+    void chrome.runtime?.sendMessage?.(syncedMessage);
+    if (sender.tab?.id !== undefined && chrome.tabs?.sendMessage) {
+      void chrome.tabs.sendMessage(sender.tab.id, syncedMessage).catch(() => undefined);
+    }
   } catch (error) {
     if (error instanceof ApiClientError && error.status === 401) {
       await clearAccessToken();
