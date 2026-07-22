@@ -13,6 +13,7 @@ import {
   claimNextExtensionTask,
   completeExtensionTask,
   failExtensionTask,
+  getAmisApplicationsForRecruitment,
   heartbeatExtensionInstance,
   reportExtensionTaskProgress,
   startExtensionTask,
@@ -21,6 +22,11 @@ import {
   syncAndPublishAmisJob,
   verifyFacebookGroup,
 } from './api-client';
+import {
+  AMIS_SOURCE_COLUMN_DATA_MESSAGE_TYPE,
+  type AmisSourceColumnDataRequest,
+  type AmisSourceColumnDataResponse,
+} from './amis-source-column-contract';
 import { clearAccessToken, getAccessToken } from './auth-store';
 import { getSelectedChannels } from './channel-preferences';
 import { EXTENSION_TASK_QUEUE_ENABLED, FACEBOOK_MAX_IMAGE_ATTACHMENTS } from './config';
@@ -99,6 +105,20 @@ scheduleExtensionTaskPolling();
 void runExtensionTaskPoll();
 
 chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
+  if (isAmisSourceColumnDataMessage(message)) {
+    void handleAmisSourceColumnData(message)
+      .then(sendResponse)
+      .catch((error: unknown) => {
+        sendResponse({
+          ok: false,
+          amisRecruitmentId: message.payload.amisRecruitmentId,
+          items: [],
+          error: error instanceof Error ? error.message : 'Could not load AMIS source column data.',
+        } satisfies AmisSourceColumnDataResponse);
+      });
+    return true;
+  }
+
   if (isAmisDiagnosticMessage(message)) {
     void appendAmisDiagnostic(message.payload);
     if (message.payload.type === 'BRIDGE_READY') {
@@ -940,6 +960,47 @@ async function handleAmisApplicationsCaptured(capture: AmisApplicationsCapture, 
   }
 }
 
+async function handleAmisSourceColumnData(
+  message: AmisSourceColumnDataRequest,
+): Promise<AmisSourceColumnDataResponse> {
+  const amisRecruitmentId = message.payload.amisRecruitmentId;
+  const accessToken = await getAccessToken();
+  if (!accessToken) {
+    return {
+      ok: false,
+      amisRecruitmentId,
+      items: [],
+      error: 'Authentication is required to load AMIS source data.',
+    };
+  }
+
+  try {
+    const context = await getAmisApplicationsForRecruitment(accessToken, amisRecruitmentId);
+    return {
+      ok: true,
+      amisRecruitmentId,
+      items: context.applications.map((application) => ({
+        applicationId: application.applicationId,
+        candidateName: application.candidateName,
+        email: application.email,
+        mobile: application.mobile,
+        sourceChannel: application.sourceChannel,
+      })),
+    };
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 401) {
+      await clearAccessToken();
+    }
+
+    return {
+      ok: false,
+      amisRecruitmentId,
+      items: [],
+      error: error instanceof Error ? error.message : 'Could not load AMIS source data.',
+    };
+  }
+}
+
 async function openPanel(sender: ChromeMessageSender) {
   try {
     if (sender.tab?.id !== undefined) {
@@ -1224,6 +1285,16 @@ function toExtensionErrorMessage(error: unknown, fallbackMessage: string) {
   }
 
   return fallbackMessage;
+}
+
+function isAmisSourceColumnDataMessage(value: unknown): value is AmisSourceColumnDataRequest {
+  if (typeof value !== 'object' || value === null) return false;
+  const payload = (value as { payload?: unknown }).payload;
+  return (value as { type?: unknown }).type === AMIS_SOURCE_COLUMN_DATA_MESSAGE_TYPE
+    && typeof payload === 'object'
+    && payload !== null
+    && typeof (payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string'
+    && /^\d+$/.test((payload as { amisRecruitmentId: string }).amisRecruitmentId);
 }
 
 function isAmisSavedMessage(value: unknown): value is {

@@ -30,6 +30,10 @@ export async function ensureAmisHooksInActiveTab(): Promise<AmisHookInstallResul
 
   await chrome.scripting.executeScript({
     target: { tabId: activeTab.id },
+    files: ['assets/amis-source-column.js'],
+  });
+  await chrome.scripting.executeScript({
+    target: { tabId: activeTab.id },
     files: ['assets/amis-bridge.js'],
   });
   await chrome.scripting.executeScript({

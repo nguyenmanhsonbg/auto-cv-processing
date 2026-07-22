@@ -33,6 +33,12 @@
     },
     {
       "matches": ["https://amisapp.misa.vn/*"],
+      "js": ["assets/amis-source-column.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://amisapp.misa.vn/*"],
       "js": ["assets/amis-bridge.js"],
       "run_at": "document_start",
       "all_frames": true
