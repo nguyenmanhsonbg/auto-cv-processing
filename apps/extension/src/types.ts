@@ -644,6 +644,7 @@ export interface AmisApplicationListItem {
   cvDocumentType: string | null;
   sourceChannel: string | null;
   externalApplicationId: string | null;
+  amisCandidateId: string | null;
   amisRecruitmentRoundId: string | null;
   amisRecruitmentRoundName: string | null;
   amisStatus: number | null;

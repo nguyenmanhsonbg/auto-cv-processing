@@ -10,6 +10,7 @@ export interface CreateApplicationSourceInput {
   channel?: RecruitmentChannel | null;
   externalLeadId?: string | null;
   externalApplicationId?: string | null;
+  amisCandidateId?: string | null;
   rawPayload?: Record<string, unknown> | null;
 }
 
@@ -77,6 +78,7 @@ export class ApplicationSourcesService {
       channel,
       externalLeadId: this.optionalText(input.externalLeadId),
       externalApplicationId,
+      amisCandidateId: this.optionalText(input.amisCandidateId),
       rawPayload: this.normalizeRawPayload(input.rawPayload),
     });
 

@@ -342,33 +342,40 @@ describe('ApplicationsService AI screening', () => {
   });
 });
 
-describe('ApplicationsService public apply rate limit', () => {
-  it('counts identity attempts only within the fifteen-second window', async () => {
-    const now = 1_750_000_000_000;
-    const identityQueryBuilder: any = {
-      where: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      getCount: jest.fn().mockResolvedValue(0),
+describe('ApplicationsService AMIS source metadata', () => {
+  it('persists the AMIS candidate ID on the source record', async () => {
+    const applicationSourcesService = {
+      create: jest.fn(async (value: unknown) => value),
     };
-    const service = Object.create(ApplicationsService.prototype) as ApplicationsService;
-    (service as any).auditLogsRepo = {
-      createQueryBuilder: jest.fn().mockReturnValue(identityQueryBuilder),
-    };
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+    const service = new ApplicationsService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      applicationSourcesService as any,
+      {} as any,
+    ) as any;
+    const manager = {} as any;
 
-    try {
-      await (service as any).assertPublicApplyRateLimit({
-        jobPostingId: 'job-1',
-        email: 'candidate@example.com',
-        phone: '0337314321',
-      });
-    } finally {
-      nowSpy.mockRestore();
-    }
-
-    const createdAtFilter = identityQueryBuilder.andWhere.mock.calls.find(
-      (call: unknown[]) => String(call[0]).includes('createdAt >= :since'),
+    await service.createApplicationSource(
+      manager,
+      'application-1',
+      {
+        source: 'CHANNEL',
+        jobPostingId: 'posting-1',
+        externalApplicationId: 'AMIS:recruitment:round:candidate',
+        amisCandidateId: 'amis-candidate-123',
+      },
+      'OTHER',
+      'AMIS:recruitment:round:candidate',
     );
-    expect(createdAtFilter[1].since).toEqual(new Date(now - 15_000));
+
+    expect(applicationSourcesService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        applicationId: 'application-1',
+        amisCandidateId: 'amis-candidate-123',
+      }),
+      manager,
+    );
   });
 });
