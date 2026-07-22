@@ -210,14 +210,16 @@ export function AiMatchPreviewPdf({ profile, mapping, screening, candidate }: Pd
   return <Document title={`AI Match - ${candidate?.fullName ?? 'Candidate'}`} author="VCS Interview Assistant">
     <Page size="A4" style={styles.page}>
       <Text style={styles.title}>AI Match Preview</Text>
-      <Text style={styles.subtitle}>{candidate?.fullName ?? data.name ?? 'Candidate'}</Text>
-
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>Candidate Information</Text>
-        <View style={styles.row}><Text style={styles.label}>Name</Text><Text style={styles.value}>{candidate?.fullName ?? data.name ?? '-'}</Text></View>
-        <View style={styles.row}><Text style={styles.label}>Email</Text><Text style={styles.value}>{candidate?.email ?? data.email ?? '-'}</Text></View>
-        <View style={styles.row}><Text style={styles.label}>Phone</Text><Text style={styles.value}>{candidate?.phone ?? data.phone ?? '-'}</Text></View>
-        <View style={styles.row}><Text style={styles.label}>Level</Text><Text style={styles.value}>{data.level ?? '-'}</Text></View>
+        <View style={styles.row}>
+          <View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Name</Text><Text style={styles.value}>{candidate?.fullName ?? data.name ?? '-'}</Text></View>
+          <View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Email</Text><Text style={styles.value}>{candidate?.email ?? data.email ?? '-'}</Text></View>
+        </View>
+        <View style={styles.row}>
+          <View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Phone</Text><Text style={styles.value}>{candidate?.phone ?? data.phone ?? '-'}</Text></View>
+          <View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Level</Text><Text style={styles.value}>{data.level ?? '-'}</Text></View>
+        </View>
       </View>
 
       <View style={styles.sectionCard} wrap={false}>
@@ -230,7 +232,7 @@ export function AiMatchPreviewPdf({ profile, mapping, screening, candidate }: Pd
       </View>
 
       <View style={styles.sectionCard}>
-        <View wrap={false}>
+        <View>
           <Text style={styles.sectionTitle}>Work Experience</Text>
           {workExperience[0] ? <WorkCard entry={workExperience[0]} companyType={companyTypeByName[workExperience[0].company]} /> : <Text style={styles.muted}>No work experience extracted.</Text>}
         </View>
