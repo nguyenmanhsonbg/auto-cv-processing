@@ -3699,8 +3699,6 @@ function SidePanel() {
         {renderCareerQuestionPanel()}
         {renderChannelPanel()}
 
-        {missingFields.length > 0 ? <p className="warning-text">Missing: {missingFields.join(', ')}</p> : null}
-
         <button
           type="button"
           className="primary-button sync-button"
