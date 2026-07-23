@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
 import { getLastAmisCapture } from './amis-capture-store';
-import { getAmisDiagnostics } from './amis-diagnostics-store';
 import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
 import {
   ApiClientError,
@@ -68,7 +67,6 @@ import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from 
 import { createMockAmisSyncRequest } from './mock-amis';
 import { clearSelectedJobQuestionContextForTab, saveSelectedJobQuestionContext } from './selected-job-question-store';
 import type {
-  AmisDiagnosticEvent,
   AmisAutoSyncState,
   AmisApplicationsForRecruitment,
   AmisApplicationItem,
@@ -301,7 +299,6 @@ function SidePanel() {
   const [result, setResult] = useState<ExtensionSyncResponse | null>(null);
   const [extractionResult, setExtractionResult] = useState<AmisExtractionResult | null>(null);
   const [autoSyncState, setAutoSyncState] = useState<AmisAutoSyncState | null>(null);
-  const [diagnostics, setDiagnostics] = useState<AmisDiagnosticEvent[]>([]);
   const [facebookProgress, setFacebookProgress] = useState<FacebookPublishProgress | null>(null);
   const [facebookRunning, setFacebookRunning] = useState(false);
   const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
@@ -471,11 +468,6 @@ function SidePanel() {
     chrome.runtime?.onMessage.addListener((message, sender) => {
       if (isAutoSyncUpdateMessage(message)) {
         void applyAutoSyncUpdateMessage(message.payload);
-        return;
-      }
-
-      if (isDiagnosticUpdateMessage(message)) {
-        setDiagnostics(message.payload);
         return;
       }
 
@@ -1941,21 +1933,18 @@ function SidePanel() {
   }
 
   async function bootstrapAmisTab() {
-    await loadDiagnostics();
+    await ensureAmisHooksForCurrentTab();
     const capture = await getLastAmisCapture();
     if (!capture) {
       await extractFromCurrentTab({ silent: true });
     }
   }
 
-  async function loadDiagnostics(options: { ensureHooks?: boolean } = {}) {
-    if (options.ensureHooks !== false) {
-      const result = await ensureAmisHooksInActiveTab().catch(() => null);
-      if (result?.status === 'INJECTED') {
-        await sleep(250);
-      }
+  async function ensureAmisHooksForCurrentTab() {
+    const result = await ensureAmisHooksInActiveTab().catch(() => null);
+    if (result?.status === 'INJECTED') {
+      await sleep(250);
     }
-    setDiagnostics(await getAmisDiagnostics());
   }
 
   async function restoreFacebookProgress() {
@@ -4840,29 +4829,6 @@ function SidePanel() {
   function renderRuntimePanels() {
     return (
       <>
-        <section className="capture-panel">
-          <div className="status-row">
-            <span>AMIS diagnostics</span>
-            <strong>{diagnostics.length > 0 ? diagnostics[diagnostics.length - 1]?.type : 'NO_EVENTS'}</strong>
-          </div>
-          {diagnostics.length > 0 ? (
-            <ul className="diagnostic-list">
-              {diagnostics.slice(-6).reverse().map((event, index) => (
-                <li key={`${event.timestamp}-${event.type}-${index}`}>
-                  <strong>{event.type}</strong>
-                  <span>{formatDiagnosticTime(event.timestamp)}</span>
-                  {event.requestUrl ? <small>{event.requestUrl}</small> : null}
-                  {event.details ? <small>{formatDiagnosticDetails(event.details)}</small> : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="muted-text">
-              No content-script event from AMIS yet. Reload the AMIS tab after reloading the extension.
-            </p>
-          )}
-        </section>
-
         {autoSyncState ? (
           <section className="capture-panel">
             <div className="status-row">
@@ -4918,34 +4884,6 @@ function SidePanel() {
                     <small>{item.message}</small>
                   </li>
                 ))}
-              </ul>
-            ) : null}
-          </section>
-        ) : null}
-
-        {extractionResult ? (
-          <section className="capture-panel">
-            <div className="status-row">
-              <span>{extractionResult.status}</span>
-              <strong>{extractionResult.confidence}</strong>
-            </div>
-            <dl>
-              <div>
-                <dt>Source</dt>
-                <dd>{extractionResult.source}</dd>
-              </div>
-              <div>
-                <dt>URL</dt>
-                <dd>{extractionResult.url}</dd>
-              </div>
-              <div>
-                <dt>Markers</dt>
-                <dd>{extractionResult.evidence.markers.join(', ') || 'None'}</dd>
-              </div>
-            </dl>
-            {extractionResult.warnings.length > 0 ? (
-              <ul className="warning-list">
-                {extractionResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}
               </ul>
             ) : null}
           </section>
@@ -7019,16 +6957,6 @@ function isAutoSyncUpdateMessage(value: unknown): value is {
     && typeof (value as { payload?: { status?: unknown } }).payload?.status === 'string';
 }
 
-function isDiagnosticUpdateMessage(value: unknown): value is {
-  type: 'AMIS_DIAGNOSTIC_UPDATED';
-  payload: AmisDiagnosticEvent[];
-} {
-  return typeof value === 'object'
-    && value !== null
-    && (value as { type?: unknown }).type === 'AMIS_DIAGNOSTIC_UPDATED'
-    && Array.isArray((value as { payload?: unknown }).payload);
-}
-
 function isRecruitmentContextChangedMessage(value: unknown): value is {
   type: typeof RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE;
   payload: {
@@ -7161,15 +7089,6 @@ function formatAmisCandidateSourceSelectionFailure(value: unknown) {
     : '';
   const sources = visibleSources ? ` Nguồn đã thấy: ${visibleSources}.` : '';
   return `${code} ${value.error ?? 'Hãy chọn nguồn này trên AMIS trước khi lưu.'}${details}${sources}`;
-}
-
-function formatDiagnosticTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString();
-}
-
-function formatDiagnosticDetails(details: Record<string, unknown>) {
-  return JSON.stringify(details).slice(0, 240);
 }
 
 function summarizeText(value: string | undefined) {
