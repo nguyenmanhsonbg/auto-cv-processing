@@ -55,6 +55,8 @@ export class ApiClientError extends Error {
   }
 }
 
+const SHOULD_BYPASS_NGROK_WARNING = getApiHost().includes('ngrok');
+
 export async function login(email: string, password: string) {
   return request<{ accessToken: string; refreshToken: string; user: ExtensionUser }>('/auth/login', {
     method: 'POST',
@@ -634,10 +636,19 @@ async function buildJsonHeaders(
   const extensionInstanceId = skipExtensionInstanceHeader ? null : await getExtensionInstanceId();
   return {
     'Content-Type': 'application/json',
+    ...(SHOULD_BYPASS_NGROK_WARNING ? { 'ngrok-skip-browser-warning': 'true' } : {}),
     ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     ...(extensionInstanceId ? { 'X-Extension-Instance-Id': extensionInstanceId } : {}),
     ...headers,
   };
+}
+
+function getApiHost() {
+  try {
+    return new URL(BE_API_BASE_URL).hostname;
+  } catch {
+    return '';
+  }
 }
 
 function shouldAttemptRefresh(path: string) {
