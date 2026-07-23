@@ -59,6 +59,11 @@ export class SyncAmisApplicationItemDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsNumber()
+  recruitmentChannelId?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   channelName?: string;
 
@@ -215,9 +220,6 @@ export class AmisApplicationListItemDto {
 
   @ApiPropertyOptional()
   externalApplicationId: string | null;
-
-  @ApiPropertyOptional()
-  amisCandidateId: string | null;
 
   @ApiPropertyOptional()
   amisRecruitmentRoundId: string | null;

@@ -87,7 +87,11 @@ interface ChromeTabs {
   update(tabId: number, updateProperties: { url?: string; active?: boolean }): Promise<ChromeTab>;
   get(tabId: number): Promise<ChromeTab>;
   remove(tabId: number): Promise<void>;
-  sendMessage?(tabId: number, message: unknown): Promise<unknown>;
+  sendMessage?(
+    tabId: number,
+    message: unknown,
+    options?: { documentId?: string; frameId?: number },
+  ): Promise<unknown>;
 }
 
 interface ChromeWindow {
