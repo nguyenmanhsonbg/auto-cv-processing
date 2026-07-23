@@ -154,6 +154,10 @@ export interface CreateAmisCareerQuestionRequest {
   scoringGuide?: string;
 }
 
+export interface UpdateJobDescriptionQuestionSetItemRequest {
+  text: string;
+}
+
 export interface AmisSelectedCareerResult {
   ok: boolean;
   careerName?: string;

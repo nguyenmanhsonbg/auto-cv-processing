@@ -26,6 +26,7 @@ import {
   syncAndPublishAmisJob,
   syncFacebookGroups,
   syncVcsPortalJobDescriptions,
+  updateJobDescriptionQuestionSetItem,
   updateFacebookGroup,
   updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
@@ -98,11 +99,15 @@ import './styles.css';
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
+type CareerQuestionEditState = 'IDLE' | 'SAVING' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv';
 type CvWorkspaceView = 'overview' | 'list';
 type CvStatusFilter = 'ALL' | 'PASSED' | 'REVIEW' | 'FAILED';
-type CvSyncFilter = 'ALL' | 'SYNCED' | 'NOT_SYNCED' | 'ERROR';
+type CvSyncFilter = 'ALL' | 'AMIS_SYNCED' | 'AMIS_NOT_SYNCED' | 'EVALUATION_UPLOADED' | 'EVALUATION_NOT_UPLOADED';
+type CvSyncStatusBucket = 'SYNCED' | 'NOT_SYNCED' | 'ERROR';
 type CvSortMode = 'SCORE_DESC' | 'SCORE_ASC' | 'APPLIED_DESC' | 'APPLIED_ASC';
+type CvSourceFilter = 'ALL' | 'FACEBOOK' | 'VCS_PORTAL' | 'FREELANCER' | 'INTERNAL';
+type CvFilterDropdownKey = 'SYNC' | 'SORT' | 'SOURCE';
 type FacebookPostHistoryFilter = 'ALL' | FacebookReviewStatus;
 type FacebookPostHistoryLoadState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type FacebookContentState = 'IDLE' | 'GENERATING' | 'READY' | 'ERROR';
@@ -234,23 +239,25 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'cv', label: 'CV' },
 ];
 const CV_APPLICATION_PAGE_SIZE = 5;
-const CV_STATUS_FILTER_OPTIONS: Array<{ value: CvStatusFilter; label: string }> = [
-  { value: 'ALL', label: 'Tất cả' },
-  { value: 'PASSED', label: 'Đạt yêu cầu' },
-  { value: 'REVIEW', label: 'Cần xem xét' },
-  { value: 'FAILED', label: 'Không đạt' },
-];
 const CV_SYNC_FILTER_OPTIONS: Array<{ value: CvSyncFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả' },
-  { value: 'SYNCED', label: 'Đã đồng bộ' },
-  { value: 'NOT_SYNCED', label: 'Chưa đồng bộ' },
-  { value: 'ERROR', label: 'Lỗi đồng bộ' },
+  { value: 'AMIS_NOT_SYNCED', label: 'Chưa đồng bộ AMIS' },
+  { value: 'AMIS_SYNCED', label: 'Đã đồng bộ AMIS' },
+  { value: 'EVALUATION_NOT_UPLOADED', label: 'Chưa tải lên file đánh giá' },
+  { value: 'EVALUATION_UPLOADED', label: 'Đã tải lên file đánh giá' },
 ];
 const CV_SORT_OPTIONS: Array<{ value: CvSortMode; label: string }> = [
-  { value: 'SCORE_DESC', label: 'Điểm tham chiếu cao' },
-  { value: 'SCORE_ASC', label: 'Điểm tham chiếu thấp' },
-  { value: 'APPLIED_DESC', label: 'Mới ứng tuyển' },
-  { value: 'APPLIED_ASC', label: 'Ứng tuyển cũ nhất' },
+  { value: 'APPLIED_DESC', label: 'Mới nhất' },
+  { value: 'APPLIED_ASC', label: 'Cũ nhất' },
+  { value: 'SCORE_DESC', label: 'Điểm cao đến thấp' },
+  { value: 'SCORE_ASC', label: 'Điểm thấp đến cao' },
+];
+const CV_SOURCE_FILTER_OPTIONS: Array<{ value: CvSourceFilter; label: string }> = [
+  { value: 'ALL', label: 'Tất cả' },
+  { value: 'FACEBOOK', label: 'Facebook' },
+  { value: 'VCS_PORTAL', label: 'VCS Portal' },
+  { value: 'FREELANCER', label: 'Freelancer' },
+  { value: 'INTERNAL', label: 'Nội bộ' },
 ];
 const JOB_DESCRIPTION_STATUS_OPTIONS = [
   { value: 'ALL', label: 'Tất cả' },
@@ -261,6 +268,7 @@ const JOB_DESCRIPTION_STATUS_OPTIONS = [
 ];
 const FACEBOOK_HISTORY_PAGE_SIZE = 5;
 const FACEBOOK_HISTORY_REFRESH_BATCH_SIZE = 50;
+const FACEBOOK_GROUP_PAGE_SIZE = 5;
 const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'POSTED', label: 'Đã đăng' },
@@ -270,6 +278,61 @@ const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label:
 ];
 const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
 type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
+
+type CvFilterOption<Value extends string> = {
+  value: Value;
+  label: string;
+};
+
+function CvFilterDropdown<Value extends string>({
+  label,
+  value,
+  options,
+  isOpen,
+  onToggle,
+  onSelect,
+}: {
+  label: string;
+  value: Value;
+  options: CvFilterOption<Value>[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onSelect: (value: Value) => void;
+}) {
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? options[0]?.label ?? '';
+
+  return (
+    <div className={`cv-filter-dropdown${isOpen ? ' is-open' : ''}`}>
+      <span className="cv-filter-label">{label}</span>
+      <button
+        type="button"
+        className="cv-filter-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={onToggle}
+      >
+        <span>{selectedLabel}</span>
+        <ChevronDownIcon />
+      </button>
+      {isOpen ? (
+        <div className="cv-filter-menu" role="listbox" aria-label={label}>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className={`cv-filter-option${option.value === value ? ' is-selected' : ''}`}
+              onClick={() => onSelect(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const AMIS_CV_UPLOAD_CONFIRMATION_TIMEOUT_MS = 60_000;
 type ApplicationQuestionStatusCode = 'ANSWERED' | 'SENT' | 'OPENED' | 'EXPIRED' | 'NOT_SENT';
@@ -326,6 +389,7 @@ function SidePanel() {
   const [verifyingFacebookGroupIds, setVerifyingFacebookGroupIds] = useState<string[]>([]);
   const [queuedFacebookGroupIds, setQueuedFacebookGroupIds] = useState<string[]>([]);
   const [facebookGroupModalMode, setFacebookGroupModalMode] = useState<FacebookGroupModalMode>('SETTINGS');
+  const [facebookGroupPage, setFacebookGroupPage] = useState(1);
   const [selectedFacebookGroup, setSelectedFacebookGroup] = useState<FacebookPublishTarget | null>(null);
   const [selectedFacebookHistoryGroup, setSelectedFacebookHistoryGroup] = useState<FacebookHistoryGroup | null>(null);
   const [facebookHistoryFilter, setFacebookHistoryFilter] = useState<FacebookPostHistoryFilter>('ALL');
@@ -360,6 +424,10 @@ function SidePanel() {
   const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
   const [jobDescriptionQuestionContext, setJobDescriptionQuestionContext] = useState<JobDescriptionQuestionSetContext | null>(null);
   const [selectedJobQuestionIds, setSelectedJobQuestionIds] = useState<Set<string>>(new Set());
+  const [isCareerQuestionEditing, setIsCareerQuestionEditing] = useState(false);
+  const [careerQuestionEditState, setCareerQuestionEditState] = useState<CareerQuestionEditState>('IDLE');
+  const [careerQuestionEditMessage, setCareerQuestionEditMessage] = useState<string | null>(null);
+  const [careerQuestionDrafts, setCareerQuestionDrafts] = useState<Record<string, string>>({});
   const [applicationsState, setApplicationsState] = useState<ApplicationsState>('IDLE');
   const [applicationsContext, setApplicationsContext] = useState<AmisApplicationsForRecruitment | null>(null);
   const [activeAmisCandidateId, setActiveAmisCandidateId] = useState<string | null>(null);
@@ -369,9 +437,10 @@ function SidePanel() {
   const [aiEvaluationApplicationId, setAiEvaluationApplicationId] = useState<string | null>(null);
   const [aiScreeningApplicationId, setAiScreeningApplicationId] = useState<string | null>(null);
   const [selectedCvApplicationIds, setSelectedCvApplicationIds] = useState<Set<string>>(new Set());
-  const [cvStatusFilter, setCvStatusFilter] = useState<CvStatusFilter>('ALL');
   const [cvSyncFilter, setCvSyncFilter] = useState<CvSyncFilter>('ALL');
-  const [cvSortMode, setCvSortMode] = useState<CvSortMode>('SCORE_DESC');
+  const [cvSortMode, setCvSortMode] = useState<CvSortMode>('APPLIED_DESC');
+  const [cvSourceFilter, setCvSourceFilter] = useState<CvSourceFilter>('ALL');
+  const [openCvFilter, setOpenCvFilter] = useState<CvFilterDropdownKey | null>(null);
   const [cvApplicationPage, setCvApplicationPage] = useState(1);
   const lastJobQuestionContextIdRef = useRef<string | null>(null);
   const lastApplicationsFallbackSyncUrlRef = useRef<string | null>(null);
@@ -433,6 +502,19 @@ function SidePanel() {
   useEffect(() => {
     selectedFacebookGroupIdsRef.current = selectedFacebookGroupIds;
   }, [selectedFacebookGroupIds]);
+
+  useEffect(() => {
+    if (!openCvFilter) return undefined;
+
+    const closeWhenClickingOutside = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.cv-filter-dropdown')) {
+        setOpenCvFilter(null);
+      }
+    };
+
+    document.addEventListener('pointerdown', closeWhenClickingOutside);
+    return () => document.removeEventListener('pointerdown', closeWhenClickingOutside);
+  }, [openCvFilter]);
 
   useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
@@ -608,6 +690,24 @@ function SidePanel() {
     || hasFacebookImageAttachmentError
     || missingFields.length > 0;
   const validFacebookGroups = useMemo(() => facebookGroups, [facebookGroups]);
+  const facebookGroupPageCount = Math.max(1, Math.ceil(validFacebookGroups.length / FACEBOOK_GROUP_PAGE_SIZE));
+  const currentFacebookGroupPage = Math.min(facebookGroupPage, facebookGroupPageCount);
+  const facebookGroupPageItems = useMemo(() => {
+    const startIndex = (currentFacebookGroupPage - 1) * FACEBOOK_GROUP_PAGE_SIZE;
+    return validFacebookGroups.slice(startIndex, startIndex + FACEBOOK_GROUP_PAGE_SIZE);
+  }, [currentFacebookGroupPage, validFacebookGroups]);
+  const facebookGroupPaginationItems = buildCompactPaginationPages(
+    currentFacebookGroupPage,
+    facebookGroupPageCount,
+  );
+  const facebookGroupTotalItems = validFacebookGroups.length;
+  const facebookGroupVisibleStart = facebookGroupTotalItems === 0
+    ? 0
+    : ((currentFacebookGroupPage - 1) * FACEBOOK_GROUP_PAGE_SIZE) + 1;
+  const facebookGroupVisibleEnd = Math.min(
+    facebookGroupVisibleStart + facebookGroupPageItems.length - 1,
+    facebookGroupTotalItems,
+  );
   const visibleFacebookGroups = useMemo(() => {
     if (facebookGroups.length > 0) {
       return validFacebookGroups.map(toFacebookGroupUiItem);
@@ -1304,6 +1404,10 @@ function SidePanel() {
     setSelectedJobDescription(null);
     setJobDescriptionQuestionContext(null);
     setSelectedJobQuestionIds(new Set());
+    setIsCareerQuestionEditing(false);
+    setCareerQuestionEditState('IDLE');
+    setCareerQuestionEditMessage(null);
+    setCareerQuestionDrafts({});
     setCareerQuestionState('IDLE');
     setCareerQuestionMessage('Select a JD to view its synced question set.');
     setJobDescriptionFillState('IDLE');
@@ -1494,10 +1598,12 @@ function SidePanel() {
       if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
         throw new Error('Open the AMIS candidate documents tab first.');
       }
+
       const previewPdf = await requestAiMatchPreviewPdfFromFrontend(application.applicationId);
       if (previewPdf.length < 1000) {
         throw new Error('PDF đánh giá AI được tạo ra không hợp lệ hoặc đang rỗng.');
       }
+
       const response = await sendMessageToAmisTab(activeTab.id, {
         type: UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
         payload: {
@@ -1784,6 +1890,10 @@ function SidePanel() {
     options: { silent?: boolean; force?: boolean } = {},
   ) {
     if (!accessToken) return;
+    setIsCareerQuestionEditing(false);
+    setCareerQuestionEditState('IDLE');
+    setCareerQuestionEditMessage(null);
+    setCareerQuestionDrafts({});
     if (!jobDescription?.id) {
       lastJobQuestionContextIdRef.current = null;
       setJobDescriptionQuestionContext(null);
@@ -1825,6 +1935,88 @@ function SidePanel() {
         setCareerQuestionState('ERROR');
         setCareerQuestionMessage(toErrorMessage(err));
       }
+    }
+  }
+
+  function openCareerQuestionEditor() {
+    if (!jobDescriptionQuestionContext?.questions.length) return;
+
+    setCareerQuestionDrafts(Object.fromEntries(
+      jobDescriptionQuestionContext.questions.map((question) => [
+        question.questionSetItemId,
+        question.text,
+      ]),
+    ));
+    setCareerQuestionEditState('IDLE');
+    setCareerQuestionEditMessage(null);
+    setIsCareerQuestionEditing(true);
+  }
+
+  function closeCareerQuestionEditor() {
+    if (careerQuestionEditState === 'SAVING') return;
+
+    setCareerQuestionDrafts({});
+    setCareerQuestionEditState('IDLE');
+    setCareerQuestionEditMessage(null);
+    setIsCareerQuestionEditing(false);
+  }
+
+  async function saveCareerQuestionEdits(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token;
+    const jobDescription = selectedJobDescription;
+    const context = jobDescriptionQuestionContext;
+    if (!accessToken || !jobDescription || !context) return;
+
+    const invalidQuestion = context.questions.find((question) => {
+      const draft = careerQuestionDrafts[question.questionSetItemId] ?? question.text;
+      return !draft.trim();
+    });
+    if (invalidQuestion) {
+      setCareerQuestionEditState('ERROR');
+      setCareerQuestionEditMessage(`Câu ${context.questions.indexOf(invalidQuestion) + 1} không được để trống.`);
+      return;
+    }
+
+    const changes = context.questions
+      .map((question) => ({
+        question,
+        text: (careerQuestionDrafts[question.questionSetItemId] ?? question.text).trim(),
+      }))
+      .filter(({ question, text }) => text !== question.text.trim());
+
+    if (changes.length === 0) {
+      closeCareerQuestionEditor();
+      return;
+    }
+
+    setCareerQuestionEditState('SAVING');
+    setCareerQuestionEditMessage(null);
+
+    try {
+      await Promise.all(changes.map(({ question, text }) => updateJobDescriptionQuestionSetItem(
+        accessToken,
+        jobDescription.id,
+        question.questionSetItemId,
+        { text },
+      )));
+      await loadSelectedJobDescriptionQuestionSet(jobDescription, accessToken, { force: true });
+      setIsCareerQuestionEditing(false);
+      setCareerQuestionDrafts({});
+      setCareerQuestionEditState('IDLE');
+      setCareerQuestionEditMessage(null);
+      setCareerQuestionMessage('Đã cập nhật bộ câu hỏi.');
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+
+      setCareerQuestionEditState('ERROR');
+      setCareerQuestionEditMessage(toErrorMessage(err));
     }
   }
 
@@ -2364,6 +2556,7 @@ function SidePanel() {
 
     setIsFacebookSettingsOpen(true);
     setFacebookGroupModalMode('SETTINGS');
+    setFacebookGroupPage(1);
     setSelectedFacebookGroup(null);
     setIsFacebookGroupFormOpen(false);
     setFacebookSettingsMessage(null);
@@ -2409,6 +2602,7 @@ function SidePanel() {
   function closeFacebookGroupSettings() {
     setIsFacebookSettingsOpen(false);
     setFacebookGroupModalMode('SETTINGS');
+    setFacebookGroupPage(1);
     setSelectedFacebookGroup(null);
     setIsFacebookGroupFormOpen(false);
     setFacebookSettingsState('IDLE');
@@ -2419,6 +2613,26 @@ function SidePanel() {
     setEditFacebookGroupName('');
     setEditFacebookGroupUrl('');
     setEditFacebookGroupUrlError(null);
+  }
+
+  function openFacebookGroupCreateModal() {
+    setIsFacebookGroupFormOpen(true);
+    setFacebookGroupName('');
+    setFacebookGroupUrl('');
+    setFacebookGroupUrlError(null);
+    setFacebookSettingsMessage(null);
+    setFacebookSettingsState('READY');
+  }
+
+  function closeFacebookGroupCreateModal() {
+    if (facebookSettingsState === 'SAVING') return;
+
+    setIsFacebookGroupFormOpen(false);
+    setFacebookGroupName('');
+    setFacebookGroupUrl('');
+    setFacebookGroupUrlError(null);
+    setFacebookSettingsMessage(validFacebookGroups.length > 0 ? null : 'Chưa có nhóm Facebook nào.');
+    setFacebookSettingsState('READY');
   }
 
   function openFacebookPostHistory(group: FacebookHistoryGroup) {
@@ -2658,6 +2872,10 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
   }
 
+  function changeFacebookGroupPage(page: number) {
+    setFacebookGroupPage(Math.min(facebookGroupPageCount, Math.max(1, page)));
+  }
+
   function openEditFacebookGroup(group: FacebookPublishTarget) {
     if (!group.targetId) {
       setFacebookSettingsState('ERROR');
@@ -2871,6 +3089,7 @@ function SidePanel() {
       });
       const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token, facebookAccount?.id));
       setFacebookGroups(groups);
+      setFacebookGroupPage(1);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setFacebookGroupName('');
       setFacebookGroupUrl('');
@@ -2942,6 +3161,7 @@ function SidePanel() {
       });
       const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token, facebookAccount?.id));
       setFacebookGroups(groups);
+      setFacebookGroupPage(1);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setSelectedFacebookGroup(null);
       setEditFacebookGroupName('');
@@ -2984,6 +3204,7 @@ function SidePanel() {
       const deletedGroup = await deleteFacebookGroup(token, selectedFacebookGroup.targetId, facebookAccount?.id);
       const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token, facebookAccount?.id));
       setFacebookGroups(groups);
+      setFacebookGroupPage(1);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIds.filter((targetId) => (
         targetId !== selectedFacebookGroup.targetId
       )));
@@ -3368,6 +3589,92 @@ function SidePanel() {
               </button>
             </div>
           </div>
+        </section>
+      </div>
+    );
+  }
+
+  function renderFacebookGroupCreateModal() {
+    const isSaving = facebookSettingsState === 'SAVING';
+
+    return (
+      <div className="facebook-group-create-backdrop" role="presentation">
+        <section
+          className="facebook-group-create-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="facebook-group-create-title"
+        >
+          <header className="facebook-group-create-header">
+            <h2 id="facebook-group-create-title">Thêm nhóm Facebook mới</h2>
+            <button
+              type="button"
+              className="icon-button"
+              title="Đóng"
+              aria-label="Đóng form thêm nhóm Facebook"
+              disabled={isSaving}
+              onClick={closeFacebookGroupCreateModal}
+            >
+              <CloseIcon />
+            </button>
+          </header>
+
+          <form
+            className="facebook-group-form is-create"
+            onSubmit={(event) => void submitFacebookGroup(event)}
+          >
+            {facebookSettingsMessage ? (
+              <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
+                {facebookSettingsMessage}
+              </p>
+            ) : null}
+            <label>
+              Tên nhóm
+              <input
+                value={facebookGroupName}
+                maxLength={255}
+                placeholder="Ví dụ: Việc làm IT Đà Nẵng"
+                disabled={isSaving}
+                onChange={(event) => setFacebookGroupName(event.target.value)}
+              />
+            </label>
+            <label>
+              Link URL
+              <input
+                value={facebookGroupUrl}
+                maxLength={2048}
+                placeholder="https://facebook.com/groups/..."
+                disabled={isSaving}
+                aria-invalid={Boolean(facebookGroupUrlFieldError)}
+                onChange={(event) => {
+                  setFacebookGroupUrl(event.target.value);
+                  setFacebookGroupUrlError(null);
+                }}
+              />
+              {facebookGroupUrlFieldError ? (
+                <span className="field-error">{facebookGroupUrlFieldError}</span>
+              ) : null}
+              <small>Link trực tiếp đến trang chủ của nhóm Facebook.</small>
+            </label>
+            <div className="facebook-group-create-footer">
+              <button
+                type="button"
+                className="text-button"
+                disabled={isSaving}
+                onClick={closeFacebookGroupCreateModal}
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="primary-button compact-button"
+                disabled={isSaving || Boolean(facebookGroupUrlFieldError)}
+              >
+                <SaveIcon />
+                <span>{isSaving ? 'Đang lưu...' : 'Lưu'}</span>
+              </button>
+            </div>
+          </form>
         </section>
       </div>
     );
@@ -4502,7 +4809,14 @@ function SidePanel() {
         <div className="question-section-header">
           <h2>Bộ câu hỏi</h2>
           {selectedJobDescription ? (
-            <span className="question-auto-selected-badge">Tự động chọn tất cả</span>
+            <button
+              type="button"
+              className="question-edit-button"
+              onClick={isCareerQuestionEditing ? closeCareerQuestionEditor : openCareerQuestionEditor}
+              disabled={!jobDescriptionQuestionContext?.questions.length || careerQuestionEditState === 'SAVING'}
+            >
+              {isCareerQuestionEditing ? 'Đóng chỉnh sửa' : 'Chỉnh sửa bộ câu hỏi'}
+            </button>
           ) : null}
         </div>
 
@@ -4520,8 +4834,55 @@ function SidePanel() {
           {jobDescriptionQuestionContext ? (
             <>
               {jobDescriptionQuestionContext.questions.length > 0 ? (
-                <ul className="career-question-list">
-                  {jobDescriptionQuestionContext.questions.map((question, index) => (
+                isCareerQuestionEditing ? (
+                  <form className="career-question-editor" onSubmit={(event) => void saveCareerQuestionEdits(event)}>
+                    {jobDescriptionQuestionContext.questions.map((question, index) => (
+                      <div className="career-question-editor-field" key={question.questionSetItemId}>
+                        <label
+                          className="career-question-editor-label"
+                          htmlFor={`career-question-${question.questionSetItemId}`}
+                        >
+                          Câu {index + 1}
+                        </label>
+                        <textarea
+                          id={`career-question-${question.questionSetItemId}`}
+                          className="career-question-editor-input"
+                          value={careerQuestionDrafts[question.questionSetItemId] ?? question.text}
+                          onChange={(event) => setCareerQuestionDrafts((current) => ({
+                            ...current,
+                            [question.questionSetItemId]: event.target.value,
+                          }))}
+                          disabled={careerQuestionEditState === 'SAVING'}
+                          rows={3}
+                        />
+                      </div>
+                    ))}
+                    {careerQuestionEditMessage ? (
+                      <p className={careerQuestionEditState === 'ERROR' ? 'error-text' : 'muted-text'}>
+                        {careerQuestionEditMessage}
+                      </p>
+                    ) : null}
+                    <div className="career-question-editor-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={closeCareerQuestionEditor}
+                        disabled={careerQuestionEditState === 'SAVING'}
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="submit"
+                        className="primary-button"
+                        disabled={careerQuestionEditState === 'SAVING'}
+                      >
+                        {careerQuestionEditState === 'SAVING' ? 'Đang lưu...' : 'Lưu bộ câu hỏi'}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <ul className="career-question-list">
+                    {jobDescriptionQuestionContext.questions.map((question, index) => (
                       <li key={question.id}>
                         <article className="career-question-card post-question-card">
                           <span className="career-question-card-body">
@@ -4532,8 +4893,9 @@ function SidePanel() {
                           </span>
                         </article>
                       </li>
-                  ))}
-                </ul>
+                    ))}
+                  </ul>
+                )
               ) : (
                 <p className="career-question-empty">JD này chưa có bộ câu hỏi đang hoạt động.</p>
               )}
@@ -4681,16 +5043,24 @@ function SidePanel() {
     const applicationsForCurrentAmisCandidate = activeAmisCandidateId
       ? applications.filter((application) => application.amisCandidateId === activeAmisCandidateId)
       : applications;
-    const filteredApplications = getVisibleCvApplications(applicationsForCurrentAmisCandidate, cvStatusFilter, cvSyncFilter, cvSortMode);
+    const filteredApplications = getVisibleCvApplications(
+      applicationsForCurrentAmisCandidate,
+      cvSyncFilter,
+      cvSourceFilter,
+      cvSortMode,
+    );
     const totalPages = Math.max(1, Math.ceil(filteredApplications.length / CV_APPLICATION_PAGE_SIZE));
     const currentPage = Math.min(cvApplicationPage, totalPages);
     const pageStartIndex = (currentPage - 1) * CV_APPLICATION_PAGE_SIZE;
     const pageApplications = filteredApplications.slice(pageStartIndex, pageStartIndex + CV_APPLICATION_PAGE_SIZE);
-    const selectedPageApplications = pageApplications.filter((application) => selectedCvApplicationIds.has(application.applicationId));
-    const selectedPageUploadableCount = selectedPageApplications.filter((application) =>
+    const selectedFilteredApplications = filteredApplications.filter((application) => selectedCvApplicationIds.has(application.applicationId));
+    const selectedFilteredUploadableCount = selectedFilteredApplications.filter((application) =>
       canUploadApplicationCv(application)
       && !pendingAmisUploadApplicationIds.has(application.applicationId),
     ).length;
+    const allFilteredApplicationsSelected = filteredApplications.length > 0
+      && selectedFilteredApplications.length === filteredApplications.length;
+    const someFilteredApplicationsSelected = selectedFilteredApplications.length > 0 && !allFilteredApplicationsSelected;
     const visibleStart = filteredApplications.length === 0 ? 0 : pageStartIndex + 1;
     const visibleEnd = Math.min(pageStartIndex + pageApplications.length, filteredApplications.length);
     const paginationPages = getPaginationPages(currentPage, totalPages);
@@ -4710,12 +5080,27 @@ function SidePanel() {
         </div>
 
         <div className="cv-list-toolbar">
-          <span>Danh sách ứng viên</span>
+          <div className="cv-list-toolbar-heading">
+            <span>Danh sách ứng viên</span>
+            <label className="cv-select-all-control">
+              <input
+                type="checkbox"
+                checked={allFilteredApplicationsSelected}
+                ref={(input) => {
+                  if (input) input.indeterminate = someFilteredApplicationsSelected;
+                }}
+                disabled={filteredApplications.length === 0}
+                aria-label="Chọn tất cả ứng viên"
+                onChange={() => toggleAllCvCandidateSelection(filteredApplications.map((application) => application.applicationId))}
+              />
+              <span>Chọn tất cả</span>
+            </label>
+          </div>
           <button
             type="button"
             className="cv-bulk-sync-button"
-            disabled={selectedPageUploadableCount === 0 || Boolean(cvUploadApplicationId)}
-            onClick={() => void uploadApplicationCvsToAmisForm(selectedPageApplications)}
+            disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId)}
+            onClick={() => void uploadApplicationCvsToAmisForm(selectedFilteredApplications)}
           >
             <RefreshIcon />
             {cvUploadApplicationId === 'BATCH' ? 'Đang đồng bộ...' : 'Đồng bộ hàng loạt'}
@@ -4723,48 +5108,42 @@ function SidePanel() {
         </div>
 
         <div className="cv-filter-control-grid">
-          <label>
-            <span>Trạng thái CV</span>
-            <select
-              value={cvStatusFilter}
-              onChange={(event) => {
-                setCvStatusFilter(event.target.value as CvStatusFilter);
-                setCvApplicationPage(1);
-              }}
-            >
-              {CV_STATUS_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Trạng thái đồng bộ</span>
-            <select
-              value={cvSyncFilter}
-              onChange={(event) => {
-                setCvSyncFilter(event.target.value as CvSyncFilter);
-                setCvApplicationPage(1);
-              }}
-            >
-              {CV_SYNC_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Sắp xếp</span>
-            <select
-              value={cvSortMode}
-              onChange={(event) => {
-                setCvSortMode(event.target.value as CvSortMode);
-                setCvApplicationPage(1);
-              }}
-            >
-              {CV_SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
+          <CvFilterDropdown
+            label="Trạng thái đồng bộ"
+            value={cvSyncFilter}
+            options={CV_SYNC_FILTER_OPTIONS}
+            isOpen={openCvFilter === 'SYNC'}
+            onToggle={() => setOpenCvFilter(openCvFilter === 'SYNC' ? null : 'SYNC')}
+            onSelect={(value) => {
+              setCvSyncFilter(value);
+              setCvApplicationPage(1);
+              setOpenCvFilter(null);
+            }}
+          />
+          <CvFilterDropdown
+            label="Sắp xếp"
+            value={cvSortMode}
+            options={CV_SORT_OPTIONS}
+            isOpen={openCvFilter === 'SORT'}
+            onToggle={() => setOpenCvFilter(openCvFilter === 'SORT' ? null : 'SORT')}
+            onSelect={(value) => {
+              setCvSortMode(value);
+              setCvApplicationPage(1);
+              setOpenCvFilter(null);
+            }}
+          />
+          <CvFilterDropdown
+            label="Nguồn"
+            value={cvSourceFilter}
+            options={CV_SOURCE_FILTER_OPTIONS}
+            isOpen={openCvFilter === 'SOURCE'}
+            onToggle={() => setOpenCvFilter(openCvFilter === 'SOURCE' ? null : 'SOURCE')}
+            onSelect={(value) => {
+              setCvSourceFilter(value);
+              setCvApplicationPage(1);
+              setOpenCvFilter(null);
+            }}
+          />
         </div>
 
         {applicationsMessage ? (
@@ -4778,19 +5157,15 @@ function SidePanel() {
         {pageApplications.length > 0 ? (
           <ul className="cv-candidate-list">
             {pageApplications.map((application) => {
-              const cvStatus = getApplicationCvDisplayStatus(application);
               const isAmisUploadPending = pendingAmisUploadApplicationIds.has(application.applicationId);
               const syncStatus = getApplicationAmisSyncStatus(application, isAmisUploadPending);
-              const questionStatus = getApplicationQuestionStatus(application);
-              const mappingStatus = getApplicationEvaluationStatus(application.mappingStatus);
-              const aiScreeningStatus = getApplicationEvaluationStatus(application.aiScreeningStatus);
-              const score = getApplicationMatchScore(application);
-              const scoreTone = getApplicationScoreTone(score);
-              const isSelected = selectedCvApplicationIds.has(application.applicationId);
-              const canSyncToAmis = canUploadApplicationCv(application);
+              const isAmisCvUploaded = Boolean(application.attachmentCvId || application.attachmentCvName);
               const aiScreeningDone = normalizeStatus(application.aiScreeningStatus) === 'DONE';
               const aiScreeningRunning = normalizeStatus(application.aiScreeningStatus) === 'REQUESTED'
                 || aiScreeningApplicationId === application.applicationId;
+              const score = aiScreeningDone ? getApplicationMatchScore(application) : null;
+              const isSelected = selectedCvApplicationIds.has(application.applicationId);
+              const canSyncToAmis = !isAmisCvUploaded && canUploadApplicationCv(application);
 
               return (
                 <li key={application.applicationId} className={isSelected ? 'is-selected' : ''}>
@@ -4808,66 +5183,65 @@ function SidePanel() {
                         <strong>{application.candidateName}</strong>
                         <span>{[application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact'}</span>
                       </div>
+                      {score != null ? <b className="cv-candidate-score">{score}</b> : null}
                     </div>
-                    <div className="cv-candidate-meta">
-                      <span>Source: {application.sourceChannel ?? 'Chưa xác định'}</span>
-                      <span>Applied: {formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-'}</span>
+                    <div className="cv-candidate-applied">
+                      <CalendarIcon />
+                      <span>
+                        Ngày ứng tuyển: <strong>{formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-'}</strong>
+                      </span>
                     </div>
-                    <div className="cv-candidate-status-grid">
-                      <span className={`cv-status-cell ${score != null ? 'cv-status-with-score' : ''} ${cvStatus.tone}`}>
-                        <small>Quét CV</small>
-                        <strong>{cvStatus.label}</strong>
-                        {score != null ? <b className={`cv-score-pill ${scoreTone}`}>{score}</b> : null}
-                      </span>
-                      <span className={`cv-status-cell ${questionStatus.tone}`}>
-                        <small>Câu hỏi</small>
-                        <strong>{questionStatus.label}</strong>
-                      </span>
-                      <span className={`cv-status-cell cv-ai-status-cell ${aiScreeningStatus.tone}`}>
-                        <small>Đánh giá AI</small>
-                        <strong>Mapping: {mappingStatus.label}</strong>
-                        <strong>AI: {aiScreeningStatus.label}</strong>
-                      </span>
-                      <span className={`cv-status-cell cv-sync-status-cell ${syncStatus.tone}`}>
-                        <small>Đồng bộ AMIS</small>
-                        <strong>{syncStatus.label}</strong>
-                      </span>
+                    <div className="cv-candidate-details">
+                      <div className="cv-candidate-detail">
+                        <small>Nguồn</small>
+                        <span className="cv-source-chip">{getCvSourceLabel(application)}</span>
+                      </div>
+                      <div className={`cv-candidate-detail cv-candidate-detail-status ${syncStatus.tone}`}>
+                        <small>Trạng thái</small>
+                        <strong>{getCvCardSyncLabel(syncStatus)}</strong>
+                      </div>
+                    </div>
+                    <div className="cv-candidate-note">
+                      <span>Ghi chú của CV</span>
+                      <p>CV này không có ghi chú nào.</p>
                     </div>
                     <div className="cv-candidate-footer">
-                      <button
-                        type="button"
-                        className="cv-sync-amis-button"
-                        disabled={aiScreeningDone || aiScreeningRunning || Boolean(aiScreeningApplicationId)}
-                        onClick={() => void runAiScreeningForApplication(application)}
-                      >
-                        {aiScreeningRunning
-                          ? 'Đang đánh giá...'
-                          : aiScreeningDone
-                            ? 'Đã đánh giá'
-                            : normalizeStatus(application.aiScreeningStatus) === 'FAILED'
-                              ? 'Thử lại'
-                              : 'Đánh giá AI'}
-                      </button>
-                      <button
-                        type="button"
-                        className="cv-sync-amis-button"
-                        disabled={!aiScreeningDone || Boolean(aiEvaluationApplicationId)}
-                        onClick={() => void uploadAiEvaluationToAmis(application)}
-                      >
-                        {aiEvaluationApplicationId === application.applicationId ? 'Đang tạo PDF...' : 'Tải đánh giá AI'}
-                      </button>
-                      <button
-                        type="button"
-                        className="cv-sync-amis-button"
-                        disabled={!canSyncToAmis || Boolean(cvUploadApplicationId)}
-                        onClick={() => void uploadApplicationCvToAmisForm(application)}
-                      >
-                        {cvUploadApplicationId === application.applicationId
-                          ? 'Đang đồng bộ...'
-                          : isAmisUploadPending
-                            ? 'Chờ AMIS lưu'
-                            : 'Đồng bộ AMIS'}
-                      </button>
+                      {!isAmisCvUploaded ? (
+                        <button
+                          type="button"
+                          className="cv-sync-amis-button"
+                          disabled={!canSyncToAmis || Boolean(cvUploadApplicationId)}
+                          onClick={() => void uploadApplicationCvToAmisForm(application)}
+                        >
+                          {cvUploadApplicationId === application.applicationId
+                            ? 'Đang đồng bộ...'
+                            : isAmisUploadPending
+                              ? 'Chờ AMIS lưu'
+                              : 'Đồng bộ'}
+                        </button>
+                      ) : null}
+                      {!aiScreeningDone ? (
+                        <button
+                          type="button"
+                          className="cv-sync-amis-button"
+                          disabled={aiScreeningRunning || Boolean(aiScreeningApplicationId)}
+                          onClick={() => void runAiScreeningForApplication(application)}
+                        >
+                          {aiScreeningRunning ? 'Đang đánh giá...' : 'Đánh giá AI'}
+                        </button>
+                      ) : null}
+                      {isAmisCvUploaded && aiScreeningDone ? (
+                        <button
+                          type="button"
+                          className="cv-sync-amis-button"
+                          disabled={Boolean(aiEvaluationApplicationId)}
+                          onClick={() => void uploadAiEvaluationToAmis(application)}
+                        >
+                          {aiEvaluationApplicationId === application.applicationId
+                            ? 'Đang tải lên...'
+                            : 'Tải file đánh giá lên AMIS'}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </li>
@@ -4927,6 +5301,22 @@ function SidePanel() {
       } else {
         next.add(applicationId);
       }
+      return next;
+    });
+  }
+
+  function toggleAllCvCandidateSelection(applicationIds: string[]) {
+    if (applicationIds.length === 0) return;
+
+    setSelectedCvApplicationIds((current) => {
+      const next = new Set(current);
+      const shouldSelectAll = applicationIds.some((applicationId) => !next.has(applicationId));
+
+      for (const applicationId of applicationIds) {
+        if (shouldSelectAll) next.add(applicationId);
+        else next.delete(applicationId);
+      }
+
       return next;
     });
   }
@@ -5094,12 +5484,7 @@ function SidePanel() {
                   <button
                     type="button"
                     className="secondary-button compact-button"
-                    onClick={() => {
-                      setIsFacebookGroupFormOpen(true);
-                      setFacebookGroupUrlError(null);
-                      setFacebookSettingsMessage(null);
-                      setFacebookSettingsState('READY');
-                    }}
+                    onClick={openFacebookGroupCreateModal}
                   >
                     Thêm nhóm mới
                   </button>
@@ -5116,8 +5501,8 @@ function SidePanel() {
                 <p className="muted-text">Đang tải danh sách nhóm từ backend...</p>
               ) : (
                 <div className="facebook-group-list">
-                  {validFacebookGroups.length > 0 ? (
-                    validFacebookGroups.map((group) => {
+                  {facebookGroupPageItems.length > 0 ? (
+                    facebookGroupPageItems.map((group) => {
                       const isGroupChecking = Boolean(group.targetId && verifyingFacebookGroupIds.includes(group.targetId));
                       const isGroupQueued = Boolean(group.targetId && queuedFacebookGroupIds.includes(group.targetId));
                       const groupStatusMessage = isGroupChecking
@@ -5206,12 +5591,7 @@ function SidePanel() {
                         <button
                           type="button"
                           className="primary-button compact-button"
-                          onClick={() => {
-                            setIsFacebookGroupFormOpen(true);
-                            setFacebookGroupUrlError(null);
-                            setFacebookSettingsMessage(null);
-                            setFacebookSettingsState('READY');
-                          }}
+                          onClick={openFacebookGroupCreateModal}
                         >
                           Thêm nhóm mới
                         </button>
@@ -5221,64 +5601,68 @@ function SidePanel() {
                 </div>
               )}
 
-              {isFacebookGroupFormOpen ? (
-                <form className="facebook-group-form" onSubmit={(event) => void submitFacebookGroup(event)}>
-                  <label>
-                    Tên nhóm
-                    <input
-                      value={facebookGroupName}
-                      maxLength={255}
-                      placeholder="Ví dụ: Việc làm IT Đà Nẵng"
-                      onChange={(event) => setFacebookGroupName(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Link URL
-                    <input
-                      value={facebookGroupUrl}
-                      maxLength={2048}
-                      placeholder="https://www.facebook.com/groups/..."
-                      aria-invalid={Boolean(facebookGroupUrlFieldError)}
-                      onChange={(event) => {
-                        setFacebookGroupUrl(event.target.value);
-                        setFacebookGroupUrlError(null);
-                      }}
-                    />
-                    {facebookGroupUrlFieldError ? (
-                      <span className="field-error">{facebookGroupUrlFieldError}</span>
-                    ) : null}
-                    <small>Link trực tiếp đến trang chủ của nhóm Facebook.</small>
-                  </label>
-                  <div className="form-actions">
+              {facebookGroupTotalItems > FACEBOOK_GROUP_PAGE_SIZE ? (
+                <div className="facebook-group-pagination">
+                  <span>
+                    Hiển thị <strong>{facebookGroupVisibleStart}</strong> đến <strong>{facebookGroupVisibleEnd}</strong> trong <strong>{facebookGroupTotalItems}</strong> nhóm
+                  </span>
+                  <div>
                     <button
                       type="button"
-                      className="text-button"
-                      disabled={facebookSettingsState === 'SAVING'}
-                      onClick={() => {
-                        setIsFacebookGroupFormOpen(false);
-                        setFacebookGroupUrlError(null);
-                        setFacebookSettingsMessage(validFacebookGroups.length > 0
-                          ? null
-                          : 'Chưa có nhóm Facebook nào.');
-                        setFacebookSettingsState('READY');
-                      }}
+                      title="Trang đầu"
+                      aria-label="Trang đầu danh sách nhóm Facebook"
+                      disabled={currentFacebookGroupPage <= 1 || facebookSettingsState === 'SAVING'}
+                      onClick={() => changeFacebookGroupPage(1)}
                     >
-                      Hủy
+                      <DoubleBackIcon />
                     </button>
                     <button
-                      type="submit"
-                      className="primary-button compact-button"
-                      disabled={facebookSettingsState === 'SAVING' || Boolean(facebookGroupUrlFieldError)}
+                      type="button"
+                      title="Trang trước"
+                      aria-label="Trang trước danh sách nhóm Facebook"
+                      disabled={currentFacebookGroupPage <= 1 || facebookSettingsState === 'SAVING'}
+                      onClick={() => changeFacebookGroupPage(currentFacebookGroupPage - 1)}
                     >
-                      <SaveIcon />
-                      <span>{facebookSettingsState === 'SAVING' ? 'Đang thêm...' : 'Thêm mới'}</span>
+                      <BackIcon />
+                    </button>
+                    {facebookGroupPaginationItems.map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        className={page === currentFacebookGroupPage ? 'is-active' : undefined}
+                        aria-current={page === currentFacebookGroupPage ? 'page' : undefined}
+                        disabled={facebookSettingsState === 'SAVING'}
+                        onClick={() => changeFacebookGroupPage(page)}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      title="Trang sau"
+                      aria-label="Trang sau danh sách nhóm Facebook"
+                      disabled={currentFacebookGroupPage >= facebookGroupPageCount || facebookSettingsState === 'SAVING'}
+                      onClick={() => changeFacebookGroupPage(currentFacebookGroupPage + 1)}
+                    >
+                      <ChevronRightIcon />
+                    </button>
+                    <button
+                      type="button"
+                      title="Trang cuối"
+                      aria-label="Trang cuối danh sách nhóm Facebook"
+                      disabled={currentFacebookGroupPage >= facebookGroupPageCount || facebookSettingsState === 'SAVING'}
+                      onClick={() => changeFacebookGroupPage(facebookGroupPageCount)}
+                    >
+                      <DoubleChevronRightIcon />
                     </button>
                   </div>
-                </form>
+                </div>
               ) : null}
+
             </div>
             </section>
           ) : null}
+          {isFacebookGroupFormOpen ? renderFacebookGroupCreateModal() : null}
           {facebookGroupModalMode === 'EDIT' && selectedFacebookGroup ? (
             <section
               className="facebook-group-modal"
@@ -5922,6 +6306,23 @@ function ChevronRightIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="m6 3.5 4.5 4.5L6 12.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="m3.5 6 4.5 4.5L12.5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M5 2.5v2M11 2.5v2M2.5 6h11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -6881,11 +7282,11 @@ function getApplicationCvDisplayStatus(application: ExtensionApplication) {
 
 function getApplicationAmisSyncStatus(application: ExtensionApplication, isUploadPending = false) {
   const cvStatus = getApplicationCvDisplayStatus(application);
-  if (application.attachmentCvId || application.attachmentCvName) return { label: 'Đã đồng bộ', tone: 'is-success' };
+  if (application.attachmentCvId || application.attachmentCvName) return { label: 'Đã tải lên file đánh giá', tone: 'is-success' };
   if (isUploadPending) return { label: 'Chờ AMIS lưu', tone: 'is-warning' };
+  if (!application.amisCandidateId) return { label: 'Chưa đồng bộ AMIS', tone: 'is-warning' };
   if (cvStatus.tone === 'is-danger') return { label: 'Lỗi đồng bộ', tone: 'is-danger' };
-  if (canUploadApplicationCv(application)) return { label: 'Chưa đồng bộ', tone: 'is-warning' };
-  return { label: 'Chưa đồng bộ', tone: 'is-warning' };
+  return { label: 'Chưa tải lên file đánh giá', tone: 'is-warning' };
 }
 
 function getApplicationQuestionStatus(application: ExtensionApplication) {
@@ -6905,27 +7306,10 @@ function getApplicationQuestionStatus(application: ExtensionApplication) {
   return { code: 'NOT_SENT', label: 'Chưa trả lời', tone: 'is-warning' } satisfies ApplicationQuestionStatus;
 }
 
-function getApplicationEvaluationStatus(status?: string | null) {
-  const normalizedStatus = normalizeStatus(status);
-  if (normalizedStatus === 'REQUESTED') return { label: 'Đang đánh giá', tone: 'is-warning' as const };
-  if (normalizedStatus === 'DONE') return { label: 'Đã đánh giá', tone: 'is-success' as const };
-  if (normalizedStatus === 'FAILED' || normalizedStatus === 'REJECTED') {
-    return { label: 'Lỗi đánh giá', tone: 'is-danger' as const };
-  }
-  return { label: 'Chưa đánh giá', tone: 'is-muted' as const };
-}
-
 function getApplicationMatchScore(application: ExtensionApplication) {
   const score = application.aiScreeningScore ?? application.mappingScore;
   if (score == null || !Number.isFinite(score)) return null;
   return Math.round(score);
-}
-
-function getApplicationScoreTone(score: number | null) {
-  if (score == null) return 'is-muted';
-  if (score >= 80) return 'is-success';
-  if (score >= 60) return 'is-warning';
-  return 'is-danger';
 }
 
 function getCvApplicationFilterBucket(application: ExtensionApplication): CvStatusFilter {
@@ -6935,22 +7319,59 @@ function getCvApplicationFilterBucket(application: ExtensionApplication): CvStat
   return 'REVIEW';
 }
 
-function getCvSyncFilterBucket(application: ExtensionApplication): CvSyncFilter {
+function getCvSyncFilterBucket(application: ExtensionApplication): CvSyncStatusBucket {
   const syncStatus = getApplicationAmisSyncStatus(application);
   if (syncStatus.tone === 'is-success') return 'SYNCED';
   if (syncStatus.tone === 'is-danger') return 'ERROR';
   return 'NOT_SYNCED';
 }
 
+function matchesCvSyncFilter(application: ExtensionApplication, filter: CvSyncFilter) {
+  if (filter === 'ALL') return true;
+  if (filter === 'AMIS_SYNCED') return Boolean(application.amisCandidateId);
+  if (filter === 'AMIS_NOT_SYNCED') return !application.amisCandidateId;
+  if (filter === 'EVALUATION_UPLOADED') return Boolean(application.attachmentCvId || application.attachmentCvName);
+  return !application.attachmentCvId && !application.attachmentCvName;
+}
+
+function getCvSourceFilterBucket(application: ExtensionApplication): Exclude<CvSourceFilter, 'ALL'> | null {
+  const normalizedSource = normalizeAmisSourceChannel(application.sourceChannel);
+  if (!normalizedSource) return null;
+  if (normalizedSource.includes('FACEBOOK')) return 'FACEBOOK';
+  if (normalizedSource.includes('VCS') || normalizedSource.includes('PORTAL')) return 'VCS_PORTAL';
+  if (normalizedSource.includes('FREELANCER') || normalizedSource === 'OTHER') return 'FREELANCER';
+  if (
+    normalizedSource.includes('MANUAL')
+    || normalizedSource.includes('INTERNAL')
+    || normalizedSource.includes('NOIBO')
+  ) return 'INTERNAL';
+  return null;
+}
+
+function getCvSourceLabel(application: ExtensionApplication) {
+  const sourceFilter = getCvSourceFilterBucket(application);
+  if (sourceFilter === 'FACEBOOK') return 'Facebook';
+  if (sourceFilter === 'VCS_PORTAL') return 'VCS Portal';
+  if (sourceFilter === 'FREELANCER') return 'Freelancer';
+  if (sourceFilter === 'INTERNAL') return 'Nội bộ';
+  return application.sourceChannel ?? 'Chưa xác định';
+}
+
+function getCvCardSyncLabel(syncStatus: { tone: string }) {
+  if (syncStatus.tone === 'is-success') return 'Đã đồng bộ';
+  if (syncStatus.tone === 'is-danger') return 'Lỗi đồng bộ';
+  return 'Chưa đồng bộ';
+}
+
 function getVisibleCvApplications(
   applications: ExtensionApplication[],
-  statusFilter: CvStatusFilter,
   syncFilter: CvSyncFilter,
+  sourceFilter: CvSourceFilter,
   sortMode: CvSortMode,
 ) {
   return applications
-    .filter((application) => statusFilter === 'ALL' || getCvApplicationFilterBucket(application) === statusFilter)
-    .filter((application) => syncFilter === 'ALL' || getCvSyncFilterBucket(application) === syncFilter)
+    .filter((application) => matchesCvSyncFilter(application, syncFilter))
+    .filter((application) => sourceFilter === 'ALL' || getCvSourceFilterBucket(application) === sourceFilter)
     .slice()
     .sort((first, second) => {
       if (sortMode === 'SCORE_ASC' || sortMode === 'SCORE_DESC') {
@@ -7511,6 +7932,7 @@ async function requestAiMatchPreviewPdfFromFrontend(applicationId: string) {
   if (!chrome.runtime?.sendMessage) {
     throw new Error('Chrome runtime messaging is unavailable.');
   }
+
   const response = await chrome.runtime.sendMessage({
     type: 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF',
     requestId: crypto.randomUUID(),

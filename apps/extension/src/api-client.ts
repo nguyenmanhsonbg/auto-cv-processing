@@ -42,6 +42,7 @@ import type {
   SyncAmisJobPostingRequest,
   SyncVcsPortalJdsResponse,
   RunApplicationAiScreeningResponse,
+  UpdateJobDescriptionQuestionSetItemRequest,
   UpdateFacebookGroupRequest,
   VerifyFacebookGroupRequest,
 } from './types';
@@ -326,6 +327,23 @@ export async function getJobDescriptionQuestionSet(
   );
 }
 
+export async function updateJobDescriptionQuestionSetItem(
+  accessToken: string,
+  jobDescriptionId: string,
+  questionSetItemId: string,
+  payload: UpdateJobDescriptionQuestionSetItemRequest,
+) {
+  return request<{ questionSetItemId: string; text: string }>(
+    `/extension/amis/job-descriptions/${encodeURIComponent(jobDescriptionId)}/question-set/items/${encodeURIComponent(questionSetItemId)}`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: payload,
+      headers: { 'X-Extension-Version': EXTENSION_VERSION },
+    },
+  );
+}
+
 export async function downloadCleanCvFile(
   accessToken: string,
   applicationId: string,
@@ -581,7 +599,7 @@ export async function deleteFacebookGroup(
 async function request<T>(
   path: string,
   options: {
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     accessToken?: string;
     body?: unknown;
     headers?: Record<string, string>;

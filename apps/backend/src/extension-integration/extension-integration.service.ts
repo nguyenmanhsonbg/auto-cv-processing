@@ -30,6 +30,7 @@ import {
   SyncAmisApplicationsResponseDto,
   SyncAmisJobPostingDto,
   UpdateAmisCareerQuestionCategoriesDto,
+  UpdateJobDescriptionQuestionSetItemDto,
 } from './dto';
 import {
   ExtensionExternalEntityType,
@@ -1656,6 +1657,47 @@ export class ExtensionIntegrationService {
         scoringGuide: item.question?.scoringGuide ?? null,
         metadata: item.metadata,
       })),
+    };
+  }
+
+  async updateJobDescriptionQuestionSetItem(
+    jobDescriptionId: string,
+    questionSetItemId: string,
+    dto: UpdateJobDescriptionQuestionSetItemDto,
+  ) {
+    const normalizedItemId = this.requireText(questionSetItemId, 'questionSetItemId');
+    const text = this.requireText(dto.text, 'text');
+    const context = await this.getJobDescriptionQuestionSetContext(jobDescriptionId);
+    const questionSetId = context.questionSet?.id;
+
+    if (!questionSetId) {
+      throw new BadRequestException({
+        code: 'QUESTION_SET_NOT_FOUND',
+        message: 'The selected job description has no active question set.',
+      });
+    }
+
+    const itemRepository = this.dataSource.getRepository(QuestionSetItemEntity);
+    const item = await itemRepository.findOne({
+      where: {
+        id: normalizedItemId,
+        questionSetId,
+      },
+    });
+
+    if (!item) {
+      throw new BadRequestException({
+        code: 'QUESTION_SET_ITEM_NOT_FOUND',
+        message: 'The question is not part of the selected question set.',
+      });
+    }
+
+    item.questionTextSnapshot = text;
+    const savedItem = await itemRepository.save(item);
+
+    return {
+      questionSetItemId: savedItem.id,
+      text: savedItem.questionTextSnapshot,
     };
   }
 

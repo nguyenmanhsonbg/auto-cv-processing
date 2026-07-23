@@ -17,6 +17,7 @@ import {
   SyncAmisCareersResponseDto,
   SyncAmisJobPostingDto,
   UpdateAmisCareerQuestionCategoriesDto,
+  UpdateJobDescriptionQuestionSetItemDto,
 } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { ExtensionInstancesService } from './extension-instances.service';
@@ -306,6 +307,21 @@ export class ExtensionIntegrationController {
   @ApiOperation({ summary: 'List active question set items for a selected job description' })
   async getJobDescriptionQuestionSet(@Param('jobDescriptionId') jobDescriptionId: string) {
     return this.extensionIntegrationService.getJobDescriptionQuestionSetContext(jobDescriptionId);
+  }
+
+  @Patch('job-descriptions/:jobDescriptionId/question-set/items/:questionSetItemId')
+  @ApiOperation({ summary: 'Update a question in the active question set for a job description' })
+  @ApiBody({ type: UpdateJobDescriptionQuestionSetItemDto })
+  async updateJobDescriptionQuestionSetItem(
+    @Param('jobDescriptionId') jobDescriptionId: string,
+    @Param('questionSetItemId') questionSetItemId: string,
+    @Body() dto: UpdateJobDescriptionQuestionSetItemDto,
+  ) {
+    return this.extensionIntegrationService.updateJobDescriptionQuestionSetItem(
+      jobDescriptionId,
+      questionSetItemId,
+      dto,
+    );
   }
 
   @Post('careers/:amisCareerId/questions')

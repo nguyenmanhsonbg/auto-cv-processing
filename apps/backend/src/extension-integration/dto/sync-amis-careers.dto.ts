@@ -216,3 +216,11 @@ export class CreateAmisCareerQuestionDto {
   @IsString()
   scoringGuide?: string;
 }
+
+export class UpdateJobDescriptionQuestionSetItemDto {
+  @ApiProperty({ description: 'Updated question text shown in the selected question set.' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  text: string;
+}
