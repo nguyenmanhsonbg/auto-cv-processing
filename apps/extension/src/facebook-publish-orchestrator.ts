@@ -384,6 +384,7 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
     await waitForTabComplete(tab.id);
     status = await enrichFacebookAccountIdentity(
       await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []),
+      tab.id,
     );
     if (status.ready) {
       closeAfterCheck = true;
@@ -414,6 +415,7 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
       await waitForTabComplete(tab.id);
       status = await enrichFacebookAccountIdentity(
         await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []),
+        tab.id,
       );
       if (status.ready) {
         closeAfterCheck = true;
@@ -1363,30 +1365,67 @@ async function openTab(url: string, active: boolean) {
   return { id: tab.id };
 }
 
-async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult) {
-  if (!status.ready || status.account?.facebookExternalId.match(/^\d+$/)) return status;
+async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, sourceTabId?: number) {
+  if (!status.ready) return status;
+
+  let externalId = status.account?.facebookExternalId.match(/^\d+$/)?.[0] ?? null;
+  let displayName = normalizeFacebookDisplayName(status.account?.displayName);
+  let profileUrl = status.account?.profileUrl ?? null;
 
   try {
     const cookie = await chrome.cookies?.get({
       url: 'https://www.facebook.com/',
       name: 'c_user',
     });
-    const externalId = cookie?.value?.trim();
-    if (externalId) {
-      return {
-        ...status,
-        account: {
-          facebookExternalId: externalId,
-          displayName: status.account?.displayName ?? null,
-          profileUrl: status.account?.profileUrl ?? `https://www.facebook.com/profile.php?id=${externalId}`,
-        },
-      };
-    }
+    externalId = cookie?.value?.trim() || externalId;
   } catch {
     // DOM identity remains a valid fallback when cookie access is unavailable.
   }
 
-  return status;
+  if (!externalId) return status;
+
+  if (!displayName && sourceTabId) {
+    const profileTab = await openTab(`https://www.facebook.com/profile.php?id=${externalId}`, false).catch(() => null);
+    if (profileTab) {
+      try {
+        await waitForTabComplete(profileTab.id);
+        await sleep(800);
+        const profileIdentity = await runScript<[], FacebookProfileIdentityProbe>(
+          profileTab.id,
+          readFacebookProfileIdentityInPage,
+          [],
+        );
+        displayName = normalizeFacebookDisplayName(profileIdentity.displayName);
+        profileUrl = profileIdentity.profileUrl || profileUrl;
+      } catch {
+        // Account identity is still valid without a display name.
+      } finally {
+        await closeTabSafely(profileTab.id);
+      }
+    }
+  }
+
+  return {
+    ...status,
+    account: {
+      facebookExternalId: externalId,
+      displayName,
+      profileUrl: profileUrl ?? `https://www.facebook.com/profile.php?id=${externalId}`,
+    },
+  };
+}
+
+interface FacebookProfileIdentityProbe {
+  displayName: string | null;
+  profileUrl: string;
+}
+
+function normalizeFacebookDisplayName(value: string | null | undefined) {
+  const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!normalized || /^account\s+\d+$/i.test(normalized)) return null;
+  if (normalized.length > 100) return null;
+  if (/đã phê duyệt một lần đăng nhập|approved a login|notification/i.test(normalized)) return null;
+  return normalized;
 }
 
 async function focusFacebookLoginTab(tabId: number) {
@@ -2222,6 +2261,14 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
       .map((link) => ({
         href: link.href,
         text: (link.textContent ?? '').trim(),
+        labels: [
+          link.getAttribute('aria-label'),
+          link.getAttribute('title'),
+          link.getAttribute('data-tooltip-content'),
+          link.querySelector('img')?.getAttribute('alt'),
+          link.querySelector('[aria-label]')?.getAttribute('aria-label'),
+          link.closest('[aria-label]')?.getAttribute('aria-label'),
+        ].filter((value): value is string => Boolean(value)),
       }))
       .filter(({ href }) => {
         try {
@@ -2233,12 +2280,23 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
         }
       });
     const profileLink = profileLinks.find(({ href }) => /profile\.php\?id=\d+/i.test(href))
-      ?? profileLinks.find(({ href }) => {
+      ?? profileLinks.find(({ href, text, labels }) => {
         try {
           const pathname = new URL(href).pathname.toLowerCase();
+          const parsed = new URL(href);
+          const hasHumanLabel = [text, ...labels].some((value) => {
+            const normalized = value.replace(/\s+/g, ' ').trim();
+            return normalized.length >= 2
+              && normalized.length <= 80
+              && !/^(your|my)\s+(profile|account)$/i.test(normalized)
+              && !/^(profile|facebook|log in|login)$/i.test(normalized);
+          });
           return pathname.startsWith('/profile/')
-            || (pathname.length > 1
-              && !/^\/(groups|home|watch|marketplace|friends|notifications|messages|settings|help|login|reels|gaming|events|jobs)(\/|$)/.test(pathname));
+            || (parsed.search === ''
+              && pathname.length > 1
+              && pathname.split('/').filter(Boolean).length === 1
+              && hasHumanLabel
+              && !/^\/(groups|home|watch|marketplace|friends|notifications|messages|settings|help|login|reel|reels|story|stories|share|sharer|photo|photos|video|gaming|events|jobs|pages)(\/|$)/.test(pathname));
         } catch {
           return false;
         }
@@ -2249,10 +2307,19 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
       const numericId = parsed.searchParams.get('id')?.trim();
       const normalizedPath = parsed.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
       const facebookExternalId = numericId || (normalizedPath ? `profile:${normalizedPath}` : null);
+      const displayName = [profileLink.text, ...profileLink.labels]
+        .map((value) => value
+          .replace(/\s+/g, ' ')
+          .replace(/\s+(?:'s|’s)?\s*(?:profile|hồ sơ|trang cá nhân)$/i, '')
+          .trim())
+        .find((value) => value.length >= 2
+          && value.length <= 80
+          && !/^(your|my)\s+(profile|account)$/i.test(value)
+          && !/^(profile|facebook|log in|login)$/i.test(value)) ?? null;
       if (facebookExternalId) {
         account = {
           facebookExternalId,
-          displayName: profileLink.text || null,
+          displayName,
           profileUrl: parsed.href,
         };
       }
@@ -2266,6 +2333,34 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
     message: ready
       ? 'Facebook login detected.'
       : 'Waiting for Facebook login to complete.',
+  };
+}
+
+function readFacebookProfileIdentityInPage(): FacebookProfileIdentityProbe {
+  const normalize = (value: string | null | undefined) => {
+    const normalized = value
+      ?.replace(/\s+/g, ' ')
+      .replace(/\s*[|•-]\s*Facebook.*$/i, '')
+      .replace(/\s+on Facebook$/i, '')
+      .trim() ?? '';
+    if (!normalized || normalized.length > 100) return null;
+    if (/^(facebook|profile|log in|login|home)$/i.test(normalized)) return null;
+    return normalized;
+  };
+
+  const displayName = [
+    document.querySelector('[role="main"] h1')?.textContent,
+    document.querySelector('main h1')?.textContent,
+    document.querySelector('h1')?.textContent,
+    document.querySelector('meta[property="og:title"]')?.getAttribute('content'),
+    document.title,
+  ]
+    .map(normalize)
+    .find((value): value is string => Boolean(value)) ?? null;
+
+  return {
+    displayName,
+    profileUrl: window.location.href,
   };
 }
 

@@ -4175,7 +4175,7 @@ function SidePanel() {
                             className="channel-subselection-account"
                             title={facebookAccount.facebookExternalId}
                           >
-                            {facebookAccount.displayName || `Account ${facebookAccount.facebookExternalId}`}
+                            {facebookAccount.displayName || 'Facebook account'}
                           </span>
                         ) : null}
                       </div>
@@ -4185,7 +4185,8 @@ function SidePanel() {
                             {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook hợp lệ đã được chọn
                           </p>
                         ) : null}
-                        {facebookGroupMessage ? (
+                        {facebookGroupMessage
+                          && !(facebookGroupLoadState === 'READY' && visibleFacebookGroups.length === 0) ? (
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
                             <span>{facebookGroupMessage}</span>
                             {facebookGroupSyncDetails && (

@@ -177,7 +177,7 @@ export class FacebookPublishingService {
       account = this.facebookAccountsRepo.create({
         ownerUserId: input.ownerUserId,
         facebookExternalId,
-        displayName: input.displayName?.trim() || null,
+        displayName: this.normalizeFacebookAccountDisplayName(input.displayName, facebookExternalId),
         profileUrl: input.profileUrl?.trim() || null,
         status: 'ACTIVE',
         lastSeenAt: now,
@@ -201,7 +201,8 @@ export class FacebookPublishingService {
           .execute();
       }
     } else {
-      account.displayName = input.displayName?.trim() || account.displayName;
+      account.displayName = this.normalizeFacebookAccountDisplayName(input.displayName, facebookExternalId)
+        ?? this.normalizeFacebookAccountDisplayName(account.displayName, facebookExternalId);
       account.profileUrl = input.profileUrl?.trim() || account.profileUrl;
       account.status = 'ACTIVE';
       account.lastSeenAt = now;
@@ -1196,6 +1197,14 @@ export class FacebookPublishingService {
         message: 'Facebook account was not resolved for this HR user.',
       });
     }
+  }
+
+  private normalizeFacebookAccountDisplayName(value: string | null | undefined, facebookExternalId: string) {
+    const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
+    if (!normalized || /^account\s+\d+$/i.test(normalized)) return null;
+    if (normalized === facebookExternalId || normalized.length > 100) return null;
+    if (/đã phê duyệt một lần đăng nhập|approved a login|notification/i.test(normalized)) return null;
+    return normalized;
   }
 
   private normalizeFacebookGroupUrl(value: string) {
