@@ -5,6 +5,8 @@ const SOURCE_COLUMN_SPAN_ATTRIBUTE = 'data-vcs-source-column-span';
 const SOURCE_COLUMN_TABLE_WIDTH_ATTRIBUTE = 'data-vcs-source-column-table-width';
 const SOURCE_COLUMN_STYLE_ATTRIBUTE = 'data-vcs-source-column-style';
 const SOURCE_COLUMN_STYLE_ID = 'vcs-amis-source-column-styles';
+const SOURCE_CHIP_ATTRIBUTE = 'data-vcs-source-chip';
+const SOURCE_CHIP_KEY_ATTRIBUTE = 'data-vcs-source-chip-key';
 const SOURCE_COLUMN_WIDTH_PX = 150;
 const ROUTE_CHECK_INTERVAL_MS = 750;
 const RECONCILE_DEBOUNCE_MS = 100;
@@ -38,6 +40,11 @@ interface SourceLookup {
   byName: Map<string, AmisSourceColumnItem | null>;
 }
 
+interface SourceChipDefinition {
+  key: string;
+  label: string;
+}
+
 interface AmisSourceColumnController {
   dispose: () => void;
 }
@@ -46,13 +53,15 @@ interface WindowWithSourceColumnController extends Window {
   [SOURCE_COLUMN_CONTROLLER_KEY]?: AmisSourceColumnController;
 }
 
-const SOURCE_LABELS: Readonly<Record<string, string>> = {
-  VCSPORTAL: 'VCS Portal',
-  FACEBOOK: 'Facebook',
-  TOPCV: 'TopCV',
-  ITVIEC: 'ITViec',
-  LINKEDIN: 'LinkedIn',
-  VIETNAMWORKS: 'VietnamWorks',
+const SOURCE_CHIPS: Readonly<Record<string, SourceChipDefinition>> = {
+  VCSPORTAL: { key: 'VCSPORTAL', label: 'VCS Portal' },
+  FACEBOOK: { key: 'FACEBOOK', label: 'Facebook' },
+  TOPCV: { key: 'TOPCV', label: 'TopCV' },
+  ITVIEC: { key: 'ITVIEC', label: 'ITViec' },
+  LINKEDIN: { key: 'LINKEDIN', label: 'LinkedIn' },
+  VIETNAMWORKS: { key: 'VIETNAMWORKS', label: 'VietnamWorks' },
+  FREELANCER: { key: 'OTHER', label: 'Freelancer' },
+  OTHER: { key: 'OTHER', label: 'Freelancer' },
 };
 
 function installAmisSourceColumnController() {
@@ -231,11 +240,11 @@ function renderSourceColumn(grid: HTMLElement, sourceLookup: SourceLookup) {
   if (!tables.scrollableHeader || !tables.scrollableBody) return;
   const expandedScrollableTableWidth = getExpandedScrollableTableWidth(tables.scrollableBody);
 
-  const sourceByRowIndex = new Map<string, string>();
+  const sourceByRowIndex = new Map<string, SourceChipDefinition | null>();
   for (const row of getDataRows(tables.scrollableBody)) {
     const rowIndex = row.getAttribute('aria-rowindex');
     if (!rowIndex) continue;
-    sourceByRowIndex.set(rowIndex, getSourceLabel(findSourceForRow(row, sourceLookup)));
+    sourceByRowIndex.set(rowIndex, getSourceChip(findSourceForRow(row, sourceLookup)));
   }
 
   addSourceColumnToTable(
@@ -279,7 +288,7 @@ function findCandidateGridTables(grid: HTMLElement) {
 function addSourceColumnToTable(
   table: HTMLTableElement,
   tablePart: 'header' | 'body',
-  sourceByRowIndex: Map<string, string>,
+  sourceByRowIndex: Map<string, SourceChipDefinition | null>,
   expandedScrollableTableWidth: number | null,
 ) {
   const isFixedTable = Boolean(table.closest('.dx-datagrid-content-fixed'));
@@ -345,12 +354,31 @@ function addSourceColumnToTable(
     sourceCell.setAttribute('role', 'gridcell');
     sourceCell.setAttribute('aria-colindex', getSourceColumnAriaIndex(actionCell));
     sourceCell.setAttribute('aria-rowindex', row.getAttribute('aria-rowindex') ?? '');
-    const sourceText = row.matches('.dx-data-row')
-      ? sourceByRowIndex.get(row.getAttribute('aria-rowindex') ?? '') ?? ''
-      : '';
-    if (sourceCell.textContent !== sourceText) sourceCell.textContent = sourceText;
+    const sourceChip = row.matches('.dx-data-row')
+      ? sourceByRowIndex.get(row.getAttribute('aria-rowindex') ?? '') ?? null
+      : null;
+    updateSourceCell(sourceCell, sourceChip);
     insertBeforeActionCell(row, sourceCell);
   }
+}
+
+function updateSourceCell(cell: HTMLTableCellElement, sourceChip: SourceChipDefinition | null) {
+  const existingChips = Array.from(cell.children)
+    .filter((element) => element.getAttribute(SOURCE_CHIP_ATTRIBUTE) === 'true');
+  const chip = sourceChip
+    ? existingChips.shift() as HTMLSpanElement | undefined ?? document.createElement('span')
+    : null;
+
+  existingChips.forEach((duplicate) => duplicate.remove());
+
+  if (!sourceChip || !chip) return;
+
+  chip.setAttribute(SOURCE_CHIP_ATTRIBUTE, 'true');
+  chip.setAttribute(SOURCE_CHIP_KEY_ATTRIBUTE, sourceChip.key);
+  chip.className = 'vcs-amis-source-chip';
+  chip.title = sourceChip.label;
+  if (chip.textContent !== sourceChip.label) chip.textContent = sourceChip.label;
+  if (chip.parentElement !== cell) cell.appendChild(chip);
 }
 
 function ensureSingleInjectedElement<T extends HTMLElement>(
@@ -524,6 +552,48 @@ function ensureSourceColumnStyles() {
       min-width: ${SOURCE_COLUMN_WIDTH_PX}px;
       width: ${SOURCE_COLUMN_WIDTH_PX}px;
     }
+    .vcs-amis-source-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      min-width: 32px;
+      max-width: 100%;
+      min-height: 29px;
+      padding: 6px 12px;
+      gap: 4px;
+      border-radius: 999px;
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 140%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: middle;
+    }
+    [${SOURCE_CHIP_KEY_ATTRIBUTE}="FACEBOOK"] {
+      background: #3f81ea;
+    }
+    [${SOURCE_CHIP_KEY_ATTRIBUTE}="VCSPORTAL"] {
+      background: #ff710f;
+    }
+    [${SOURCE_CHIP_KEY_ATTRIBUTE}="TOPCV"] {
+      background: #28c76f;
+    }
+    [${SOURCE_CHIP_KEY_ATTRIBUTE}="ITVIEC"] {
+      background: #f9c700;
+    }
+    [${SOURCE_CHIP_KEY_ATTRIBUTE}="LINKEDIN"] {
+      background: #00bad1;
+    }
+    [${SOURCE_CHIP_KEY_ATTRIBUTE}="VIETNAMWORKS"] {
+      background: #134489;
+    }
+    [${SOURCE_CHIP_KEY_ATTRIBUTE}="OTHER"] {
+      background: #808390;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -625,11 +695,11 @@ function addLookupValue(
   if (!existing || existing.applicationId !== item.applicationId) lookup.set(key, null);
 }
 
-function getSourceLabel(item: AmisSourceColumnItem | null) {
-  if (!item?.sourceChannel?.trim()) return '';
+function getSourceChip(item: AmisSourceColumnItem | null) {
+  if (!item?.sourceChannel?.trim()) return null;
 
   const normalized = normalizeSource(item.sourceChannel);
-  return SOURCE_LABELS[normalized] ?? item.sourceChannel.trim();
+  return SOURCE_CHIPS[normalized] ?? SOURCE_CHIPS.OTHER;
 }
 
 function normalizeSource(value: string) {
