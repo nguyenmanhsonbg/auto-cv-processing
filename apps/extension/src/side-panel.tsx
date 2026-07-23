@@ -10,8 +10,6 @@ import {
   createFacebookGroup,
   deleteFacebookGroup,
   downloadCleanCvFile,
-  getApplicationParsedProfile,
-  getApplicationAiMatchPreview,
   ensureRegisteredExtensionInstance,
   getAmisApplicationsForRecruitment,
   getCurrentUser,
@@ -24,6 +22,7 @@ import {
   heartbeatExtensionInstance,
   login,
   previewAmisJobPublishPlan,
+  runApplicationAiScreening,
   syncAmisApplications,
   syncAndPublishAmisJob,
   syncFacebookGroups,
@@ -33,7 +32,6 @@ import {
   verifyFacebookGroup,
 } from './api-client';
 import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChanges } from './auth-store';
-import { createAiMatchPreviewPdf } from './ai-match-preview-pdf';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import {
   DEFAULT_POSTING_CHANNELS,
@@ -330,6 +328,7 @@ function SidePanel() {
   const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
   const [cvUploadApplicationId, setCvUploadApplicationId] = useState<string | null>(null);
   const [aiEvaluationApplicationId, setAiEvaluationApplicationId] = useState<string | null>(null);
+  const [aiScreeningApplicationId, setAiScreeningApplicationId] = useState<string | null>(null);
   const [selectedCvApplicationIds, setSelectedCvApplicationIds] = useState<Set<string>>(new Set());
   const [cvStatusFilter, setCvStatusFilter] = useState<CvStatusFilter>('ALL');
   const [cvSyncFilter, setCvSyncFilter] = useState<CvSyncFilter>('ALL');
@@ -1339,6 +1338,33 @@ function SidePanel() {
     await uploadApplicationCvsToAmisForm([application]);
   }
 
+  async function runAiScreeningForApplication(
+    application: AmisApplicationsForRecruitment['applications'][number],
+  ) {
+    if (!token || aiScreeningApplicationId) return;
+    if (normalizeStatus(application.aiScreeningStatus) === 'DONE') return;
+
+    setAiScreeningApplicationId(application.applicationId);
+    setApplicationsMessage(null);
+    try {
+      await runApplicationAiScreening(token, application.applicationId);
+      await loadAmisApplications(token, amisRecruitmentId, { silent: true });
+      setApplicationsMessage(`Đã đánh giá AI cho ${application.candidateName}.`);
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+      await loadAmisApplications(token, amisRecruitmentId, { silent: true });
+      setApplicationsMessage(toErrorMessage(err));
+    } finally {
+      setAiScreeningApplicationId(null);
+    }
+  }
+
   async function uploadAiEvaluationToAmis(application: AmisApplicationsForRecruitment['applications'][number]) {
     if (!token) return;
     setAiEvaluationApplicationId(application.applicationId);
@@ -1348,11 +1374,7 @@ function SidePanel() {
       if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
         throw new Error('Open the AMIS candidate documents tab first.');
       }
-      const [detail, parsedProfile] = await Promise.all([
-        getApplicationAiMatchPreview(token, application.applicationId),
-        getApplicationParsedProfile(token, application.applicationId),
-      ]);
-      const previewPdf = await createAiMatchPreviewPdf(detail, parsedProfile);
+      const previewPdf = await requestAiMatchPreviewPdfFromFrontend(application.applicationId);
       if (previewPdf.length < 1000) {
         throw new Error('PDF đánh giá AI được tạo ra không hợp lệ hoặc đang rỗng.');
       }
@@ -4547,10 +4569,15 @@ function SidePanel() {
               const cvStatus = getApplicationCvDisplayStatus(application);
               const syncStatus = getApplicationAmisSyncStatus(application);
               const questionStatus = getApplicationQuestionStatus(application);
+              const mappingStatus = getApplicationEvaluationStatus(application.mappingStatus);
+              const aiScreeningStatus = getApplicationEvaluationStatus(application.aiScreeningStatus);
               const score = getApplicationMatchScore(application);
               const scoreTone = getApplicationScoreTone(score);
               const isSelected = selectedCvApplicationIds.has(application.applicationId);
               const canSyncToAmis = canUploadApplicationCv(application);
+              const aiScreeningDone = normalizeStatus(application.aiScreeningStatus) === 'DONE';
+              const aiScreeningRunning = normalizeStatus(application.aiScreeningStatus) === 'REQUESTED'
+                || aiScreeningApplicationId === application.applicationId;
 
               return (
                 <li key={application.applicationId} className={isSelected ? 'is-selected' : ''}>
@@ -4574,14 +4601,19 @@ function SidePanel() {
                       <span>Applied: {formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-'}</span>
                     </div>
                     <div className="cv-candidate-status-grid">
-                      <span className={`cv-status-cell cv-status-with-score ${cvStatus.tone}`}>
+                      <span className={`cv-status-cell ${score != null ? 'cv-status-with-score' : ''} ${cvStatus.tone}`}>
                         <small>Quét CV</small>
                         <strong>{cvStatus.label}</strong>
-                        <b className={`cv-score-pill ${scoreTone}`}>{score}</b>
+                        {score != null ? <b className={`cv-score-pill ${scoreTone}`}>{score}</b> : null}
                       </span>
                       <span className={`cv-status-cell ${questionStatus.tone}`}>
                         <small>Câu hỏi</small>
                         <strong>{questionStatus.label}</strong>
+                      </span>
+                      <span className={`cv-status-cell cv-ai-status-cell ${aiScreeningStatus.tone}`}>
+                        <small>Đánh giá AI</small>
+                        <strong>Mapping: {mappingStatus.label}</strong>
+                        <strong>AI: {aiScreeningStatus.label}</strong>
                       </span>
                       <span className={`cv-status-cell cv-sync-status-cell ${syncStatus.tone}`}>
                         <small>Đồng bộ AMIS</small>
@@ -4592,7 +4624,21 @@ function SidePanel() {
                       <button
                         type="button"
                         className="cv-sync-amis-button"
-                        disabled={Boolean(aiEvaluationApplicationId)}
+                        disabled={aiScreeningDone || aiScreeningRunning || Boolean(aiScreeningApplicationId)}
+                        onClick={() => void runAiScreeningForApplication(application)}
+                      >
+                        {aiScreeningRunning
+                          ? 'Đang đánh giá...'
+                          : aiScreeningDone
+                            ? 'Đã đánh giá'
+                            : normalizeStatus(application.aiScreeningStatus) === 'FAILED'
+                              ? 'Thử lại'
+                              : 'Đánh giá AI'}
+                      </button>
+                      <button
+                        type="button"
+                        className="cv-sync-amis-button"
+                        disabled={!aiScreeningDone || Boolean(aiEvaluationApplicationId)}
                         onClick={() => void uploadAiEvaluationToAmis(application)}
                       >
                         {aiEvaluationApplicationId === application.applicationId ? 'Đang tạo PDF...' : 'Tải đánh giá AI'}
@@ -6676,16 +6722,24 @@ function getApplicationQuestionStatus(application: ExtensionApplication) {
   return { code: 'NOT_SENT', label: 'Chưa trả lời', tone: 'is-warning' } satisfies ApplicationQuestionStatus;
 }
 
-function getApplicationMatchScore(application: ExtensionApplication) {
-  const seed = `${application.applicationId}${application.candidateName}${application.email ?? ''}`;
-  let hash = 0;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * 31 + seed.charCodeAt(index)) % 9973;
+function getApplicationEvaluationStatus(status?: string | null) {
+  const normalizedStatus = normalizeStatus(status);
+  if (normalizedStatus === 'REQUESTED') return { label: 'Đang đánh giá', tone: 'is-warning' as const };
+  if (normalizedStatus === 'DONE') return { label: 'Đã đánh giá', tone: 'is-success' as const };
+  if (normalizedStatus === 'FAILED' || normalizedStatus === 'REJECTED') {
+    return { label: 'Lỗi đánh giá', tone: 'is-danger' as const };
   }
-  return 45 + (hash % 51);
+  return { label: 'Chưa đánh giá', tone: 'is-muted' as const };
 }
 
-function getApplicationScoreTone(score: number) {
+function getApplicationMatchScore(application: ExtensionApplication) {
+  const score = application.aiScreeningScore ?? application.mappingScore;
+  if (score == null || !Number.isFinite(score)) return null;
+  return Math.round(score);
+}
+
+function getApplicationScoreTone(score: number | null) {
+  if (score == null) return 'is-muted';
   if (score >= 80) return 'is-success';
   if (score >= 60) return 'is-warning';
   return 'is-danger';
@@ -6717,7 +6771,8 @@ function getVisibleCvApplications(
     .slice()
     .sort((first, second) => {
       if (sortMode === 'SCORE_ASC' || sortMode === 'SCORE_DESC') {
-        const scoreDelta = getApplicationMatchScore(first) - getApplicationMatchScore(second);
+        const scoreDelta = (getApplicationMatchScore(first) ?? -1)
+          - (getApplicationMatchScore(second) ?? -1);
         return sortMode === 'SCORE_ASC' ? scoreDelta : -scoreDelta;
       }
 
@@ -7256,6 +7311,21 @@ async function sendMessageToAmisTab(tabId: number, message: unknown) {
     await wait(250);
     return chrome.tabs.sendMessage(tabId, message);
   }
+}
+
+async function requestAiMatchPreviewPdfFromFrontend(applicationId: string) {
+  if (!chrome.runtime?.sendMessage) {
+    throw new Error('Chrome runtime messaging is unavailable.');
+  }
+  const response = await chrome.runtime.sendMessage({
+    type: 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF',
+    requestId: crypto.randomUUID(),
+    applicationId,
+  }) as { ok?: boolean; dataBase64?: string; error?: string } | undefined;
+  if (!response?.ok || !response.dataBase64) {
+    throw new Error(response?.error ?? 'Không thể tạo PDF đánh giá AI từ VCS Portal.');
+  }
+  return response.dataBase64;
 }
 
 async function injectAmisBridge(tabId: number) {
