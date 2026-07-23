@@ -627,6 +627,10 @@ export interface AmisApplicationListItem {
   email: string | null;
   mobile: string | null;
   status: string;
+  mappingStatus: string | null;
+  aiScreeningStatus: string | null;
+  mappingScore: number | null;
+  aiScreeningScore: number | null;
   formStatus: string | null;
   latestForm: {
     formSessionId: string;
@@ -659,6 +663,17 @@ export interface AmisApplicationsForRecruitment {
   jobPostingId: string;
   total: number;
   applications: AmisApplicationListItem[];
+}
+
+export interface RunApplicationAiScreeningResponse {
+  applicationId: string;
+  status: string;
+  mapping?: {
+    status?: string | null;
+  } | null;
+  aiScreening?: {
+    status?: string | null;
+  } | null;
 }
 
 export interface AmisCareerFetchResponse {

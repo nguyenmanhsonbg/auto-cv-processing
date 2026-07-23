@@ -5501,6 +5501,10 @@ dd {
   grid-column: 1 / -1;
 }
 
+.cv-ai-status-cell {
+  grid-column: 1 / -1;
+}
+
 .cv-status-cell small {
   color: #667085;
   font-size: 8px;

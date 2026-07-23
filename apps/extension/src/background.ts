@@ -187,15 +187,34 @@ async function handleExportAiMatchPreviewPdf(message: { requestId: string; appli
     await waitForTabReady(tab.id, 30_000);
     const requestId = `${message.requestId}:${Date.now()}`;
     const resultPromise = waitForFrontendPdfResult(requestId, 60_000);
-    await chrome.tabs?.sendMessage?.(tab.id, {
+    await sendFrontendPdfRequest(tab.id, {
       type: 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF',
       requestId,
+      applicationId: message.applicationId,
     });
     return await resultPromise;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Could not export AI Match Preview PDF.' };
   } finally {
     if (temporaryTab) await chrome.tabs?.remove(tab.id).catch(() => undefined);
+  }
+}
+
+async function sendFrontendPdfRequest(tabId: number, message: { type: string; requestId: string; applicationId: string }) {
+  try {
+    await chrome.tabs?.sendMessage?.(tabId, message);
+  } catch (error) {
+    if (!/receiving end does not exist|could not establish connection/i.test(error instanceof Error ? error.message : String(error))) {
+      throw error;
+    }
+    if (!chrome.scripting?.executeScript) {
+      throw new Error('Frontend bridge is not available in the VCS application tab.');
+    }
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['assets/frontend-bridge.js'],
+    });
+    await chrome.tabs?.sendMessage?.(tabId, message);
   }
 }
 

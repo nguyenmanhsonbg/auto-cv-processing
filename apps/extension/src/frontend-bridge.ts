@@ -1,6 +1,4 @@
 import type { FacebookPublishPlan, FacebookPublishTarget } from './types';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 
 const FRONTEND_SOURCE = 'vcs-recruitment-frontend';
 const EXTENSION_SOURCE = 'vcs-recruitment-extension';
@@ -15,6 +13,8 @@ const BACKGROUND_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST'
 const BACKGROUND_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const BACKGROUND_PORT = 'frontend-facebook-publish';
 const EXPORT_AI_MATCH_PREVIEW_PDF_MESSAGE = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF';
+const EXPORT_AI_MATCH_PREVIEW_PDF_FROM_PAGE = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_FROM_PAGE';
+const EXPORT_AI_MATCH_PREVIEW_PDF_RESULT = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_RESULT';
 
 const activeRequestPorts = new Map<string, ChromePort>();
 
@@ -62,7 +62,7 @@ window.addEventListener('message', (event) => {
 
 chrome.runtime?.onMessage.addListener((message) => {
   if (isExportAiMatchPreviewPdfRequest(message)) {
-    void exportAiMatchPreviewPdf()
+    void requestVectorAiMatchPreviewPdf(message.applicationId)
       .then((dataBase64) => chrome.runtime?.sendMessage?.({
         type: 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_RESULT',
         requestId: message.requestId,
@@ -81,108 +81,42 @@ chrome.runtime?.onMessage.addListener((message) => {
   postToPage(message.requestId, message.event, message.payload);
 });
 
-async function exportAiMatchPreviewPdf() {
-  const preview = document.querySelector<HTMLElement>('.ai-match-preview-dialog');
-  if (!preview) {
-    const previewButton = Array.from(document.querySelectorAll<HTMLElement>('button'))
-      .find((button) => /preview ai match/i.test(button.innerText || button.textContent || ''));
-    previewButton?.click();
-    await waitForSelector('.ai-match-preview-dialog', 15_000);
-  }
-
-  const element = document.querySelector<HTMLElement>('.ai-match-preview-dialog');
-  if (!element) throw new Error('AI Match Preview dialog was not found.');
-
-  document.body.classList.add('ai-match-preview-exporting');
-  try {
-    await nextAnimationFrame();
-    await nextAnimationFrame();
-    const canvas = await html2canvas(element, {
-      backgroundColor: '#ffffff',
-      height: element.scrollHeight,
-      logging: false,
-      scale: Math.min(window.devicePixelRatio || 1, 2),
-      useCORS: true,
-      width: element.scrollWidth,
-      onclone: (clonedDocument) => {
-        const clonedDialog = clonedDocument.querySelector<HTMLElement>('.ai-match-preview-dialog');
-        const clonedScroll = clonedDocument.querySelector<HTMLElement>('.ai-match-preview-scroll');
-        for (const node of [clonedDialog, clonedScroll]) {
-          if (!node) continue;
-          node.style.display = 'block';
-          node.style.position = 'static';
-          node.style.flex = 'none';
-          node.style.height = 'auto';
-          node.style.maxHeight = 'none';
-          node.style.overflow = 'visible';
-        }
-      },
-    });
-
-    const pdf = new jsPDF({ compress: true, format: 'a4', orientation: 'portrait', unit: 'mm' });
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 10;
-    const contentWidth = pageWidth - margin * 2;
-    const contentHeight = pageHeight - margin * 2;
-    const pageHeightInPixels = Math.max(1, Math.floor((contentHeight / contentWidth) * canvas.width));
-    let offsetY = 0;
-    let pageIndex = 0;
-    while (offsetY < canvas.height) {
-      const sliceHeight = Math.min(pageHeightInPixels, canvas.height - offsetY);
-      const pageCanvas = document.createElement('canvas');
-      pageCanvas.width = canvas.width;
-      pageCanvas.height = sliceHeight;
-      const context = pageCanvas.getContext('2d');
-      if (!context) throw new Error('Could not prepare the AI Match Preview PDF.');
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-      context.drawImage(canvas, 0, offsetY, canvas.width, sliceHeight, 0, 0, pageCanvas.width, pageCanvas.height);
-      if (pageIndex > 0) pdf.addPage();
-      pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', margin, margin, contentWidth, (sliceHeight / canvas.width) * contentWidth);
-      offsetY += sliceHeight;
-      pageIndex += 1;
-    }
-
-    return arrayBufferToBase64(pdf.output('arraybuffer'));
-  } finally {
-    document.body.classList.remove('ai-match-preview-exporting');
-  }
-}
-
-function isExportAiMatchPreviewPdfRequest(value: unknown): value is { type: string; requestId: string } {
-  return typeof value === 'object'
-    && value !== null
-    && (value as { type?: unknown }).type === EXPORT_AI_MATCH_PREVIEW_PDF_MESSAGE
-    && typeof (value as { requestId?: unknown }).requestId === 'string';
-}
-
-function waitForSelector(selector: string, timeoutMs: number) {
-  if (document.querySelector(selector)) return Promise.resolve();
-  return new Promise<void>((resolve, reject) => {
+function requestVectorAiMatchPreviewPdf(applicationId: string) {
+  return new Promise<string>((resolve, reject) => {
+    const requestId = crypto.randomUUID();
     const timeoutId = window.setTimeout(() => {
-      observer.disconnect();
-      reject(new Error('AI Match Preview did not open in time.'));
-    }, timeoutMs);
-    const observer = new MutationObserver(() => {
-      if (!document.querySelector(selector)) return;
+      window.removeEventListener('message', handleResponse);
+      reject(new Error('Timed out while creating AI Match Preview PDF.'));
+    }, 60_000);
+    const handleResponse = (event: MessageEvent<unknown>) => {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      if (typeof event.data !== 'object' || event.data === null) return;
+      const response = event.data as { source?: unknown; type?: unknown; requestId?: unknown; ok?: unknown; dataBase64?: unknown; error?: unknown };
+      if (response.source !== 'vcs-recruitment-frontend' || response.type !== EXPORT_AI_MATCH_PREVIEW_PDF_RESULT || response.requestId !== requestId) return;
       window.clearTimeout(timeoutId);
-      observer.disconnect();
-      resolve();
-    });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+      window.removeEventListener('message', handleResponse);
+      if (response.ok && typeof response.dataBase64 === 'string') {
+        resolve(response.dataBase64);
+      } else {
+        reject(new Error(typeof response.error === 'string' ? response.error : 'Could not create AI Match Preview PDF.'));
+      }
+    };
+    window.addEventListener('message', handleResponse);
+    window.postMessage({
+      source: EXTENSION_SOURCE,
+      type: EXPORT_AI_MATCH_PREVIEW_PDF_FROM_PAGE,
+      requestId,
+      applicationId,
+    }, window.location.origin);
   });
 }
 
-function nextAnimationFrame() {
-  return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-}
-
-function arrayBufferToBase64(value: ArrayBuffer) {
-  const bytes = new Uint8Array(value);
-  let binary = '';
-  for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
-  return btoa(binary);
+function isExportAiMatchPreviewPdfRequest(value: unknown): value is { type: string; requestId: string; applicationId: string } {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === EXPORT_AI_MATCH_PREVIEW_PDF_MESSAGE
+    && typeof (value as { requestId?: unknown }).requestId === 'string'
+    && typeof (value as { applicationId?: unknown }).applicationId === 'string';
 }
 
 function sendBackgroundPortRequest(message: {

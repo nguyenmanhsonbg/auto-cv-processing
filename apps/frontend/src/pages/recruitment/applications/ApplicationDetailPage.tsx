@@ -52,7 +52,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
-import { exportAiMatchPreviewToPdf } from '@/lib/print-ai-match-preview';
+import { createAiMatchPreviewPdfBlob, exportAiMatchPreviewToPdf, pdfBlobToBase64 } from '@/lib/print-ai-match-preview';
 import {
   getApplication,
   getParsedProfile,
@@ -79,6 +79,10 @@ import {
   generateFormSession,
   type FormAdminDetails,
 } from '@/lib/forms-api';
+
+const EXTENSION_PDF_REQUEST_SOURCE = 'vcs-recruitment-extension';
+const EXTENSION_PDF_REQUEST = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_FROM_PAGE';
+const EXTENSION_PDF_RESULT = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_RESULT';
 
 function formatDate(value?: string | null) {
   if (!value) return '-';
@@ -587,6 +591,49 @@ export function ApplicationDetailPage() {
       setPdfExporting(false);
     }
   }, [aiScreening, candidate, mapping, parsedProfile, pdfExporting, toast]);
+
+  useEffect(() => {
+    const handleExtensionPdfRequest = (event: MessageEvent<unknown>) => {
+      if (event.source !== window || typeof event.data !== 'object' || event.data === null) return;
+      const message = event.data as { source?: unknown; type?: unknown; requestId?: unknown; applicationId?: unknown };
+      if (
+        message.source !== EXTENSION_PDF_REQUEST_SOURCE
+        || message.type !== EXTENSION_PDF_REQUEST
+        || typeof message.requestId !== 'string'
+        || message.applicationId !== applicationId
+      ) return;
+
+      void (async () => {
+        try {
+          const blob = await createAiMatchPreviewPdfBlob({
+            profile: (parsedProfile?.parsedData ?? parsedProfile?.profile) as ParsedProfile | undefined,
+            mapping,
+            screening: aiScreening,
+            candidate,
+          });
+          const dataBase64 = await pdfBlobToBase64(blob);
+          window.postMessage({
+            source: 'vcs-recruitment-frontend',
+            type: EXTENSION_PDF_RESULT,
+            requestId: message.requestId,
+            ok: true,
+            dataBase64,
+          }, window.location.origin);
+        } catch (error) {
+          window.postMessage({
+            source: 'vcs-recruitment-frontend',
+            type: EXTENSION_PDF_RESULT,
+            requestId: message.requestId,
+            ok: false,
+            error: error instanceof Error ? error.message : 'Could not create AI Match Preview PDF.',
+          }, window.location.origin);
+        }
+      })();
+    };
+
+    window.addEventListener('message', handleExtensionPdfRequest);
+    return () => window.removeEventListener('message', handleExtensionPdfRequest);
+  }, [aiScreening, applicationId, candidate, mapping, parsedProfile]);
 
   if (!loading && !application && error) {
     return (

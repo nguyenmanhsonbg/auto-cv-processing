@@ -12,6 +12,7 @@ import {
   JobDescriptionStatus,
   JobDescriptionVersionStatus,
   JobPostingStatus,
+  ApplicationStatus,
   QuestionSetStatus,
   RecruitmentChannel,
 } from '../recruitment-common';
@@ -1180,6 +1181,12 @@ export class ExtensionIntegrationService {
     })[0];
   }
 
+  private toNullableNumber(value: unknown) {
+    if (value == null || value === '') return null;
+    const numericValue = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numericValue) ? numericValue : null;
+  }
+
   private safeAmisCatalogSnapshot(value: unknown) {
     if (!this.isRecord(value) || Array.isArray(value)) return undefined;
 
@@ -1386,7 +1393,6 @@ export class ExtensionIntegrationService {
           context,
           lastSyncedAt,
         );
-        result.applicationSource.amisCandidateId = item.candidateId;
         await this.dataSource.getRepository(ApplicationSourceEntity).save(result.applicationSource);
       }
     }
@@ -1407,7 +1413,14 @@ export class ExtensionIntegrationService {
     const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(normalizedRecruitmentId);
     const applications = await this.dataSource.getRepository(ApplicationEntity).find({
       where: { jobPostingId },
-      relations: ['candidate', 'currentCvDocument', 'formSessions', 'sources'],
+      relations: [
+        'candidate',
+        'currentCvDocument',
+        'formSessions',
+        'mappingResults',
+        'aiScreeningResults',
+        'sources',
+      ],
       order: { createdAt: 'DESC' },
     });
     const applicationRows = this.buildAmisApplicationListRows(
@@ -1422,6 +1435,9 @@ export class ExtensionIntegrationService {
       applications: applicationRows.map(({ application, source }) => {
         const rawPayload = this.isRecord(source?.rawPayload) ? source.rawPayload : {};
         const latestForm = this.latestByCreatedAt(application.formSessions);
+        const latestMapping = this.latestByCreatedAt(application.mappingResults);
+        const latestAiScreening = this.latestByCreatedAt(application.aiScreeningResults);
+        const applicationScreeningDone = application.status === ApplicationStatus.AI_SCREENING_DONE;
 
         return {
           applicationId: application.id,
@@ -1431,6 +1447,14 @@ export class ExtensionIntegrationService {
           email: application.candidate?.email ?? null,
           mobile: application.candidate?.phone ?? null,
           status: application.status,
+          mappingStatus: application.mappingStatus
+            ?? latestMapping?.status
+            ?? (applicationScreeningDone ? 'DONE' : null),
+          aiScreeningStatus: application.aiScreeningStatus
+            ?? latestAiScreening?.status
+            ?? (applicationScreeningDone ? 'DONE' : null),
+          mappingScore: this.toNullableNumber(latestMapping?.score),
+          aiScreeningScore: this.toNullableNumber(latestAiScreening?.finalScore),
           formStatus: latestForm?.status ?? null,
           latestForm: latestForm
             ? {

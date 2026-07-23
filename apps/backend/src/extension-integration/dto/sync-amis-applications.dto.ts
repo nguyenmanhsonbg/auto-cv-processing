@@ -194,6 +194,18 @@ export class AmisApplicationListItemDto {
   @ApiProperty()
   status: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  mappingStatus: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  aiScreeningStatus: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  mappingScore: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  aiScreeningScore: number | null;
+
   @ApiPropertyOptional()
   formStatus: string | null;
 

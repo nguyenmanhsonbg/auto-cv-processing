@@ -40,6 +40,7 @@ import type {
   SyncAmisCareersResponse,
   SyncAmisJobPostingRequest,
   SyncVcsPortalJdsResponse,
+  RunApplicationAiScreeningResponse,
   UpdateFacebookGroupRequest,
   VerifyFacebookGroupRequest,
 } from './types';
@@ -293,6 +294,19 @@ export async function getAmisApplicationsForRecruitment(
     `/extension/amis/recruitments/${encodeURIComponent(amisRecruitmentId)}/applications`,
     {
       method: 'GET',
+      accessToken,
+    },
+  );
+}
+
+export async function runApplicationAiScreening(
+  accessToken: string,
+  applicationId: string,
+) {
+  return request<RunApplicationAiScreeningResponse>(
+    `/applications/${encodeURIComponent(applicationId)}/ai-screening/run`,
+    {
+      method: 'POST',
       accessToken,
     },
   );

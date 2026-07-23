@@ -19,13 +19,12 @@ function sanitizeFilename(filename: string): string {
 }
 
 /** Generates a text/vector PDF from the profile data instead of rasterizing the UI. */
-export async function exportAiMatchPreviewToPdf({
+export async function createAiMatchPreviewPdfBlob({
   profile,
   mapping,
   screening,
   candidate,
-  filename,
-}: ExportAiMatchPreviewOptions): Promise<void> {
+}: Omit<ExportAiMatchPreviewOptions, 'filename'>): Promise<Blob> {
   const [{ pdf }, { AiMatchPreviewPdf }] = await Promise.all([
     import('@react-pdf/renderer'),
     import('@/components/recruitment/AiMatchPreviewPdf'),
@@ -37,7 +36,18 @@ export async function exportAiMatchPreviewToPdf({
     screening,
     candidate,
   }) as unknown as ReactElement;
-  const blob = await pdf(pdfDocument).toBlob();
+  return pdf(pdfDocument).toBlob();
+}
+
+export async function pdfBlobToBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+export async function exportAiMatchPreviewToPdf({ filename, ...options }: ExportAiMatchPreviewOptions): Promise<void> {
+  const blob = await createAiMatchPreviewPdfBlob(options);
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;

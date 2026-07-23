@@ -424,51 +424,134 @@ export class ApplicationsService {
     input: RunApplicationAiScreeningInput = {},
   ): Promise<ApplicationEntity> {
     const applicationId = this.requireText(id, 'Application id');
-    if (!this.aiService) {
-      throw new BadRequestException('AI service is not available');
-    }
+    const alreadyCompleted = await this.markAiScreeningRequested(applicationId, input);
+    if (alreadyCompleted) return this.findDetail(applicationId);
 
-    const context = await this.buildAiScreeningContext(applicationId);
-    const enrichedJobDescription = await this.getOrCreateEnrichedJobDescription(
-      context.application.jobDescriptionVersion,
-    );
-    const screeningContext = {
-      ...context,
-      enrichedJobDescription,
-    };
+    try {
+      if (!this.aiService) {
+        throw new BadRequestException('AI service is not available');
+      }
 
-    // Application parsing and candidate re-analysis use different pipelines. Make
-    // sure the application pipeline also produces the anomaly result consumed by
-    // the AI screening and preview views.
-    const existingAnomaly =
-      this.asRecord(screeningContext.parsedProfile.parsedData?.anomalyDetection) ??
-      screeningContext.anomalyResult;
-    const anomalyDetection = await this.aiService.detectProfileAnomalies(
-      screeningContext.enrichedProfile as ParsedProfile,
-    );
-    if (anomalyDetection) {
-      screeningContext.parsedProfile.parsedData = {
-        ...screeningContext.parsedProfile.parsedData,
-        anomalyDetection,
+      const context = await this.buildAiScreeningContext(applicationId);
+      const enrichedJobDescription = await this.getOrCreateEnrichedJobDescription(
+        context.application.jobDescriptionVersion,
+      );
+      const screeningContext = {
+        ...context,
+        enrichedJobDescription,
       };
-      screeningContext.enrichedProfile = screeningContext.parsedProfile.parsedData;
-      screeningContext.anomalyResult = anomalyDetection as unknown as Record<string, unknown>;
-      await this.parsedProfilesRepo.save(screeningContext.parsedProfile);
-    } else if (existingAnomaly) {
-      // Preserve the last successful result if the refresh call degrades gracefully.
-      screeningContext.anomalyResult = existingAnomaly;
+
+      // Application parsing and candidate re-analysis use different pipelines. Make
+      // sure the application pipeline also produces the anomaly result consumed by
+      // the AI screening and preview views.
+      const existingAnomaly =
+        this.asRecord(screeningContext.parsedProfile.parsedData?.anomalyDetection) ??
+        screeningContext.anomalyResult;
+      const anomalyDetection = await this.aiService.detectProfileAnomalies(
+        screeningContext.enrichedProfile as ParsedProfile,
+      );
+      if (anomalyDetection) {
+        screeningContext.parsedProfile.parsedData = {
+          ...screeningContext.parsedProfile.parsedData,
+          anomalyDetection,
+        };
+        screeningContext.enrichedProfile = screeningContext.parsedProfile.parsedData;
+        screeningContext.anomalyResult = anomalyDetection as unknown as Record<string, unknown>;
+        await this.parsedProfilesRepo.save(screeningContext.parsedProfile);
+      } else if (existingAnomaly) {
+        // Preserve the last successful result if the refresh call degrades gracefully.
+        screeningContext.anomalyResult = existingAnomaly;
+      }
+
+      const aiResult = await this.aiService.runRecruitmentPhase1AiScreening({
+        enrichedJobDescription: screeningContext.enrichedJobDescription,
+        enrichedProfile: screeningContext.enrichedProfile,
+        formAnswers: screeningContext.formAnswers,
+        anomalyResult: screeningContext.anomalyResult,
+        applicationMetadata: screeningContext.applicationMetadata,
+      });
+
+      await this.persistAiScreeningResult(applicationId, screeningContext, aiResult, input);
+      return this.findDetail(applicationId);
+    } catch (error) {
+      await this.markAiScreeningFailed(applicationId, input, error);
+      throw error;
     }
+  }
 
-    const aiResult = await this.aiService.runRecruitmentPhase1AiScreening({
-      enrichedJobDescription: screeningContext.enrichedJobDescription,
-      enrichedProfile: screeningContext.enrichedProfile,
-      formAnswers: screeningContext.formAnswers,
-      anomalyResult: screeningContext.anomalyResult,
-      applicationMetadata: screeningContext.applicationMetadata,
+  private async markAiScreeningRequested(
+    applicationId: string,
+    input: RunApplicationAiScreeningInput,
+  ): Promise<boolean> {
+    return this.dataSource.transaction(async (manager) => {
+      const application = await manager
+        .getRepository(ApplicationEntity)
+        .createQueryBuilder('application')
+        .setLock('pessimistic_write')
+        .where('application.id = :applicationId', { applicationId })
+        .getOne();
+
+      if (!application) throw new BadRequestException('Application not found');
+      if (application.aiScreeningStatus === AiScreeningStatus.DONE) return true;
+      if (application.aiScreeningStatus === AiScreeningStatus.REQUESTED) {
+        throw new ConflictException('AI screening is already running');
+      }
+
+      const previousStatus = application.status;
+      application.mappingStatus = MappingStatus.REQUESTED;
+      application.aiScreeningStatus = AiScreeningStatus.REQUESTED;
+      application.status = ApplicationStatus.AI_SCREENING_REQUESTED;
+      await manager.getRepository(ApplicationEntity).save(application);
+
+      await this.workflowStateService.recordEvent(
+        {
+          applicationId,
+          fromStatus: previousStatus,
+          toStatus: ApplicationStatus.AI_SCREENING_REQUESTED,
+          eventType: 'AI_SCREENING_REQUESTED',
+          actorType: input.actorId ? 'USER' : 'SYSTEM',
+          actorId: this.optionalText(input.actorId),
+          metadata: {},
+        },
+        manager,
+      );
+
+      return false;
     });
+  }
 
-    await this.persistAiScreeningResult(applicationId, screeningContext, aiResult, input);
-    return this.findDetail(applicationId);
+  private async markAiScreeningFailed(
+    applicationId: string,
+    input: RunApplicationAiScreeningInput,
+    error: unknown,
+  ): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const application = await manager.getRepository(ApplicationEntity).findOne({
+        where: { id: applicationId },
+      });
+      if (!application) return;
+
+      const previousStatus = application.status;
+      application.mappingStatus = MappingStatus.FAILED;
+      application.aiScreeningStatus = AiScreeningStatus.FAILED;
+      application.status = ApplicationStatus.AI_SCREENING_FAILED;
+      await manager.getRepository(ApplicationEntity).save(application);
+
+      await this.workflowStateService.recordEvent(
+        {
+          applicationId,
+          fromStatus: previousStatus,
+          toStatus: ApplicationStatus.AI_SCREENING_FAILED,
+          eventType: 'AI_SCREENING_FAILED',
+          actorType: input.actorId ? 'USER' : 'SYSTEM',
+          actorId: this.optionalText(input.actorId),
+          metadata: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        },
+        manager,
+      );
+    });
   }
 
   findByCandidateAndPosting(candidateId: string, jobPostingId: string) {
