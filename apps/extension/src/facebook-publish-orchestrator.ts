@@ -361,12 +361,15 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
 
   const tab = await openTab('https://www.facebook.com/', false);
   let status: FacebookLoginCheckResult | null = null;
-  let closeAfterCheck = true;
+  // Keep the probe tab until Facebook explicitly reports an authenticated session.
+  // This prevents an incomplete/logged-out probe from closing the only tab where the user can sign in.
+  let closeAfterCheck = callbacks.allowInteractiveLogin === false;
 
   try {
     await waitForTabComplete(tab.id);
     status = await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []);
     if (status.ready) {
+      closeAfterCheck = true;
       callbacks.onStatus?.({
         status: 'READY',
         message: status.message,
@@ -379,7 +382,6 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
       throw new Error('Facebook login is not ready in the background tab.');
     }
 
-    closeAfterCheck = false;
     callbacks.onStatus?.({
       status: 'WAITING_LOGIN',
       message: 'Facebook login is required. Please complete login in the opened tab.',
@@ -387,6 +389,7 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
     });
 
     await chrome.tabs?.update(tab.id, { url: 'https://www.facebook.com/login', active: true });
+    await focusFacebookLoginTab(tab.id);
     const deadline = Date.now() + 10 * 60_000;
     while (Date.now() < deadline) {
       await sleep(2_000);
@@ -1339,6 +1342,12 @@ async function openTab(url: string, active: boolean) {
   return { id: tab.id };
 }
 
+async function focusFacebookLoginTab(tabId: number) {
+  const tab = await chrome.tabs?.update(tabId, { active: true });
+  if (tab?.windowId === undefined) return;
+  await chrome.windows?.update(tab.windowId, { focused: true });
+}
+
 async function waitForTabComplete(tabId: number) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -2147,11 +2156,18 @@ function sleep(ms: number) {
 
 function checkFacebookLoginInPage(): FacebookLoginCheckResult {
   const url = window.location.href;
-  const loginLike = /\/login|checkpoint|recover|confirmemail|two_step|login_identify/i.test(url);
-  const hasPasswordInput = Boolean(document.querySelector('input[type="password"]'));
+  const pathname = new URL(url).pathname.toLowerCase();
+  const loginLike = /\/(?:login|checkpoint(?:\/|$)|recover(?:\/|$)|confirmemail(?:\/|$)|two_step(?:\/|$)|login_identify(?:\/|$))/.test(pathname);
+  const hasLoginForm = Boolean(document.querySelector(
+    'form[action*="login" i], input[type="password"], input[name="pass"], input[name="email"]',
+  ));
   const bodyText = (document.body?.innerText ?? '').toLowerCase().slice(0, 3000);
-  const loggedOutText = /log in|login|dang nhap/.test(bodyText) && hasPasswordInput;
-  const ready = url.includes('facebook.com') && !loginLike && !loggedOutText;
+  const loggedOutText = /log in|login|dang nhap/.test(bodyText) && hasLoginForm;
+  const ready = document.readyState === 'complete'
+    && url.includes('facebook.com')
+    && !loginLike
+    && !loggedOutText
+    && !hasLoginForm;
 
   return {
     ready,
