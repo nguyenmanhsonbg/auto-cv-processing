@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateFacebookGroupDto {
   @ApiProperty({ example: 'Viec lam IT Da Nang' })
@@ -13,4 +13,9 @@ export class CreateFacebookGroupDto {
   @IsNotEmpty()
   @MaxLength(2048)
   targetUrl: string;
+
+  @ApiPropertyOptional({ description: 'Stable Facebook account id resolved from the current browser session.' })
+  @IsOptional()
+  @IsUUID()
+  facebookAccountId?: string;
 }

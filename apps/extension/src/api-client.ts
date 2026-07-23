@@ -30,6 +30,7 @@ import type {
   FacebookPublishHistoryListItem,
   FacebookReviewStatus,
   FacebookPublishTarget,
+  FacebookAccount,
   FacebookGroupSyncState,
   FacebookPublishResultPayload,
   JobDescriptionQuestionSetContext,
@@ -412,15 +413,39 @@ export async function updateFacebookPublishHistoryStatusCheck(
   );
 }
 
-export async function getFacebookGroups(accessToken: string) {
-  return request<FacebookPublishTarget[]>('/extension/facebook/groups', {
+export async function resolveFacebookAccount(
+  accessToken: string,
+  payload: { facebookExternalId: string; displayName?: string | null; profileUrl?: string | null },
+) {
+  return request<FacebookAccount>('/extension/facebook/accounts/resolve', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function listFacebookAccounts(accessToken: string) {
+  return request<FacebookAccount[]>('/extension/facebook/accounts', {
     method: 'GET',
     accessToken,
   });
 }
 
-export async function getFacebookGroupSyncState(accessToken: string) {
-  return request<FacebookGroupSyncState>('/extension/facebook/groups/sync-state', {
+export async function getFacebookGroups(accessToken: string, facebookAccountId?: string | null) {
+  const query = facebookAccountId
+    ? `?facebookAccountId=${encodeURIComponent(facebookAccountId)}`
+    : '';
+  return request<FacebookPublishTarget[]>(`/extension/facebook/groups${query}`, {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function getFacebookGroupSyncState(accessToken: string, facebookAccountId?: string | null) {
+  const query = facebookAccountId
+    ? `?facebookAccountId=${encodeURIComponent(facebookAccountId)}`
+    : '';
+  return request<FacebookGroupSyncState>(`/extension/facebook/groups/sync-state${query}`, {
     method: 'GET',
     accessToken,
   });
@@ -523,8 +548,15 @@ export async function verifyFacebookGroup(
   });
 }
 
-export async function deleteFacebookGroup(accessToken: string, targetId: string) {
-  return request<FacebookPublishTarget>(`/extension/facebook/groups/${encodeURIComponent(targetId)}`, {
+export async function deleteFacebookGroup(
+  accessToken: string,
+  targetId: string,
+  facebookAccountId?: string | null,
+) {
+  const query = facebookAccountId
+    ? `?facebookAccountId=${encodeURIComponent(facebookAccountId)}`
+    : '';
+  return request<FacebookPublishTarget>(`/extension/facebook/groups/${encodeURIComponent(targetId)}${query}`, {
     method: 'DELETE',
     accessToken,
   });

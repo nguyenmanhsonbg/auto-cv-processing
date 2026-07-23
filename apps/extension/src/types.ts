@@ -259,6 +259,7 @@ export interface SyncAmisJobPostingRequest {
   snapshot: AmisJobSnapshot;
   channels: ExtensionChannel[];
   facebookTargetIds?: string[];
+  facebookAccountId?: string;
   selectedQuestionIds?: string[];
   facebookContent?: string;
   metadata?: Record<string, unknown>;
@@ -335,16 +336,29 @@ export interface FacebookPublishTarget {
   ownerExtensionInstanceId?: string | null;
   lastVerifiedByInstanceId?: string | null;
   facebookAccountLabel?: string | null;
+  facebookAccountId?: string | null;
+  facebookAccountExternalId?: string | null;
+}
+
+export interface FacebookAccount {
+  id: string;
+  facebookExternalId: string;
+  displayName: string | null;
+  profileUrl: string | null;
+  status: 'ACTIVE' | 'LOGGED_OUT' | 'UNKNOWN';
+  lastSeenAt: string | null;
 }
 
 export interface CreateFacebookGroupRequest {
   targetName: string;
   targetUrl: string;
+  facebookAccountId?: string;
 }
 
 export interface UpdateFacebookGroupRequest {
   targetName: string;
   targetUrl: string;
+  facebookAccountId?: string;
 }
 
 export interface DiscoverFacebookGroupsRequest {
@@ -354,6 +368,7 @@ export interface DiscoverFacebookGroupsRequest {
     targetExternalId?: string | null;
   }>;
   scanComplete?: boolean;
+  facebookAccountId?: string;
 }
 
 export interface FacebookGroupSyncState {
@@ -393,6 +408,7 @@ export interface VerifyFacebookGroupRequest {
   eligibilityStatus: FacebookPublishTargetEligibilityStatus;
   eligibilityReason?: string | null;
   verifiedAt?: string | null;
+  facebookAccountId?: string;
 }
 
 export type FacebookPublishAttachmentSource = 'LOCAL_UPLOAD' | 'AI_GENERATED';

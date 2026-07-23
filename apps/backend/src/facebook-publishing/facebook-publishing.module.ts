@@ -5,6 +5,7 @@ import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
 import { FacebookPostContentService } from './content/facebook-post-content.service';
 import { FacebookPublishHistoryEntity } from './entities/facebook-publish-history.entity';
 import { FacebookPublishTargetEntity } from './entities/facebook-publish-target.entity';
+import { FacebookAccountEntity } from './entities/facebook-account.entity';
 import { FacebookGroupSyncStateEntity } from './entities/facebook-group-sync-state.entity';
 import { FacebookPublishingService } from './facebook-publishing.service';
 
@@ -14,6 +15,7 @@ import { FacebookPublishingService } from './facebook-publishing.service';
     TypeOrmModule.forFeature([
       FacebookPublishHistoryEntity,
       FacebookPublishTargetEntity,
+      FacebookAccountEntity,
       FacebookGroupSyncStateEntity,
       JobPostingEntity,
     ]),

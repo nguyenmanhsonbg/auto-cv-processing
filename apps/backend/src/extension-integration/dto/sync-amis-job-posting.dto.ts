@@ -185,6 +185,11 @@ export class SyncAmisJobPostingDto {
   @IsUUID('4', { each: true })
   facebookTargetIds?: string[];
 
+  @ApiPropertyOptional({ description: 'Stable Facebook account id used for the selected group targets.' })
+  @IsOptional()
+  @IsUUID('4')
+  facebookAccountId?: string;
+
   @ApiPropertyOptional({
     isArray: true,
     type: String,

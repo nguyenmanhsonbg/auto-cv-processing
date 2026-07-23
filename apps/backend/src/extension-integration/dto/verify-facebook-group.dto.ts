@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsISO8601, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { FacebookPublishTargetEligibilityStatus } from '../../facebook-publishing/facebook-publishing.types';
 
 export class VerifyFacebookGroupDto {
@@ -20,4 +20,9 @@ export class VerifyFacebookGroupDto {
   @IsOptional()
   @IsISO8601()
   verifiedAt?: string | null;
+
+  @ApiPropertyOptional({ description: 'Stable Facebook account id resolved from the current browser session.' })
+  @IsOptional()
+  @IsUUID()
+  facebookAccountId?: string;
 }

@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { UserEntity } from '../../auth/entities/user.entity';
 import { ExtensionInstanceEntity } from '../../extension-integration/entities/extension-instance.entity';
+import { FacebookAccountEntity } from './facebook-account.entity';
 import {
   FacebookPublishTargetEligibilityStatus,
   FacebookPublishTargetType,
@@ -18,6 +19,7 @@ import {
 @Entity('facebook_publish_targets')
 @Index('IDX_facebook_publish_targets_type_active', ['type', 'active'])
 @Index('IDX_facebook_publish_targets_owner_type_active', ['ownerUserId', 'type', 'active'])
+@Index('IDX_facebook_publish_targets_account_type_active', ['facebookAccountId', 'type', 'active'])
 export class FacebookPublishTargetEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -47,6 +49,13 @@ export class FacebookPublishTargetEntity {
   @ManyToOne(() => ExtensionInstanceEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'owner_extension_instance_id' })
   ownerExtensionInstance: ExtensionInstanceEntity | null;
+
+  @Column({ name: 'facebook_account_id', type: 'uuid', nullable: true })
+  facebookAccountId: string | null;
+
+  @ManyToOne(() => FacebookAccountEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'facebook_account_id' })
+  facebookAccount: FacebookAccountEntity | null;
 
   @Column({ type: 'boolean', default: true })
   active: boolean;

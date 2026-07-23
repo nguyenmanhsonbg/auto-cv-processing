@@ -16,13 +16,13 @@ import {
   getAmisApplicationsForRecruitment,
   getCurrentUser,
   getFacebookGroups,
-  getFacebookGroupSyncState,
   getJobDescriptionQuestionSet,
   generateFacebookPreviewContent,
   listFacebookGroupPublishHistories,
   listJobDescriptions,
   heartbeatExtensionInstance,
   login,
+  resolveFacebookAccount,
   previewAmisJobPublishPlan,
   syncAmisApplications,
   syncAndPublishAmisJob,
@@ -48,6 +48,7 @@ import {
   saveFacebookContentDraft as persistFacebookContentDraft,
 } from './facebook-content-draft-store';
 import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from './facebook-group-preferences';
+import { setActiveFacebookAccountId } from './facebook-account-store';
 import {
   beginFacebookImagePublish,
   getFacebookImageAttachments,
@@ -88,6 +89,7 @@ import type {
   FacebookPublishPlan,
   FacebookPublishProgress,
   FacebookPublishTarget,
+  FacebookAccount,
   FacebookPublishTargetEligibilityStatus,
   FacebookReviewStatus,
   JobDescriptionQuestionSetContext,
@@ -119,6 +121,7 @@ type FacebookGroupLoadState =
   | 'IDLE'
   | 'CHECKING_LOGIN'
   | 'WAITING_LOGIN'
+  | 'LOADING_SAVED_GROUPS'
   | 'LOADING_GROUPS'
   | 'READY'
   | 'ERROR';
@@ -305,6 +308,7 @@ function SidePanel() {
   const [facebookProgress, setFacebookProgress] = useState<FacebookPublishProgress | null>(null);
   const [facebookRunning, setFacebookRunning] = useState(false);
   const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
+  const [facebookAccount, setFacebookAccount] = useState<FacebookAccount | null>(null);
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
   const [facebookContent, setFacebookContent] = useState('');
   const [facebookContentState, setFacebookContentState] = useState<FacebookContentState>('IDLE');
@@ -684,20 +688,26 @@ function SidePanel() {
   }
 
   async function restoreSelectedFacebookGroups() {
-    setSelectedFacebookGroupIdsState(await getSelectedFacebookGroupIds());
+    // The selected account is resolved only after the Facebook session check.
+    // Never restore selections from an unknown account into the current session.
+    setSelectedFacebookGroupIdsState([]);
   }
 
-  async function updateSelectedFacebookGroupIds(targetIds: string[]) {
+  async function updateSelectedFacebookGroupIds(targetIds: string[], accountId = facebookAccount?.id) {
     const uniqueTargetIds = uniqueStrings(targetIds);
     selectedFacebookGroupIdsRef.current = uniqueTargetIds;
     setSelectedFacebookGroupIdsState(uniqueTargetIds);
-    await setSelectedFacebookGroupIds(uniqueTargetIds);
+    await setSelectedFacebookGroupIds(uniqueTargetIds, accountId);
   }
 
-  async function reconcileSelectedFacebookGroups(groups: FacebookPublishTarget[], targetIds = selectedFacebookGroupIds) {
+  async function reconcileSelectedFacebookGroups(
+    groups: FacebookPublishTarget[],
+    targetIds = selectedFacebookGroupIds,
+    accountId = facebookAccount?.id,
+  ) {
     const publishableGroupIds = new Set(groups.filter(isPublishableFacebookGroup).map((group) => group.targetId).filter(isString));
     const nextTargetIds = uniqueStrings(targetIds).filter((targetId) => publishableGroupIds.has(targetId));
-    await updateSelectedFacebookGroupIds(nextTargetIds);
+    await updateSelectedFacebookGroupIds(nextTargetIds, accountId);
     return nextTargetIds;
   }
 
@@ -2097,7 +2107,7 @@ function SidePanel() {
           buildFacebookGroupSelectionMessage(selectedIds, groups, discoverySummary),
         );
       } else {
-        setFacebookGroupMessage('No Facebook groups are configured for this account yet.');
+        setFacebookGroupMessage('Không có group nào');
       }
       await setSelectedChannels(next);
     } catch (err) {
@@ -2121,34 +2131,42 @@ function SidePanel() {
     setFacebookGroupLoadState('CHECKING_LOGIN');
     setFacebookGroupMessage('Checking Facebook login in this browser.');
 
-    await ensureFacebookSession({
+    const session = await ensureFacebookSession({
       onStatus: (event) => {
-        setFacebookGroupLoadState(event.status === 'READY' ? 'LOADING_GROUPS' : event.status);
+        setFacebookGroupLoadState(event.status === 'READY' ? 'LOADING_SAVED_GROUPS' : event.status);
         setFacebookGroupMessage(event.message);
       },
     });
 
-    const syncState = await getFacebookGroupSyncState(accessToken);
-    if (syncState.initialScanCompletedAt && syncState.status === 'READY') {
-      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken));
-      setFacebookGroups(groups);
-      const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
-      setFacebookGroupLoadState('READY');
-      setFacebookGroupMessage(
-        groups.length > 0
-          ? buildFacebookGroupSelectionMessage(selectedIds, groups)
-          : 'No Facebook groups are configured for this account yet.',
-      );
-      return {
-        groups,
-        selectedIds,
-        discoverySummary: null,
-        details: null,
-        scanComplete: true,
-      };
+    if (!session.account) {
+      throw new Error('Could not identify the logged-in Facebook account. Please refresh Facebook and try again.');
     }
+    const resolvedAccount = await resolveFacebookAccount(accessToken, session.account);
+    setFacebookAccount(resolvedAccount);
+    await setActiveFacebookAccountId(resolvedAccount.id);
 
-    return syncFacebookGroupsFromBrowser(accessToken, { sessionReady: true });
+    setFacebookGroupLoadState('LOADING_SAVED_GROUPS');
+    setFacebookGroupMessage('Đang tải danh sách group Facebook đã lưu...');
+    const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken, resolvedAccount.id));
+    setFacebookGroups(groups);
+    const selectedIds = await reconcileSelectedFacebookGroups(
+      groups,
+      await getSelectedFacebookGroupIds(resolvedAccount.id),
+      resolvedAccount.id,
+    );
+    setFacebookGroupLoadState('READY');
+    setFacebookGroupMessage(
+      groups.length > 0
+        ? buildFacebookGroupSelectionMessage(selectedIds, groups)
+        : 'Không có group nào',
+    );
+    return {
+      groups,
+      selectedIds,
+      discoverySummary: null,
+      details: null,
+      scanComplete: false,
+    };
   }
 
   async function handleSyncFacebookGroups() {
@@ -2157,7 +2175,7 @@ function SidePanel() {
     try {
       const result = await syncFacebookGroupsFromBrowser(token);
       if (result.groups.length === 0) {
-        setFacebookGroupMessage('No Facebook groups are configured for this account yet.');
+        setFacebookGroupMessage('Không có group nào');
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -2176,16 +2194,27 @@ function SidePanel() {
     options: { sessionReady?: boolean } = {},
   ): Promise<FacebookGroupsSyncResult> {
     setFacebookGroupSyncDetails(null);
+    let activeAccount = facebookAccount;
     if (!options.sessionReady) {
       setFacebookGroupLoadState('CHECKING_LOGIN');
       setFacebookGroupMessage('Checking Facebook login in this browser.');
 
-      await ensureFacebookSession({
+      const session = await ensureFacebookSession({
         onStatus: (event) => {
           setFacebookGroupLoadState(event.status === 'READY' ? 'LOADING_GROUPS' : event.status);
           setFacebookGroupMessage(event.message);
         },
       });
+      if (!session.account) {
+        throw new Error('Could not identify the logged-in Facebook account. Please refresh Facebook and try again.');
+      }
+      activeAccount = await resolveFacebookAccount(accessToken, session.account);
+      setFacebookAccount(activeAccount);
+      await setActiveFacebookAccountId(activeAccount.id);
+    }
+
+    if (!activeAccount) {
+      throw new Error('Facebook account is not resolved. Please check Facebook login again.');
     }
 
     setFacebookGroupLoadState('LOADING_GROUPS');
@@ -2208,6 +2237,7 @@ function SidePanel() {
       setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm, đang đồng bộ lên VCS...`);
       const discoverResult = await syncFacebookGroups(accessToken, {
         scanComplete: true,
+        facebookAccountId: activeAccount.id,
         groups: discoveredGroups.map((item) => ({
           targetName: item.targetName,
           targetUrl: item.targetUrl,
@@ -2220,15 +2250,19 @@ function SidePanel() {
     }
 
     setFacebookGroupMessage('Đang tải danh sách nhóm Facebook đã đồng bộ...');
-    const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken));
+    const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken, activeAccount.id));
     setFacebookGroups(groups);
-    const selectedIds = await reconcileSelectedFacebookGroups(groups, await getSelectedFacebookGroupIds());
+    const selectedIds = await reconcileSelectedFacebookGroups(
+      groups,
+      await getSelectedFacebookGroupIds(activeAccount.id),
+      activeAccount.id,
+    );
 
     setFacebookGroupLoadState('READY');
     setFacebookGroupMessage(
       groups.length > 0
         ? buildFacebookGroupSelectionMessage(selectedIds, groups, discoverySummary)
-        : 'No Facebook groups are configured for this account yet.',
+        : 'Không có group nào',
     );
 
     return { groups, selectedIds, discoverySummary, details, scanComplete: scanResult.scanComplete };
@@ -2649,7 +2683,7 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
 
     try {
-      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken));
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken, facebookAccount?.id));
       setFacebookGroups(groups);
       await reconcileSelectedFacebookGroups(groups);
       setFacebookSettingsState('READY');
@@ -2729,6 +2763,7 @@ function SidePanel() {
             eligibilityStatus: eligibility.eligibilityStatus,
             eligibilityReason: eligibility.eligibilityReason,
             verifiedAt: eligibility.verifiedAt,
+            facebookAccountId: facebookAccount?.id,
           });
           const groups = replaceFacebookGroup(facebookGroupsRef.current, savedGroup);
           facebookGroupsRef.current = groups;
@@ -2818,8 +2853,12 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
 
     try {
-      const savedGroup = await createFacebookGroup(token, { targetName, targetUrl });
-      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token));
+      const savedGroup = await createFacebookGroup(token, {
+        targetName,
+        targetUrl,
+        facebookAccountId: facebookAccount?.id,
+      });
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token, facebookAccount?.id));
       setFacebookGroups(groups);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setFacebookGroupName('');
@@ -2885,8 +2924,12 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
 
     try {
-      const savedGroup = await updateFacebookGroup(token, selectedFacebookGroup.targetId, { targetName, targetUrl });
-      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token));
+      const savedGroup = await updateFacebookGroup(token, selectedFacebookGroup.targetId, {
+        targetName,
+        targetUrl,
+        facebookAccountId: facebookAccount?.id,
+      });
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token, facebookAccount?.id));
       setFacebookGroups(groups);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setSelectedFacebookGroup(null);
@@ -2927,8 +2970,8 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
 
     try {
-      const deletedGroup = await deleteFacebookGroup(token, selectedFacebookGroup.targetId);
-      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token));
+      const deletedGroup = await deleteFacebookGroup(token, selectedFacebookGroup.targetId, facebookAccount?.id);
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token, facebookAccount?.id));
       setFacebookGroups(groups);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIds.filter((targetId) => (
         targetId !== selectedFacebookGroup.targetId
@@ -2943,7 +2986,7 @@ function SidePanel() {
         setFacebookGroupMessage(
           groups.length > 0
             ? buildFacebookGroupSelectionMessage(nextSelectedIds, groups)
-            : 'No Facebook groups are configured for this account yet.',
+            : 'Không có group nào',
         );
       }
     } catch (err) {
@@ -2987,6 +3030,9 @@ function SidePanel() {
       snapshot: sourceSnapshot,
       channels: channelsForPayload,
       ...(channelsForPayload.includes('FACEBOOK') && facebookTargetIds.length > 0 ? { facebookTargetIds } : {}),
+      ...(channelsForPayload.includes('FACEBOOK') && facebookAccount?.id
+        ? { facebookAccountId: facebookAccount.id }
+        : {}),
       ...(channelsForPayload.includes('FACEBOOK') && includeFacebookContent && trimmedFacebookContent
         ? { facebookContent: trimmedFacebookContent }
         : {}),
@@ -4096,7 +4142,11 @@ function SidePanel() {
                           disabled={!token || isFacebookLoading}
                           onClick={() => void handleSyncFacebookGroups()}
                         >
-                          {isFacebookLoading ? 'Syncing...' : 'Sync'}
+                          {facebookGroupLoadState === 'LOADING_SAVED_GROUPS'
+                            ? 'Loading...'
+                            : isFacebookLoading
+                              ? 'Syncing...'
+                              : 'Sync'}
                         </button>
                       ) : null}
                       {isFacebookChannel ? (
@@ -4118,7 +4168,17 @@ function SidePanel() {
                   </div>
                   {showFacebookGroups ? (
                     <div className="channel-subselection">
-                      <div className="channel-subselection-title">Nhóm Facebook</div>
+                      <div className="channel-subselection-title">
+                        <span>Nhóm Facebook</span>
+                        {facebookAccount ? (
+                          <span
+                            className="channel-subselection-account"
+                            title={facebookAccount.facebookExternalId}
+                          >
+                            {facebookAccount.displayName || `Account ${facebookAccount.facebookExternalId}`}
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="channel-subselection-list">
                         {visibleFacebookGroups.length > 0 ? (
                           <p className="channel-subselection-summary">
@@ -4185,7 +4245,7 @@ function SidePanel() {
                           ))
                         ) : (
                           facebookGroupLoadState === 'READY'
-                            ? <p className="channel-subselection-empty">No valid IT recruitment Facebook groups are available.</p>
+                            ? <p className="channel-subselection-empty">Không có group nào</p>
                             : null
                         )}
                       </div>
@@ -7535,6 +7595,7 @@ function extractFacebookApplyUrl(content: string) {
 function isFacebookGroupLoading(state: FacebookGroupLoadState) {
   return state === 'CHECKING_LOGIN'
     || state === 'WAITING_LOGIN'
+    || state === 'LOADING_SAVED_GROUPS'
     || state === 'LOADING_GROUPS';
 }
 

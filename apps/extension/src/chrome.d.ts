@@ -163,8 +163,13 @@ interface ChromeSidePanel {
   setPanelBehavior(options: { openPanelOnActionClick: boolean }): Promise<void>;
 }
 
+interface ChromeCookies {
+  get(details: { url: string; name: string }): Promise<{ value?: string } | null>;
+}
+
 interface ChromeApi {
   alarms?: ChromeAlarms;
+  cookies?: ChromeCookies;
   debugger?: ChromeDebugger;
   runtime?: ChromeRuntime;
   scripting?: ChromeScripting;

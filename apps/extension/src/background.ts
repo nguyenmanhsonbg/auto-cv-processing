@@ -37,6 +37,7 @@ import {
   getFacebookContentDraft,
 } from './facebook-content-draft-store';
 import { getSelectedFacebookGroupIds } from './facebook-group-preferences';
+import { getActiveFacebookAccountId } from './facebook-account-store';
 import {
   beginFacebookImagePublish,
   getFacebookImageAttachments,
@@ -581,8 +582,11 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
   }
 
   const channels = await getSelectedChannels();
+  const facebookAccountId = channels.includes('FACEBOOK')
+    ? await getActiveFacebookAccountId()
+    : null;
   const facebookTargetIds = channels.includes('FACEBOOK')
-    ? await getSelectedFacebookGroupIds()
+    ? await getSelectedFacebookGroupIds(facebookAccountId)
     : [];
   const selectedJobQuestionContext = await getSelectedJobQuestionContextForTab(sender.tab?.id);
   const facebookContentDraft = channels.includes('FACEBOOK')
@@ -649,6 +653,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
           facebookTargetIds,
           selectedQuestionIds,
           facebookContentForPublish,
+          facebookAccountId,
         ),
       );
 
@@ -1057,6 +1062,7 @@ async function buildSyncPayload(
   facebookTargetIds: string[],
   selectedQuestionIds: string[] = [],
   facebookContentOverride?: string | null,
+  facebookAccountId?: string | null,
 ): Promise<SyncAmisJobPostingRequest> {
   const trimmedFacebookContentOverride = facebookContentOverride?.trim();
   const facebookDraft = channels.includes('FACEBOOK') && !trimmedFacebookContentOverride
@@ -1075,6 +1081,7 @@ async function buildSyncPayload(
     snapshot: capture.snapshot,
     channels,
     ...(channels.includes('FACEBOOK') ? { facebookTargetIds } : {}),
+    ...(channels.includes('FACEBOOK') && facebookAccountId ? { facebookAccountId } : {}),
     ...(facebookContent ? { facebookContent } : {}),
     ...(selectedQuestionIds.length ? { selectedQuestionIds } : {}),
     metadata: {
