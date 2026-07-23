@@ -5,6 +5,7 @@ import {
   IsArray,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
@@ -50,6 +51,11 @@ export class DiscoverFacebookGroupsDto {
   @IsOptional()
   @IsBoolean()
   scanComplete?: boolean;
+
+  @ApiPropertyOptional({ description: 'Stable Facebook account id resolved from the current browser session.' })
+  @IsOptional()
+  @IsUUID()
+  facebookAccountId?: string;
 }
 
 export class DiscoverFacebookGroupsResponseItemDto {

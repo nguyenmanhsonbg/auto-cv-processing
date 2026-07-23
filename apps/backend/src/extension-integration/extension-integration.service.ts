@@ -166,6 +166,7 @@ export class ExtensionIntegrationService {
         normalizedDto.facebookTargetIds,
         normalizedDto.facebookContent,
         context.extensionInstanceId,
+        normalizedDto.facebookAccountId,
       )
       : undefined;
     const warnings = this.buildFacebookPreviewWarnings(normalizedDto.channels, facebookPublishPlan);
@@ -719,6 +720,7 @@ export class ExtensionIntegrationService {
         input.dto.facebookTargetIds,
         input.dto.facebookContent,
         input.ownerExtensionInstanceId,
+        input.dto.facebookAccountId,
       )
       : undefined;
     const warnings: ExtensionSyncWarningDto[] = [];

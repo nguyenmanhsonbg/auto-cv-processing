@@ -45,6 +45,24 @@ export interface ResolvedFacebookPublishTarget {
   ownerExtensionInstanceId?: string | null;
   lastVerifiedByInstanceId?: string | null;
   facebookAccountLabel?: string | null;
+  facebookAccountId?: string | null;
+  facebookAccountExternalId?: string | null;
+}
+
+export interface ResolveFacebookAccountInput {
+  ownerUserId: string;
+  facebookExternalId: string;
+  displayName?: string | null;
+  profileUrl?: string | null;
+}
+
+export interface ResolvedFacebookAccount {
+  id: string;
+  facebookExternalId: string;
+  displayName: string | null;
+  profileUrl: string | null;
+  status: 'ACTIVE' | 'LOGGED_OUT' | 'UNKNOWN';
+  lastSeenAt: string | null;
 }
 
 export interface CreateFacebookGroupInput {
@@ -52,6 +70,7 @@ export interface CreateFacebookGroupInput {
   targetName: string;
   targetUrl: string;
   ownerExtensionInstanceId?: string | null;
+  facebookAccountId?: string | null;
 }
 
 export interface UpdateFacebookGroupInput extends CreateFacebookGroupInput {
@@ -62,6 +81,7 @@ export interface UpdateFacebookGroupVerificationInput {
   ownerUserId: string;
   targetId: string;
   ownerExtensionInstanceId?: string | null;
+  facebookAccountId?: string | null;
   eligibilityStatus: FacebookPublishTargetEligibilityStatus;
   eligibilityReason?: string | null;
   verifiedAt?: Date | null;

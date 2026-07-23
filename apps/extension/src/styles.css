@@ -994,6 +994,9 @@ dd {
 }
 
 .channel-subselection-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   border: 1px solid #a7f3d0;
   border-bottom: 0;
   border-radius: 5px 5px 0 0;
@@ -1004,6 +1007,10 @@ dd {
   font-weight: 800;
   line-height: 1;
   text-transform: uppercase;
+}
+
+.channel-subselection-account {
+  text-transform: none;
 }
 
 .channel-subselection-title + .channel-subselection-list {

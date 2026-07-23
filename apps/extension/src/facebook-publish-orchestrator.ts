@@ -33,6 +33,13 @@ export interface FacebookSessionEvent {
   status: FacebookSessionStatus;
   message: string;
   url?: string;
+  account?: FacebookAccountIdentity | null;
+}
+
+export interface FacebookAccountIdentity {
+  facebookExternalId: string;
+  displayName?: string | null;
+  profileUrl?: string | null;
 }
 
 interface FacebookSessionCallbacks {
@@ -44,6 +51,7 @@ interface FacebookLoginCheckResult {
   ready: boolean;
   url: string;
   message: string;
+  account?: FacebookAccountIdentity | null;
 }
 
 export interface FacebookGroupEligibilityResult {
@@ -189,7 +197,7 @@ export async function publishFacebookPlan(
     results,
   });
   try {
-    await ensureFacebookSession({
+    const session = await ensureFacebookSession({
       onStatus: (event) => {
         if (event.status !== 'WAITING_LOGIN') return;
         callbacks.onProgress?.({
@@ -201,6 +209,13 @@ export async function publishFacebookPlan(
         });
       },
     });
+    const expectedAccountIds = [...new Set(plan.targets
+      .map((target) => target.facebookAccountExternalId)
+      .filter((value): value is string => Boolean(value)))];
+    if (expectedAccountIds.length > 0
+      && (!session.account || !expectedAccountIds.includes(session.account.facebookExternalId))) {
+      throw new Error('The active Facebook browser account does not match the selected Facebook groups.');
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Facebook login could not be completed.';
     await reportAllTargetsFailed(accessToken, plan, message, results);
@@ -361,16 +376,23 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
 
   const tab = await openTab('https://www.facebook.com/', false);
   let status: FacebookLoginCheckResult | null = null;
-  let closeAfterCheck = true;
+  // Keep the probe tab until Facebook explicitly reports an authenticated session.
+  // This prevents an incomplete/logged-out probe from closing the only tab where the user can sign in.
+  let closeAfterCheck = callbacks.allowInteractiveLogin === false;
 
   try {
     await waitForTabComplete(tab.id);
-    status = await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []);
+    status = await enrichFacebookAccountIdentity(
+      await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []),
+      tab.id,
+    );
     if (status.ready) {
+      closeAfterCheck = true;
       callbacks.onStatus?.({
         status: 'READY',
         message: status.message,
         url: status.url,
+        account: status.account,
       });
       return status;
     }
@@ -379,7 +401,6 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
       throw new Error('Facebook login is not ready in the background tab.');
     }
 
-    closeAfterCheck = false;
     callbacks.onStatus?.({
       status: 'WAITING_LOGIN',
       message: 'Facebook login is required. Please complete login in the opened tab.',
@@ -387,17 +408,22 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
     });
 
     await chrome.tabs?.update(tab.id, { url: 'https://www.facebook.com/login', active: true });
+    await focusFacebookLoginTab(tab.id);
     const deadline = Date.now() + 10 * 60_000;
     while (Date.now() < deadline) {
       await sleep(2_000);
       await waitForTabComplete(tab.id);
-      status = await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []);
+      status = await enrichFacebookAccountIdentity(
+        await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []),
+        tab.id,
+      );
       if (status.ready) {
         closeAfterCheck = true;
         callbacks.onStatus?.({
           status: 'READY',
           message: status.message,
           url: status.url,
+          account: status.account,
         });
         return status;
       }
@@ -1339,6 +1365,75 @@ async function openTab(url: string, active: boolean) {
   return { id: tab.id };
 }
 
+async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, sourceTabId?: number) {
+  if (!status.ready) return status;
+
+  let externalId = status.account?.facebookExternalId.match(/^\d+$/)?.[0] ?? null;
+  let displayName = normalizeFacebookDisplayName(status.account?.displayName);
+  let profileUrl = status.account?.profileUrl ?? null;
+
+  try {
+    const cookie = await chrome.cookies?.get({
+      url: 'https://www.facebook.com/',
+      name: 'c_user',
+    });
+    externalId = cookie?.value?.trim() || externalId;
+  } catch {
+    // DOM identity remains a valid fallback when cookie access is unavailable.
+  }
+
+  if (!externalId) return status;
+
+  if (!displayName && sourceTabId) {
+    const profileTab = await openTab(`https://www.facebook.com/profile.php?id=${externalId}`, false).catch(() => null);
+    if (profileTab) {
+      try {
+        await waitForTabComplete(profileTab.id);
+        await sleep(800);
+        const profileIdentity = await runScript<[], FacebookProfileIdentityProbe>(
+          profileTab.id,
+          readFacebookProfileIdentityInPage,
+          [],
+        );
+        displayName = normalizeFacebookDisplayName(profileIdentity.displayName);
+        profileUrl = profileIdentity.profileUrl || profileUrl;
+      } catch {
+        // Account identity is still valid without a display name.
+      } finally {
+        await closeTabSafely(profileTab.id);
+      }
+    }
+  }
+
+  return {
+    ...status,
+    account: {
+      facebookExternalId: externalId,
+      displayName,
+      profileUrl: profileUrl ?? `https://www.facebook.com/profile.php?id=${externalId}`,
+    },
+  };
+}
+
+interface FacebookProfileIdentityProbe {
+  displayName: string | null;
+  profileUrl: string;
+}
+
+function normalizeFacebookDisplayName(value: string | null | undefined) {
+  const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!normalized || /^account\s+\d+$/i.test(normalized)) return null;
+  if (normalized.length > 100) return null;
+  if (/đã phê duyệt một lần đăng nhập|approved a login|notification/i.test(normalized)) return null;
+  return normalized;
+}
+
+async function focusFacebookLoginTab(tabId: number) {
+  const tab = await chrome.tabs?.update(tabId, { active: true });
+  if (tab?.windowId === undefined) return;
+  await chrome.windows?.update(tab.windowId, { focused: true });
+}
+
 async function waitForTabComplete(tabId: number) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -2147,18 +2242,125 @@ function sleep(ms: number) {
 
 function checkFacebookLoginInPage(): FacebookLoginCheckResult {
   const url = window.location.href;
-  const loginLike = /\/login|checkpoint|recover|confirmemail|two_step|login_identify/i.test(url);
-  const hasPasswordInput = Boolean(document.querySelector('input[type="password"]'));
+  const pathname = new URL(url).pathname.toLowerCase();
+  const loginLike = /\/(?:login|checkpoint(?:\/|$)|recover(?:\/|$)|confirmemail(?:\/|$)|two_step(?:\/|$)|login_identify(?:\/|$))/.test(pathname);
+  const hasLoginForm = Boolean(document.querySelector(
+    'form[action*="login" i], input[type="password"], input[name="pass"], input[name="email"]',
+  ));
   const bodyText = (document.body?.innerText ?? '').toLowerCase().slice(0, 3000);
-  const loggedOutText = /log in|login|dang nhap/.test(bodyText) && hasPasswordInput;
-  const ready = url.includes('facebook.com') && !loginLike && !loggedOutText;
+  const loggedOutText = /log in|login|dang nhap/.test(bodyText) && hasLoginForm;
+  const ready = document.readyState === 'complete'
+    && url.includes('facebook.com')
+    && !loginLike
+    && !loggedOutText
+    && !hasLoginForm;
+
+  let account: FacebookAccountIdentity | null = null;
+  if (ready) {
+    const profileLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'))
+      .map((link) => ({
+        href: link.href,
+        text: (link.textContent ?? '').trim(),
+        labels: [
+          link.getAttribute('aria-label'),
+          link.getAttribute('title'),
+          link.getAttribute('data-tooltip-content'),
+          link.querySelector('img')?.getAttribute('alt'),
+          link.querySelector('[aria-label]')?.getAttribute('aria-label'),
+          link.closest('[aria-label]')?.getAttribute('aria-label'),
+        ].filter((value): value is string => Boolean(value)),
+      }))
+      .filter(({ href }) => {
+        try {
+          const parsed = new URL(href);
+          return parsed.hostname === 'facebook.com'
+            || parsed.hostname.endsWith('.facebook.com');
+        } catch {
+          return false;
+        }
+      });
+    const profileLink = profileLinks.find(({ href }) => /profile\.php\?id=\d+/i.test(href))
+      ?? profileLinks.find(({ href, text, labels }) => {
+        try {
+          const pathname = new URL(href).pathname.toLowerCase();
+          const parsed = new URL(href);
+          const hasHumanLabel = [text, ...labels].some((value) => {
+            const normalized = value.replace(/\s+/g, ' ').trim();
+            return normalized.length >= 2
+              && normalized.length <= 80
+              && !/^(your|my)\s+(profile|account)$/i.test(normalized)
+              && !/^(profile|facebook|log in|login)$/i.test(normalized);
+          });
+          return pathname.startsWith('/profile/')
+            || (parsed.search === ''
+              && pathname.length > 1
+              && pathname.split('/').filter(Boolean).length === 1
+              && hasHumanLabel
+              && !/^\/(groups|home|watch|marketplace|friends|notifications|messages|settings|help|login|reel|reels|story|stories|share|sharer|photo|photos|video|gaming|events|jobs|pages)(\/|$)/.test(pathname));
+        } catch {
+          return false;
+        }
+      });
+
+    if (profileLink) {
+      const parsed = new URL(profileLink.href);
+      const numericId = parsed.searchParams.get('id')?.trim();
+      const normalizedPath = parsed.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+      const facebookExternalId = numericId || (normalizedPath ? `profile:${normalizedPath}` : null);
+      const displayName = [profileLink.text, ...profileLink.labels]
+        .map((value) => value
+          .replace(/\s+/g, ' ')
+          .replace(/\s+(?:'s|’s)?\s*(?:profile|hồ sơ|trang cá nhân)$/i, '')
+          .trim())
+        .find((value) => value.length >= 2
+          && value.length <= 80
+          && !/^(your|my)\s+(profile|account)$/i.test(value)
+          && !/^(profile|facebook|log in|login)$/i.test(value)) ?? null;
+      if (facebookExternalId) {
+        account = {
+          facebookExternalId,
+          displayName,
+          profileUrl: parsed.href,
+        };
+      }
+    }
+  }
 
   return {
     ready,
     url,
+    account,
     message: ready
       ? 'Facebook login detected.'
       : 'Waiting for Facebook login to complete.',
+  };
+}
+
+function readFacebookProfileIdentityInPage(): FacebookProfileIdentityProbe {
+  const normalize = (value: string | null | undefined) => {
+    const normalized = value
+      ?.replace(/\s+/g, ' ')
+      .replace(/\s*[|•-]\s*Facebook.*$/i, '')
+      .replace(/\s+on Facebook$/i, '')
+      .trim() ?? '';
+    if (!normalized || normalized.length > 100) return null;
+    if (/^(facebook|profile|log in|login|home)$/i.test(normalized)) return null;
+    return normalized;
+  };
+
+  const displayName = [
+    document.querySelector('[role="main"] h1')?.textContent,
+    document.querySelector('main h1')?.textContent,
+    document.querySelector('h1')?.textContent,
+    document.querySelector('meta[property="og:title"]')?.getAttribute('content'),
+    document.title,
+  ]
+    .map(normalize)
+    .find((value): value is string => Boolean(value)) ?? null;
+
+  return {
+    displayName,
+    profileUrl: window.location.href,
   };
 }
 
