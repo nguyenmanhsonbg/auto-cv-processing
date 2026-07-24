@@ -696,6 +696,53 @@ export interface RunApplicationAiScreeningResponse {
   } | null;
 }
 
+export interface ApplicationMappingSummary {
+  mappingResultId?: string | null;
+  score?: number | null;
+  status?: string | null;
+  recommendation?: string | null;
+  createdAt?: string | null;
+}
+
+export interface ApplicationAiScreeningInsight {
+  title?: string | null;
+  evidence?: string | null;
+  confidence?: string | null;
+  severity?: string | null;
+}
+
+export interface ApplicationAiScreeningSummary {
+  aiScreeningResultId?: string | null;
+  score?: number | null;
+  status?: string | null;
+  recommendation?: string | null;
+  summary?: string | null;
+  strengths?: ApplicationAiScreeningInsight[];
+  gaps?: ApplicationAiScreeningInsight[];
+  risks?: ApplicationAiScreeningInsight[];
+  createdAt?: string | null;
+}
+
+export interface ApplicationDetailRecord {
+  applicationId: string;
+  candidate?: {
+    candidateId?: string | null;
+    fullName?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  } | null;
+  mapping?: ApplicationMappingSummary | null;
+  aiScreening?: ApplicationAiScreeningSummary | null;
+}
+
+export interface ParsedProfileRecord {
+  parsedProfileId?: string;
+  id?: string;
+  applicationId?: string;
+  parsedData?: Record<string, unknown> | null;
+  profile?: Record<string, unknown> | null;
+}
+
 export interface AmisCareerFetchResponse {
   ok: boolean;
   sourceUrl: string;

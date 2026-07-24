@@ -11,6 +11,8 @@ import {
 import type {
   ApiEnvelope,
   ApiPagination,
+  ApplicationDetailRecord,
+  ParsedProfileRecord,
   AmisApplicationsForRecruitment,
   AmisCareerCatalogItem,
   AmisCareerQuestionContext,
@@ -327,6 +329,26 @@ export async function getJobDescriptionQuestionSet(
   );
 }
 
+export async function getApplicationDetail(accessToken: string, applicationId: string) {
+  return request<ApplicationDetailRecord>(
+    `/applications/${encodeURIComponent(applicationId)}`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
+}
+
+export async function getApplicationParsedProfile(accessToken: string, applicationId: string) {
+  return request<ParsedProfileRecord | null>(
+    `/applications/${encodeURIComponent(applicationId)}/parsed-profile`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
+}
+
 export async function updateJobDescriptionQuestionSetItem(
   accessToken: string,
   jobDescriptionId: string,
@@ -373,26 +395,6 @@ export async function downloadCleanCvFile(
     mimeType: response.headers.get('Content-Type') ?? 'application/pdf',
     data: await response.arrayBuffer(),
   };
-}
-
-export async function getApplicationAiMatchPreview(
-  accessToken: string,
-  applicationId: string,
-) {
-  return request<Record<string, unknown>>(`/applications/${encodeURIComponent(applicationId)}`, {
-    method: 'GET',
-    accessToken,
-  });
-}
-
-export async function getApplicationParsedProfile(
-  accessToken: string,
-  applicationId: string,
-) {
-  return request<Record<string, unknown>>(`/applications/${encodeURIComponent(applicationId)}/parsed-profile`, {
-    method: 'GET',
-    accessToken,
-  });
 }
 
 export async function listAmisCareers(accessToken: string) {

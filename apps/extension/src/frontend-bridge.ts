@@ -12,10 +12,6 @@ const BACKGROUND_PUBLISH_REQUEST = 'FRONTEND_FACEBOOK_PUBLISH_REQUEST';
 const BACKGROUND_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const BACKGROUND_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const BACKGROUND_PORT = 'frontend-facebook-publish';
-const EXPORT_AI_MATCH_PREVIEW_PDF_MESSAGE = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF';
-const EXPORT_AI_MATCH_PREVIEW_PDF_FROM_PAGE = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_FROM_PAGE';
-const EXPORT_AI_MATCH_PREVIEW_PDF_RESULT = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_RESULT';
-
 const activeRequestPorts = new Map<string, ChromePort>();
 
 window.addEventListener('message', (event) => {
@@ -61,63 +57,10 @@ window.addEventListener('message', (event) => {
 });
 
 chrome.runtime?.onMessage.addListener((message) => {
-  if (isExportAiMatchPreviewPdfRequest(message)) {
-    void requestVectorAiMatchPreviewPdf(message.applicationId)
-      .then((dataBase64) => chrome.runtime?.sendMessage?.({
-        type: 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_RESULT',
-        requestId: message.requestId,
-        ok: true,
-        dataBase64,
-      }))
-      .catch((error: unknown) => chrome.runtime?.sendMessage?.({
-        type: 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_RESULT',
-        requestId: message.requestId,
-        ok: false,
-        error: error instanceof Error ? error.message : 'Could not export AI Match Preview PDF.',
-      }));
-    return;
-  }
   if (!isBackgroundEvent(message)) return;
   postToPage(message.requestId, message.event, message.payload);
 });
 
-function requestVectorAiMatchPreviewPdf(applicationId: string) {
-  return new Promise<string>((resolve, reject) => {
-    const requestId = crypto.randomUUID();
-    const timeoutId = window.setTimeout(() => {
-      window.removeEventListener('message', handleResponse);
-      reject(new Error('Timed out while creating AI Match Preview PDF.'));
-    }, 60_000);
-    const handleResponse = (event: MessageEvent<unknown>) => {
-      if (event.source !== window || event.origin !== window.location.origin) return;
-      if (typeof event.data !== 'object' || event.data === null) return;
-      const response = event.data as { source?: unknown; type?: unknown; requestId?: unknown; ok?: unknown; dataBase64?: unknown; error?: unknown };
-      if (response.source !== 'vcs-recruitment-frontend' || response.type !== EXPORT_AI_MATCH_PREVIEW_PDF_RESULT || response.requestId !== requestId) return;
-      window.clearTimeout(timeoutId);
-      window.removeEventListener('message', handleResponse);
-      if (response.ok && typeof response.dataBase64 === 'string') {
-        resolve(response.dataBase64);
-      } else {
-        reject(new Error(typeof response.error === 'string' ? response.error : 'Could not create AI Match Preview PDF.'));
-      }
-    };
-    window.addEventListener('message', handleResponse);
-    window.postMessage({
-      source: EXTENSION_SOURCE,
-      type: EXPORT_AI_MATCH_PREVIEW_PDF_FROM_PAGE,
-      requestId,
-      applicationId,
-    }, window.location.origin);
-  });
-}
-
-function isExportAiMatchPreviewPdfRequest(value: unknown): value is { type: string; requestId: string; applicationId: string } {
-  return typeof value === 'object'
-    && value !== null
-    && (value as { type?: unknown }).type === EXPORT_AI_MATCH_PREVIEW_PDF_MESSAGE
-    && typeof (value as { requestId?: unknown }).requestId === 'string'
-    && typeof (value as { applicationId?: unknown }).applicationId === 'string';
-}
 
 function sendBackgroundPortRequest(message: {
   type: typeof BACKGROUND_AUTH_CHECK_REQUEST | typeof BACKGROUND_PUBLISH_REQUEST | typeof BACKGROUND_GROUP_VERIFY_REQUEST;

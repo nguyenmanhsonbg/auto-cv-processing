@@ -10,6 +10,8 @@ import {
   deleteFacebookGroup,
   downloadCleanCvFile,
   ensureRegisteredExtensionInstance,
+  getApplicationDetail,
+  getApplicationParsedProfile,
   getAmisApplicationsForRecruitment,
   getCurrentUser,
   getFacebookGroups,
@@ -31,6 +33,7 @@ import {
   updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
 } from './api-client';
+import { createAiMatchPreviewPdfBase64 } from './ai-match-preview-pdf-export';
 import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChanges } from './auth-store';
 import { getSelectedChannels, setSelectedChannels } from './channel-preferences';
 import {
@@ -1599,7 +1602,26 @@ function SidePanel() {
         throw new Error('Open the AMIS candidate documents tab first.');
       }
 
-      const previewPdf = await requestAiMatchPreviewPdfFromFrontend(application.applicationId);
+      const [applicationDetail, parsedProfile] = await Promise.all([
+        getApplicationDetail(token, application.applicationId),
+        getApplicationParsedProfile(token, application.applicationId),
+      ]);
+      const previewPdf = await createAiMatchPreviewPdfBase64({
+        profile: parsedProfile?.parsedData ?? parsedProfile?.profile,
+        mapping: applicationDetail?.mapping,
+        screening: applicationDetail?.aiScreening,
+        candidate: applicationDetail?.candidate
+          ? {
+            fullName: applicationDetail.candidate.fullName,
+            email: applicationDetail.candidate.email,
+            phone: applicationDetail.candidate.phone,
+          }
+          : {
+            fullName: application.candidateName,
+            email: application.email,
+            phone: application.mobile,
+          },
+      });
       if (previewPdf.length < 1000) {
         throw new Error('PDF đánh giá AI được tạo ra không hợp lệ hoặc đang rỗng.');
       }
@@ -1607,6 +1629,7 @@ function SidePanel() {
       const response = await sendMessageToAmisTab(activeTab.id, {
         type: UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
         payload: {
+          waitForCandidateForm: false,
           files: [{
             fileName: `ai-match-preview-${application.candidateName || 'candidate'}.pdf`,
             mimeType: 'application/pdf',
@@ -5160,6 +5183,10 @@ function SidePanel() {
               const isAmisUploadPending = pendingAmisUploadApplicationIds.has(application.applicationId);
               const syncStatus = getApplicationAmisSyncStatus(application, isAmisUploadPending);
               const questionStatus = getApplicationQuestionStatus(application);
+              const isCurrentAmisCandidate = Boolean(
+                activeAmisCandidateId
+                && application.amisCandidateId === activeAmisCandidateId,
+              );
               const isAmisCvUploaded = Boolean(application.attachmentCvId || application.attachmentCvName);
               const aiScreeningDone = normalizeStatus(application.aiScreeningStatus) === 'DONE';
               const aiScreeningRunning = normalizeStatus(application.aiScreeningStatus) === 'REQUESTED'
@@ -5238,7 +5265,7 @@ function SidePanel() {
                           {aiScreeningRunning ? 'Đang đánh giá...' : 'Đánh giá AI'}
                         </button>
                       ) : null}
-                      {isAmisCvUploaded && aiScreeningDone ? (
+                      {isAmisCvUploaded && aiScreeningDone && isCurrentAmisCandidate ? (
                         <button
                           type="button"
                           className="cv-sync-amis-button"
@@ -7934,22 +7961,6 @@ async function sendMessageToAmisTab(tabId: number, message: unknown, frameId?: n
     await wait(250);
     return chrome.tabs.sendMessage(tabId, message, frameId === undefined ? undefined : { frameId });
   }
-}
-
-async function requestAiMatchPreviewPdfFromFrontend(applicationId: string) {
-  if (!chrome.runtime?.sendMessage) {
-    throw new Error('Chrome runtime messaging is unavailable.');
-  }
-
-  const response = await chrome.runtime.sendMessage({
-    type: 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF',
-    requestId: crypto.randomUUID(),
-    applicationId,
-  }) as { ok?: boolean; dataBase64?: string; error?: string } | undefined;
-  if (!response?.ok || !response.dataBase64) {
-    throw new Error(response?.error ?? 'Không thể tạo PDF đánh giá AI từ VCS Portal.');
-  }
-  return response.dataBase64;
 }
 
 async function injectAmisBridge(tabId: number) {
