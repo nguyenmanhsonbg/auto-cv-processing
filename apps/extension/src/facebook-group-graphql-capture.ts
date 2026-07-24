@@ -12,6 +12,8 @@ const MAX_PAGES = 250;
 const INITIAL_RESPONSE_TIMEOUT_MS = 20_000;
 const ACTIVE_RETRY_RESPONSE_TIMEOUT_MS = 20_000;
 const PAGINATION_TEMPLATE_TIMEOUT_MS = 12_000;
+const GRAPHQL_PAGE_INTERVAL_MS = 250;
+const GRAPHQL_RETRY_DELAYS_MS = [750, 1_500, 3_000, 6_000];
 
 export interface FacebookGraphqlGroup {
   targetName: string;
@@ -261,11 +263,12 @@ export async function collectFacebookGroupsFromGraphql(
     // pagination request after the page's lazy-load pass. Rewind that request
     // to cursor=null so the first page is not silently skipped.
     if (initialCursor !== null && initialCursor !== undefined && initialCursor !== '') {
-      const firstPageResponse = await fetchGraphqlPageInTab(
+      const firstPageResponse = await fetchGraphqlPageWithRetry(
         tabId,
         initialResponse.request.requestUrl,
         updateGraphqlVariables(initialResponse.request.postData, null),
         initialResponse.request.headers,
+        onMessage,
       );
       if (firstPageResponse.status < 200 || firstPageResponse.status >= 300) {
         throw new Error(`Facebook GraphQL trả về HTTP ${firstPageResponse.status} khi lấy trang đầu.`);
@@ -303,11 +306,13 @@ export async function collectFacebookGroupsFromGraphql(
 
     while (currentPage.hasNextPage && currentPage.endCursor && paginationTemplate && pageCount < MAX_PAGES) {
       const nextBody = updateGraphqlVariables(paginationTemplate.postData, currentPage.endCursor);
-      const nextResponse = await fetchGraphqlPageInTab(
+      await sleep(GRAPHQL_PAGE_INTERVAL_MS);
+      const nextResponse = await fetchGraphqlPageWithRetry(
         tabId,
         paginationTemplate.requestUrl,
         nextBody,
         paginationTemplate.headers,
+        onMessage,
       );
       if (nextResponse.status < 200 || nextResponse.status >= 300) {
         throw new Error(`Facebook GraphQL trả về HTTP ${nextResponse.status}.`);
@@ -435,6 +440,43 @@ async function fetchGraphqlPageInTab(
   const result = results?.[0]?.result;
   if (!result) throw new Error('Không nhận được response GraphQL từ tab Facebook.');
   return result;
+}
+
+async function fetchGraphqlPageWithRetry(
+  tabId: number,
+  requestUrl: string,
+  postData: string,
+  headers: Record<string, string>,
+  onMessage?: (message: string) => void,
+) {
+  let lastResponse: FacebookGraphqlFetchResult | null = null;
+
+  for (let attempt = 0; attempt <= GRAPHQL_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (attempt > 0) {
+      const delay = GRAPHQL_RETRY_DELAYS_MS[attempt - 1]
+        ?? GRAPHQL_RETRY_DELAYS_MS[GRAPHQL_RETRY_DELAYS_MS.length - 1];
+      await sleep(delay);
+      onMessage?.(`Facebook GraphQL temporary failure, retry ${attempt}/${GRAPHQL_RETRY_DELAYS_MS.length}...`);
+    }
+
+    const response = await fetchGraphqlPageInTab(tabId, requestUrl, postData, headers);
+    lastResponse = response;
+    if (!isRetryableGraphqlFailure(response.status, response.body) || attempt >= GRAPHQL_RETRY_DELAYS_MS.length) {
+      return response;
+    }
+  }
+
+  if (lastResponse) return lastResponse;
+  throw new Error('Facebook GraphQL page request failed after retries.');
+}
+
+function isRetryableGraphqlFailure(status: number, body: string) {
+  if (status === 429 || status >= 500) return true;
+  const normalizedBody = body.toLowerCase();
+  return normalizedBody.includes('internal_server_error')
+    || normalizedBody.includes('request could not be completed')
+    || normalizedBody.includes('please retry later')
+    || normalizedBody.includes('temporarily unavailable');
 }
 
 interface FacebookGroupsScrollResult {

@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import { json, urlencoded } from 'express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const session = require('express-session');
 import { AppModule } from './app.module';
@@ -13,7 +14,12 @@ async function bootstrap() {
     throw new Error('JWT_SECRET environment variable is required');
   }
 
-  const app = await NestFactory.create(AppModule);
+  // The hidden Facebook scan can legitimately send hundreds of groups in one
+  // request. Replace the default ~100 KB parser limit with a bounded limit that
+  // still matches the DTO's 2,000-item cap.
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(json({ limit: '5mb' }));
+  app.use(urlencoded({ extended: true, limit: '5mb' }));
 
   app.use(helmet());
 
