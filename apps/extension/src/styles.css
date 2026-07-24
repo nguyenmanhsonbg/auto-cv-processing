@@ -4598,6 +4598,204 @@ dd {
   border-radius: 8px;
 }
 
+.facebook-publish-results-panel {
+  display: flex;
+  align-self: stretch;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.facebook-publish-results-heading,
+.facebook-publish-results-channel,
+.facebook-publish-results-list {
+  align-self: stretch;
+}
+
+.facebook-publish-results-heading h2 {
+  color: #1f2937;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 28px;
+}
+
+.facebook-publish-results-channel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+
+.facebook-publish-result-channel-section {
+  align-self: stretch;
+}
+
+.facebook-publish-result-channel-detail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 32px;
+  border-bottom: 1px solid #edf1f7;
+  padding: 8px 4px 0;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.facebook-publish-results-channel-name {
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+
+.facebook-publish-results-channel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.facebook-publish-results-toggle {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  place-items: center;
+  color: #334155;
+  background: transparent;
+}
+
+.facebook-publish-results-toggle:hover,
+.facebook-publish-results-toggle:focus-visible {
+  background: #f1f5f9;
+  outline: 2px solid #bfdbfe;
+  outline-offset: 1px;
+}
+
+.facebook-publish-results-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.facebook-publish-results-list {
+  display: grid;
+  max-height: 148px;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.facebook-publish-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+  border-bottom: 1px solid #edf1f7;
+  padding: 0 4px 8px 8px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.facebook-publish-result-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.facebook-publish-result-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facebook-publish-result-state {
+  flex: none;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.facebook-publish-results-state {
+  flex: none;
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.facebook-publish-results-channel .facebook-publish-results-state {
+  border-radius: 4px;
+}
+
+.facebook-publish-delay {
+  align-self: stretch;
+  margin: 0;
+  color: #92400e;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.facebook-publish-delay strong {
+  font-weight: 900;
+}
+
+.facebook-publish-results-state.is-processing,
+.facebook-publish-result-state.is-posting {
+  color: #b45309;
+  background: #ffedd5;
+}
+
+.facebook-publish-results-state.is-posted {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.facebook-publish-results-state.is-pending {
+  color: #4b5563;
+  background: #e5e7eb;
+}
+
+.facebook-publish-results-state.is-failed {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.facebook-publish-result-state.is-posted {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.facebook-publish-result-state.is-pending,
+.facebook-publish-result-state.is-skipped {
+  color: #4b5563;
+  background: #e5e7eb;
+}
+
+.facebook-publish-result-state.is-failed {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.facebook-publish-results-empty {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
 .extension-window .sync-button {
   min-height: 50px;
   border-radius: 4px;

@@ -25,6 +25,8 @@ function isFacebookPublishProgress(value: unknown): value is FacebookPublishProg
     && typeof (value as { status?: unknown }).status === 'string'
     && typeof (value as { currentIndex?: unknown }).currentIndex === 'number'
     && typeof (value as { total?: unknown }).total === 'number'
+    && ((value as { delayRemainingSeconds?: unknown }).delayRemainingSeconds === undefined
+      || typeof (value as { delayRemainingSeconds?: unknown }).delayRemainingSeconds === 'number')
     && typeof (value as { message?: unknown }).message === 'string'
     && Array.isArray((value as { results?: unknown }).results);
 }

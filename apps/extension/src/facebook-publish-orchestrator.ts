@@ -356,12 +356,14 @@ async function waitBetweenFacebookTargets(
 
   while (Date.now() < deadline) {
     const remainingMs = Math.max(0, deadline - Date.now());
+    const delayRemainingSeconds = Math.ceil(remainingMs / 1000);
     options.onProgress?.({
       status: 'DELAYING',
       currentIndex: options.currentIndex,
       total: options.total,
       target: options.target,
-      message: `Waiting ${Math.ceil(remainingMs / 1000)}s before the next Facebook group.`,
+      delayRemainingSeconds,
+      message: `Waiting ${delayRemainingSeconds}s before the next Facebook group.`,
       results: options.results,
     });
     await sleep(Math.min(1_000, remainingMs));

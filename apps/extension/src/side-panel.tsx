@@ -372,6 +372,8 @@ function SidePanel() {
   const [extractionResult, setExtractionResult] = useState<AmisExtractionResult | null>(null);
   const [autoSyncState, setAutoSyncState] = useState<AmisAutoSyncState | null>(null);
   const [facebookProgress, setFacebookProgress] = useState<FacebookPublishProgress | null>(null);
+  const [isFacebookResultsExpanded, setIsFacebookResultsExpanded] = useState(true);
+  const [expandedPublishResultChannels, setExpandedPublishResultChannels] = useState<Record<string, boolean>>({});
   const [facebookRunning, setFacebookRunning] = useState(false);
   const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
   const [facebookAccount, setFacebookAccount] = useState<FacebookAccount | null>(null);
@@ -4070,9 +4072,11 @@ function SidePanel() {
           {facebookRunning ? 'ĐANG ĐĂNG FACEBOOK...' : state === 'SYNCING' ? 'ĐANG ĐỒNG BỘ...' : isFacebookImageReading ? 'ĐANG TẢI ẢNH...' : 'ĐỒNG BỘ VÀ ĐĂNG'}
         </button>
 
+        {facebookSelected ? renderFacebookPublishResultsPanel() : null}
+
         {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
 
-        {result ? (
+        {!facebookSelected && result ? (
           <section className="result-panel publish-result-panel">
             <div>
               <h2>Kết quả</h2>
@@ -4098,6 +4102,169 @@ function SidePanel() {
         ) : null}
 
         {renderRuntimePanels()}
+      </div>
+    );
+  }
+
+  function renderFacebookPublishResultsPanel() {
+    const progressResults = facebookProgress?.results ?? [];
+    const resultTargets = result?.facebookPublishPlan?.targets.map(toFacebookGroupUiItem) ?? [];
+    const otherChannelPostings = result?.channelPostings.filter((channel) => channel.channel !== 'FACEBOOK') ?? [];
+    const selectedTargets = visibleFacebookGroups.filter((group) => (
+      Boolean(group.id) && selectedFacebookGroupIds.includes(group.id as string)
+    ));
+    const displayTargets = selectedTargets.length > 0
+      ? selectedTargets
+      : resultTargets.length > 0
+        ? resultTargets
+        : progressResults.map((item) => ({
+          key: item.targetId ?? item.targetUrl ?? item.targetName,
+          id: item.targetId ?? null,
+          name: item.targetName,
+          url: item.targetUrl,
+          eligibilityStatus: 'UNKNOWN' as const,
+          eligibilityReason: null,
+          quotaLabel: null,
+          selectable: false,
+          disabledReason: null,
+        }));
+    const progressByTarget = new Map(
+      progressResults.map((item) => [item.targetId ?? item.targetName, item]),
+    );
+    const activeTargetId = facebookProgress?.target?.targetId ?? null;
+    const isProgressActive = facebookProgress?.status === 'POSTING'
+      || facebookProgress?.status === 'REPORTING';
+    const isFacebookDelaying = facebookProgress?.status === 'DELAYING'
+      && (facebookProgress.delayRemainingSeconds ?? 0) > 0;
+    const delayRemainingSeconds = isFacebookDelaying
+      ? Math.max(0, Math.ceil(facebookProgress?.delayRemainingSeconds ?? 0))
+      : 0;
+    const channelStatusLabel = facebookProgress
+      ? facebookProgress.status === 'SUCCESS'
+        ? 'Đã hoàn tất'
+        : facebookProgress.status === 'PARTIAL_SUCCESS'
+          ? 'Hoàn tất một phần'
+          : facebookProgress.status === 'ERROR'
+            ? 'Có lỗi'
+            : isProgressActive || isFacebookDelaying || facebookProgress.status === 'LOGIN_REQUIRED' || facebookProgress.status === 'WAITING_LOGIN'
+              ? 'Đang xử lý'
+              : 'Đang chờ'
+      : 'Chưa bắt đầu';
+    const channelStatusClass = !facebookProgress
+      ? 'is-pending'
+      : facebookProgress.status === 'SUCCESS'
+        ? 'is-posted'
+        : facebookProgress.status === 'ERROR'
+          ? 'is-failed'
+          : isProgressActive || isFacebookDelaying || facebookProgress.status === 'LOGIN_REQUIRED' || facebookProgress.status === 'WAITING_LOGIN'
+            ? 'is-processing'
+            : 'is-pending';
+
+    return (
+      <section className="facebook-publish-results-panel" aria-label="Kết quả đăng Facebook">
+        <div className="facebook-publish-results-heading">
+          <h2>Kết quả</h2>
+        </div>
+        <div className="facebook-publish-results-channel">
+          <span className="facebook-publish-results-channel-name">FACEBOOK</span>
+          <span className="facebook-publish-results-channel-actions">
+            <span className={`facebook-publish-results-state ${channelStatusClass}`}>{channelStatusLabel}</span>
+            <button
+              type="button"
+              className="facebook-publish-results-toggle"
+              aria-expanded={isFacebookResultsExpanded}
+              aria-label={isFacebookResultsExpanded ? 'Thu gọn kết quả Facebook' : 'Mở rộng kết quả Facebook'}
+              title={isFacebookResultsExpanded ? 'Thu gọn kết quả' : 'Mở rộng kết quả'}
+              onClick={() => setIsFacebookResultsExpanded((current) => !current)}
+            >
+              {isFacebookResultsExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+            </button>
+          </span>
+        </div>
+        {isFacebookDelaying ? (
+          <p className="facebook-publish-delay" role="status" aria-live="polite">
+            Tiếp tục đăng sau <strong>{delayRemainingSeconds}</strong> giây
+          </p>
+        ) : null}
+        {isFacebookResultsExpanded ? (
+          <div className="facebook-publish-results-list">
+          {displayTargets.length > 0 ? displayTargets.map((group) => {
+            const progress = progressByTarget.get(group.id ?? group.name);
+            const isActive = isProgressActive
+              && (activeTargetId === group.id || facebookProgress?.target?.targetName === group.name);
+            const statusClass = progress?.status === 'SUCCESS'
+              ? 'is-posted'
+              : progress?.status === 'FAILED'
+                ? 'is-failed'
+                : progress?.status === 'SKIPPED'
+                  ? 'is-skipped'
+                  : isActive
+                    ? 'is-posting'
+                    : 'is-pending';
+            const statusLabel = progress?.status === 'SUCCESS'
+              ? 'Đã đăng'
+              : progress?.status === 'FAILED'
+                ? 'Đăng lỗi'
+                : progress?.status === 'SKIPPED'
+                  ? 'Đã bỏ qua'
+                  : isActive
+                    ? 'Đang đăng'
+                    : 'Đang chờ';
+
+            return (
+              <div className="facebook-publish-result-row" key={group.key}>
+                <span className="facebook-publish-result-name" title={group.name}>{group.name}</span>
+                <span className={`facebook-publish-result-state ${statusClass}`}>{statusLabel}</span>
+              </div>
+            );
+          }) : (
+            <p className="facebook-publish-results-empty">Chưa có nhóm Facebook được chọn.</p>
+          )}
+          </div>
+        ) : null}
+        {otherChannelPostings.map((channel) => renderPublishResultChannel(channel))}
+      </section>
+    );
+  }
+
+  function renderPublishResultChannel(channel: ChannelPostingResult) {
+    const channelKey = channel.channel;
+    const isExpanded = expandedPublishResultChannels[channelKey] ?? true;
+
+    return (
+      <div className="facebook-publish-result-channel-section" key={channelKey}>
+        <div className="facebook-publish-results-channel">
+          <span className="facebook-publish-results-channel-name">{formatChannelLabel(channel.channel)}</span>
+          <span className="facebook-publish-results-channel-actions">
+            <strong className={`result-status ${getChannelPostingStatusClass(channel)}`}>
+              {channel.status}
+            </strong>
+            <button
+              type="button"
+              className="facebook-publish-results-toggle"
+              aria-expanded={isExpanded}
+              aria-label={isExpanded ? `Thu gọn kênh ${formatChannelLabel(channel.channel)}` : `Mở rộng kênh ${formatChannelLabel(channel.channel)}`}
+              title={isExpanded ? 'Thu gọn kênh' : 'Mở rộng kênh'}
+              onClick={() => setExpandedPublishResultChannels((current) => ({
+                ...current,
+                [channelKey]: !isExpanded,
+              }))}
+            >
+              {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+            </button>
+          </span>
+        </div>
+        {isExpanded ? (
+          <div className="facebook-publish-result-channel-detail">
+            {channel.publishedUrl ? (
+              <a href={channel.publishedUrl} target="_blank" rel="noreferrer">
+                Open
+              </a>
+            ) : (
+              <span>Chưa có liên kết bài đăng</span>
+            )}
+          </div>
+        ) : null}
       </div>
     );
   }
