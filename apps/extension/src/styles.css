@@ -3873,49 +3873,6 @@ dd {
   padding: 0;
 }
 
-.career-question-editor {
-  display: grid;
-  gap: 12px;
-  padding: 4px 0 0;
-}
-
-.career-question-editor-field {
-  display: grid;
-  gap: 6px;
-}
-
-.career-question-editor-label {
-  color: #475569;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.career-question-editor-input {
-  width: 100%;
-  min-height: 74px;
-  resize: vertical;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  padding: 10px 12px;
-  color: #1f2937;
-  background: #ffffff;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.4;
-  box-sizing: border-box;
-}
-
-.career-question-editor-input:focus {
-  border-color: #12853f;
-  outline: 2px solid rgba(18, 133, 63, 0.15);
-}
-
-.career-question-editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .question-select-alert {
   width: fit-content;
   max-width: 100%;

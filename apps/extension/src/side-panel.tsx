@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
@@ -28,7 +28,6 @@ import {
   syncAndPublishAmisJob,
   syncFacebookGroups,
   syncVcsPortalJobDescriptions,
-  updateJobDescriptionQuestionSetItem,
   updateFacebookGroup,
   updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
@@ -39,6 +38,7 @@ import { getSelectedChannels, setSelectedChannels } from './channel-preferences'
 import {
   DEFAULT_POSTING_CHANNELS,
   FACEBOOK_MAX_IMAGE_ATTACHMENTS,
+  FRONTEND_BASE_URL,
   POSTING_CHANNELS,
 } from './config';
 import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from './facebook-channel-status';
@@ -102,7 +102,6 @@ import './styles.css';
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
-type CareerQuestionEditState = 'IDLE' | 'SAVING' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv';
 type CvWorkspaceView = 'overview' | 'list';
 type CvStatusFilter = 'ALL' | 'PASSED' | 'REVIEW' | 'FAILED';
@@ -427,10 +426,6 @@ function SidePanel() {
   const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
   const [jobDescriptionQuestionContext, setJobDescriptionQuestionContext] = useState<JobDescriptionQuestionSetContext | null>(null);
   const [selectedJobQuestionIds, setSelectedJobQuestionIds] = useState<Set<string>>(new Set());
-  const [isCareerQuestionEditing, setIsCareerQuestionEditing] = useState(false);
-  const [careerQuestionEditState, setCareerQuestionEditState] = useState<CareerQuestionEditState>('IDLE');
-  const [careerQuestionEditMessage, setCareerQuestionEditMessage] = useState<string | null>(null);
-  const [careerQuestionDrafts, setCareerQuestionDrafts] = useState<Record<string, string>>({});
   const [applicationsState, setApplicationsState] = useState<ApplicationsState>('IDLE');
   const [applicationsContext, setApplicationsContext] = useState<AmisApplicationsForRecruitment | null>(null);
   const [activeAmisCandidateId, setActiveAmisCandidateId] = useState<string | null>(null);
@@ -1407,10 +1402,6 @@ function SidePanel() {
     setSelectedJobDescription(null);
     setJobDescriptionQuestionContext(null);
     setSelectedJobQuestionIds(new Set());
-    setIsCareerQuestionEditing(false);
-    setCareerQuestionEditState('IDLE');
-    setCareerQuestionEditMessage(null);
-    setCareerQuestionDrafts({});
     setCareerQuestionState('IDLE');
     setCareerQuestionMessage('Select a JD to view its synced question set.');
     setJobDescriptionFillState('IDLE');
@@ -1570,6 +1561,7 @@ function SidePanel() {
   ) {
     if (!token || aiScreeningApplicationId) return;
     if (normalizeStatus(application.aiScreeningStatus) === 'DONE') return;
+    if (getApplicationQuestionStatus(application).code !== 'ANSWERED') return;
 
     setAiScreeningApplicationId(application.applicationId);
     setApplicationsMessage(null);
@@ -1913,10 +1905,6 @@ function SidePanel() {
     options: { silent?: boolean; force?: boolean } = {},
   ) {
     if (!accessToken) return;
-    setIsCareerQuestionEditing(false);
-    setCareerQuestionEditState('IDLE');
-    setCareerQuestionEditMessage(null);
-    setCareerQuestionDrafts({});
     if (!jobDescription?.id) {
       lastJobQuestionContextIdRef.current = null;
       setJobDescriptionQuestionContext(null);
@@ -1961,86 +1949,25 @@ function SidePanel() {
     }
   }
 
-  function openCareerQuestionEditor() {
+  function openFrontendQuestionEditor() {
     if (!jobDescriptionQuestionContext?.questions.length) return;
 
-    setCareerQuestionDrafts(Object.fromEntries(
-      jobDescriptionQuestionContext.questions.map((question) => [
-        question.questionSetItemId,
-        question.text,
-      ]),
-    ));
-    setCareerQuestionEditState('IDLE');
-    setCareerQuestionEditMessage(null);
-    setIsCareerQuestionEditing(true);
-  }
+    if (!chrome.tabs?.create) {
+      setCareerQuestionState('ERROR');
+      setCareerQuestionMessage('Không thể mở trang FE chỉnh sửa bộ câu hỏi.');
+      return;
+    }
 
-  function closeCareerQuestionEditor() {
-    if (careerQuestionEditState === 'SAVING') return;
-
-    setCareerQuestionDrafts({});
-    setCareerQuestionEditState('IDLE');
-    setCareerQuestionEditMessage(null);
-    setIsCareerQuestionEditing(false);
-  }
-
-  async function saveCareerQuestionEdits(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const accessToken = token;
-    const jobDescription = selectedJobDescription;
-    const context = jobDescriptionQuestionContext;
-    if (!accessToken || !jobDescription || !context) return;
-
-    const invalidQuestion = context.questions.find((question) => {
-      const draft = careerQuestionDrafts[question.questionSetItemId] ?? question.text;
-      return !draft.trim();
+    void chrome.tabs.create({
+      url: `${FRONTEND_BASE_URL}/questions`,
+      active: true,
+    }).then(() => {
+      setCareerQuestionState('READY');
+      setCareerQuestionMessage('Đã mở trang FE để chỉnh sửa bộ câu hỏi.');
+    }).catch(() => {
+      setCareerQuestionState('ERROR');
+      setCareerQuestionMessage('Không thể mở trang FE chỉnh sửa bộ câu hỏi.');
     });
-    if (invalidQuestion) {
-      setCareerQuestionEditState('ERROR');
-      setCareerQuestionEditMessage(`Câu ${context.questions.indexOf(invalidQuestion) + 1} không được để trống.`);
-      return;
-    }
-
-    const changes = context.questions
-      .map((question) => ({
-        question,
-        text: (careerQuestionDrafts[question.questionSetItemId] ?? question.text).trim(),
-      }))
-      .filter(({ question, text }) => text !== question.text.trim());
-
-    if (changes.length === 0) {
-      closeCareerQuestionEditor();
-      return;
-    }
-
-    setCareerQuestionEditState('SAVING');
-    setCareerQuestionEditMessage(null);
-
-    try {
-      await Promise.all(changes.map(({ question, text }) => updateJobDescriptionQuestionSetItem(
-        accessToken,
-        jobDescription.id,
-        question.questionSetItemId,
-        { text },
-      )));
-      await loadSelectedJobDescriptionQuestionSet(jobDescription, accessToken, { force: true });
-      setIsCareerQuestionEditing(false);
-      setCareerQuestionDrafts({});
-      setCareerQuestionEditState('IDLE');
-      setCareerQuestionEditMessage(null);
-      setCareerQuestionMessage('Đã cập nhật bộ câu hỏi.');
-    } catch (err) {
-      if (err instanceof ApiClientError && err.status === 401) {
-        await clearAccessToken();
-        setToken(null);
-        setUser(null);
-        setState('AUTH_REQUIRED');
-        return;
-      }
-
-      setCareerQuestionEditState('ERROR');
-      setCareerQuestionEditMessage(toErrorMessage(err));
-    }
   }
 
   async function persistSelectedJobQuestions(jobDescriptionId: string, questionIds: string[]) {
@@ -4835,10 +4762,10 @@ function SidePanel() {
             <button
               type="button"
               className="question-edit-button"
-              onClick={isCareerQuestionEditing ? closeCareerQuestionEditor : openCareerQuestionEditor}
-              disabled={!jobDescriptionQuestionContext?.questions.length || careerQuestionEditState === 'SAVING'}
+              onClick={openFrontendQuestionEditor}
+              disabled={!jobDescriptionQuestionContext?.questions.length}
             >
-              {isCareerQuestionEditing ? 'Đóng chỉnh sửa' : 'Chỉnh sửa bộ câu hỏi'}
+              Chỉnh sửa bộ câu hỏi
             </button>
           ) : null}
         </div>
@@ -4857,68 +4784,20 @@ function SidePanel() {
           {jobDescriptionQuestionContext ? (
             <>
               {jobDescriptionQuestionContext.questions.length > 0 ? (
-                isCareerQuestionEditing ? (
-                  <form className="career-question-editor" onSubmit={(event) => void saveCareerQuestionEdits(event)}>
-                    {jobDescriptionQuestionContext.questions.map((question, index) => (
-                      <div className="career-question-editor-field" key={question.questionSetItemId}>
-                        <label
-                          className="career-question-editor-label"
-                          htmlFor={`career-question-${question.questionSetItemId}`}
-                        >
-                          Câu {index + 1}
-                        </label>
-                        <textarea
-                          id={`career-question-${question.questionSetItemId}`}
-                          className="career-question-editor-input"
-                          value={careerQuestionDrafts[question.questionSetItemId] ?? question.text}
-                          onChange={(event) => setCareerQuestionDrafts((current) => ({
-                            ...current,
-                            [question.questionSetItemId]: event.target.value,
-                          }))}
-                          disabled={careerQuestionEditState === 'SAVING'}
-                          rows={3}
-                        />
-                      </div>
-                    ))}
-                    {careerQuestionEditMessage ? (
-                      <p className={careerQuestionEditState === 'ERROR' ? 'error-text' : 'muted-text'}>
-                        {careerQuestionEditMessage}
-                      </p>
-                    ) : null}
-                    <div className="career-question-editor-actions">
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={closeCareerQuestionEditor}
-                        disabled={careerQuestionEditState === 'SAVING'}
-                      >
-                        Hủy
-                      </button>
-                      <button
-                        type="submit"
-                        className="primary-button"
-                        disabled={careerQuestionEditState === 'SAVING'}
-                      >
-                        {careerQuestionEditState === 'SAVING' ? 'Đang lưu...' : 'Lưu bộ câu hỏi'}
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <ul className="career-question-list">
-                    {jobDescriptionQuestionContext.questions.map((question, index) => (
-                      <li key={question.id}>
-                        <article className="career-question-card post-question-card">
-                          <span className="career-question-card-body">
-                            <span className="career-question-title">
-                              <strong>{index + 1}.</strong>
-                              {question.text}
-                            </span>
+                <ul className="career-question-list">
+                  {jobDescriptionQuestionContext.questions.map((question, index) => (
+                    <li key={question.id}>
+                      <article className="career-question-card post-question-card">
+                        <span className="career-question-card-body">
+                          <span className="career-question-title">
+                            <strong>{index + 1}.</strong>
+                            {question.text}
                           </span>
-                        </article>
-                      </li>
-                    ))}
-                  </ul>
-                )
+                        </span>
+                      </article>
+                    </li>
+                  ))}
+                </ul>
               ) : (
                 <p className="career-question-empty">JD này chưa có bộ câu hỏi đang hoạt động.</p>
               )}
@@ -5191,6 +5070,7 @@ function SidePanel() {
               const aiScreeningDone = normalizeStatus(application.aiScreeningStatus) === 'DONE';
               const aiScreeningRunning = normalizeStatus(application.aiScreeningStatus) === 'REQUESTED'
                 || aiScreeningApplicationId === application.applicationId;
+              const canRunAiScreening = questionStatus.code === 'ANSWERED';
               const score = aiScreeningDone ? getApplicationMatchScore(application) : null;
               const isSelected = selectedCvApplicationIds.has(application.applicationId);
               const canSyncToAmis = !isAmisCvUploaded && canUploadApplicationCv(application);
@@ -5259,7 +5139,7 @@ function SidePanel() {
                         <button
                           type="button"
                           className="cv-sync-amis-button"
-                          disabled={aiScreeningRunning || Boolean(aiScreeningApplicationId)}
+                          disabled={!canRunAiScreening || aiScreeningRunning || Boolean(aiScreeningApplicationId)}
                           onClick={() => void runAiScreeningForApplication(application)}
                         >
                           {aiScreeningRunning ? 'Đang đánh giá...' : 'Đánh giá AI'}

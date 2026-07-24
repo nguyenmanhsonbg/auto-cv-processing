@@ -44,7 +44,6 @@ import type {
   SyncAmisJobPostingRequest,
   SyncVcsPortalJdsResponse,
   RunApplicationAiScreeningResponse,
-  UpdateJobDescriptionQuestionSetItemRequest,
   UpdateFacebookGroupRequest,
   VerifyFacebookGroupRequest,
 } from './types';
@@ -345,23 +344,6 @@ export async function getApplicationParsedProfile(accessToken: string, applicati
     {
       method: 'GET',
       accessToken,
-    },
-  );
-}
-
-export async function updateJobDescriptionQuestionSetItem(
-  accessToken: string,
-  jobDescriptionId: string,
-  questionSetItemId: string,
-  payload: UpdateJobDescriptionQuestionSetItemRequest,
-) {
-  return request<{ questionSetItemId: string; text: string }>(
-    `/extension/amis/job-descriptions/${encodeURIComponent(jobDescriptionId)}/question-set/items/${encodeURIComponent(questionSetItemId)}`,
-    {
-      method: 'PATCH',
-      accessToken,
-      body: payload,
-      headers: { 'X-Extension-Version': EXTENSION_VERSION },
     },
   );
 }
