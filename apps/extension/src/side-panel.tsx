@@ -62,6 +62,10 @@ import {
   refreshFacebookPostReviewStatus,
   verifyFacebookGroupPostingEligibility,
 } from './facebook-publish-orchestrator';
+import {
+  collectFacebookGroupsFromGraphql,
+  type FacebookGraphqlCollectionResult,
+} from './facebook-group-graphql-capture';
 import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { createMockAmisSyncRequest } from './mock-amis';
 import { clearSelectedJobQuestionContextForTab, saveSelectedJobQuestionContext } from './selected-job-question-store';
@@ -316,6 +320,7 @@ function SidePanel() {
   const [facebookImageAttachPrompt, setFacebookImageAttachPrompt] = useState<FacebookImageAttachDecisionPrompt | null>(null);
   const [facebookGroupLoadState, setFacebookGroupLoadState] = useState<FacebookGroupLoadState>('IDLE');
   const [facebookGroupMessage, setFacebookGroupMessage] = useState<string | null>(null);
+  const [facebookGroupDiagnostic, setFacebookGroupDiagnostic] = useState<string | null>(null);
   const [facebookGroupSyncDetails, setFacebookGroupSyncDetails] = useState<FacebookGroupSyncDetails | null>(null);
   const [isFacebookGroupSyncDetailsOpen, setIsFacebookGroupSyncDetailsOpen] = useState(false);
   const [isFacebookSettingsOpen, setIsFacebookSettingsOpen] = useState(false);
@@ -2205,6 +2210,7 @@ function SidePanel() {
     options: { sessionReady?: boolean } = {},
   ): Promise<FacebookGroupsSyncResult> {
     setFacebookGroupSyncDetails(null);
+    setFacebookGroupDiagnostic(null);
     let activeAccount = facebookAccount;
     if (!options.sessionReady) {
       setFacebookGroupLoadState('CHECKING_LOGIN');
@@ -2233,9 +2239,11 @@ function SidePanel() {
 
     const scanResult = await collectJoinedFacebookGroupsFromFacebookPage(
       (message) => {
-        if (message) setFacebookGroupMessage(message);
+        if (!message) return;
+        if (message.includes('[FB_GQL_')) setFacebookGroupDiagnostic(message);
+        setFacebookGroupMessage(message);
       },
-      { ensureSession: false },
+      { ensureSession: false, expectedFacebookExternalId: activeAccount.facebookExternalId },
     );
     const discoveredGroups = scanResult.groups;
 
@@ -2372,7 +2380,7 @@ function SidePanel() {
 
   async function collectJoinedFacebookGroupsFromFacebookPage(
     onMessage?: (message: string) => void,
-    options: { ensureSession?: boolean } = {},
+    options: { ensureSession?: boolean; expectedFacebookExternalId?: string } = {},
   ): Promise<FacebookGroupsScanRunResult> {
     if (options.ensureSession !== false) {
       await ensureFacebookSession({
@@ -2384,15 +2392,38 @@ function SidePanel() {
       });
     }
 
-    const tab = await chrome.tabs?.create({
-      url: 'https://www.facebook.com/groups/joins/',
-      active: false,
-    });
+    const tabs = await chrome.tabs?.query({ currentWindow: true }) as Array<ChromeTab & { active?: boolean }> ?? [];
+    const [activeTab] = tabs.filter((candidate) => candidate.active === true);
+    const existingFacebookTab = tabs.find((candidate) => isFacebookPageUrl(candidate.url));
+    const useActiveFacebookTab = isFacebookPageUrl(activeTab?.url);
+    const useExistingFacebookTab = Boolean(existingFacebookTab?.id);
+    const tab = existingFacebookTab
+      ? existingFacebookTab
+      : await chrome.tabs?.create({
+        url: 'about:blank',
+        active: false,
+      });
     if (!tab?.id) {
       throw new Error('Không thể mở tab danh sách nhóm Facebook.');
     }
 
     try {
+      const graphqlResult = options.expectedFacebookExternalId
+        ? await collectFacebookGroupsFromGraphql(
+          tab.id,
+          options.expectedFacebookExternalId,
+          onMessage,
+          { activateTab: useActiveFacebookTab },
+        )
+        : null;
+      if (graphqlResult) {
+        return mapGraphqlScanResult(graphqlResult);
+      }
+
+      await chrome.tabs?.update(tab.id, {
+        url: 'https://www.facebook.com/groups/joins/?nav_source=tab',
+        active: false,
+      });
       await waitForTabComplete(tab.id);
       await sleep(1_000);
 
@@ -2402,7 +2433,7 @@ function SidePanel() {
         scanComplete: scanResult.scanComplete === true,
       };
     } finally {
-      await closeTabSafely(tab.id);
+      if (!useExistingFacebookTab) await closeTabSafely(tab.id);
     }
   }
 
@@ -4215,6 +4246,12 @@ function SidePanel() {
                               </button>
                             ) : null}
                           </p>
+                        ) : null}
+                        {facebookGroupDiagnostic ? (
+                          <details className="channel-subselection-debug">
+                            <summary>Chi tiết lỗi GraphQL để báo</summary>
+                            <code>{facebookGroupDiagnostic}</code>
+                          </details>
                         ) : null}
                         {visibleFacebookGroups.length > 0 ? (
                           visibleFacebookGroups.map((group, index) => (
@@ -6053,6 +6090,17 @@ function getDuplicateFacebookGroupUrlError(
   return existingGroup ? 'Group đã tồn tại.' : null;
 }
 
+function isFacebookPageUrl(value: string | undefined) {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return hostname === 'facebook.com' || hostname.endsWith('.facebook.com');
+  } catch {
+    return false;
+  }
+}
+
 function isFacebookGroupUrlCandidate(value: string) {
   return Boolean(readFacebookGroupExternalId(value));
 }
@@ -6734,6 +6782,13 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   return {
     groups: Array.from(finalGroups.values()),
     scanComplete: stablePasses >= 5 && Boolean(scrollScope) && scrollHosts.length > 0,
+  };
+}
+
+function mapGraphqlScanResult(result: FacebookGraphqlCollectionResult): FacebookGroupsScanRunResult {
+  return {
+    groups: result.groups,
+    scanComplete: result.scanComplete,
   };
 }
 
