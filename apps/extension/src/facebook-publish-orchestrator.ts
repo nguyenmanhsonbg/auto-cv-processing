@@ -1371,37 +1371,57 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
   let externalId = status.account?.facebookExternalId.match(/^\d+$/)?.[0] ?? null;
   let displayName = normalizeFacebookDisplayName(status.account?.displayName);
   let profileUrl = status.account?.profileUrl ?? null;
+  const initialDisplayName = displayName;
+  const initialProfileUrl = profileUrl;
+  let cookieExternalId: string | null = null;
 
   try {
     const cookie = await chrome.cookies?.get({
       url: 'https://www.facebook.com/',
       name: 'c_user',
     });
-    externalId = cookie?.value?.trim() || externalId;
+    const normalizedCookieId = cookie?.value?.trim() ?? '';
+    if (/^\d+$/.test(normalizedCookieId)) {
+      cookieExternalId = normalizedCookieId;
+      externalId = normalizedCookieId;
+    }
   } catch {
     // DOM identity remains a valid fallback when cookie access is unavailable.
   }
 
   if (!externalId) return status;
 
-  if (!displayName && sourceTabId) {
-    const profileTab = await openTab(`https://www.facebook.com/profile.php?id=${externalId}`, false).catch(() => null);
-    if (profileTab) {
-      try {
-        await waitForTabComplete(profileTab.id);
-        await sleep(800);
-        const profileIdentity = await runScript<[], FacebookProfileIdentityProbe>(
-          profileTab.id,
-          readFacebookProfileIdentityInPage,
-          [],
-        );
-        displayName = normalizeFacebookDisplayName(profileIdentity.displayName);
-        profileUrl = profileIdentity.profileUrl || profileUrl;
-      } catch {
-        // Account identity is still valid without a display name.
-      } finally {
-        await closeTabSafely(profileTab.id);
-      }
+  // Facebook pages can contain links to other people. Once c_user gives us the
+  // stable account ID, ignore the page's untrusted label and read the profile
+  // belonging to that ID instead of persisting another person's name.
+  if (cookieExternalId && !isFacebookProfileUrlForExternalId(profileUrl, cookieExternalId)) {
+    displayName = null;
+    profileUrl = null;
+  }
+
+  const initialIdentityCanBeVerified = Boolean(initialDisplayName && profileUrl);
+
+  if (sourceTabId && (cookieExternalId || !displayName)) {
+    // Reuse the authentication tab for the exact profile probe. Facebook's
+    // homepage can expose another person's profile link, but c_user gives us
+    // the account that must be inspected. Reusing this tab keeps auth and
+    // identity discovery in one short-lived browser session.
+    try {
+      const previousUrl = (await chrome.tabs?.get(sourceTabId))?.url ?? '';
+      await chrome.tabs?.update(sourceTabId, {
+        url: `https://www.facebook.com/profile.php?id=${externalId}`,
+      });
+      await waitForTabNavigationComplete(sourceTabId, previousUrl);
+      const profileIdentity = await readFacebookProfileIdentityWithRetry(sourceTabId);
+      const verifiedProfileUrl = profileIdentity.profileUrl || profileUrl;
+      const verifiedDisplayName = normalizeFacebookDisplayName(profileIdentity.displayName);
+      displayName = verifiedDisplayName
+        || (initialIdentityCanBeVerified && areFacebookProfileUrlsSame(initialProfileUrl, verifiedProfileUrl)
+          ? initialDisplayName
+          : null);
+      profileUrl = verifiedProfileUrl;
+    } catch {
+      // Account identity is still valid without a display name.
     }
   }
 
@@ -1428,6 +1448,45 @@ function normalizeFacebookDisplayName(value: string | null | undefined) {
   return normalized;
 }
 
+function isFacebookProfileUrlForExternalId(profileUrl: string | null, externalId: string) {
+  if (!profileUrl) return false;
+
+  try {
+    const parsed = new URL(profileUrl);
+    const queryId = parsed.searchParams.get('id')?.trim();
+    if (queryId) return queryId === externalId;
+
+    const normalizedPath = parsed.pathname.replace(/^\/+|\/+$/g, '');
+    if (/^\d+$/.test(normalizedPath)) return normalizedPath === externalId;
+
+    // Vanity URLs do not expose the numeric account ID. Keep them as a
+    // candidate until profile.php?id=<c_user> redirects back to the same URL.
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function areFacebookProfileUrlsSame(left: string | null, right: string | null) {
+  if (!left || !right) return false;
+
+  try {
+    const leftUrl = new URL(left);
+    const rightUrl = new URL(right);
+    if (leftUrl.hostname.toLowerCase() !== rightUrl.hostname.toLowerCase()) return false;
+
+    const leftPath = leftUrl.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+    const rightPath = rightUrl.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+    if (leftPath !== rightPath) return false;
+
+    const leftId = leftUrl.searchParams.get('id')?.trim() ?? '';
+    const rightId = rightUrl.searchParams.get('id')?.trim() ?? '';
+    return !leftId || !rightId || leftId === rightId;
+  } catch {
+    return false;
+  }
+}
+
 async function focusFacebookLoginTab(tabId: number) {
   const tab = await chrome.tabs?.update(tabId, { active: true });
   if (tab?.windowId === undefined) return;
@@ -1441,6 +1500,40 @@ async function waitForTabComplete(tabId: number) {
     if (tab?.status === 'complete') return;
     await sleep(500);
   }
+}
+
+async function waitForTabNavigationComplete(tabId: number, previousUrl: string) {
+  const deadline = Date.now() + 30_000;
+  let navigationStarted = false;
+
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs?.get(tabId);
+    if (tab?.url && tab.url !== previousUrl) navigationStarted = true;
+    if (navigationStarted && tab?.status === 'complete') return;
+    await sleep(250);
+  }
+
+  await waitForTabComplete(tabId);
+}
+
+async function readFacebookProfileIdentityWithRetry(tabId: number) {
+  const deadline = Date.now() + 8_000;
+  let latest: FacebookProfileIdentityProbe = {
+    displayName: null,
+    profileUrl: '',
+  };
+
+  while (Date.now() < deadline) {
+    latest = await runScript<[], FacebookProfileIdentityProbe>(
+      tabId,
+      readFacebookProfileIdentityInPage,
+      [],
+    );
+    if (latest.displayName) return latest;
+    await sleep(400);
+  }
+
+  return latest;
 }
 
 async function reloadTab(tabId: number) {
@@ -2342,6 +2435,7 @@ function readFacebookProfileIdentityInPage(): FacebookProfileIdentityProbe {
       ?.replace(/\s+/g, ' ')
       .replace(/\s*[|•-]\s*Facebook.*$/i, '')
       .replace(/\s+on Facebook$/i, '')
+      .replace(/^(?:\u0110\u00f2ng th\u1eddi gian c\u1ee7a|Timeline of)\s+/i, '')
       .trim() ?? '';
     if (!normalized || normalized.length > 100) return null;
     if (/^(facebook|profile|log in|login|home)$/i.test(normalized)) return null;

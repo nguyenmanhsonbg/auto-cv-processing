@@ -703,7 +703,7 @@ function shouldAttemptRefresh(path: string) {
     && !path.startsWith('/auth/logout');
 }
 
-async function refreshAccessToken() {
+export async function refreshAccessToken() {
   const refreshToken = await getRefreshToken();
   if (!refreshToken) return null;
 

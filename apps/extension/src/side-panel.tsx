@@ -19,6 +19,7 @@ import {
   listJobDescriptions,
   heartbeatExtensionInstance,
   login,
+  refreshAccessToken,
   resolveFacebookAccount,
   previewAmisJobPublishPlan,
   runApplicationAiScreening,
@@ -296,6 +297,7 @@ function SidePanel() {
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [snapshot, setSnapshot] = useState<AmisJobSnapshot | null>(null);
   const [amisRecruitmentId, setAmisRecruitmentId] = useState<string | null>(null);
   const [amisRecruitmentRoundId, setAmisRecruitmentRoundId] = useState<string | null>(null);
@@ -647,13 +649,16 @@ function SidePanel() {
   const editFacebookGroupUrlFieldError = editFacebookGroupDuplicateUrlError ?? editFacebookGroupUrlError;
 
   async function restoreAuth() {
-    const storedToken = await getAccessToken();
-    if (!storedToken) {
-      setState('AUTH_REQUIRED');
-      return;
-    }
-
     try {
+      let storedToken = await getAccessToken();
+      if (!storedToken) {
+        storedToken = await refreshAccessToken();
+      }
+      if (!storedToken) {
+        setState('AUTH_REQUIRED');
+        return;
+      }
+
       const currentUser = await getCurrentUser(storedToken);
       if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
         await clearAccessToken();
@@ -1093,7 +1098,7 @@ function SidePanel() {
       await setAuthTokens({
         accessToken: auth.accessToken,
         refreshToken: auth.refreshToken,
-      });
+      }, { rememberMe });
       await ensureRegisteredExtensionInstance(auth.accessToken);
       setToken(auth.accessToken);
       setUser(auth.user);
@@ -1109,6 +1114,7 @@ function SidePanel() {
   async function logout() {
     await clearAccessToken();
     setToken(null);
+    setRememberMe(false);
     setUser(null);
     setJobDescriptions([]);
     setJobDescriptionPagination(null);
@@ -5061,6 +5067,14 @@ function SidePanel() {
             <label>
               Password
               <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" />
+            </label>
+            <label className="remember-me-control">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+              />
+              <span>Remember me</span>
             </label>
             <button type="submit" className="primary-button">Sign in</button>
             {error ? <p className="error-text">{error}</p> : null}

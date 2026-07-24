@@ -166,6 +166,13 @@ export class FacebookPublishingService {
     }
     const facebookExternalId = this.requireText(input.facebookExternalId, 'facebookExternalId');
     const now = new Date();
+    const hasDisplayName = Object.prototype.hasOwnProperty.call(input, 'displayName');
+    const hasProfileUrl = Object.prototype.hasOwnProperty.call(input, 'profileUrl');
+    const normalizedProfileUrl = this.normalizeFacebookProfileUrl(input.profileUrl, facebookExternalId);
+    const normalizedDisplayName = hasDisplayName
+      && (!hasProfileUrl || normalizedProfileUrl)
+      ? this.normalizeFacebookAccountDisplayName(input.displayName, facebookExternalId)
+      : null;
     let account = await this.facebookAccountsRepo.findOne({
       where: {
         ownerUserId: input.ownerUserId,
@@ -177,8 +184,8 @@ export class FacebookPublishingService {
       account = this.facebookAccountsRepo.create({
         ownerUserId: input.ownerUserId,
         facebookExternalId,
-        displayName: this.normalizeFacebookAccountDisplayName(input.displayName, facebookExternalId),
-        profileUrl: input.profileUrl?.trim() || null,
+        displayName: normalizedDisplayName,
+        profileUrl: normalizedProfileUrl,
         status: 'ACTIVE',
         lastSeenAt: now,
         lastAuthenticatedAt: now,
@@ -201,9 +208,12 @@ export class FacebookPublishingService {
           .execute();
       }
     } else {
-      account.displayName = this.normalizeFacebookAccountDisplayName(input.displayName, facebookExternalId)
-        ?? this.normalizeFacebookAccountDisplayName(account.displayName, facebookExternalId);
-      account.profileUrl = input.profileUrl?.trim() || account.profileUrl;
+      if (hasDisplayName) {
+        account.displayName = normalizedDisplayName;
+      }
+      if (normalizedProfileUrl) {
+        account.profileUrl = normalizedProfileUrl;
+      }
       account.status = 'ACTIVE';
       account.lastSeenAt = now;
       account.lastAuthenticatedAt = now;
@@ -1205,6 +1215,23 @@ export class FacebookPublishingService {
     if (normalized === facebookExternalId || normalized.length > 100) return null;
     if (/đã phê duyệt một lần đăng nhập|approved a login|notification/i.test(normalized)) return null;
     return normalized;
+  }
+
+  private normalizeFacebookProfileUrl(value: string | null | undefined, facebookExternalId: string) {
+    const normalized = value?.trim();
+    if (!normalized) return null;
+
+    try {
+      const parsed = new URL(normalized);
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname !== 'facebook.com' && !hostname.endsWith('.facebook.com')) return null;
+
+      const queryId = parsed.searchParams.get('id')?.trim();
+      if (queryId && queryId !== facebookExternalId) return null;
+      return parsed.href;
+    } catch {
+      return null;
+    }
   }
 
   private normalizeFacebookGroupUrl(value: string) {
