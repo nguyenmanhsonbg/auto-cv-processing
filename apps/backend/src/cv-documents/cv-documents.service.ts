@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { createReadStream } from 'fs';
-import { open, stat } from 'fs/promises';
+import { copyFile, open, stat } from 'fs/promises';
 import type { Stats } from 'fs';
 import * as path from 'path';
 import { DataSource, EntityManager, In } from 'typeorm';
@@ -18,8 +18,11 @@ import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.e
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { CvSanitizationService } from '../cv-sanitization/cv-sanitization.service';
 import {
+  buildCvSafePdfFileName,
   deleteCvSafeFile,
+  ensureCvSafeRoot,
   resolveCvSafeStorageKey,
+  toCvSafeStorageKey,
 } from '../cv-sanitization/storage/cv-safe-storage';
 import { FileParserService } from '../file-parser/file-parser.service';
 import {
@@ -76,6 +79,26 @@ export interface UploadCvInput {
   idempotencyKey?: string | null;
   allowedApplicationStatuses?: readonly ApplicationStatus[];
   scheduleSanitizeAfterScanPass?: boolean;
+}
+
+export interface IngestExternalCleanCvInput {
+  applicationId: string;
+  file: Express.Multer.File;
+  originalFileName: string;
+  cleanFileHash?: string | null;
+  sourceFileHash?: string | null;
+  sourceStorageKey?: string | null;
+  sourceEntryId?: string | number | null;
+  sourceSystem?: string | null;
+  reason?: string | null;
+  idempotencyKey?: string | null;
+  rawMetadata?: Record<string, unknown> | null;
+  replaceCurrent?: boolean;
+}
+
+export interface IngestExternalCleanCvResult {
+  cvDocument: CvDocumentEntity;
+  created: boolean;
 }
 
 export interface DeletePreviousCvVersionsInput {
@@ -225,6 +248,179 @@ export class CvDocumentsService {
         await this.safeDeleteUploadedFile(input.file);
       }
       throw error;
+    }
+  }
+
+  async ingestExternalCleanCv(
+    input: IngestExternalCleanCvInput,
+  ): Promise<IngestExternalCleanCvResult> {
+    let safeFilePath: string | null = null;
+
+    try {
+      const applicationId = this.requireText(input.applicationId, 'Application id');
+      const idempotencyKey = this.optionalText(input.idempotencyKey);
+      const idempotencyKeyHash = idempotencyKey ? this.calculateTextSha256(idempotencyKey) : null;
+      const validatedFile = await this.validateExternalCleanPdf(input);
+
+      if (idempotencyKeyHash) {
+        const existing = await this.findExistingExternalCleanCvByIdempotencyKey(
+          this.dataSource.manager,
+          applicationId,
+          idempotencyKeyHash,
+        );
+        if (existing) {
+          this.assertExternalCleanCvIdempotentHashMatches(
+            existing.cleanFileHash,
+            validatedFile.cleanFileHash,
+          );
+          return { cvDocument: existing.cvDocument, created: false };
+        }
+      }
+
+      safeFilePath = this.buildExternalCleanCvFilePath();
+      await copyFile(validatedFile.quarantineFilePath, safeFilePath);
+      const storagePath = toCvSafeStorageKey(safeFilePath);
+      const fileStats = await stat(safeFilePath);
+
+      const cvDocument = await this.dataSource.transaction(async (manager) => {
+        if (idempotencyKeyHash) {
+          const existing = await this.findExistingExternalCleanCvByIdempotencyKey(
+            manager,
+            applicationId,
+            idempotencyKeyHash,
+          );
+          if (existing) {
+            this.assertExternalCleanCvIdempotentHashMatches(
+              existing.cleanFileHash,
+              validatedFile.cleanFileHash,
+            );
+            return existing.cvDocument;
+          }
+        }
+
+        const application = await manager.getRepository(ApplicationEntity).findOne({
+          where: { id: applicationId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!application) throw new BadRequestException('Application not found');
+        if (this.isTerminalStatus(application.status)) {
+          throw new BadRequestException('Terminal application cannot receive CV upload');
+        }
+
+        const replaceCurrent = input.replaceCurrent ?? true;
+        const previousCurrentCvDocument = application.currentCvDocumentId
+          ? await manager.getRepository(CvDocumentEntity).findOne({
+              where: {
+                id: application.currentCvDocumentId,
+                applicationId,
+              },
+            })
+          : null;
+        const versionNo = await this.nextVersionNo(
+          manager,
+          applicationId,
+          CvDocumentType.CLEAN,
+        );
+
+        if (replaceCurrent) {
+          await manager.getRepository(CvDocumentEntity).update(
+            {
+              applicationId,
+              isCurrent: true,
+            },
+            { isCurrent: false },
+          );
+        }
+
+        const cleanCvDocument = manager.getRepository(CvDocumentEntity).create({
+          applicationId,
+          candidateId: application.candidateId,
+          documentType: CvDocumentType.CLEAN,
+          versionNo,
+          originalFileName: validatedFile.originalFileName,
+          mimeType: validatedFile.mimeType,
+          fileSize: String(fileStats.size),
+          originalFileHash: validatedFile.sourceFileHash,
+          cleanFileHash: validatedFile.cleanFileHash,
+          storageZone: StorageZone.SAFE,
+          storagePath,
+          scanStatus: CvScanStatus.PASSED,
+          sanitizeStatus: CvSanitizeStatus.SANITIZED,
+          parseStatus: CvParseStatus.PENDING,
+          isCurrent: replaceCurrent,
+        });
+        const saved = await manager.getRepository(CvDocumentEntity).save(cleanCvDocument);
+
+        if (replaceCurrent) {
+          application.currentCvDocumentId = saved.id;
+          await manager.getRepository(ApplicationEntity).save(application);
+        }
+
+        const metadata = {
+          applicationId,
+          candidateId: application.candidateId,
+          cleanCvDocumentId: saved.id,
+          documentType: saved.documentType,
+          versionNo: saved.versionNo,
+          originalFileName: saved.originalFileName,
+          mimeType: saved.mimeType,
+          fileSize: Number(saved.fileSize),
+          originalFileHash: saved.originalFileHash,
+          cleanFileHash: saved.cleanFileHash,
+          storageZone: saved.storageZone,
+          sourceSystem: this.optionalText(input.sourceSystem),
+          sourceEntryId: input.sourceEntryId ?? null,
+          sourceStorageKey: this.optionalText(input.sourceStorageKey),
+          replaceCurrent,
+          previousCurrentCvDocumentId: previousCurrentCvDocument?.id ?? null,
+          previousCurrentVersionNo: previousCurrentCvDocument?.versionNo ?? null,
+          previousCurrentDocumentType: previousCurrentCvDocument?.documentType ?? null,
+          hasReason: Boolean(this.optionalText(input.reason)),
+          hasIdempotencyKey: Boolean(idempotencyKey),
+          idempotencyKeyHash,
+          rawMetadata: input.rawMetadata ?? null,
+        };
+
+        await this.workflowStateService.recordStatusTransition(
+          {
+            applicationId,
+            toStatus: ApplicationStatus.CV_SANITIZED,
+            eventType: 'CV_EXTERNAL_CLEAN_INGESTED',
+            actorType: 'CHANNEL',
+            actorId: null,
+            metadata,
+          },
+          manager,
+        );
+
+        await this.recordAuditLog(manager, {
+          applicationId,
+          actorType: 'CHANNEL',
+          actorId: null,
+          action: 'CV_EXTERNAL_CLEAN_INGESTED',
+          objectId: saved.id,
+          metadata,
+        });
+
+        return saved;
+      });
+
+      const created = cvDocument.storagePath === storagePath;
+      if (created) {
+        safeFilePath = null;
+      } else {
+        await deleteCvSafeFile(safeFilePath);
+        safeFilePath = null;
+      }
+
+      return { cvDocument, created };
+    } catch (error) {
+      if (safeFilePath) {
+        await deleteCvSafeFile(safeFilePath);
+      }
+      throw error;
+    } finally {
+      await this.safeDeleteUploadedFile(input.file);
     }
   }
 
@@ -757,6 +953,55 @@ export class CvDocumentsService {
     };
   }
 
+  private async validateExternalCleanPdf(input: IngestExternalCleanCvInput) {
+    if (!input.file) throw new BadRequestException('Clean CV file is required');
+
+    const originalFileName = this.requireOriginalFileName(
+      input.originalFileName || input.file.originalname,
+    );
+    const quarantineFilePath = this.requireQuarantineFilePath(input.file.path);
+    const extension = path.extname(originalFileName).toLowerCase();
+
+    if (extension !== '.pdf') {
+      throw new BadRequestException('External clean CV must be a PDF');
+    }
+
+    if (!Number.isFinite(input.file.size) || input.file.size <= 0) {
+      throw new BadRequestException('Clean CV file is empty');
+    }
+
+    if (input.file.size > MAX_CV_FILE_SIZE_BYTES) {
+      throw new BadRequestException('Clean CV file exceeds 20MB limit');
+    }
+
+    this.assertServerGeneratedFileName(input.file.filename, '.pdf');
+    await this.assertFileSignature(quarantineFilePath, 'pdf');
+
+    const cleanFileHash = await this.calculateSha256(quarantineFilePath);
+    const expectedCleanFileHash = this.normalizeSha256Hash(
+      input.cleanFileHash,
+      'Clean CV hash',
+    );
+    if (expectedCleanFileHash && expectedCleanFileHash !== cleanFileHash) {
+      throw new UnprocessableEntityException({
+        code: 'CLEAN_CV_HASH_MISMATCH',
+        message: 'Clean CV hash does not match uploaded file.',
+      });
+    }
+
+    return {
+      originalFileName: this.normalizeOriginalFileName(originalFileName),
+      cleanFileHash,
+      sourceFileHash: this.normalizeSha256Hash(input.sourceFileHash, 'Source CV hash'),
+      quarantineFilePath,
+      mimeType: CV_FILE_RULES['.pdf'].mimeType,
+    };
+  }
+
+  private buildExternalCleanCvFilePath() {
+    return path.resolve(ensureCvSafeRoot(), buildCvSafePdfFileName());
+  }
+
   private async markCvScanSkippedAsPassed(cvDocumentId: string) {
     return this.dataSource.transaction(async (manager) => {
       const cvDocument = await this.findCvDocumentForScan(manager, cvDocumentId);
@@ -972,6 +1217,17 @@ export class CvDocumentsService {
     return createHash('sha256').update(value).digest('hex');
   }
 
+  private normalizeSha256Hash(value: string | null | undefined, fieldName: string) {
+    const normalized = this.optionalText(value)?.toLowerCase() ?? null;
+    if (!normalized) return null;
+
+    if (!/^[a-f0-9]{64}$/.test(normalized)) {
+      throw new BadRequestException(`${fieldName} is invalid`);
+    }
+
+    return normalized;
+  }
+
   private async safeDeleteUploadedFile(file?: Express.Multer.File) {
     await deleteCvQuarantineFile(file?.path);
   }
@@ -1026,6 +1282,56 @@ export class CvDocumentsService {
     });
 
     return cvDocument ? { cvDocument, originalFileHash } : null;
+  }
+
+  private async findExistingExternalCleanCvByIdempotencyKey(
+    manager: EntityManager,
+    applicationId: string,
+    idempotencyKeyHash: string,
+  ) {
+    const ingestEvent = await manager.getRepository(WorkflowEventEntity)
+      .createQueryBuilder('event')
+      .where('event.applicationId = :applicationId', { applicationId })
+      .andWhere('event.eventType = :eventType', { eventType: 'CV_EXTERNAL_CLEAN_INGESTED' })
+      .andWhere("event.metadata ->> 'idempotencyKeyHash' = :idempotencyKeyHash", {
+        idempotencyKeyHash,
+      })
+      .orderBy('event.createdAt', 'DESC')
+      .addOrderBy('event.id', 'DESC')
+      .getOne();
+    const cvDocumentId = ingestEvent?.metadata?.cleanCvDocumentId;
+    const cleanFileHash = ingestEvent?.metadata?.cleanFileHash;
+
+    if (typeof cvDocumentId !== 'string' || typeof cleanFileHash !== 'string') {
+      return null;
+    }
+
+    const cvDocument = await manager.getRepository(CvDocumentEntity).findOne({
+      where: {
+        id: cvDocumentId,
+        applicationId,
+        documentType: CvDocumentType.CLEAN,
+        cleanFileHash,
+      },
+      order: {
+        versionNo: 'DESC',
+        createdAt: 'DESC',
+      },
+    });
+
+    return cvDocument ? { cvDocument, cleanFileHash } : null;
+  }
+
+  private assertExternalCleanCvIdempotentHashMatches(
+    existingCleanFileHash: string,
+    incomingCleanFileHash: string,
+  ) {
+    if (existingCleanFileHash === incomingCleanFileHash) return;
+
+    throw new ConflictException({
+      code: 'CLEAN_CV_IDEMPOTENCY_CONFLICT',
+      message: 'Webhook idempotency key was already used with a different clean CV file.',
+    });
   }
 
   private findExistingOriginalByHash(
@@ -1117,13 +1423,17 @@ export class CvDocumentsService {
     );
   }
 
-  private async nextVersionNo(manager: EntityManager, applicationId: string) {
+  private async nextVersionNo(
+    manager: EntityManager,
+    applicationId: string,
+    documentType: CvDocumentType = CvDocumentType.ORIGINAL,
+  ) {
     const result = await manager.getRepository(CvDocumentEntity)
       .createQueryBuilder('cvDocument')
       .select('COALESCE(MAX(cvDocument.versionNo), 0)', 'max')
       .where('cvDocument.applicationId = :applicationId', { applicationId })
       .andWhere('cvDocument.documentType = :documentType', {
-        documentType: CvDocumentType.ORIGINAL,
+        documentType,
       })
       .getRawOne<{ max: string }>();
     return Number(result?.max ?? 0) + 1;

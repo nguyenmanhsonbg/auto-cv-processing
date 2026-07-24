@@ -670,10 +670,10 @@ function SidePanel() {
     if (!snapshot?.title.trim()) missing.push('title');
     if (!snapshot?.description.trim()) missing.push('description');
     if (!snapshot?.requirements.rawText.trim()) missing.push('requirements');
-    if (selectedPostingChannels.length === 0) missing.push('channel');
+    if (!selectedJobDescription?.id) missing.push('selected JD');
     if (selectedPostingChannels.includes('FACEBOOK') && selectedFacebookGroupIds.length === 0) missing.push('facebook group');
     return missing;
-  }, [amisRecruitmentId, selectedFacebookGroupIds.length, selectedPostingChannels, snapshot]);
+  }, [amisRecruitmentId, selectedFacebookGroupIds.length, selectedJobDescription?.id, selectedPostingChannels, snapshot]);
 
   const visibleWorkspaceTabs = useMemo<WorkspaceTab[]>(() => {
     if (pinnedWorkspaceTab && pinnedWorkspaceTab !== activeWorkspaceTab) {
@@ -3242,11 +3242,13 @@ function SidePanel() {
       options.facebookContentOverride ?? getEffectiveFacebookContent()
     ).trim();
     const jobDescriptionForMetadata = options.selectedJobDescriptionOverride ?? selectedJobDescription;
+    const selectedJobDescriptionId = jobDescriptionForMetadata?.id;
 
     return {
       sourceSystem: 'AMIS',
       amisRecruitmentId,
       amisUrl,
+      ...(selectedJobDescriptionId ? { jobDescriptionId: selectedJobDescriptionId } : {}),
       action: 'PUBLISH',
       snapshot: sourceSnapshot,
       channels: channelsForPayload,
@@ -3266,7 +3268,7 @@ function SidePanel() {
         captureConfidence: extractionResult?.confidence,
         extractionWarnings: extractionResult?.warnings,
         extractionEvidence: extractionResult?.evidence,
-        selectedJobDescriptionId: jobDescriptionForMetadata?.id,
+        selectedJobDescriptionId,
         selectedQuestionSetId: jobDescriptionQuestionContext?.questionSet?.id,
         selectedQuestionCount: selectedJobQuestionIds.size,
       },

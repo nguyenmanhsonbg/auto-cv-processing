@@ -23,6 +23,7 @@ import { SessionsModule } from './sessions/sessions.module';
 import { FormSessionsModule } from './form-sessions/form-sessions.module';
 import { SubmissionsModule } from './submissions/submissions.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { VcsPortalWebhooksModule } from './vcs-portal-webhooks/vcs-portal-webhooks.module';
 import { WebSocketModule } from './websocket/websocket.module';
 
 @Module({
@@ -79,6 +80,7 @@ import { WebSocketModule } from './websocket/websocket.module';
     ExtensionIntegrationModule,
     AiModule,
     UploadsModule,
+    VcsPortalWebhooksModule,
     NotificationModule,
   ],
   providers: [

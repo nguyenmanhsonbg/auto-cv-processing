@@ -255,6 +255,7 @@ export interface SyncAmisJobPostingRequest {
   sourceSystem: 'AMIS';
   amisRecruitmentId: string;
   amisUrl?: string;
+  jobDescriptionId?: string;
   action: 'PUBLISH';
   snapshot: AmisJobSnapshot;
   channels: ExtensionChannel[];

@@ -80,6 +80,12 @@ const EXTENSION_TASK_POLL_INTERVAL_MINUTES = 1;
 const activeAutoSyncKeys = new Set<string>();
 let extensionTaskPollRunning = false;
 
+interface SelectedJobQuestionContextForSync {
+  jobDescriptionId?: string | null;
+  jobDescriptionTitle?: string | null;
+  questionSetId?: string | null;
+}
+
 installAmisDebuggerCapture(
   (capture, sender) => handleAmisSaved(capture, sender),
   (capture, sender) => handleAmisCareersCaptured(capture, sender),
@@ -487,11 +493,12 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     ? await getSelectedFacebookGroupIds(facebookAccountId)
     : [];
   const selectedJobQuestionContext = await getSelectedJobQuestionContextForTab(sender.tab?.id);
+  const selectedJobDescriptionId = selectedJobQuestionContext?.jobDescriptionId ?? null;
   const facebookContentDraft = channels.includes('FACEBOOK')
     ? await getFacebookContentDraft({
       recruitmentId: amisRecruitmentId,
       tabId: sender.tab?.id,
-      jobDescriptionId: selectedJobQuestionContext?.jobDescriptionId,
+      jobDescriptionId: selectedJobDescriptionId,
       snapshot,
     })
     : null;
@@ -501,6 +508,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     channels,
     facebookTargetIds,
     facebookContentForPublish,
+    selectedJobDescriptionId,
   );
   if (activeAutoSyncKeys.has(autoSyncKey)) {
     await appendAmisDiagnostic({
@@ -552,6 +560,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
           selectedQuestionIds,
           facebookContentForPublish,
           facebookAccountId,
+          selectedJobQuestionContext,
         ),
       );
 
@@ -961,11 +970,14 @@ async function buildSyncPayload(
   selectedQuestionIds: string[] = [],
   facebookContentOverride?: string | null,
   facebookAccountId?: string | null,
+  selectedJobQuestionContext?: SelectedJobQuestionContextForSync | null,
 ): Promise<SyncAmisJobPostingRequest> {
   const trimmedFacebookContentOverride = facebookContentOverride?.trim();
+  const selectedJobDescriptionId = selectedJobQuestionContext?.jobDescriptionId?.trim();
   const facebookDraft = channels.includes('FACEBOOK') && !trimmedFacebookContentOverride
     ? await getFacebookContentDraft({
       recruitmentId: capture.amisRecruitmentId,
+      jobDescriptionId: selectedJobDescriptionId,
       snapshot: capture.snapshot,
     })
     : null;
@@ -975,6 +987,7 @@ async function buildSyncPayload(
     sourceSystem: 'AMIS',
     amisRecruitmentId: capture.amisRecruitmentId,
     amisUrl: capture.url,
+    ...(selectedJobDescriptionId ? { jobDescriptionId: selectedJobDescriptionId } : {}),
     action: 'PUBLISH',
     snapshot: capture.snapshot,
     channels,
@@ -990,6 +1003,9 @@ async function buildSyncPayload(
       captureConfidence: capture.confidence,
       extractionWarnings: capture.warnings,
       extractionEvidence: capture.evidence,
+      selectedJobDescriptionId,
+      selectedJobDescriptionTitle: selectedJobQuestionContext?.jobDescriptionTitle ?? null,
+      selectedQuestionSetId: selectedJobQuestionContext?.questionSetId ?? null,
       selectedQuestionCount: selectedQuestionIds.length,
     },
   };
@@ -1022,9 +1038,11 @@ function buildAutoSyncKey(
   channels: ExtensionChannel[],
   facebookTargetIds: string[],
   facebookContent: string,
+  jobDescriptionId?: string | null,
 ) {
   return [
     amisRecruitmentId,
+    jobDescriptionId ?? '',
     [...channels].sort().join(','),
     [...facebookTargetIds].sort().join(','),
     hashText(facebookContent),

@@ -106,6 +106,7 @@ export class ExtensionIntegrationService {
     const snapshotHash = createAmisSnapshotHash(
       normalizedDto.snapshot,
       normalizedDto.selectedQuestionIds,
+      normalizedDto.jobDescriptionId,
     );
 
     const keyDecision = await this.idempotencyService.assertKeyCanBeUsed({
@@ -158,6 +159,7 @@ export class ExtensionIntegrationService {
     const snapshotHash = createAmisSnapshotHash(
       normalizedDto.snapshot,
       normalizedDto.selectedQuestionIds,
+      normalizedDto.jobDescriptionId,
     );
     const posting = await this.buildPreviewPosting(normalizedDto, snapshotHash);
     const facebookPublishPlan = normalizedDto.channels.includes(RecruitmentChannel.FACEBOOK)
@@ -247,27 +249,11 @@ export class ExtensionIntegrationService {
     const now = new Date();
     const closeAt = this.parseDeadline(dto.snapshot.deadline, now);
     const createdBy = await this.findActor(manager, context.actorUserId);
-    const jobDescription = await manager.getRepository(JobDescriptionEntity).save(
-      manager.getRepository(JobDescriptionEntity).create({
-        title: dto.snapshot.title,
-        positionId: null,
-        levelId: null,
-        description: dto.snapshot.description,
-        overview: this.optionalText(dto.snapshot.summary) ?? null,
-        responsibilities: dto.snapshot.description,
-        summary: this.toSummary(dto.snapshot.summary ?? dto.snapshot.description),
-        requirements: this.toPlainRequirements(dto.snapshot.requirements),
-        benefits: this.normalizeBenefits(dto.snapshot.benefits),
-        salary: null,
-        annualLeaveDays: null,
-        department: null,
-        applicationDeadline: closeAt?.toISOString().slice(0, 10) ?? null,
-        status: JobDescriptionStatus.ACTIVE,
-        createdById: createdBy.id,
-      }),
+    const jobDescription = await this.resolvePostingJobDescription(
+      manager,
+      dto.jobDescriptionId,
     );
-
-    const version = await this.createActiveVersionFromJobDescription(
+    const version = await this.findActiveVersionOrCreateFromJobDescription(
       manager,
       jobDescription.id,
       createdBy.id,
@@ -338,33 +324,17 @@ export class ExtensionIntegrationService {
 
     const now = new Date();
     const closeAt = this.parseDeadline(dto.snapshot.deadline, now);
-    const jobDescription = await manager.getRepository(JobDescriptionEntity).findOne({
-      where: { id: posting.jobDescriptionId },
-    });
-    if (!jobDescription) {
-      throw new BadRequestException('Job description not found');
-    }
-
-    jobDescription.title = dto.snapshot.title;
-    jobDescription.description = dto.snapshot.description;
-    jobDescription.overview = this.optionalText(dto.snapshot.summary) ?? null;
-    jobDescription.responsibilities = dto.snapshot.description;
-    jobDescription.summary = this.toSummary(dto.snapshot.summary ?? dto.snapshot.description);
-    jobDescription.requirements = this.toPlainRequirements(dto.snapshot.requirements);
-    jobDescription.benefits = this.normalizeBenefits(dto.snapshot.benefits);
-    jobDescription.salary = null;
-    jobDescription.annualLeaveDays = null;
-    jobDescription.department = null;
-    jobDescription.applicationDeadline = closeAt?.toISOString().slice(0, 10) ?? null;
-    jobDescription.status = JobDescriptionStatus.ACTIVE;
-    await manager.getRepository(JobDescriptionEntity).save(jobDescription);
-
-    const version = await this.createActiveVersionFromJobDescription(
+    const jobDescription = await this.resolvePostingJobDescription(
+      manager,
+      dto.jobDescriptionId,
+    );
+    const version = await this.findActiveVersionOrCreateFromJobDescription(
       manager,
       jobDescription.id,
       context.actorUserId,
     );
 
+    posting.jobDescriptionId = jobDescription.id;
     posting.title = dto.snapshot.title;
     posting.jobDescriptionVersionId = version.id;
     posting.status = JobPostingStatus.PUBLISHED;
@@ -546,6 +516,73 @@ export class ExtensionIntegrationService {
     await manager.getRepository(RecruitmentExternalReferenceEntity).save(externalReference);
   }
 
+  private async resolvePostingJobDescription(
+    manager: EntityManager,
+    jobDescriptionId: string | undefined,
+  ) {
+    const normalizedJobDescriptionId = this.requireText(jobDescriptionId, 'jobDescriptionId');
+    const jobDescription = await manager.getRepository(JobDescriptionEntity).findOne({
+      where: { id: normalizedJobDescriptionId },
+      relations: ['position', 'level', 'createdBy'],
+    });
+    if (!jobDescription) {
+      throw new BadRequestException({
+        code: 'JOB_DESCRIPTION_NOT_FOUND',
+        message: 'Selected job description was not found.',
+      });
+    }
+    if (jobDescription.status === JobDescriptionStatus.ARCHIVED) {
+      throw new BadRequestException({
+        code: 'JOB_DESCRIPTION_ARCHIVED',
+        message: 'Archived job description cannot be used for AMIS posting.',
+      });
+    }
+    return jobDescription;
+  }
+
+  private async findActiveVersionOrCreateFromJobDescription(
+    manager: EntityManager,
+    jobDescriptionId: string,
+    createdById: string,
+  ) {
+    const activeVersion = await manager.getRepository(JobDescriptionVersionEntity).findOne({
+      where: {
+        jobDescriptionId,
+        status: JobDescriptionVersionStatus.ACTIVE,
+      },
+      relations: ['jobDescription', 'jobDescription.position', 'jobDescription.level', 'jobDescription.createdBy'],
+      order: { versionNo: 'DESC' },
+    });
+    if (activeVersion) return activeVersion;
+
+    return this.createActiveVersionFromJobDescription(manager, jobDescriptionId, createdById);
+  }
+
+  private async findActiveVersionOrBuildPreviewFromJobDescription(
+    manager: EntityManager,
+    jobDescription: JobDescriptionEntity,
+  ) {
+    const activeVersion = await manager.getRepository(JobDescriptionVersionEntity).findOne({
+      where: {
+        jobDescriptionId: jobDescription.id,
+        status: JobDescriptionVersionStatus.ACTIVE,
+      },
+      relations: ['jobDescription', 'jobDescription.position', 'jobDescription.level', 'jobDescription.createdBy'],
+      order: { versionNo: 'DESC' },
+    });
+    if (activeVersion) return activeVersion;
+
+    return manager.getRepository(JobDescriptionVersionEntity).create({
+      id: 'preview-job-description-version',
+      jobDescriptionId: jobDescription.id,
+      jobDescription,
+      versionNo: 1,
+      snapshot: this.buildJobDescriptionSnapshot(jobDescription),
+      status: JobDescriptionVersionStatus.ACTIVE,
+      createdById: jobDescription.createdById,
+    });
+  }
+
   private async createActiveVersionFromJobDescription(
     manager: EntityManager,
     jobDescriptionId: string,
@@ -609,35 +646,17 @@ export class ExtensionIntegrationService {
       return existingPosting;
     }
 
+    const jobDescription = await this.resolvePostingJobDescription(
+      manager,
+      dto.jobDescriptionId,
+    );
+    const version = await this.findActiveVersionOrBuildPreviewFromJobDescription(
+      manager,
+      jobDescription,
+    );
     const publicSlug = existingPosting?.publicSlug ?? await this.createUniqueSlug(manager, dto.snapshot.title);
     const now = new Date();
     const closeAt = this.parseDeadline(dto.snapshot.deadline, now);
-    const jobDescription = manager.getRepository(JobDescriptionEntity).create({
-      id: existingPosting?.jobDescriptionId ?? 'preview-job-description',
-      title: dto.snapshot.title,
-      positionId: null,
-      levelId: null,
-      description: dto.snapshot.description,
-      overview: this.optionalText(dto.snapshot.summary) ?? null,
-      responsibilities: dto.snapshot.description,
-      summary: this.toSummary(dto.snapshot.summary ?? dto.snapshot.description),
-      requirements: this.toPlainRequirements(dto.snapshot.requirements),
-      benefits: this.normalizeBenefits(dto.snapshot.benefits),
-      salary: null,
-      annualLeaveDays: null,
-      department: null,
-      applicationDeadline: closeAt?.toISOString().slice(0, 10) ?? null,
-      status: JobDescriptionStatus.ACTIVE,
-      createdById: existingPosting?.createdById ?? 'preview-user',
-    });
-    const version = manager.getRepository(JobDescriptionVersionEntity).create({
-      id: existingPosting?.jobDescriptionVersionId ?? 'preview-job-description-version',
-      jobDescriptionId: jobDescription.id,
-      versionNo: existingPosting?.jobDescriptionVersion?.versionNo ?? 1,
-      snapshot: this.buildJobDescriptionSnapshot(jobDescription),
-      status: JobDescriptionVersionStatus.ACTIVE,
-      createdById: jobDescription.createdById,
-    });
 
     return manager.getRepository(JobPostingEntity).create({
       id: existingPosting?.id ?? 'preview-job-posting',
@@ -854,12 +873,14 @@ export class ExtensionIntegrationService {
     }
 
     const channels = this.normalizePublishChannels(dto.channels);
+    const jobDescriptionId = this.resolveSelectedJobDescriptionId(dto);
 
     return {
       ...dto,
       sourceSystem: dto.sourceSystem,
       amisRecruitmentId: this.requireText(dto.amisRecruitmentId, 'amisRecruitmentId'),
       amisUrl: this.optionalText(dto.amisUrl) ?? undefined,
+      jobDescriptionId,
       action: dto.action,
       snapshot: {
         ...dto.snapshot,
@@ -1851,6 +1872,7 @@ export class ExtensionIntegrationService {
       extensionInstanceId: context.extensionInstanceId ?? null,
       actorRole: context.actorRole,
       action: dto.action,
+      jobDescriptionId: dto.jobDescriptionId ?? null,
       channels: dto.channels,
       facebookTargetCount: dto.facebookTargetIds?.length ?? 0,
       hasAmisUrl: Boolean(dto.amisUrl),
@@ -1949,9 +1971,35 @@ export class ExtensionIntegrationService {
     if (!this.isRecord(value)) return undefined;
 
     return {
+      autoSync: value.autoSync === true,
       extensionVersion: this.optionalText(value.extensionVersion),
       capturedAt: this.optionalText(value.capturedAt),
+      trigger: this.optionalText(value.trigger),
+      selectedJobDescriptionId: this.optionalText(value.selectedJobDescriptionId),
+      selectedQuestionSetId: this.optionalText(value.selectedQuestionSetId),
+      selectedQuestionCount: typeof value.selectedQuestionCount === 'number'
+        ? value.selectedQuestionCount
+        : undefined,
     };
+  }
+
+  private resolveSelectedJobDescriptionId(dto: SyncAmisJobPostingDto) {
+    const metadataJobDescriptionId = this.isRecord(dto.metadata)
+      ? this.optionalText(dto.metadata.selectedJobDescriptionId)
+      : null;
+    const jobDescriptionId = this.requireText(
+      dto.jobDescriptionId ?? metadataJobDescriptionId ?? undefined,
+      'jobDescriptionId',
+    );
+
+    if (!this.isUuid(jobDescriptionId)) {
+      throw new BadRequestException({
+        code: 'JOB_DESCRIPTION_INVALID',
+        message: 'Selected job description id must be a valid UUID.',
+      });
+    }
+
+    return jobDescriptionId;
   }
 
   private normalizeFacebookTargetIds(

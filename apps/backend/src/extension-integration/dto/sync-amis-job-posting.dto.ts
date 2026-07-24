@@ -148,6 +148,13 @@ export class SyncAmisJobPostingDto {
   @IsString()
   amisUrl?: string;
 
+  @ApiPropertyOptional({
+    description: 'Internal job description selected in the extension for this AMIS posting.',
+  })
+  @IsOptional()
+  @IsUUID()
+  jobDescriptionId?: string;
+
   @ApiProperty({ enum: ExtensionSyncAction, enumName: 'ExtensionSyncAction' })
   @IsEnum(ExtensionSyncAction)
   action: ExtensionSyncAction;

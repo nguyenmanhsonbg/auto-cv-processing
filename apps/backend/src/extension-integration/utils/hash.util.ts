@@ -30,8 +30,10 @@ export function createExtensionRequestHash(input: {
 export function createAmisSnapshotHash(
   snapshot: AmisJobSnapshotDto,
   selectedQuestionIds: string[] = [],
+  jobDescriptionId?: string,
 ): string {
   return sha256Hex(stableStringify(stripSnapshotVolatileFields({
+    jobDescriptionId: jobDescriptionId ?? null,
     snapshot,
     selectedQuestionIds,
   })));
