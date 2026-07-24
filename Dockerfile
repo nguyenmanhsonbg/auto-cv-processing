@@ -64,6 +64,20 @@ COPY apps/cv-sanitizer/server.js ./server.js
 EXPOSE 8080
 CMD ["node", "server.js"]
 
+FROM node:${NODE_VERSION}-alpine AS cv-sanitizer-pool-manager
+WORKDIR /app
+RUN apk add --no-cache docker-cli
+COPY apps/cv-sanitizer/pool-manager.js ./pool-manager.js
+EXPOSE 8080
+CMD ["node", "/app/pool-manager.js"]
+
+FROM node:${NODE_VERSION}-alpine AS worker
+WORKDIR /app
+RUN apk add --no-cache ghostscript
+COPY apps/cv-sanitizer/worker.js ./worker.js
+USER 65534:65534
+CMD ["node", "/app/worker.js"]
+
 FROM nginx:alpine AS frontend
 COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-builder /app/apps/frontend/dist /usr/share/nginx/html

@@ -497,6 +497,17 @@ export class ApplicationsService {
         throw new ConflictException('AI screening is already running');
       }
 
+      const latestForm = await manager.getRepository(FormSessionEntity).findOne({
+        where: { applicationId },
+        order: {
+          createdAt: 'DESC',
+          id: 'DESC',
+        },
+      });
+      if (!latestForm || latestForm.status !== FormSessionStatus.SUBMITTED) {
+        throw new BadRequestException('AI screening requires a submitted questionnaire form');
+      }
+
       const previousStatus = application.status;
       application.mappingStatus = MappingStatus.REQUESTED;
       application.aiScreeningStatus = AiScreeningStatus.REQUESTED;
@@ -1130,15 +1141,13 @@ export class ApplicationsService {
       const formSession = await manager.getRepository(FormSessionEntity).findOne({
         where: {
           applicationId,
-          status: FormSessionStatus.SUBMITTED,
         },
         order: {
-          submittedAt: 'DESC',
           createdAt: 'DESC',
           id: 'DESC',
         },
       });
-      if (!formSession) {
+      if (!formSession || formSession.status !== FormSessionStatus.SUBMITTED) {
         throw new BadRequestException('AI screening requires a submitted questionnaire form');
       }
 

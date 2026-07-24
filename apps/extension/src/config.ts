@@ -4,6 +4,10 @@ export const BE_API_BASE_URL =
   (import.meta.env.VITE_BE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '')
   ?? 'http://localhost:3002/api';
 
+export const FRONTEND_BASE_URL =
+  (import.meta.env.VITE_FE_BASE_URL as string | undefined)?.replace(/\/+$/, '')
+  ?? 'http://localhost:4000';
+
 export const EXTENSION_VERSION = '0.1.0';
 
 export const EXTENSION_TASK_QUEUE_ENABLED = false;

@@ -31,40 +31,56 @@ services:
       CV_QUARANTINE_DIR: /app/apps/backend/storage/cv-quarantine
       CV_SAFE_DIR: /app/apps/backend/storage/cv-safe
       CV_PDF_SANITIZER_MODE: HTTP_SERVICE
-      CV_SANITIZER_SERVICE_URL: http://cv-sanitizer:8080
+      CV_SANITIZER_SERVICE_URL: http://cv-sanitizer-pool-manager:8080
       CV_GHOSTSCRIPT_TIMEOUT_MS: 60000
     depends_on:
       postgres:
         condition: service_healthy
-      cv-sanitizer:
+      cv-sanitizer-pool-manager:
         condition: service_healthy
     volumes:
       - uploads:/app/apps/backend/uploads
       - ./storage:/app/apps/backend/storage
 
-  cv-sanitizer:
-    image: auto-cv-processing-cv-sanitizer:latest
+  cv-sanitizer-pool-manager:
+    image: auto-cv-processing-cv-sanitizer-pool-manager:latest
     build:
       context: .
       dockerfile: Dockerfile
-      target: cv-sanitizer
+      target: cv-sanitizer-pool-manager
     environment:
       PORT: 8080
+      CV_SANITIZER_CONTROL_DIR: /control-root
+      CV_SANITIZER_WORKER_IMAGE: vcs-cv-sanitizer-worker:latest
+      CV_SANITIZER_POOL_MIN_READY: 1
+      CV_SANITIZER_POOL_MAX_WORKERS: 2
+      CV_SANITIZER_READY_TIMEOUT_MS: 30000
+      CV_SANITIZER_JOB_TIMEOUT_MS: 60000
       CV_QUARANTINE_DIR: /app/apps/backend/storage/cv-quarantine
       CV_SAFE_DIR: /app/apps/backend/storage/cv-safe
-      CV_GHOSTSCRIPT_TIMEOUT_MS: 60000
+      CV_SANITIZER_MAX_OUTPUT_BYTES: 20971520
     expose:
       - '8080'
     ports:
       - '8080:8080'
     volumes:
       - ./storage:/app/apps/backend/storage
-      - ./apps/cv-sanitizer/server.js:/app/server.js:ro
+      - ./storage/cv-sanitizer-control:/control-root
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ['CMD-SHELL', 'node -e "fetch(''http://127.0.0.1:8080/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
       interval: 5s
       timeout: 5s
       retries: 5
+
+  cv-sanitizer-worker:
+    profiles:
+      - build-only
+    image: vcs-cv-sanitizer-worker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
 
   frontend:
     build:

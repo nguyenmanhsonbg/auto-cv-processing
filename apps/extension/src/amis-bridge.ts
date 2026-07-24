@@ -72,6 +72,7 @@ interface AmisApplicationsFetchResponse {
 interface UploadAmisCvFileMessage {
   type: typeof UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE;
   payload: {
+    waitForCandidateForm?: boolean;
     files: Array<{
       fileName: string;
       mimeType: string;
@@ -878,9 +879,9 @@ async function uploadAmisCvFile(payload: UploadAmisCvFileMessage['payload']): Pr
     deliveredTargets.push('drop-target');
   }
 
-  // AMIS parses the uploaded CV asynchronously. Wait for the parsed profile to
-  // reach the form before another automation step changes a dependent field.
-  await waitForAmisCandidateFormToPopulate(12_000);
+  if (payload.waitForCandidateForm !== false) {
+    await waitForAmisCandidateFormToPopulate(12_000);
+  }
 
   return {
     ok: true,
