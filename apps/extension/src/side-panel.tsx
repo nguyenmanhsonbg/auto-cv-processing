@@ -335,7 +335,7 @@ function CvFilterDropdown<Value extends string>({
 }
 
 const AMIS_CV_UPLOAD_CONFIRMATION_TIMEOUT_MS = 60_000;
-type ApplicationQuestionStatusCode = 'ANSWERED' | 'SENT' | 'OPENED' | 'EXPIRED' | 'NOT_SENT';
+type ApplicationQuestionStatusCode = 'ANSWERED' | 'NOT_ANSWERED';
 type ApplicationQuestionStatus = {
   code: ApplicationQuestionStatusCode;
   label: string;
@@ -5159,6 +5159,7 @@ function SidePanel() {
             {pageApplications.map((application) => {
               const isAmisUploadPending = pendingAmisUploadApplicationIds.has(application.applicationId);
               const syncStatus = getApplicationAmisSyncStatus(application, isAmisUploadPending);
+              const questionStatus = getApplicationQuestionStatus(application);
               const isAmisCvUploaded = Boolean(application.attachmentCvId || application.attachmentCvName);
               const aiScreeningDone = normalizeStatus(application.aiScreeningStatus) === 'DONE';
               const aiScreeningRunning = normalizeStatus(application.aiScreeningStatus) === 'REQUESTED'
@@ -5185,19 +5186,26 @@ function SidePanel() {
                       </div>
                       {score != null ? <b className="cv-candidate-score">{score}</b> : null}
                     </div>
-                    <div className="cv-candidate-applied">
-                      <CalendarIcon />
-                      <span>
-                        Ngày ứng tuyển: <strong>{formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-'}</strong>
+                    <div className="cv-candidate-meta">
+                      <span className="cv-candidate-source">
+                        <SourceIcon />
+                        <span>Nguồn</span>
+                        <span className="cv-source-chip">{getCvSourceLabel(application)}</span>
+                      </span>
+                      <span className="cv-candidate-date">
+                        <CalendarIcon />
+                        <span>
+                          Ngày ứng tuyển: <strong>{formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-'}</strong>
+                        </span>
                       </span>
                     </div>
                     <div className="cv-candidate-details">
-                      <div className="cv-candidate-detail">
-                        <small>Nguồn</small>
-                        <span className="cv-source-chip">{getCvSourceLabel(application)}</span>
+                      <div className={`cv-candidate-detail cv-candidate-detail-status cv-question-status ${questionStatus.tone}`}>
+                        <small>CÂU HỎI</small>
+                        <strong>{questionStatus.label}</strong>
                       </div>
                       <div className={`cv-candidate-detail cv-candidate-detail-status ${syncStatus.tone}`}>
-                        <small>Trạng thái</small>
+                        <small>ĐỒNG BỘ AMIS</small>
                         <strong>{getCvCardSyncLabel(syncStatus)}</strong>
                       </div>
                     </div>
@@ -6327,6 +6335,15 @@ function CalendarIcon() {
   );
 }
 
+function SourceIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M2.5 5.5h4l1.2 1.4h5.8v6.6h-11V5.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M2.5 5.5V3.8h4.2l1.1 1.7" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function DoubleChevronRightIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
@@ -7294,16 +7311,7 @@ function getApplicationQuestionStatus(application: ExtensionApplication) {
   if (status === 'SUBMITTED') {
     return { code: 'ANSWERED', label: 'Đã trả lời', tone: 'is-success' } satisfies ApplicationQuestionStatus;
   }
-  if (status === 'EXPIRED') {
-    return { code: 'EXPIRED', label: 'Hết hạn', tone: 'is-danger' } satisfies ApplicationQuestionStatus;
-  }
-  if (status === 'SENT') {
-    return { code: 'SENT', label: 'Chưa trả lời', tone: 'is-warning' } satisfies ApplicationQuestionStatus;
-  }
-  if (status === 'OPENED') {
-    return { code: 'OPENED', label: 'Chưa trả lời', tone: 'is-warning' } satisfies ApplicationQuestionStatus;
-  }
-  return { code: 'NOT_SENT', label: 'Chưa trả lời', tone: 'is-warning' } satisfies ApplicationQuestionStatus;
+  return { code: 'NOT_ANSWERED', label: 'Chưa trả lời', tone: 'is-warning' } satisfies ApplicationQuestionStatus;
 }
 
 function getApplicationMatchScore(application: ExtensionApplication) {

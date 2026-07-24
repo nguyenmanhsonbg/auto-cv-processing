@@ -5740,9 +5740,12 @@ dd {
 }
 
 .cv-candidate-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   justify-content: space-between;
   border-bottom: 1px solid #e6ebef;
-  padding: 0 0 10px 29px;
+  padding: 0 0 11px;
   color: #4b5563;
   font-size: 12px;
 }
@@ -5750,6 +5753,27 @@ dd {
 .cv-candidate-meta strong,
 .cv-candidate-meta span {
   font-weight: 750;
+}
+
+.cv-candidate-source,
+.cv-candidate-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cv-candidate-source svg,
+.cv-candidate-date svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  color: #667085;
+}
+
+.cv-candidate-date {
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .cv-candidate-status-grid {
@@ -6006,6 +6030,14 @@ dd {
 
 .cv-candidate-detail-status.is-success strong {
   color: #007a5a;
+}
+
+.cv-question-status.is-success strong {
+  color: #15803D;
+}
+
+.cv-question-status.is-warning strong {
+  color: #EAB308;
 }
 
 .cv-candidate-detail-status.is-danger strong {

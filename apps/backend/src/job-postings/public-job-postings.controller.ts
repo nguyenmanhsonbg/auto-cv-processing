@@ -140,6 +140,8 @@ interface PublicCvSimilarityDetails {
 }
 
 const MAX_PUBLIC_APPLY_CV_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+// Temporarily keep CV-likeness validation opt-in while the role keyword catalog is expanded.
+const ENFORCE_CV_RESUME_VALIDATION = process.env.ENFORCE_CV_RESUME_VALIDATION === 'true';
 const CV_NO_PREVIOUS_FILE_METHOD_VERSION = 'NO_PREVIOUS_CV_BASELINE_V1';
 const allowedPublicApplyExtensions = new Set(['.pdf']);
 const PUBLIC_CANDIDATE_CV_UPDATE_ALLOWED_STATUSES = [
@@ -663,25 +665,25 @@ export class PublicJobPostingsController {
     const rawText = typeof parsedData.rawText === 'string' ? parsedData.rawText : '';
     const validation = validateResumeSignals(parsedData, rawText);
 
-    if (validation.isLikelyCv) {
-      return {
-        rawText,
-        normalizedText: this.cvSimilarityService.normalizeForSimilarity(rawText, identity),
-        originalFileHash: await this.hashFileSha256(file.path),
-      };
+    if (ENFORCE_CV_RESUME_VALIDATION && !validation.isLikelyCv) {
+      throw new UnprocessableEntityException({
+        code: 'CV_NOT_RESUME',
+        message: 'Uploaded file is not a valid CV.',
+        details: [
+          {
+            requiredSignals: validation.requiredSignals,
+            foundSignals: validation.foundSignals,
+            reasons: validation.reasons,
+          },
+        ],
+      });
     }
 
-    throw new UnprocessableEntityException({
-      code: 'CV_NOT_RESUME',
-      message: 'Uploaded file is not a valid CV.',
-      details: [
-        {
-          requiredSignals: validation.requiredSignals,
-          foundSignals: validation.foundSignals,
-          reasons: validation.reasons,
-        },
-      ],
-    });
+    return {
+      rawText,
+      normalizedText: this.cvSimilarityService.normalizeForSimilarity(rawText, identity),
+      originalFileHash: await this.hashFileSha256(file.path),
+    };
   }
 
   private assertPublicReapplyBelongsToSameCandidate(
