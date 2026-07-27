@@ -52,6 +52,7 @@ export class ApplicationSourcesService {
       relations: [
         'application',
         'application.candidate',
+        'application.freelancerReferral',
         'application.jobPosting',
         'application.jobDescriptionVersion',
       ],

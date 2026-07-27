@@ -41,6 +41,7 @@ export interface PublicApplicationPayload {
   email: string;
   phone: string;
   note?: string;
+  freelancerCode?: string;
 }
 
 export interface PublicApplyResponse {
@@ -85,6 +86,16 @@ export function submitPublicApplication(
   cvFile: File,
   idempotencyKey: string,
 ) {
+  const extraFields = {
+    fullName: payload.fullName,
+    email: payload.email,
+    phone: payload.phone,
+    note: payload.note,
+    ...(payload.freelancerCode !== undefined && payload.freelancerCode !== ''
+      ? { freelancerCode: payload.freelancerCode }
+      : {}),
+  };
+
   return apiClient
     .upload<ApiEnvelope<PublicApplyResponse>>(
       `/public/job-postings/${encodeURIComponent(jobPostingId)}/apply`,
@@ -92,12 +103,7 @@ export function submitPublicApplication(
       'cvFile',
       {
         idempotencyKey,
-        extraFields: {
-          fullName: payload.fullName,
-          email: payload.email,
-          phone: payload.phone,
-          note: payload.note,
-        },
+        extraFields,
       },
     )
     .then(unwrapEnvelope);

@@ -24,4 +24,9 @@ export class PublicApplyDto {
   @IsString()
   @MaxLength(2000)
   note?: string;
+
+  @ApiPropertyOptional({ example: 'FL000123' })
+  @IsOptional()
+  @IsString()
+  freelancerCode?: string;
 }

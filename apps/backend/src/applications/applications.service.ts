@@ -19,6 +19,8 @@ import { CandidateEntity } from '../candidates/entities/candidate.entity';
 import { ParsedProfileEntity } from '../cv-documents/entities/parsed-profile.entity';
 import { FormAnswerEntity } from '../form-sessions/entities/form-answer.entity';
 import { FormSessionEntity } from '../form-sessions/entities/form-session.entity';
+import { FreelancerEntity } from '../freelancers/entities/freelancer.entity';
+import { FreelancersService } from '../freelancers/freelancers.service';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
 import { MappingResultEntity } from '../mapping/entities/mapping-result.entity';
@@ -58,6 +60,7 @@ export interface CreateApplicationBaseInput {
   jobPostingId: string;
   candidate?: ApplicationCandidateInput;
   candidateId?: string;
+  freelancerCode?: string | null;
   sourceChannel?: RecruitmentChannel | null;
   externalLeadId?: string | null;
   externalApplicationId?: string | null;
@@ -155,7 +158,13 @@ export class ApplicationsService {
     private readonly workflowStateService: WorkflowStateService,
     @Optional()
     private readonly aiService?: AiService,
+    @Optional()
+    private readonly freelancersService?: FreelancersService,
   ) {}
+
+  async assertPublicReferralCode(code?: string | null): Promise<void> {
+    await this.resolvePublicReferralFreelancer(code);
+  }
 
   async recordCvContentSimilarityCheck(input: RecordCvContentSimilarityInput): Promise<void> {
     const applicationId = this.requireText(input.applicationId, 'Application id');
@@ -256,6 +265,9 @@ export class ApplicationsService {
       .leftJoinAndSelect('application.jobPosting', 'jobPosting')
       .leftJoinAndSelect('application.jobDescriptionVersion', 'jobDescriptionVersion')
       .leftJoinAndSelect('application.currentCvDocument', 'currentCvDocument')
+      .leftJoinAndSelect('application.freelancerReferral', 'freelancerReferral')
+      .leftJoinAndSelect('freelancerReferral.freelancer', 'freelancer')
+      .leftJoinAndSelect('freelancer.user', 'freelancerUser')
       .orderBy(sortCol, sortOrder);
 
     const search = params.search?.trim();
@@ -320,6 +332,9 @@ export class ApplicationsService {
       'formSessions',
       'aiScreeningResults',
       'sources',
+      'freelancerReferral',
+      'freelancerReferral.freelancer',
+      'freelancerReferral.freelancer.user',
     ]);
   }
 
@@ -719,7 +734,7 @@ export class ApplicationsService {
           manager,
         );
         if (existingSource?.application) {
-          this.assertIdempotentApplicationSourceMatches(existingSource, input);
+          await this.assertIdempotentApplicationSourceMatches(existingSource, input, manager);
           return {
             application: existingSource.application,
             candidate: existingSource.application.candidate,
@@ -803,6 +818,10 @@ export class ApplicationsService {
         };
       }
 
+      const referralFreelancer = await this.resolvePublicReferralFreelancer(
+        input.freelancerCode,
+        manager,
+      );
       const application = manager.getRepository(ApplicationEntity).create({
         candidateId: candidate.id,
         jobPostingId: posting.id,
@@ -825,6 +844,12 @@ export class ApplicationsService {
         sourceChannel,
         externalApplicationId,
       );
+      if (referralFreelancer) {
+        await this.getFreelancersService().createReferral(manager, {
+          applicationId: savedApplication.id,
+          freelancerId: referralFreelancer.id,
+        });
+      }
       await this.workflowStateService.recordEvent(
         {
           applicationId: savedApplication.id,
@@ -967,9 +992,10 @@ export class ApplicationsService {
     );
   }
 
-  private assertIdempotentApplicationSourceMatches(
+  private async assertIdempotentApplicationSourceMatches(
     existingSource: ApplicationSourceEntity,
     input: CreateApplicationInput,
+    manager: EntityManager,
   ) {
     const existingPayload = this.asRecord(existingSource.rawPayload);
     const incomingPayload = this.asRecord(input.rawPayload);
@@ -991,6 +1017,19 @@ export class ApplicationsService {
       if (existingHash && incomingHash && existingHash !== incomingHash) {
         this.throwIdempotencyConflict();
       }
+    }
+
+    if (input.source !== ApplicationSourceType.PORTAL) return;
+
+    const existingReferralFreelancerId = this.optionalText(
+      existingSource.application?.freelancerReferral?.freelancerId,
+    );
+    const incomingReferralFreelancerId = this.optionalText(
+      (await this.resolvePublicReferralFreelancer(input.freelancerCode, manager))?.id,
+    );
+
+    if (existingReferralFreelancerId !== incomingReferralFreelancerId) {
+      this.throwIdempotencyConflict();
     }
   }
 
@@ -1716,6 +1755,13 @@ export class ApplicationsService {
     }
   }
 
+  private getFreelancersService() {
+    if (!this.freelancersService) {
+      throw new Error('FreelancersService is not configured');
+    }
+    return this.freelancersService;
+  }
+
   private assertValidApplicationStatus(
     status: ApplicationStatus,
     fieldName: string,
@@ -1834,10 +1880,28 @@ export class ApplicationsService {
     return typeof value === 'string' ? this.optionalText(value) : null;
   }
 
+  private async resolvePublicReferralFreelancer(
+    code?: string | null,
+    manager?: EntityManager,
+  ): Promise<FreelancerEntity | null> {
+    if (code == null || code === '') return null;
+
+    const freelancer = await this.getFreelancersService().resolveActiveByIdentifier(code, manager);
+    if (!freelancer) throw this.invalidFreelancerCodeError();
+    return freelancer;
+  }
+
   private hashOptional(value?: string | null) {
     const normalized = this.optionalText(value);
     if (!normalized) return null;
     return createHash('sha256').update(normalized).digest('hex');
+  }
+
+  private invalidFreelancerCodeError() {
+    return new BadRequestException({
+      code: 'INVALID_FREELANCER_CODE',
+      message: 'Mã giới thiệu không hợp lệ',
+    });
   }
 
   private async createUniqueCandidateSlug(manager: EntityManager, name: string) {

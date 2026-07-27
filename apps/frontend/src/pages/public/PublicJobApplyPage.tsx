@@ -30,9 +30,12 @@ interface ApplyFormState {
   fullName: string;
   email: string;
   phone: string;
+  freelancerCode: string;
   note: string;
   consent: boolean;
 }
+
+type ApplyFieldErrorKey = keyof ApplyFormState | 'cvFile';
 
 interface ApplyResultState {
   type: 'success' | 'error';
@@ -43,11 +46,14 @@ interface ApplyResultState {
 }
 
 const EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION = 'EXACT_ORIGINAL_FILE_HASH_V1';
+const FREELANCER_CODE_PATTERN = /^FL[0-9]{6}$/;
+const INVALID_FREELANCER_CODE_MESSAGE = 'Mã giới thiệu không hợp lệ';
 
 const INITIAL_FORM: ApplyFormState = {
   fullName: '',
   email: '',
   phone: '',
+  freelancerCode: '',
   note: '',
   consent: false,
 };
@@ -62,6 +68,10 @@ function createIdempotencyKey() {
 
 function isEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isFreelancerCode(value: string) {
+  return FREELANCER_CODE_PATTERN.test(value);
 }
 
 function isApplyOpen(job: PublicJobPostingDetail) {
@@ -97,7 +107,7 @@ export function PublicJobApplyPage() {
   const [jobError, setJobError] = useState<string | null>(null);
   const [form, setForm] = useState<ApplyFormState>(INITIAL_FORM);
   const [cvFile, setCvFile] = useState<File | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof ApplyFormState | 'cvFile', string>>>({});
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ApplyFieldErrorKey, string>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ApplyResultState | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey);
@@ -146,7 +156,7 @@ export function PublicJobApplyPage() {
   };
 
   const validateForm = () => {
-    const nextErrors: Partial<Record<keyof ApplyFormState | 'cvFile', string>> = {};
+    const nextErrors: Partial<Record<ApplyFieldErrorKey, string>> = {};
 
     if (!form.fullName.trim()) {
       nextErrors.fullName = 'Vui long nhap ho ten.';
@@ -158,6 +168,9 @@ export function PublicJobApplyPage() {
     }
     if (!form.phone.trim()) {
       nextErrors.phone = 'Vui long nhap so dien thoai.';
+    }
+    if (form.freelancerCode !== '' && !isFreelancerCode(form.freelancerCode)) {
+      nextErrors.freelancerCode = INVALID_FREELANCER_CODE_MESSAGE;
     }
     if (!cvFile) {
       nextErrors.cvFile = 'Vui long tai len CV.';
@@ -188,6 +201,9 @@ export function PublicJobApplyPage() {
           email: form.email.trim(),
           phone: form.phone.trim(),
           note: form.note.trim() || undefined,
+          ...(form.freelancerCode !== ''
+            ? { freelancerCode: form.freelancerCode }
+            : {}),
         },
         cvFile,
         idempotencyKey,
@@ -204,6 +220,13 @@ export function PublicJobApplyPage() {
     } catch (err) {
       const similarity = getPublicCvSimilarityDetails(err);
       const errorCode = getApiErrorCode(err);
+      if (errorCode === API_ERROR_CODES.INVALID_FREELANCER_CODE) {
+        setFieldErrors((prev) => ({
+          ...prev,
+          freelancerCode: INVALID_FREELANCER_CODE_MESSAGE,
+        }));
+        return;
+      }
       const displayedSimilarity = similarity && errorCode === API_ERROR_CODES.DUPLICATE_CV_FILE
         ? {
           ...similarity,
@@ -343,6 +366,20 @@ export function PublicJobApplyPage() {
                   />
                   {fieldErrors.phone && (
                     <p className="text-sm text-destructive">{fieldErrors.phone}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="freelancerCode">Mã giới thiệu (không bắt buộc)</Label>
+                  <Input
+                    id="freelancerCode"
+                    value={form.freelancerCode}
+                    onChange={(event) => updateForm('freelancerCode', event.target.value)}
+                    disabled={submitting || !applyOpen}
+                    placeholder="FL000001"
+                  />
+                  {fieldErrors.freelancerCode && (
+                    <p className="text-sm text-destructive">{fieldErrors.freelancerCode}</p>
                   )}
                 </div>
               </div>

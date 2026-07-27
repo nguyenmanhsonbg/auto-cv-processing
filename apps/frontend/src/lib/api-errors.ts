@@ -12,6 +12,7 @@ export type ApiErrorCode =
   | 'DUPLICATE_CV_CONTENT'
   | 'DUPLICATE_CV_FILE'
   | 'IDEMPOTENCY_CONFLICT'
+  | 'INVALID_FREELANCER_CODE'
   | 'INVALID_STATE_TRANSITION'
   | 'FORBIDDEN'
   | 'NOT_FOUND'
@@ -52,6 +53,7 @@ export const API_ERROR_CODES = {
   DUPLICATE_CV_CONTENT: 'DUPLICATE_CV_CONTENT',
   DUPLICATE_CV_FILE: 'DUPLICATE_CV_FILE',
   IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
+  INVALID_FREELANCER_CODE: 'INVALID_FREELANCER_CODE',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
@@ -78,6 +80,7 @@ const PUBLIC_SAFE_MESSAGES: Record<string, string> = {
   [API_ERROR_CODES.DUPLICATE_CV_FILE]: 'CV này đã được tải lên cho hồ sơ ứng tuyển.',
   [API_ERROR_CODES.IDEMPOTENCY_CONFLICT]:
     'Yêu cầu gửi lại không khớp với lần gửi trước. Vui lòng thử lại.',
+  [API_ERROR_CODES.INVALID_FREELANCER_CODE]: 'Mã giới thiệu không hợp lệ',
   [API_ERROR_CODES.INVALID_STATE_TRANSITION]: 'Thao tác hiện chưa thể thực hiện.',
   [API_ERROR_CODES.FORBIDDEN]: 'Bạn không có quyền truy cập nội dung này.',
   [API_ERROR_CODES.NOT_FOUND]: 'Không tìm thấy nội dung yêu cầu.',
@@ -99,6 +102,7 @@ const INTERNAL_SAFE_MESSAGES: Record<string, string> = {
   [API_ERROR_CODES.DUPLICATE_CV_FILE]: 'CV file hash đã tồn tại cho application.',
   [API_ERROR_CODES.IDEMPOTENCY_CONFLICT]:
     'Idempotency key bị dùng lại với payload hoặc file khác.',
+  [API_ERROR_CODES.INVALID_FREELANCER_CODE]: 'Mã giới thiệu không hợp lệ',
   [API_ERROR_CODES.INVALID_STATE_TRANSITION]: 'State transition không hợp lệ.',
   [API_ERROR_CODES.FORBIDDEN]: 'Không có quyền truy cập resource này.',
   [API_ERROR_CODES.NOT_FOUND]: 'Không tìm thấy resource.',
