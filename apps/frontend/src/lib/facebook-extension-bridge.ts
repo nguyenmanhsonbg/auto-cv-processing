@@ -141,11 +141,13 @@ function isBridgeResponse(value: unknown): value is BridgeResponse {
 }
 
 function isFacebookPublishProgress(value: unknown): value is FacebookPublishProgress {
+  const delayRemainingSeconds = (value as { delayRemainingSeconds?: unknown } | null)?.delayRemainingSeconds;
   return typeof value === 'object'
     && value !== null
     && typeof (value as { status?: unknown }).status === 'string'
     && typeof (value as { currentIndex?: unknown }).currentIndex === 'number'
     && typeof (value as { total?: unknown }).total === 'number'
+    && (delayRemainingSeconds === undefined || typeof delayRemainingSeconds === 'number')
     && typeof (value as { message?: unknown }).message === 'string'
     && Array.isArray((value as { results?: unknown }).results);
 }

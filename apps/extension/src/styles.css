@@ -4741,18 +4741,6 @@ dd {
   border-radius: 4px;
 }
 
-.facebook-publish-delay {
-  align-self: stretch;
-  margin: 0;
-  color: #92400e;
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.facebook-publish-delay strong {
-  font-weight: 900;
-}
-
 .facebook-publish-results-state.is-processing,
 .facebook-publish-result-state.is-posting {
   color: #b45309;

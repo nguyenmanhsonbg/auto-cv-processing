@@ -372,6 +372,7 @@ function SidePanel() {
   const [extractionResult, setExtractionResult] = useState<AmisExtractionResult | null>(null);
   const [autoSyncState, setAutoSyncState] = useState<AmisAutoSyncState | null>(null);
   const [facebookProgress, setFacebookProgress] = useState<FacebookPublishProgress | null>(null);
+  const [facebookPublishResultsVisible, setFacebookPublishResultsVisible] = useState(false);
   const [isFacebookResultsExpanded, setIsFacebookResultsExpanded] = useState(true);
   const [expandedPublishResultChannels, setExpandedPublishResultChannels] = useState<Record<string, boolean>>({});
   const [facebookRunning, setFacebookRunning] = useState(false);
@@ -410,6 +411,7 @@ function SidePanel() {
   const [facebookHistoryMessage, setFacebookHistoryMessage] = useState<string | null>(null);
   const [refreshingFacebookHistoryIds, setRefreshingFacebookHistoryIds] = useState<string[]>([]);
   const [isRefreshingFacebookHistoryGroup, setIsRefreshingFacebookHistoryGroup] = useState(false);
+
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
   const [facebookGroupName, setFacebookGroupName] = useState('');
   const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
@@ -572,6 +574,7 @@ function SidePanel() {
       }
 
       if (isFacebookPublishProgressUpdateMessage(message)) {
+        setFacebookPublishResultsVisible(true);
         setFacebookProgress(message.payload);
         setFacebookRunning(
           message.payload.status === 'LOGIN_REQUIRED'
@@ -2246,6 +2249,7 @@ function SidePanel() {
       setFacebookGroupMessage(null);
       setFacebookGroupSyncDetails(null);
       setIsFacebookGroupSyncDetailsOpen(false);
+      setFacebookPublishResultsVisible(false);
       resetFacebookImageAttachmentView();
       clearFacebookContent();
       void setSelectedChannels(next);
@@ -3347,6 +3351,7 @@ function SidePanel() {
 
   async function startFacebookPublish(plan: FacebookPublishPlan, contentOverride?: string | null) {
     if (!token) return null;
+    setFacebookPublishResultsVisible(true);
     const trimmedContentOverride = contentOverride?.trim();
     const contentResolvedPlan = trimmedContentOverride
       ? { ...plan, content: hydrateFacebookContentOverride(trimmedContentOverride, plan.content) }
@@ -4072,7 +4077,7 @@ function SidePanel() {
           {facebookRunning ? 'ĐANG ĐĂNG FACEBOOK...' : state === 'SYNCING' ? 'ĐANG ĐỒNG BỘ...' : isFacebookImageReading ? 'ĐANG TẢI ẢNH...' : 'ĐỒNG BỘ VÀ ĐĂNG'}
         </button>
 
-        {facebookSelected ? renderFacebookPublishResultsPanel() : null}
+        {facebookSelected && facebookPublishResultsVisible ? renderFacebookPublishResultsPanel() : null}
 
         {state === 'ERROR' && error ? <p className="error-text">{error}</p> : null}
 
@@ -4131,34 +4136,18 @@ function SidePanel() {
     const progressByTarget = new Map(
       progressResults.map((item) => [item.targetId ?? item.targetName, item]),
     );
-    const activeTargetId = facebookProgress?.target?.targetId ?? null;
-    const isProgressActive = facebookProgress?.status === 'POSTING'
-      || facebookProgress?.status === 'REPORTING';
-    const isFacebookDelaying = facebookProgress?.status === 'DELAYING'
-      && (facebookProgress.delayRemainingSeconds ?? 0) > 0;
-    const delayRemainingSeconds = isFacebookDelaying
-      ? Math.max(0, Math.ceil(facebookProgress?.delayRemainingSeconds ?? 0))
-      : 0;
     const channelStatusLabel = facebookProgress
       ? facebookProgress.status === 'SUCCESS'
-        ? 'Đã hoàn tất'
-        : facebookProgress.status === 'PARTIAL_SUCCESS'
-          ? 'Hoàn tất một phần'
-          : facebookProgress.status === 'ERROR'
-            ? 'Có lỗi'
-            : isProgressActive || isFacebookDelaying || facebookProgress.status === 'LOGIN_REQUIRED' || facebookProgress.status === 'WAITING_LOGIN'
-              ? 'Đang xử lý'
-              : 'Đang chờ'
-      : 'Chưa bắt đầu';
-    const channelStatusClass = !facebookProgress
-      ? 'is-pending'
-      : facebookProgress.status === 'SUCCESS'
-        ? 'is-posted'
-        : facebookProgress.status === 'ERROR'
-          ? 'is-failed'
-          : isProgressActive || isFacebookDelaying || facebookProgress.status === 'LOGIN_REQUIRED' || facebookProgress.status === 'WAITING_LOGIN'
-            ? 'is-processing'
-            : 'is-pending';
+        ? 'Đã đăng'
+        : facebookProgress.status === 'PARTIAL_SUCCESS' || facebookProgress.status === 'ERROR'
+          ? 'Đăng lỗi'
+          : 'Đang đăng'
+      : 'Đang đăng';
+    const channelStatusClass = facebookProgress?.status === 'SUCCESS'
+      ? 'is-posted'
+      : facebookProgress?.status === 'PARTIAL_SUCCESS' || facebookProgress?.status === 'ERROR'
+        ? 'is-failed'
+        : 'is-processing';
 
     return (
       <section className="facebook-publish-results-panel" aria-label="Kết quả đăng Facebook">
@@ -4181,35 +4170,26 @@ function SidePanel() {
             </button>
           </span>
         </div>
-        {isFacebookDelaying ? (
-          <p className="facebook-publish-delay" role="status" aria-live="polite">
-            Tiếp tục đăng sau <strong>{delayRemainingSeconds}</strong> giây
-          </p>
-        ) : null}
         {isFacebookResultsExpanded ? (
           <div className="facebook-publish-results-list">
           {displayTargets.length > 0 ? displayTargets.map((group) => {
             const progress = progressByTarget.get(group.id ?? group.name);
-            const isActive = isProgressActive
-              && (activeTargetId === group.id || facebookProgress?.target?.targetName === group.name);
             const statusClass = progress?.status === 'SUCCESS'
               ? 'is-posted'
               : progress?.status === 'FAILED'
+                || progress?.status === 'SKIPPED'
+                || facebookProgress?.status === 'PARTIAL_SUCCESS'
+                || facebookProgress?.status === 'ERROR'
                 ? 'is-failed'
-                : progress?.status === 'SKIPPED'
-                  ? 'is-skipped'
-                  : isActive
-                    ? 'is-posting'
-                    : 'is-pending';
+                : 'is-posting';
             const statusLabel = progress?.status === 'SUCCESS'
               ? 'Đã đăng'
               : progress?.status === 'FAILED'
+                || progress?.status === 'SKIPPED'
+                || facebookProgress?.status === 'PARTIAL_SUCCESS'
+                || facebookProgress?.status === 'ERROR'
                 ? 'Đăng lỗi'
-                : progress?.status === 'SKIPPED'
-                  ? 'Đã bỏ qua'
-                  : isActive
-                    ? 'Đang đăng'
-                    : 'Đang chờ';
+                : 'Đang đăng';
 
             return (
               <div className="facebook-publish-result-row" key={group.key}>
