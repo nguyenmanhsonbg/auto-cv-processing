@@ -1559,13 +1559,6 @@ async function openTab(url: string, active: boolean) {
 }
 
 async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, sourceTabId?: number) {
-  if (!status.ready) return status;
-
-  let externalId = status.account?.facebookExternalId.match(/^\d+$/)?.[0] ?? null;
-  let displayName = normalizeFacebookDisplayName(status.account?.displayName);
-  let profileUrl = status.account?.profileUrl ?? null;
-  const initialDisplayName = displayName;
-  const initialProfileUrl = profileUrl;
   let cookieExternalId: string | null = null;
 
   try {
@@ -1576,13 +1569,37 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
     const normalizedCookieId = cookie?.value?.trim() ?? '';
     if (/^\d+$/.test(normalizedCookieId)) {
       cookieExternalId = normalizedCookieId;
-      externalId = normalizedCookieId;
     }
   } catch {
     // DOM identity remains a valid fallback when cookie access is unavailable.
   }
 
-  if (!externalId) return status;
+  // A logged-out Facebook homepage can be fully loaded without containing a
+  // login form. Do not treat that public page as an authenticated session.
+  // c_user is the stable signal that lets the auth flow distinguish it from a
+  // real logged-in Facebook page.
+  if (!status.ready && (!cookieExternalId || isFacebookLoginLikeUrl(status.url))) {
+    return status;
+  }
+
+  // A public Facebook link such as /r.php can be mistaken for a profile and
+  // produce an identifier like profile:r.php. It is not proof of an active
+  // session, so only accept the stable numeric identity from c_user or DOM.
+  const domExternalId = status.account?.facebookExternalId.match(/^\d+$/)?.[0] ?? null;
+  const externalId = cookieExternalId ?? domExternalId;
+  let displayName = normalizeFacebookDisplayName(status.account?.displayName);
+  let profileUrl = status.account?.profileUrl ?? null;
+  const initialDisplayName = displayName;
+  const initialProfileUrl = profileUrl;
+
+  if (!externalId) {
+    return {
+      ...status,
+      ready: false,
+      account: null,
+      message: 'Facebook login is required. Please complete login in the opened tab.',
+    };
+  }
 
   // Facebook pages can contain links to other people. Once c_user gives us the
   // stable account ID, ignore the page's untrusted label and read the profile
@@ -1628,6 +1645,15 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
   };
 }
 
+function isFacebookLoginLikeUrl(url: string) {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    return /\/(?:login|checkpoint(?:\/|$)|recover(?:\/|$)|confirmemail(?:\/|$)|two_step(?:\/|$)|login_identify(?:\/|$))/.test(pathname);
+  } catch {
+    return true;
+  }
+}
+
 interface FacebookProfileIdentityProbe {
   displayName: string | null;
   profileUrl: string;
@@ -1641,7 +1667,7 @@ function normalizeFacebookDisplayName(value: string | null | undefined) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
   if (
-    /^(?:account(?:\s+id)?(?:\s+\d+)?|facebook(?:\s+account)?|\(\d+\)\s*facebook|thong\s+bao|notification)$/i.test(comparable)
+    /^(?:account(?:\s+id)?(?:\s+\d+)?|facebook(?:\s+account)?|\(\d+\)\s*facebook|thong\s+bao|notification|dang\s+ky|sign\s+up|create\s+new\s+account|register|log\s+in|login)$/i.test(comparable)
   ) {
     return null;
   }
@@ -2916,17 +2942,21 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
           const parsed = new URL(href);
           const hasHumanLabel = [text, ...labels].some((value) => {
             const normalized = value.replace(/\s+/g, ' ').trim();
+            const comparable = normalized
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase();
             return normalized.length >= 2
               && normalized.length <= 80
               && !/^(your|my)\s+(profile|account)$/i.test(normalized)
-              && !/^(profile|facebook|log in|login)$/i.test(normalized);
+              && !/^(?:profile|facebook|log\s+in|login|sign\s+up|create\s+new\s+account|register|dang\s+ky)$/i.test(comparable);
           });
           return pathname.startsWith('/profile/')
             || (parsed.search === ''
               && pathname.length > 1
               && pathname.split('/').filter(Boolean).length === 1
               && hasHumanLabel
-              && !/^\/(groups|home|watch|marketplace|friends|notifications|messages|settings|help|login|reel|reels|story|stories|share|sharer|photo|photos|video|gaming|events|jobs|pages)(\/|$)/.test(pathname));
+              && !/^\/(groups|home|watch|marketplace|friends|notifications|messages|settings|help|login|r\.php|reg|register|signup|reel|reels|story|stories|share|sharer|photo|photos|video|gaming|events|jobs|pages)(\/|$)/.test(pathname));
         } catch {
           return false;
         }
@@ -2945,7 +2975,10 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
         .find((value) => value.length >= 2
           && value.length <= 80
           && !/^(your|my)\s+(profile|account)$/i.test(value)
-          && !/^(profile|facebook|log in|login)$/i.test(value)) ?? null;
+          && !/^(?:profile|facebook|log\s+in|login|sign\s+up|create\s+new\s+account|register|dang\s+ky)$/i.test(value
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase())) ?? null;
       if (facebookExternalId) {
         account = {
           facebookExternalId,

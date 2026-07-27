@@ -286,6 +286,7 @@ const JOB_DESCRIPTION_STATUS_OPTIONS = [
 const FACEBOOK_HISTORY_PAGE_SIZE = 5;
 const FACEBOOK_HISTORY_REFRESH_BATCH_SIZE = 50;
 const FACEBOOK_GROUP_PAGE_SIZE = 5;
+const FACEBOOK_INELIGIBLE_PAGE_SIZE = 10;
 const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'POSTED', label: 'Đã đăng' },
@@ -403,6 +404,7 @@ function SidePanel() {
   const [facebookGroupDiagnostic, setFacebookGroupDiagnostic] = useState<string | null>(null);
   const [facebookGroupSyncDetails, setFacebookGroupSyncDetails] = useState<FacebookGroupSyncDetails | null>(null);
   const [isFacebookGroupSyncDetailsOpen, setIsFacebookGroupSyncDetailsOpen] = useState(false);
+  const [facebookIneligiblePage, setFacebookIneligiblePage] = useState(1);
   const [manualIncludingFacebookGroupKeys, setManualIncludingFacebookGroupKeys] = useState<string[]>([]);
   const [extensionToast, setExtensionToast] = useState<ExtensionToastState | null>(null);
   const [isFacebookSettingsOpen, setIsFacebookSettingsOpen] = useState(false);
@@ -738,6 +740,31 @@ function SidePanel() {
     facebookGroupVisibleStart + facebookGroupPageItems.length - 1,
     facebookGroupTotalItems,
   );
+  const facebookIneligibleGroups = facebookGroupSyncDetails?.filtered ?? [];
+  const facebookIneligiblePageCount = Math.max(
+    1,
+    Math.ceil(facebookIneligibleGroups.length / FACEBOOK_INELIGIBLE_PAGE_SIZE),
+  );
+  const currentFacebookIneligiblePage = Math.min(facebookIneligiblePage, facebookIneligiblePageCount);
+  const facebookIneligiblePageItems = useMemo(() => {
+    const startIndex = (currentFacebookIneligiblePage - 1) * FACEBOOK_INELIGIBLE_PAGE_SIZE;
+    return facebookIneligibleGroups.slice(startIndex, startIndex + FACEBOOK_INELIGIBLE_PAGE_SIZE);
+  }, [currentFacebookIneligiblePage, facebookIneligibleGroups]);
+  const facebookIneligiblePaginationItems = buildPostHistoryPaginationItems(
+    currentFacebookIneligiblePage,
+    facebookIneligiblePageCount,
+  );
+  const facebookIneligibleTotalItems = facebookIneligibleGroups.length;
+  const facebookIneligibleVisibleStart = facebookIneligibleTotalItems === 0
+    ? 0
+    : ((currentFacebookIneligiblePage - 1) * FACEBOOK_INELIGIBLE_PAGE_SIZE) + 1;
+  const facebookIneligibleVisibleEnd = Math.min(
+    facebookIneligibleVisibleStart + facebookIneligiblePageItems.length - 1,
+    facebookIneligibleTotalItems,
+  );
+  useEffect(() => {
+    setFacebookIneligiblePage((page) => Math.min(page, facebookIneligiblePageCount));
+  }, [facebookIneligiblePageCount]);
   const visibleFacebookGroups = useMemo(() => {
     if (facebookGroups.length > 0) {
       return validFacebookGroups.map(toFacebookGroupUiItem);
@@ -2318,6 +2345,7 @@ function SidePanel() {
 
   async function loadFacebookGroupsForFacebookChannel(accessToken: string): Promise<FacebookGroupsSyncResult> {
     setFacebookGroupSyncDetails(null);
+    setFacebookIneligiblePage(1);
     setFacebookGroupLoadState('CHECKING_LOGIN');
     setFacebookGroupMessage('Checking Facebook login in this browser.');
 
@@ -2384,6 +2412,7 @@ function SidePanel() {
     options: { sessionReady?: boolean } = {},
   ): Promise<FacebookGroupsSyncResult> {
     setFacebookGroupSyncDetails(null);
+    setFacebookIneligiblePage(1);
     setFacebookGroupDiagnostic(null);
     let activeAccount = facebookAccount;
     if (!options.sessionReady) {
@@ -2440,6 +2469,7 @@ function SidePanel() {
       discoverySummary = buildFacebookGroupDiscoverMessage(discoverResult);
       details = buildFacebookGroupSyncDetails(discoverResult);
       setFacebookGroupSyncDetails(details);
+      setFacebookIneligiblePage(1);
     }
 
     setFacebookGroupMessage('Đang tải danh sách nhóm Facebook đã đồng bộ...');
@@ -4723,7 +4753,10 @@ function SidePanel() {
                                 type="button"
                                 className="facebook-ineligible-trigger"
                                 aria-expanded={isFacebookGroupSyncDetailsOpen}
-                                onClick={() => setIsFacebookGroupSyncDetailsOpen(true)}
+                                onClick={() => {
+                                  setFacebookIneligiblePage(1);
+                                  setIsFacebookGroupSyncDetailsOpen(true);
+                                }}
                               >
                                 <span>Xem nhóm không phù hợp</span>
                                 <ChevronDownIcon />
@@ -6047,8 +6080,8 @@ function SidePanel() {
             </header>
             <div className="modal-body facebook-ineligible-modal-body">
               <div className="facebook-ineligible-modal-list">
-                {facebookGroupSyncDetails.filtered.length > 0 ? (
-                  facebookGroupSyncDetails.filtered.map((group) => {
+                {facebookIneligiblePageItems.length > 0 ? (
+                  facebookIneligiblePageItems.map((group) => {
                     const groupKey = getFacebookGroupDetailKey(group);
                     const isAdding = manualIncludingFacebookGroupKeys.includes(groupKey);
                     return (
@@ -6086,6 +6119,48 @@ function SidePanel() {
                   <p className="channel-subselection-empty">Không có nhóm không phù hợp.</p>
                 )}
               </div>
+              {facebookIneligibleTotalItems > 0 ? (
+                <div className="facebook-ineligible-modal-pagination">
+                  <span>
+                    {`Hi\u1ec3n th\u1ecb t\u1eeb ${facebookIneligibleVisibleStart} - ${facebookIneligibleVisibleEnd} c\u1ee7a ${facebookIneligibleTotalItems} k\u1ebft qu\u1ea3`}
+                  </span>
+                  <div className="facebook-ineligible-modal-pagination-actions">
+                    <button
+                      type="button"
+                      title="Trang truoc"
+                      aria-label="Trang truoc danh sach nhom khong phu hop"
+                      disabled={currentFacebookIneligiblePage <= 1}
+                      onClick={() => setFacebookIneligiblePage((page) => Math.max(1, page - 1))}
+                    >
+                      <BackIcon />
+                    </button>
+                    {facebookIneligiblePaginationItems.map((page) => (
+                      typeof page === 'number' ? (
+                        <button
+                          key={page}
+                          type="button"
+                          className={page === currentFacebookIneligiblePage ? 'is-active' : undefined}
+                          aria-current={page === currentFacebookIneligiblePage ? 'page' : undefined}
+                          onClick={() => setFacebookIneligiblePage(page)}
+                        >
+                          {page}
+                        </button>
+                      ) : (
+                        <span key={page} className="facebook-ineligible-modal-pagination-ellipsis">...</span>
+                      )
+                    ))}
+                    <button
+                      type="button"
+                      title="Trang sau"
+                      aria-label="Trang sau danh sach nhom khong phu hop"
+                      disabled={currentFacebookIneligiblePage >= facebookIneligiblePageCount}
+                      onClick={() => setFacebookIneligiblePage((page) => Math.min(facebookIneligiblePageCount, page + 1))}
+                    >
+                      <ChevronRightIcon />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <div className="form-actions">
                 <button
                   type="button"
