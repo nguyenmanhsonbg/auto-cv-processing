@@ -5784,6 +5784,11 @@ dd {
   z-index: 5;
 }
 
+.cv-filter-control-grid-secondary {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  z-index: 4;
+}
+
 .cv-filter-dropdown {
   position: relative;
   display: grid;
@@ -6102,7 +6107,7 @@ dd {
 
 .cv-candidate-list > li.is-selected .cv-candidate-card {
   border-color: #32c78d;
-  background: #e9fbf5;
+  background: #10B98166;
   box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.14) inset;
 }
 
@@ -6180,7 +6185,7 @@ dd {
 
 .cv-candidate-details {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -6224,7 +6229,7 @@ dd {
 }
 
 .cv-candidate-detail-status.is-success strong {
-  color: #007a5a;
+  color: #15803D;
 }
 
 .cv-question-status.is-success strong {
@@ -6233,6 +6238,14 @@ dd {
 
 .cv-question-status.is-warning strong {
   color: #EAB308;
+}
+
+.cv-candidate-detail-status.is-warning strong {
+  color: #EAB308;
+}
+
+.cv-ai-status.is-danger strong {
+  color: #F97316;
 }
 
 .cv-candidate-detail-status.is-danger strong {
