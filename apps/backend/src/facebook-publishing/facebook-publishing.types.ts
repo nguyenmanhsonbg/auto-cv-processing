@@ -47,6 +47,9 @@ export interface ResolvedFacebookPublishTarget {
   facebookAccountLabel?: string | null;
   facebookAccountId?: string | null;
   facebookAccountExternalId?: string | null;
+  manualIncluded?: boolean;
+  manualIncludedAt?: string | null;
+  manualIncludedBy?: string | null;
 }
 
 export interface ResolveFacebookAccountInput {
@@ -71,6 +74,10 @@ export interface CreateFacebookGroupInput {
   targetUrl: string;
   ownerExtensionInstanceId?: string | null;
   facebookAccountId?: string | null;
+}
+
+export interface ManualIncludeFacebookGroupInput extends CreateFacebookGroupInput {
+  targetExternalId?: string | null;
 }
 
 export interface UpdateFacebookGroupInput extends CreateFacebookGroupInput {

@@ -20,6 +20,74 @@ import type {
   FacebookReviewStatus,
 } from './types';
 
+const FACEBOOK_TARGET_TIMEOUT_MS = 90_000;
+
+class FacebookTargetTimeoutError extends Error {
+  readonly code = 'FB_TARGET_TIMEOUT';
+
+  constructor(targetName: string) {
+    super(`Facebook publish timed out after ${FACEBOOK_TARGET_TIMEOUT_MS / 1_000}s for ${targetName}.`);
+    this.name = 'FacebookTargetTimeoutError';
+  }
+}
+
+class FacebookTargetExecution {
+  private cancelled = false;
+  private cancellationError: Error | null = null;
+  private cleanupStarted = false;
+  private readonly tabIds = new Set<number>();
+
+  constructor(
+    private readonly targetName: string,
+    private readonly deadlineAt = Date.now() + FACEBOOK_TARGET_TIMEOUT_MS,
+  ) {}
+
+  registerTab(tabId: number) {
+    this.tabIds.add(tabId);
+  }
+
+  unregisterTab(tabId: number) {
+    this.tabIds.delete(tabId);
+  }
+
+  expire() {
+    if (!this.cancellationError) {
+      this.cancellationError = new FacebookTargetTimeoutError(this.targetName);
+    }
+    this.cancelled = true;
+    return this.cancellationError;
+  }
+
+  cancel(error = new Error('Facebook target execution was cancelled.')) {
+    this.cancelled = true;
+    this.cancellationError = this.cancellationError ?? error;
+  }
+
+  throwIfCancelled() {
+    if (this.cancellationError) throw this.cancellationError;
+    if (this.cancelled) throw new Error('Facebook target execution was cancelled.');
+    if (Date.now() >= this.deadlineAt) throw this.expire();
+  }
+
+  async wait(milliseconds: number) {
+    this.throwIfCancelled();
+    const remainingMs = Math.max(0, this.deadlineAt - Date.now());
+    if (remainingMs <= 0) throw this.expire();
+    await sleep(Math.min(Math.max(0, milliseconds), remainingMs));
+    this.throwIfCancelled();
+  }
+
+  async cleanup() {
+    if (this.cleanupStarted) return;
+    this.cleanupStarted = true;
+    const tabIds = [...this.tabIds];
+    this.tabIds.clear();
+    for (const tabId of tabIds) {
+      await closeFacebookPublishTabSafely(tabId);
+    }
+  }
+}
+
 interface FacebookPublishCallbacks {
   onProgress?: (progress: FacebookPublishProgress) => void;
   onImageAttachFailed?: (
@@ -65,10 +133,50 @@ interface FacebookPagePublishResult {
   message: string;
   externalPostId?: string | null;
   externalPostUrl?: string | null;
+  facebookReviewStatus?: FacebookReviewStatus | null;
   submitClickDispatched?: boolean;
   postClickEvidence?: boolean;
   doNotRetry?: boolean;
 }
+
+interface FacebookPublishGraphqlResult {
+  externalPostId: string;
+  externalPostUrl: string;
+  facebookReviewStatus: FacebookReviewStatus;
+  queryName: string;
+}
+
+interface FacebookPublishGraphqlCapture {
+  target: ChromeDebuggee;
+  waitForResult: (timeoutMs: number) => Promise<FacebookPublishGraphqlResult | null>;
+  stop: () => Promise<void>;
+}
+
+interface FacebookPublishGraphqlRequest {
+  requestId: string;
+  queryName: string;
+}
+
+interface FacebookPublishGraphqlRequestWillBeSentParams {
+  requestId?: string;
+  request?: {
+    url?: string;
+    method?: string;
+    postData?: string;
+    headers?: Record<string, unknown>;
+  };
+}
+
+interface FacebookPublishGraphqlLoadingFinishedParams {
+  requestId?: string;
+}
+
+interface FacebookPublishGraphqlResponseBody {
+  body?: string;
+  base64Encoded?: boolean;
+}
+
+const FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS = 3_000;
 
 interface FacebookPostReviewStatusProbeInput {
   title?: string | null;
@@ -232,47 +340,25 @@ export async function publishFacebookPlan(
   for (let index = 0; index < plan.targets.length; index += 1) {
     const target = plan.targets[index];
     const imageAttachments = getFacebookPublishImageAttachments(plan);
-    try {
-      callbacks.onProgress?.({
-        status: 'POSTING',
-        currentIndex: index + 1,
-        total,
-        target,
-        message: `Posting to ${target.targetName}.`,
-        results,
-      });
+    callbacks.onProgress?.({
+      status: 'POSTING',
+      currentIndex: index + 1,
+      total,
+      target,
+      message: `Posting to ${target.targetName}.`,
+      results,
+    });
 
-      const result = await publishTarget(target, plan.content, imageAttachments, callbacks);
-      const payload = buildFacebookPublishResultPayload(plan, target, result);
-
-      callbacks.onProgress?.({
-        status: 'REPORTING',
-        currentIndex: index + 1,
-        total,
-        target,
-        message: `Saving Facebook result for ${target.targetName}.`,
-        results,
-      });
-      const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
-      results.push(withReportMessage(payload, reportErrorMessage));
-    } catch (error) {
-      const payload = buildUnexpectedFacebookPublishFailurePayload(
-        plan,
-        target,
-        `FB_TARGET_UNEXPECTED_ERROR: Facebook publish target failed before it could produce a result. ${toAutomationErrorMessage(error)}`,
-      );
-
-      callbacks.onProgress?.({
-        status: 'REPORTING',
-        currentIndex: index + 1,
-        total,
-        target,
-        message: `Saving Facebook failure for ${target.targetName}.`,
-        results,
-      });
-      const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
-      results.push(withReportMessage(payload, reportErrorMessage));
-    }
+    results.push(await publishAndReportFacebookTarget(
+      accessToken,
+      plan,
+      target,
+      imageAttachments,
+      callbacks,
+      index + 1,
+      total,
+      results,
+    ));
 
     if (index < plan.targets.length - 1) {
       const delayMs = randomDelay(plan.delay.minMs, plan.delay.maxMs);
@@ -298,6 +384,72 @@ export async function publishFacebookPlan(
   return results;
 }
 
+async function publishAndReportFacebookTarget(
+  accessToken: string,
+  plan: FacebookPublishPlan,
+  target: FacebookPublishTarget,
+  imageAttachments: FacebookPublishImageAttachment[],
+  callbacks: FacebookPublishCallbacks,
+  currentIndex: number,
+  total: number,
+  results: FacebookPublishResultPayload[],
+): Promise<FacebookPublishResultPayload> {
+  const execution = new FacebookTargetExecution(target.targetName);
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+  const operation = async () => {
+    execution.throwIfCancelled();
+    const publishResult = await publishTarget(
+      target,
+      plan.content,
+      imageAttachments,
+      callbacks,
+      execution,
+    );
+    execution.throwIfCancelled();
+    const payload = buildFacebookPublishResultPayload(plan, target, publishResult);
+
+    callbacks.onProgress?.({
+      status: 'REPORTING',
+      currentIndex,
+      total,
+      target,
+      message: `Saving Facebook result for ${target.targetName}.`,
+      results,
+    });
+    const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
+    execution.throwIfCancelled();
+    return withReportMessage(payload, reportErrorMessage);
+  };
+
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => reject(execution.expire()), FACEBOOK_TARGET_TIMEOUT_MS);
+    });
+    return await Promise.race([operation(), timeoutPromise]);
+  } catch (error) {
+    const message = error instanceof FacebookTargetTimeoutError
+      ? `${error.code}: ${error.message}`
+      : `FB_TARGET_UNEXPECTED_ERROR: Facebook publish target failed before it could produce a result. ${toAutomationErrorMessage(error)}`;
+    const payload = buildUnexpectedFacebookPublishFailurePayload(plan, target, message);
+
+    callbacks.onProgress?.({
+      status: 'REPORTING',
+      currentIndex,
+      total,
+      target,
+      message: `Saving Facebook failure for ${target.targetName}.`,
+      results,
+    });
+    const reportErrorMessage = await reportFacebookPublishResultWithTimeout(accessToken, payload);
+    return withReportMessage(payload, reportErrorMessage);
+  } finally {
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    execution.cancel();
+    await execution.cleanup();
+  }
+}
+
 function buildFacebookPublishResultPayload(
   plan: FacebookPublishPlan,
   target: FacebookPublishTarget,
@@ -313,7 +465,7 @@ function buildFacebookPublishResultPayload(
     targetUrl: target.targetUrl ?? null,
     content: plan.content,
     status: result.status,
-    facebookReviewStatus: getPublishResultReviewStatus(result),
+    facebookReviewStatus: result.facebookReviewStatus ?? getPublishResultReviewStatus(result),
     message: result.message,
     externalPostId: externalPost?.postId ?? result.externalPostId ?? null,
     externalPostUrl: externalPost?.url ?? null,
@@ -863,7 +1015,9 @@ async function publishTarget(
   content: string,
   imageAttachments: FacebookPublishImageAttachment[],
   callbacks: FacebookPublishCallbacks,
+  execution: FacebookTargetExecution,
 ): Promise<FacebookPagePublishResult> {
+  execution.throwIfCancelled();
   if (target.targetType !== 'GROUP') {
     return {
       status: 'SKIPPED',
@@ -880,6 +1034,7 @@ async function publishTarget(
 
   let latestFailure: FacebookPagePublishResult | null = null;
   for (let tabAttempt = 0; tabAttempt < 2; tabAttempt += 1) {
+    execution.throwIfCancelled();
     const result: FacebookPagePublishResult = await publishTargetInFreshTab(
       target.targetUrl,
       target.targetExternalId,
@@ -887,6 +1042,7 @@ async function publishTarget(
       target,
       imageAttachments,
       callbacks,
+      execution,
     ).catch((error): FacebookPagePublishResult => ({
       status: 'FAILED',
       message: toAutomationErrorMessage(error),
@@ -902,7 +1058,7 @@ async function publishTarget(
       return result;
     }
 
-    await sleep(randomDelay(1_200, 2_500));
+    await execution.wait(randomDelay(1_200, 2_500));
   }
 
   return latestFailure ?? {
@@ -918,19 +1074,24 @@ async function publishTargetInFreshTab(
   target: FacebookPublishTarget,
   imageAttachments: FacebookPublishImageAttachment[],
   callbacks: FacebookPublishCallbacks,
+  execution: FacebookTargetExecution,
 ): Promise<FacebookPagePublishResult> {
+  execution.throwIfCancelled();
   const tab = await openTab(targetUrl, false);
+  execution.registerTab(tab.id);
   try {
     let latestFailure: FacebookPreparedPostResult | null = null;
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await waitForTabComplete(tab.id);
-      await sleep(randomDelay(attempt === 0 ? 2_500 : 4_000, attempt === 0 ? 6_000 : 8_000));
+      execution.throwIfCancelled();
+      await waitForTabComplete(tab.id, execution);
+      await execution.wait(randomDelay(attempt === 0 ? 2_500 : 4_000, attempt === 0 ? 6_000 : 8_000));
       const preparedPost = await runScript<[string, FacebookPublishImageAttachment[]], FacebookPreparedPostResult>(
         tab.id,
         prepareFacebookPostInPage,
         [content, imageAttachments],
       );
+      execution.throwIfCancelled();
       if (preparedPost.status === 'READY_TO_SUBMIT' && preparedPost.submitButton) {
         const submitResult = await submitPreparedPost(
           tab.id,
@@ -938,6 +1099,7 @@ async function publishTargetInFreshTab(
           content,
           targetUrl,
           targetExternalId,
+          execution,
         );
         return submitResult;
       }
@@ -960,6 +1122,7 @@ async function publishTargetInFreshTab(
             target,
             [],
             callbacks,
+            execution,
           );
           return {
             ...submitResult,
@@ -982,7 +1145,7 @@ async function publishTargetInFreshTab(
       }
 
       if (attempt < 2) {
-        await sleep(randomDelay(800, 1_500));
+        await execution.wait(randomDelay(800, 1_500));
         await reloadTab(tab.id);
         continue;
       }
@@ -995,6 +1158,7 @@ async function publishTargetInFreshTab(
       message: latestFailure?.message ?? 'Facebook post could not be prepared.',
     };
   } finally {
+    execution.unregisterTab(tab.id);
     await closeFacebookPublishTabSafely(tab.id);
   }
 }
@@ -1036,8 +1200,8 @@ async function reportFacebookPublishResultSafely(
   fallbackAccessToken: string,
   payload: FacebookPublishResultPayload,
 ) {
-  const currentAccessToken = await getAccessToken();
   try {
+    const currentAccessToken = await getAccessToken();
     await reportFacebookPublishResult(currentAccessToken ?? fallbackAccessToken, payload);
     return null;
   } catch (error) {
@@ -1062,6 +1226,7 @@ function withReportMessage(
 }
 
 function getPublishResultReviewStatus(result: FacebookPagePublishResult): FacebookReviewStatus {
+  if (result.facebookReviewStatus) return result.facebookReviewStatus;
   const message = normalizeFacebookAutomationText(result.message);
   if (
     result.status === 'SUCCESS'
@@ -1143,6 +1308,7 @@ async function waitForFacebookPostUrlAfterTimestampClick(
   targetExternalId: string | null | undefined,
   snapshot: FacebookTabClickSnapshot,
   timeoutMs: number,
+  execution?: FacebookTargetExecution,
 ): Promise<FacebookPostUrlDetectionResult> {
   const expectedGroupIds = getExpectedFacebookGroupIds(targetUrl, targetExternalId);
   const openedTabIds = new Set<number>();
@@ -1151,6 +1317,7 @@ async function waitForFacebookPostUrlAfterTimestampClick(
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
+    execution?.throwIfCancelled();
     const tabs = await queryTabsForTimestampClick(snapshot.sourceWindowId);
     for (const tab of tabs) {
       if (tab.id === undefined) continue;
@@ -1185,7 +1352,8 @@ async function waitForFacebookPostUrlAfterTimestampClick(
       fallbackDetection = fallbackDetection ?? result;
     }
 
-    await sleep(250);
+    if (execution) await execution.wait(250);
+    else await sleep(250);
   }
 
   if (fallbackDetection) {
@@ -1219,18 +1387,41 @@ async function closeAutomationOpenedTabs(tabIds: Iterable<number>, sourceTabId: 
   }
 }
 
-async function activateTabForTimestampRecovery(tabId: number) {
+async function activateTabForTimestampRecovery(tabId: number, execution?: FacebookTargetExecution) {
   try {
+    execution?.throwIfCancelled();
     const tab = await chrome.tabs?.get(tabId).catch(() => null);
     if (tab?.windowId !== undefined) {
       await chrome.windows?.update(tab.windowId, { focused: true }).catch(() => undefined);
     }
     await activateTab(tabId);
-    await waitForTabComplete(tabId);
-    await sleep(randomDelay(700, 1_200));
+    await waitForTabComplete(tabId, execution);
+    if (execution) await execution.wait(randomDelay(700, 1_200));
+    else await sleep(randomDelay(700, 1_200));
     return null;
   } catch (error) {
     return toAutomationErrorMessage(error);
+  }
+}
+
+async function reportFacebookPublishResultWithTimeout(
+  fallbackAccessToken: string,
+  payload: FacebookPublishResultPayload,
+) {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeoutPromise = new Promise<string>((resolve) => {
+      timeoutHandle = setTimeout(
+        () => resolve('Backend report timed out after 5s.'),
+        5_000,
+      );
+    });
+    return await Promise.race([
+      reportFacebookPublishResultSafely(fallbackAccessToken, payload),
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
   }
 }
 
@@ -1368,13 +1559,6 @@ async function openTab(url: string, active: boolean) {
 }
 
 async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, sourceTabId?: number) {
-  if (!status.ready) return status;
-
-  let externalId = status.account?.facebookExternalId.match(/^\d+$/)?.[0] ?? null;
-  let displayName = normalizeFacebookDisplayName(status.account?.displayName);
-  let profileUrl = status.account?.profileUrl ?? null;
-  const initialDisplayName = displayName;
-  const initialProfileUrl = profileUrl;
   let cookieExternalId: string | null = null;
 
   try {
@@ -1385,13 +1569,37 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
     const normalizedCookieId = cookie?.value?.trim() ?? '';
     if (/^\d+$/.test(normalizedCookieId)) {
       cookieExternalId = normalizedCookieId;
-      externalId = normalizedCookieId;
     }
   } catch {
     // DOM identity remains a valid fallback when cookie access is unavailable.
   }
 
-  if (!externalId) return status;
+  // A logged-out Facebook homepage can be fully loaded without containing a
+  // login form. Do not treat that public page as an authenticated session.
+  // c_user is the stable signal that lets the auth flow distinguish it from a
+  // real logged-in Facebook page.
+  if (!status.ready && (!cookieExternalId || isFacebookLoginLikeUrl(status.url))) {
+    return status;
+  }
+
+  // A public Facebook link such as /r.php can be mistaken for a profile and
+  // produce an identifier like profile:r.php. It is not proof of an active
+  // session, so only accept the stable numeric identity from c_user or DOM.
+  const domExternalId = status.account?.facebookExternalId.match(/^\d+$/)?.[0] ?? null;
+  const externalId = cookieExternalId ?? domExternalId;
+  let displayName = normalizeFacebookDisplayName(status.account?.displayName);
+  let profileUrl = status.account?.profileUrl ?? null;
+  const initialDisplayName = displayName;
+  const initialProfileUrl = profileUrl;
+
+  if (!externalId) {
+    return {
+      ...status,
+      ready: false,
+      account: null,
+      message: 'Facebook login is required. Please complete login in the opened tab.',
+    };
+  }
 
   // Facebook pages can contain links to other people. Once c_user gives us the
   // stable account ID, ignore the page's untrusted label and read the profile
@@ -1437,6 +1645,15 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
   };
 }
 
+function isFacebookLoginLikeUrl(url: string) {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    return /\/(?:login|checkpoint(?:\/|$)|recover(?:\/|$)|confirmemail(?:\/|$)|two_step(?:\/|$)|login_identify(?:\/|$))/.test(pathname);
+  } catch {
+    return true;
+  }
+}
+
 interface FacebookProfileIdentityProbe {
   displayName: string | null;
   profileUrl: string;
@@ -1444,7 +1661,16 @@ interface FacebookProfileIdentityProbe {
 
 function normalizeFacebookDisplayName(value: string | null | undefined) {
   const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
-  if (!normalized || /^account\s+\d+$/i.test(normalized)) return null;
+  if (!normalized) return null;
+  const comparable = normalized
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (
+    /^(?:account(?:\s+id)?(?:\s+\d+)?|facebook(?:\s+account)?|\(\d+\)\s*facebook|thong\s+bao|notification|dang\s+ky|sign\s+up|create\s+new\s+account|register|log\s+in|login)$/i.test(comparable)
+  ) {
+    return null;
+  }
   if (normalized.length > 100) return null;
   if (/đã phê duyệt một lần đăng nhập|approved a login|notification/i.test(normalized)) return null;
   return normalized;
@@ -1495,12 +1721,14 @@ async function focusFacebookLoginTab(tabId: number) {
   await chrome.windows?.update(tab.windowId, { focused: true });
 }
 
-async function waitForTabComplete(tabId: number) {
+async function waitForTabComplete(tabId: number, execution?: FacebookTargetExecution) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
+    execution?.throwIfCancelled();
     const tab = await chrome.tabs?.get(tabId);
     if (tab?.status === 'complete') return;
-    await sleep(500);
+    if (execution) await execution.wait(500);
+    else await sleep(500);
   }
 }
 
@@ -1643,8 +1871,10 @@ async function submitPreparedPost(
   content: string,
   targetUrl: string | null | undefined,
   targetExternalId: string | null | undefined,
+  execution: FacebookTargetExecution,
 ): Promise<FacebookPagePublishResult> {
-  const hiddenResult = await clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId);
+  execution.throwIfCancelled();
+  const hiddenResult = await clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId, execution);
   if (
     hiddenResult.status === 'SUCCESS'
     || hiddenResult.submitClickDispatched
@@ -1654,8 +1884,8 @@ async function submitPreparedPost(
     return hiddenResult;
   }
 
-  await sleep(randomDelay(500, 1_200));
-  return clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId);
+  await execution.wait(randomDelay(500, 1_200));
+  return clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId, execution);
 }
 
 async function clickAndWaitForSubmission(
@@ -1664,7 +1894,9 @@ async function clickAndWaitForSubmission(
   content: string,
   targetUrl: string | null | undefined,
   targetExternalId: string | null | undefined,
+  execution: FacebookTargetExecution,
 ): Promise<FacebookPagePublishResult> {
+  execution.throwIfCancelled();
   const preflight = await runScript<[string], FacebookSubmitPreflightResult>(
     tabId,
     verifyFacebookPostReadyToSubmitInPage,
@@ -1673,6 +1905,7 @@ async function clickAndWaitForSubmission(
     ready: false,
     message: toAutomationErrorMessage(error),
   }));
+  execution.throwIfCancelled();
 
   if (!preflight.ready) {
     return {
@@ -1682,10 +1915,22 @@ async function clickAndWaitForSubmission(
   }
 
   const tabBeforeClick = await chrome.tabs?.get(tabId).catch(() => null);
+  let graphqlCapture: FacebookPublishGraphqlCapture | null = null;
   let clickPoint = submitButton;
   try {
-    clickPoint = await clickTabPoint(tabId, submitButton);
+    graphqlCapture = await startFacebookPublishGraphqlCapture(
+      tabId,
+      targetUrl,
+      targetExternalId,
+    ).catch((error) => {
+      console.warn(
+        `[FB_GQL_PUBLISH_CAPTURE_UNAVAILABLE] ${toAutomationErrorMessage(error)}`,
+      );
+      return null;
+    });
+    clickPoint = await clickTabPoint(tabId, submitButton, execution, graphqlCapture?.target);
   } catch (error) {
+    await graphqlCapture?.stop();
     return {
       status: 'FAILED',
       message: error instanceof Error ? error.message : 'Facebook submit click failed.',
@@ -1703,6 +1948,7 @@ async function clickAndWaitForSubmission(
         clickPoint,
       }],
     );
+    execution.throwIfCancelled();
     if (shouldUseHiddenTabSubmitActivationFallback(submissionResult.message)) {
       const activationResult = await runScript<[string], FacebookSubmitActivationResult>(
         tabId,
@@ -1726,6 +1972,7 @@ async function clickAndWaitForSubmission(
             activationMode: 'dom-click-fallback',
           }],
         );
+        execution.throwIfCancelled();
         submissionResult = fallbackResult.status === 'FAILED'
           ? {
             ...fallbackResult,
@@ -1739,28 +1986,36 @@ async function clickAndWaitForSubmission(
         };
       }
     }
+    const graphqlResult = await graphqlCapture?.waitForResult(FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS) ?? null;
+    const resultWithGraphql = applyFacebookPublishGraphqlResult(submissionResult, graphqlResult);
     return await enrichFacebookPublishResultWithPostUrl(
       tabId,
       content,
       {
-        ...submissionResult,
+        ...resultWithGraphql,
         submitClickDispatched: true,
       },
       targetUrl,
       targetExternalId,
+      execution,
     );
   } catch (error) {
+    const graphqlResult = await graphqlCapture?.waitForResult(FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS) ?? null;
+    const resultWithGraphql = applyFacebookPublishGraphqlResult({
+      status: 'FAILED',
+      message: `Facebook post submission could not be observed after submit click. ${toAutomationErrorMessage(error)}`,
+      submitClickDispatched: true,
+    }, graphqlResult);
     return enrichFacebookPublishResultWithPostUrl(
       tabId,
       content,
-      {
-        status: 'FAILED',
-        message: `Facebook post submission could not be observed after submit click. ${toAutomationErrorMessage(error)}`,
-        submitClickDispatched: true,
-      },
+      resultWithGraphql,
       targetUrl,
       targetExternalId,
+      execution,
     );
+  } finally {
+    await graphqlCapture?.stop();
   }
 }
 
@@ -1770,7 +2025,9 @@ async function enrichFacebookPublishResultWithPostUrl(
   result: FacebookPagePublishResult,
   targetUrl: string | null | undefined,
   targetExternalId: string | null | undefined,
+  execution: FacebookTargetExecution,
 ): Promise<FacebookPagePublishResult> {
+  execution.throwIfCancelled();
   const shouldRecoverPostUrl = result.status === 'SUCCESS'
     || (result.submitClickDispatched && isPostClickConfirmationFailure(result.message));
   if (!shouldRecoverPostUrl) return result;
@@ -1785,11 +2042,18 @@ async function enrichFacebookPublishResultWithPostUrl(
     };
   }
 
+  // Facebook can confirm a submitted post while keeping it in pending moderation,
+  // so the post URL may not be available from the current page yet. The submit
+  // evidence is already enough to report success; URL recovery must not consume
+  // the target timeout or turn a confirmed submission into a false failure.
+  if (result.status === 'SUCCESS') return result;
+
   const currentPageRecovery = await recoverFacebookSubmittedPostUrlInCurrentPage(
     tabId,
     content,
     targetUrl,
     targetExternalId,
+    execution,
     true,
     false,
   );
@@ -1801,6 +2065,7 @@ async function enrichFacebookPublishResultWithPostUrl(
     content,
     targetUrl,
     targetExternalId,
+    execution,
     true,
     false,
   );
@@ -1812,6 +2077,7 @@ async function enrichFacebookPublishResultWithPostUrl(
     content,
     targetUrl,
     targetExternalId,
+    execution,
     false,
     false,
   );
@@ -1823,6 +2089,7 @@ async function enrichFacebookPublishResultWithPostUrl(
     content,
     targetUrl,
     targetExternalId,
+    execution,
     false,
   );
   const groupFeedResult = buildFacebookPublishResultFromRecovery(result, groupFeedRecovery);
@@ -1836,10 +2103,7 @@ async function enrichFacebookPublishResultWithPostUrl(
   ].filter(Boolean).join(' ')
     || 'No matching verified post URL was found.';
 
-  if (
-    result.status === 'SUCCESS'
-    || (result.submitClickDispatched && result.postClickEvidence && isPostClickConfirmationFailure(result.message))
-  ) {
+  if (result.submitClickDispatched && result.postClickEvidence && isPostClickConfirmationFailure(result.message)) {
     return {
       ...result,
       status: 'SUCCESS',
@@ -1858,9 +2122,11 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
   content: string,
   targetUrl: string | null | undefined,
   targetExternalId: string | null | undefined,
+  execution: FacebookTargetExecution,
   requireRecent = true,
   allowTabActivation = true,
 ): Promise<FacebookSubmittedPostRecoveryResult> {
+  execution.throwIfCancelled();
   let lastClickErrorMessage: string | null = null;
   let lastDetection: FacebookPostUrlDetectionResult | null = null;
   let lastPageProbeErrorMessage: string | null = null;
@@ -1885,7 +2151,9 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
 
   let probe: FacebookPostReviewStatusProbeResult | null = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    execution.throwIfCancelled();
     probe = await recoverInCurrentPage();
+    execution.throwIfCancelled();
     const postUrl = parseFacebookGroupPostUrl(probe?.externalPostUrl);
     if (postUrl) return { probe, postUrl };
 
@@ -1898,10 +2166,11 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
       lastQueuedClickPointCount = Math.max(lastQueuedClickPointCount, queuedClickPointKeys.size);
 
       if (!activatedForTimestampClick && !activationErrorMessage) {
-        activationErrorMessage = await activateTabForTimestampRecovery(tabId);
+        activationErrorMessage = await activateTabForTimestampRecovery(tabId, execution);
         activatedForTimestampClick = !activationErrorMessage;
         if (activatedForTimestampClick) {
           const activeProbe = await recoverInCurrentPage();
+          execution.throwIfCancelled();
           if (activeProbe) {
             probe = activeProbe;
             const activePostUrl = parseFacebookGroupPostUrl(probe.externalPostUrl);
@@ -1916,9 +2185,10 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
       for (let clickIndex = 0; clickIndex < clickQueue.length && clickIndex < 8; clickIndex += 1) {
         const clickPoint = clickQueue[clickIndex];
         if (!clickPoint) continue;
+        execution.throwIfCancelled();
         const tabSnapshot = await snapshotTabsForTimestampClick(tabId);
         try {
-          await clickTabCoordinatePoint(tabId, clickPoint);
+          await clickTabCoordinatePoint(tabId, clickPoint, execution);
         } catch (error) {
           lastClickErrorMessage = toAutomationErrorMessage(error);
           break;
@@ -1930,7 +2200,9 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
           targetExternalId,
           tabSnapshot,
           12_000,
+          execution,
         );
+        execution.throwIfCancelled();
         clickedPostUrl.openedTabIds.forEach((openedTabId) => openedTabIdsToClose.add(openedTabId));
         lastDetection = clickedPostUrl;
         if (
@@ -1950,7 +2222,7 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
           };
         }
 
-        await sleep(randomDelay(700, 1_200));
+        await execution.wait(randomDelay(700, 1_200));
         const surfaceProbeAfterClick = await runScript<[FacebookPendingPostOpenSurfaceProbeInput], FacebookPendingPostOpenSurfaceProbeResult>(
           tabId,
           inspectFacebookPendingPostOpenSurfaceInPage,
@@ -1965,6 +2237,7 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
           lastSurfaceProbeMessage = toAutomationErrorMessage(error);
           return null;
         });
+        execution.throwIfCancelled();
         if (surfaceProbeAfterClick) {
           lastSurfaceProbeMessage = surfaceProbeAfterClick.diagnostics ?? null;
           const surfacePostUrl = parseFacebookGroupPostUrl(surfaceProbeAfterClick.externalPostUrl);
@@ -1993,6 +2266,7 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
         }
 
         const probeAfterClick = await recoverInCurrentPage();
+        execution.throwIfCancelled();
         if (probeAfterClick) {
           probe = probeAfterClick;
           const openedPostUrl = parseFacebookGroupPostUrl(probe.externalPostUrl);
@@ -2015,7 +2289,7 @@ async function recoverFacebookSubmittedPostUrlInCurrentPage(
     }
 
     if (attempt < 2) {
-      await sleep(randomDelay(700, 1_200));
+      await execution.wait(randomDelay(700, 1_200));
     }
   }
 
@@ -2047,9 +2321,11 @@ async function recoverFacebookSubmittedPostUrlFromPendingManager(
   content: string,
   targetUrl: string | null | undefined,
   targetExternalId: string | null | undefined,
+  execution: FacebookTargetExecution,
   requireRecent = true,
   allowTabActivation = true,
 ): Promise<FacebookSubmittedPostRecoveryResult> {
+  execution.throwIfCancelled();
   const pendingManagerUrl = buildFacebookPendingPostsManagerUrl(targetUrl, targetExternalId);
   if (!pendingManagerUrl) {
     return { probe: null, postUrl: null };
@@ -2057,21 +2333,24 @@ async function recoverFacebookSubmittedPostUrlFromPendingManager(
 
   let latestRecovery: FacebookSubmittedPostRecoveryResult = { probe: null, postUrl: null };
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    execution.throwIfCancelled();
     await chrome.tabs?.update(tabId, { url: pendingManagerUrl });
-    await waitForTabComplete(tabId);
-    await sleep(randomDelay(attempt === 0 ? 2_000 : 3_000, attempt === 0 ? 4_000 : 5_500));
+    await waitForTabComplete(tabId, execution);
+    await execution.wait(randomDelay(attempt === 0 ? 2_000 : 3_000, attempt === 0 ? 4_000 : 5_500));
 
     latestRecovery = await recoverFacebookSubmittedPostUrlInCurrentPage(
       tabId,
       content,
       targetUrl,
       targetExternalId,
+      execution,
       requireRecent,
       allowTabActivation,
     );
+    execution.throwIfCancelled();
     if (latestRecovery.postUrl) return latestRecovery;
 
-    await sleep(randomDelay(900, 1_800));
+    await execution.wait(randomDelay(900, 1_800));
   }
 
   if (!requireRecent) {
@@ -2079,21 +2358,24 @@ async function recoverFacebookSubmittedPostUrlFromPendingManager(
   }
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    execution.throwIfCancelled();
     await chrome.tabs?.update(tabId, { url: pendingManagerUrl });
-    await waitForTabComplete(tabId);
-    await sleep(randomDelay(3_000, 4_500));
+    await waitForTabComplete(tabId, execution);
+    await execution.wait(randomDelay(3_000, 4_500));
 
     latestRecovery = await recoverFacebookSubmittedPostUrlInCurrentPage(
       tabId,
       content,
       targetUrl,
       targetExternalId,
+      execution,
       false,
       allowTabActivation,
     );
+    execution.throwIfCancelled();
     if (latestRecovery.postUrl) return latestRecovery;
 
-    await sleep(randomDelay(900, 1_500));
+    await execution.wait(randomDelay(900, 1_500));
   }
 
   return latestRecovery;
@@ -2104,8 +2386,10 @@ async function recoverFacebookSubmittedPostUrlFromGroupFeed(
   content: string,
   targetUrl: string | null | undefined,
   targetExternalId: string | null | undefined,
+  execution: FacebookTargetExecution,
   allowTabActivation = true,
 ): Promise<FacebookSubmittedPostRecoveryResult> {
+  execution.throwIfCancelled();
   const groupUrl = buildFacebookGroupUrl(targetUrl, targetExternalId);
   if (!groupUrl) {
     return { probe: null, postUrl: null };
@@ -2113,20 +2397,23 @@ async function recoverFacebookSubmittedPostUrlFromGroupFeed(
 
   let latestRecovery: FacebookSubmittedPostRecoveryResult = { probe: null, postUrl: null };
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    execution.throwIfCancelled();
     await chrome.tabs?.update(tabId, { url: groupUrl });
-    await waitForTabComplete(tabId);
-    await sleep(randomDelay(1_700, 2_700));
+    await waitForTabComplete(tabId, execution);
+    await execution.wait(randomDelay(1_700, 2_700));
     latestRecovery = await recoverFacebookSubmittedPostUrlInCurrentPage(
       tabId,
       content,
       targetUrl,
       targetExternalId,
+      execution,
       false,
       allowTabActivation,
     );
+    execution.throwIfCancelled();
     if (latestRecovery.postUrl) return latestRecovery;
 
-    await sleep(randomDelay(900, 1_500));
+    await execution.wait(randomDelay(900, 1_500));
   }
 
   return latestRecovery;
@@ -2190,16 +2477,283 @@ async function runScript<Args extends unknown[], Result>(
   return result.result as Awaited<Result>;
 }
 
-async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint): Promise<FacebookSubmitButtonPoint> {
+async function startFacebookPublishGraphqlCapture(
+  tabId: number,
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
+): Promise<FacebookPublishGraphqlCapture> {
+  if (!chrome.debugger) {
+    throw new Error('chrome.debugger API is unavailable for Facebook publish capture.');
+  }
+
+  const target = { tabId };
+  const expectedGroupIds = getExpectedFacebookGroupIds(targetUrl, targetExternalId);
+  const requests = new Map<string, FacebookPublishGraphqlRequest>();
+  let capturedResult: FacebookPublishGraphqlResult | null = null;
+  let resolveResult: (result: FacebookPublishGraphqlResult) => void = () => undefined;
+  const resultPromise = new Promise<FacebookPublishGraphqlResult>((resolve) => {
+    resolveResult = resolve;
+  });
+  let attached = false;
+  let stopped = false;
+
+  const onDebuggerEvent = (
+    source: ChromeDebuggee,
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    if (source.tabId !== tabId || stopped) return;
+    if (method === 'Network.requestWillBeSent') {
+      const requestParams = params as FacebookPublishGraphqlRequestWillBeSentParams | undefined;
+      const requestId = requestParams?.requestId;
+      const request = requestParams?.request;
+      const requestUrl = request?.url ?? '';
+      const postData = request?.postData ?? '';
+      if (!requestId || request?.method !== 'POST' || !isFacebookGraphqlPublishMutationUrl(requestUrl)) return;
+
+      const queryName = readFacebookPublishGraphqlQueryName(postData, request?.headers);
+      if (queryName !== 'ComposerStoryCreateMutation') return;
+      requests.set(requestId, { requestId, queryName });
+      return;
+    }
+
+    if (method !== 'Network.loadingFinished') return;
+    const loadingParams = params as FacebookPublishGraphqlLoadingFinishedParams | undefined;
+    const requestId = loadingParams?.requestId;
+    const request = requestId ? requests.get(requestId) : undefined;
+    if (!request) return;
+
+    void (async () => {
+      try {
+        const response = await debuggerSendCommand<FacebookPublishGraphqlResponseBody>(
+          target,
+          'Network.getResponseBody',
+          { requestId: request.requestId },
+        );
+        const body = decodeFacebookPublishResponseBody(response);
+        const parsed = body
+          ? parseFacebookPublishGraphqlResponse(body, expectedGroupIds, request.queryName)
+          : null;
+        if (!parsed || capturedResult) return;
+        capturedResult = parsed;
+        resolveResult(parsed);
+      } catch (error) {
+        console.warn(
+          `[FB_GQL_PUBLISH_CAPTURE_RESPONSE_FAILED] ${toAutomationErrorMessage(error)}`,
+        );
+      } finally {
+        requests.delete(request.requestId);
+      }
+    })();
+  };
+
+  await debuggerAttach(target, '1.3');
+  attached = true;
+  chrome.debugger.onEvent.addListener(onDebuggerEvent);
+  try {
+    await debuggerSendCommand(target, 'Network.enable', {});
+  } catch (error) {
+    stopped = true;
+    chrome.debugger.onEvent.removeListener(onDebuggerEvent);
+    if (attached) await debuggerDetach(target).catch(() => undefined);
+    throw error;
+  }
+
+  return {
+    target,
+    waitForResult: async (timeoutMs) => {
+      if (capturedResult) return capturedResult;
+      return Promise.race([
+        resultPromise,
+        sleep(Math.max(0, timeoutMs)).then(() => null),
+      ]);
+    },
+    stop: async () => {
+      if (stopped) return;
+      stopped = true;
+      requests.clear();
+      chrome.debugger?.onEvent.removeListener(onDebuggerEvent);
+      await debuggerSendCommand(target, 'Network.disable', {}).catch(() => undefined);
+      if (attached) {
+        attached = false;
+        await debuggerDetach(target).catch(() => undefined);
+      }
+    },
+  };
+}
+
+function applyFacebookPublishGraphqlResult(
+  result: FacebookPagePublishResult,
+  graphqlResult: FacebookPublishGraphqlResult | null,
+): FacebookPagePublishResult {
+  if (!graphqlResult) return result;
+
+  return {
+    ...result,
+    status: 'SUCCESS',
+    facebookReviewStatus: graphqlResult.facebookReviewStatus,
+    externalPostId: graphqlResult.externalPostId,
+    externalPostUrl: graphqlResult.externalPostUrl,
+    message: `${result.message} Facebook GraphQL confirmed ${graphqlResult.facebookReviewStatus}.`,
+  };
+}
+
+function isFacebookGraphqlPublishMutationUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    return (parsed.hostname === 'facebook.com' || parsed.hostname.endsWith('.facebook.com'))
+      && (parsed.pathname === '/api/graphql/' || parsed.pathname === '/api/graphql');
+  } catch {
+    return false;
+  }
+}
+
+function readFacebookPublishGraphqlQueryName(
+  postData: string,
+  headers?: Record<string, unknown>,
+) {
+  const friendlyHeader = Object.entries(headers ?? {})
+    .find(([key]) => key.toLowerCase() === 'x-fb-friendly-name')?.[1];
+  if (typeof friendlyHeader === 'string' && friendlyHeader.trim()) return friendlyHeader.trim();
+  return new URLSearchParams(postData).get('fb_api_req_friendly_name')?.trim() ?? '';
+}
+
+function decodeFacebookPublishResponseBody(response: FacebookPublishGraphqlResponseBody) {
+  if (!response.body) return null;
+  if (!response.base64Encoded) return response.body;
+  const binary = atob(response.body);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function parseFacebookPublishGraphqlResponse(
+  body: string,
+  expectedGroupIds: string[],
+  queryName: string,
+): FacebookPublishGraphqlResult | null {
+  const payload = parseFacebookPublishJsonResponse(body);
+  const root = facebookPublishRecord(payload);
+  if (!root || (Array.isArray(root.errors) && root.errors.length > 0)) return null;
+
+  const data = facebookPublishRecord(root.data);
+  const storyCreate = facebookPublishRecord(data?.story_create);
+  const story = facebookPublishRecord(storyCreate?.story);
+  if (!storyCreate || !story) return null;
+
+  const groupId = facebookPublishString(facebookPublishRecord(story.to)?.id)
+    ?? facebookPublishString(facebookPublishRecord(storyCreate.to)?.id)
+    ?? expectedGroupIds[0]
+    ?? null;
+  const candidateUrls = collectFacebookPublishResponseUrls(storyCreate);
+  for (const candidateUrl of candidateUrls) {
+    const parsedUrl = parseFacebookGroupPostUrl(candidateUrl);
+    if (!parsedUrl) continue;
+    if (expectedGroupIds.length > 0 && !expectedGroupIds.includes(parsedUrl.groupId)) continue;
+    return {
+      externalPostId: parsedUrl.postId,
+      externalPostUrl: parsedUrl.url,
+      facebookReviewStatus: parsedUrl.pathType === 'pending_posts' ? 'PENDING_REVIEW' : 'POSTED',
+      queryName,
+    };
+  }
+
+  const fallbackPostId = firstFacebookPublishPostId(
+    story.legacy_story_hideable_id,
+    storyCreate.story_id,
+    storyCreate.post_id,
+  );
+  if (!groupId || !fallbackPostId) return null;
+
+  const serializedStory = JSON.stringify(storyCreate).toLowerCase();
+  const pathType: FacebookGroupPostPathType = /pending_posts|pending|moderation|review/.test(serializedStory)
+    ? 'pending_posts'
+    : 'posts';
+  return {
+    externalPostId: fallbackPostId,
+    externalPostUrl: buildFacebookGroupPostUrl(groupId, fallbackPostId, pathType),
+    facebookReviewStatus: pathType === 'pending_posts' ? 'PENDING_REVIEW' : 'POSTED',
+    queryName,
+  };
+}
+
+function collectFacebookPublishResponseUrls(value: unknown, depth = 0): string[] {
+  if (depth > 5) return [];
+  const record = facebookPublishRecord(value);
+  if (!record) return [];
+
+  const urls: string[] = [];
+  for (const [key, child] of Object.entries(record)) {
+    if (/^(url|permalink_url|wwwURL)$/i.test(key) && typeof child === 'string') {
+      urls.push(child);
+      continue;
+    }
+    if (typeof child === 'object' && child !== null) {
+      urls.push(...collectFacebookPublishResponseUrls(child, depth + 1));
+    }
+  }
+  return [...new Set(urls)];
+}
+
+function firstFacebookPublishPostId(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const match = value.match(/(?:\d{5,}|pfbid[a-z0-9]+)/i);
+    if (match?.[0]) return match[0];
+  }
+  return null;
+}
+
+function facebookPublishRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function facebookPublishString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function parseFacebookPublishJsonResponse(body: string): unknown {
+  const trimmed = body
+    .trim()
+    .replace(/^(?:for\s*\(;;\);|while\s*\(1\);|\)]}\s*['"]?\s*;?)/, '');
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).reverse();
+    for (const line of lines) {
+      try {
+        return JSON.parse(line) as unknown;
+      } catch {
+        // Facebook may prefix a JSON response with transport metadata.
+      }
+    }
+    const firstObjectIndex = trimmed.indexOf('{');
+    if (firstObjectIndex < 0) return null;
+    try {
+      return JSON.parse(trimmed.slice(firstObjectIndex)) as unknown;
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function clickTabPoint(
+  tabId: number,
+  point: FacebookSubmitButtonPoint,
+  execution: FacebookTargetExecution,
+  existingDebuggerTarget?: ChromeDebuggee,
+): Promise<FacebookSubmitButtonPoint> {
   if (!chrome.debugger) {
     throw new Error('chrome.debugger API is unavailable for Facebook submit click.');
   }
 
-  const target = { tabId };
-  await debuggerAttach(target, '1.3');
+  const target = existingDebuggerTarget ?? { tabId };
+  const ownsDebuggerSession = !existingDebuggerTarget;
+  if (ownsDebuggerSession) await debuggerAttach(target, '1.3');
   let clickPoint = point;
   try {
-    await sleep(randomDelay(250, 450));
+    await execution.wait(randomDelay(250, 450));
     const probedPoint = await runScript<[], FacebookSubmitButtonPointProbe>(
       tabId,
       resolveFacebookSubmitButtonPointInPage,
@@ -2211,13 +2765,13 @@ async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint): P
     clickPoint = probedPoint?.found && probedPoint.submitButton
       ? probedPoint.submitButton
       : point;
-
+    execution.throwIfCancelled();
     await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mouseMoved',
       x: clickPoint.clientX,
       y: clickPoint.clientY,
     });
-    await sleep(randomDelay(120, 260));
+    await execution.wait(randomDelay(120, 260));
     await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x: clickPoint.clientX,
@@ -2226,7 +2780,7 @@ async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint): P
       buttons: 1,
       clickCount: 1,
     });
-    await sleep(randomDelay(90, 220));
+    await execution.wait(randomDelay(90, 220));
     await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mouseReleased',
       x: clickPoint.clientX,
@@ -2237,11 +2791,15 @@ async function clickTabPoint(tabId: number, point: FacebookSubmitButtonPoint): P
     });
     return clickPoint;
   } finally {
-    await debuggerDetach(target).catch(() => undefined);
+    if (ownsDebuggerSession) await debuggerDetach(target).catch(() => undefined);
   }
 }
 
-async function clickTabCoordinatePoint(tabId: number, point: FacebookSubmitButtonPoint) {
+async function clickTabCoordinatePoint(
+  tabId: number,
+  point: FacebookSubmitButtonPoint,
+  execution?: FacebookTargetExecution,
+) {
   if (!chrome.debugger) {
     throw new Error('chrome.debugger API is unavailable for Facebook page coordinate click.');
   }
@@ -2250,13 +2808,15 @@ async function clickTabCoordinatePoint(tabId: number, point: FacebookSubmitButto
   await debuggerAttach(target, '1.3');
   try {
     await debuggerSendCommand(target, 'Page.bringToFront', {}).catch(() => undefined);
-    await sleep(randomDelay(120, 240));
+    if (execution) await execution.wait(randomDelay(120, 240));
+    else await sleep(randomDelay(120, 240));
     await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mouseMoved',
       x: point.clientX,
       y: point.clientY,
     });
-    await sleep(randomDelay(90, 180));
+    if (execution) await execution.wait(randomDelay(90, 180));
+    else await sleep(randomDelay(90, 180));
     await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x: point.clientX,
@@ -2265,7 +2825,8 @@ async function clickTabCoordinatePoint(tabId: number, point: FacebookSubmitButto
       buttons: 1,
       clickCount: 1,
     });
-    await sleep(randomDelay(80, 180));
+    if (execution) await execution.wait(randomDelay(80, 180));
+    else await sleep(randomDelay(80, 180));
     await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mouseReleased',
       x: point.clientX,
@@ -2381,17 +2942,21 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
           const parsed = new URL(href);
           const hasHumanLabel = [text, ...labels].some((value) => {
             const normalized = value.replace(/\s+/g, ' ').trim();
+            const comparable = normalized
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase();
             return normalized.length >= 2
               && normalized.length <= 80
               && !/^(your|my)\s+(profile|account)$/i.test(normalized)
-              && !/^(profile|facebook|log in|login)$/i.test(normalized);
+              && !/^(?:profile|facebook|log\s+in|login|sign\s+up|create\s+new\s+account|register|dang\s+ky)$/i.test(comparable);
           });
           return pathname.startsWith('/profile/')
             || (parsed.search === ''
               && pathname.length > 1
               && pathname.split('/').filter(Boolean).length === 1
               && hasHumanLabel
-              && !/^\/(groups|home|watch|marketplace|friends|notifications|messages|settings|help|login|reel|reels|story|stories|share|sharer|photo|photos|video|gaming|events|jobs|pages)(\/|$)/.test(pathname));
+              && !/^\/(groups|home|watch|marketplace|friends|notifications|messages|settings|help|login|r\.php|reg|register|signup|reel|reels|story|stories|share|sharer|photo|photos|video|gaming|events|jobs|pages)(\/|$)/.test(pathname));
         } catch {
           return false;
         }
@@ -2410,7 +2975,10 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
         .find((value) => value.length >= 2
           && value.length <= 80
           && !/^(your|my)\s+(profile|account)$/i.test(value)
-          && !/^(profile|facebook|log in|login)$/i.test(value)) ?? null;
+          && !/^(?:profile|facebook|log\s+in|login|sign\s+up|create\s+new\s+account|register|dang\s+ky)$/i.test(value
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase())) ?? null;
       if (facebookExternalId) {
         account = {
           facebookExternalId,
@@ -2440,7 +3008,13 @@ function readFacebookProfileIdentityInPage(): FacebookProfileIdentityProbe {
       .replace(/^(?:\u0110\u00f2ng th\u1eddi gian c\u1ee7a|Timeline of)\s+/i, '')
       .trim() ?? '';
     if (!normalized || normalized.length > 100) return null;
-    if (/^(facebook|profile|log in|login|home)$/i.test(normalized)) return null;
+    const comparable = normalized
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    if (/^(facebook|profile|log in|login|home|trang\s+chu|thong\s+bao|notification|\(\d+\)\s*facebook)$/i.test(comparable)) {
+      return null;
+    }
     return normalized;
   };
 
@@ -5652,6 +6226,9 @@ async function checkFacebookPostReviewStatusInPage(
   const hasPendingCue = (text: string) => (
     /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet|admin approval/.test(text)
   );
+  const hasEmptyPendingReviewCue = (text: string) => (
+    /chua co bai viet nao de xem xet|khong co bai viet nao dang cho xem xet|no posts? to review|no posts? (are )?waiting for review|nothing to review/.test(text)
+  );
   const queryAll = (root: Document | Element, selector: string) => Array.from(root.querySelectorAll(selector));
   const hasLayout = (element: Element) => {
     const rect = element.getBoundingClientRect();
@@ -5946,6 +6523,14 @@ async function checkFacebookPostReviewStatusInPage(
         facebookReviewStatus: 'REJECTED',
         message: 'Facebook shows a clear rejected/removed signal for this post.',
         externalPostUrl: window.location.href,
+      };
+    }
+
+    if (input.expectedPathType === 'pending_posts' && !submittedPostVisible && hasEmptyPendingReviewCue(text)) {
+      return {
+        facebookReviewStatus: 'REJECTED',
+        message: 'Facebook no longer shows this post in the pending-review list; the post is treated as rejected.',
+        externalPostUrl: input.externalPostUrl ?? window.location.href,
       };
     }
 

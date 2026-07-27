@@ -60,6 +60,15 @@ export class FacebookPublishTargetEntity {
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
+  @Column({ name: 'manual_included', type: 'boolean', default: false })
+  manualIncluded: boolean;
+
+  @Column({ name: 'manual_included_at', type: 'timestamp', nullable: true })
+  manualIncludedAt: Date | null;
+
+  @Column({ name: 'manual_included_by', type: 'uuid', nullable: true })
+  manualIncludedBy: string | null;
+
   @Column({
     name: 'eligibility_status',
     type: 'varchar',
