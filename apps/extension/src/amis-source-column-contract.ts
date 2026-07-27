@@ -2,6 +2,7 @@ export const AMIS_SOURCE_COLUMN_DATA_MESSAGE_TYPE = 'VCS_GET_AMIS_SOURCE_COLUMN_
 
 export interface AmisSourceColumnItem {
   applicationId: string;
+  amisCandidateId?: string | null;
   candidateName: string;
   email: string | null;
   mobile: string | null;

@@ -1496,7 +1496,11 @@ export class ExtensionIntegrationService {
           cvSanitizeStatus: application.currentCvDocument?.sanitizeStatus ?? null,
           cvParseStatus: application.currentCvDocument?.parseStatus ?? null,
           cvDocumentType: application.currentCvDocument?.documentType ?? null,
-          sourceChannel: application.sourceChannel,
+          sourceChannel: application.sourceChannel
+            ?? source?.channel
+            ?? (typeof rawPayload.channelName === 'string' && rawPayload.channelName.trim()
+              ? this.resolveAmisApplicationChannel(rawPayload.channelName)
+              : null),
           externalApplicationId: application.externalApplicationId,
           amisRecruitmentRoundId: this.optionalText(rawPayload.recruitmentRoundId),
           amisRecruitmentRoundName: this.optionalText(rawPayload.recruitmentRoundName),
