@@ -1635,7 +1635,16 @@ interface FacebookProfileIdentityProbe {
 
 function normalizeFacebookDisplayName(value: string | null | undefined) {
   const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
-  if (!normalized || /^account\s+\d+$/i.test(normalized)) return null;
+  if (!normalized) return null;
+  const comparable = normalized
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (
+    /^(?:account(?:\s+id)?(?:\s+\d+)?|facebook(?:\s+account)?|\(\d+\)\s*facebook|thong\s+bao|notification)$/i.test(comparable)
+  ) {
+    return null;
+  }
   if (normalized.length > 100) return null;
   if (/đã phê duyệt một lần đăng nhập|approved a login|notification/i.test(normalized)) return null;
   return normalized;
@@ -2966,7 +2975,13 @@ function readFacebookProfileIdentityInPage(): FacebookProfileIdentityProbe {
       .replace(/^(?:\u0110\u00f2ng th\u1eddi gian c\u1ee7a|Timeline of)\s+/i, '')
       .trim() ?? '';
     if (!normalized || normalized.length > 100) return null;
-    if (/^(facebook|profile|log in|login|home)$/i.test(normalized)) return null;
+    const comparable = normalized
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    if (/^(facebook|profile|log in|login|home|trang\s+chu|thong\s+bao|notification|\(\d+\)\s*facebook)$/i.test(comparable)) {
+      return null;
+    }
     return normalized;
   };
 

@@ -18,6 +18,7 @@ import {
   getJobDescriptionQuestionSet,
   generateFacebookPreviewContent,
   listFacebookGroupPublishHistories,
+  manuallyIncludeFacebookGroup,
   listJobDescriptions,
   heartbeatExtensionInstance,
   login,
@@ -105,6 +106,13 @@ import type {
 import './styles.css';
 
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
+type ExtensionToastKind = 'SUCCESS' | 'ERROR';
+type ExtensionToastState = {
+  id: number;
+  kind: ExtensionToastKind;
+  title: string;
+  message: string;
+};
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv';
@@ -173,7 +181,9 @@ interface FacebookGroupsSyncResult {
 
 interface FacebookGroupSyncDetailItem {
   name: string;
+  url?: string | null;
   externalId: string | null;
+  targetId?: string | null;
   reason?: string | null;
 }
 
@@ -393,6 +403,8 @@ function SidePanel() {
   const [facebookGroupDiagnostic, setFacebookGroupDiagnostic] = useState<string | null>(null);
   const [facebookGroupSyncDetails, setFacebookGroupSyncDetails] = useState<FacebookGroupSyncDetails | null>(null);
   const [isFacebookGroupSyncDetailsOpen, setIsFacebookGroupSyncDetailsOpen] = useState(false);
+  const [manualIncludingFacebookGroupKeys, setManualIncludingFacebookGroupKeys] = useState<string[]>([]);
+  const [extensionToast, setExtensionToast] = useState<ExtensionToastState | null>(null);
   const [isFacebookSettingsOpen, setIsFacebookSettingsOpen] = useState(false);
   const [facebookSettingsState, setFacebookSettingsState] = useState<
     'IDLE' | 'LOADING' | 'READY' | 'SAVING' | 'VERIFYING' | 'ERROR' | 'DISCOVERING'
@@ -465,6 +477,8 @@ function SidePanel() {
   const tokenRef = useRef<string | null>(null);
   const channelsRef = useRef<ExtensionChannel[]>(channels);
   const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
+  const extensionToastSequenceRef = useRef(0);
+  const extensionToastTimerRef = useRef<number | null>(null);
   const selectedFacebookGroupIdsRef = useRef<string[]>(selectedFacebookGroupIds);
   const facebookImageInputRef = useRef<HTMLInputElement | null>(null);
   const facebookContentGenerationSeqRef = useRef(0);
@@ -485,6 +499,12 @@ function SidePanel() {
   useEffect(() => {
     tokenRef.current = token;
   }, [token]);
+
+  useEffect(() => () => {
+    if (extensionToastTimerRef.current !== null) {
+      window.clearTimeout(extensionToastTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -4111,6 +4131,72 @@ function SidePanel() {
     );
   }
 
+  function dismissExtensionToast() {
+    if (extensionToastTimerRef.current !== null) {
+      window.clearTimeout(extensionToastTimerRef.current);
+      extensionToastTimerRef.current = null;
+    }
+    setExtensionToast(null);
+  }
+
+  function showExtensionToast(kind: ExtensionToastKind, title: string, message: string) {
+    if (extensionToastTimerRef.current !== null) {
+      window.clearTimeout(extensionToastTimerRef.current);
+    }
+
+    const id = extensionToastSequenceRef.current + 1;
+    extensionToastSequenceRef.current = id;
+    setExtensionToast({ id, kind, title, message });
+    extensionToastTimerRef.current = window.setTimeout(() => {
+      extensionToastTimerRef.current = null;
+      setExtensionToast(null);
+    }, 5000);
+  }
+
+  async function handleManuallyIncludeFacebookGroup(group: FacebookGroupSyncDetailItem) {
+    if (!token || !facebookAccount || !group.url) {
+      const message = 'Không thể thêm nhóm vì Facebook account hoặc URL group chưa có.';
+      setFacebookGroupMessage(message);
+      showExtensionToast('ERROR', 'Thất bại', message);
+      return;
+    }
+
+    const groupKey = getFacebookGroupDetailKey(group);
+    setManualIncludingFacebookGroupKeys((keys) => keys.includes(groupKey) ? keys : [...keys, groupKey]);
+    try {
+      const savedGroup = await manuallyIncludeFacebookGroup(token, {
+        targetName: group.name,
+        targetUrl: group.url,
+        targetExternalId: group.externalId,
+        facebookAccountId: facebookAccount.id,
+      });
+      const groups = replaceFacebookGroup(facebookGroupsRef.current, savedGroup);
+      facebookGroupsRef.current = groups;
+      setFacebookGroups(groups);
+      await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIdsRef.current, facebookAccount.id);
+      setFacebookGroupSyncDetails((current) => current ? {
+        ...current,
+        filtered: current.filtered.filter((item) => getFacebookGroupDetailKey(item) !== groupKey),
+      } : current);
+      if (facebookGroupSyncDetails?.filtered.length === 1) {
+        setIsFacebookGroupSyncDetailsOpen(false);
+      }
+      showExtensionToast('SUCCESS', 'Thành công', 'Đã thêm nhóm thành công');
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+      }
+      const message = toErrorMessage(err);
+      setFacebookGroupMessage(message);
+      showExtensionToast('ERROR', 'Thất bại', message);
+    } finally {
+      setManualIncludingFacebookGroupKeys((keys) => keys.filter((key) => key !== groupKey));
+    }
+  }
+
   function renderFacebookPublishResultsPanel() {
     const progressResults = facebookProgress?.results ?? [];
     const resultTargets = result?.facebookPublishPlan?.targets.map(toFacebookGroupUiItem) ?? [];
@@ -4585,23 +4671,6 @@ function SidePanel() {
                       {isFacebookChannel ? (
                         <button
                           type="button"
-                          className="secondary-button compact-button channel-sync-button"
-                          title="Đồng bộ danh sách nhóm Facebook"
-                          aria-label="Đồng bộ danh sách nhóm Facebook"
-                          aria-busy={isFacebookLoading}
-                          disabled={!token || isFacebookLoading}
-                          onClick={() => void handleSyncFacebookGroups()}
-                        >
-                          {facebookGroupLoadState === 'LOADING_SAVED_GROUPS'
-                            ? 'Loading...'
-                            : isFacebookLoading
-                              ? 'Syncing...'
-                              : 'Sync'}
-                        </button>
-                      ) : null}
-                      {isFacebookChannel ? (
-                        <button
-                          type="button"
                           className="channel-action-button"
                           title="Cài đặt Group Facebook"
                           aria-label="Cài đặt Group Facebook"
@@ -4619,42 +4688,53 @@ function SidePanel() {
                   {showFacebookGroups ? (
                     <div className="channel-subselection">
                       <div className="channel-subselection-title">
-                        <span>Nhóm Facebook</span>
-                        {facebookAccount ? (
-                          <span
-                            className="channel-subselection-account"
-                            title={facebookAccount.facebookExternalId}
-                          >
-                            {facebookAccount.displayName || 'Facebook account'}
-                          </span>
-                        ) : null}
+                        <div className="channel-subselection-heading">
+                          <span>Nhóm Facebook</span>
+                          {facebookAccount ? (
+                            <span
+                              className="channel-subselection-account"
+                              title={facebookAccount.facebookExternalId}
+                            >
+                              {facebookAccount.displayName || 'Facebook account'}
+                            </span>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className="channel-subselection-reload-button"
+                          title="Tải lại danh sách nhóm Facebook"
+                          aria-label="Tải lại danh sách nhóm Facebook"
+                          aria-busy={isFacebookLoading}
+                          disabled={!token || isFacebookLoading}
+                          onClick={() => void handleSyncFacebookGroups()}
+                        >
+                          <RefreshIcon />
+                          <span>{isFacebookLoading ? 'Đang tải lại...' : 'Tải lại'}</span>
+                        </button>
                       </div>
                       <div className="channel-subselection-list">
                         {visibleFacebookGroups.length > 0 ? (
-                          <p className="channel-subselection-summary">
-                            {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook hợp lệ đã được chọn
-                          </p>
+                          <div className="channel-subselection-summary-row">
+                            <p className="channel-subselection-summary">
+                              {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook hợp lệ đã được chọn
+                            </p>
+                            {facebookGroupSyncDetails?.filtered.length ? (
+                              <button
+                                type="button"
+                                className="facebook-ineligible-trigger"
+                                aria-expanded={isFacebookGroupSyncDetailsOpen}
+                                onClick={() => setIsFacebookGroupSyncDetailsOpen(true)}
+                              >
+                                <span>Xem nhóm không phù hợp</span>
+                                <ChevronDownIcon />
+                              </button>
+                            ) : null}
+                          </div>
                         ) : null}
                         {facebookGroupMessage
                           && !(facebookGroupLoadState === 'READY' && visibleFacebookGroups.length === 0) ? (
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
                             <span>{facebookGroupMessage}</span>
-                            {facebookGroupSyncDetails && (
-                              facebookGroupSyncDetails.accepted.length > 0
-                              || facebookGroupSyncDetails.removed.length > 0
-                              || facebookGroupSyncDetails.reactivated.length > 0
-                              || facebookGroupSyncDetails.filtered.length > 0
-                              || facebookGroupSyncDetails.skipped.length > 0
-                              || facebookGroupSyncDetails.errors.length > 0
-                            ) ? (
-                              <button
-                                type="button"
-                                className="text-button"
-                                onClick={() => setIsFacebookGroupSyncDetailsOpen(true)}
-                              >
-                                Xem chi tiết
-                              </button>
-                            ) : null}
                           </p>
                         ) : null}
                         {facebookGroupDiagnostic ? (
@@ -5563,6 +5643,33 @@ function SidePanel() {
         ) : null}
       </section>
 
+      {extensionToast ? (
+        <aside
+          key={extensionToast.id}
+          className={`extension-toast is-${extensionToast.kind.toLowerCase()}`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="extension-toast-icon" aria-hidden="true">
+            {extensionToast.kind === 'SUCCESS' ? <CheckCircleIcon /> : <WarningIcon />}
+          </div>
+          <div className="extension-toast-copy">
+            <strong>{extensionToast.title}</strong>
+            <span>{extensionToast.message}</span>
+          </div>
+          <button
+            type="button"
+            className="extension-toast-close"
+            title="Đóng thông báo"
+            aria-label="Đóng thông báo"
+            onClick={dismissExtensionToast}
+          >
+            <CloseIcon />
+          </button>
+          <span className="extension-toast-progress" aria-hidden="true" />
+        </aside>
+      ) : null}
+
       {facebookPreviewModalMode ? renderFacebookPreviewModal() : null}
 
       {isFacebookSettingsOpen ? (
@@ -5921,90 +6028,68 @@ function SidePanel() {
       {isFacebookGroupSyncDetailsOpen && facebookGroupSyncDetails ? (
         <div className="modal-backdrop" role="presentation">
           <section
-            className="facebook-group-modal"
+            className="facebook-group-modal facebook-ineligible-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="facebook-group-sync-details-title"
           >
-            <header className="modal-header">
-              <div>
-                <p className="eyebrow">Facebook</p>
-                <h2 id="facebook-group-sync-details-title">Chi tiết đồng bộ nhóm</h2>
-              </div>
+            <header className="modal-header facebook-ineligible-modal-header">
+              <h2 id="facebook-group-sync-details-title">DANH SÁCH NHÓM KHÔNG PHÙ HỢP</h2>
               <button
                 type="button"
                 className="icon-button"
                 title="Đóng"
-                aria-label="Đóng chi tiết đồng bộ nhóm"
+                aria-label="Đóng danh sách nhóm không phù hợp"
                 onClick={() => setIsFacebookGroupSyncDetailsOpen(false)}
               >
                 <CloseIcon />
               </button>
             </header>
-            <div className="modal-body facebook-group-sync-details-body">
-              <div className="facebook-group-sync-details-list">
-                {facebookGroupSyncDetails.accepted.length > 0 ? (
-                  <div className="facebook-group-sync-detail-section">
-                    <strong>Nhóm hợp lệ/đã đồng bộ ({facebookGroupSyncDetails.accepted.length})</strong>
-                    {facebookGroupSyncDetails.accepted.map((group, index) => (
-                      <div className="facebook-group-sync-detail-item" key={`accepted-${group.externalId ?? group.name}-${index}`}>
-                        <p>{group.name}</p>
-                        {group.reason ? <span>{group.reason}</span> : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {facebookGroupSyncDetails.reactivated.length > 0 ? (
-                  <div className="facebook-group-sync-detail-section">
-                    <strong>Nhóm quay lại ({facebookGroupSyncDetails.reactivated.length})</strong>
-                    {facebookGroupSyncDetails.reactivated.map((group, index) => (
-                      <p key={`reactivated-${group.externalId ?? group.name}-${index}`}>{group.name}</p>
-                    ))}
-                  </div>
-                ) : null}
-                {facebookGroupSyncDetails.removed.length > 0 ? (
-                  <div className="facebook-group-sync-detail-section">
-                    <strong>Nhóm đã rời ({facebookGroupSyncDetails.removed.length})</strong>
-                    {facebookGroupSyncDetails.removed.map((group, index) => (
-                      <p key={`removed-${group.externalId ?? group.name}-${index}`}>{group.name}</p>
-                    ))}
-                  </div>
-                ) : null}
+            <div className="modal-body facebook-ineligible-modal-body">
+              <div className="facebook-ineligible-modal-list">
                 {facebookGroupSyncDetails.filtered.length > 0 ? (
-                  <div className="facebook-group-sync-detail-section">
-                    <strong>Nhóm không phù hợp bộ lọc tuyển dụng ({facebookGroupSyncDetails.filtered.length})</strong>
-                    {facebookGroupSyncDetails.filtered.map((group, index) => (
-                      <div className="facebook-group-sync-detail-item" key={`filtered-${group.externalId ?? group.name}-${index}`}>
-                        <p>{group.name}</p>
-                        {group.reason ? <span>{group.reason}</span> : null}
+                  facebookGroupSyncDetails.filtered.map((group) => {
+                    const groupKey = getFacebookGroupDetailKey(group);
+                    const isAdding = manualIncludingFacebookGroupKeys.includes(groupKey);
+                    return (
+                      <div className="facebook-ineligible-modal-item" key={groupKey}>
+                        <div className="facebook-ineligible-modal-copy">
+                          <strong>{group.name}</strong>
+                          {group.reason ? <span>{group.reason}</span> : null}
+                        </div>
+                        <div className="facebook-ineligible-modal-actions">
+                          <button
+                            type="button"
+                            className="text-button compact-button"
+                            disabled={isAdding || !group.url}
+                            onClick={() => void handleManuallyIncludeFacebookGroup(group)}
+                          >
+                            {isAdding ? 'Đang thêm...' : 'Thêm nhóm'}
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button compact-icon-button"
+                            title="Mở trong tab mới"
+                            aria-label={`Mở ${group.name} trong tab mới`}
+                            disabled={!group.url}
+                            onClick={() => {
+                              if (group.url) window.open(group.url, '_blank', 'noopener,noreferrer');
+                            }}
+                          >
+                            <ExternalLinkIcon />
+                          </button>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                ) : null}
-                {facebookGroupSyncDetails.skipped.length > 0 ? (
-                  <div className="facebook-group-sync-detail-section">
-                    <strong>Mục bị bỏ qua ({facebookGroupSyncDetails.skipped.length})</strong>
-                    {facebookGroupSyncDetails.skipped.map((group, index) => (
-                      <div className="facebook-group-sync-detail-item" key={`skipped-${group.externalId ?? group.name}-${index}`}>
-                        <p>{group.name}</p>
-                        {group.reason ? <span>{group.reason}</span> : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {facebookGroupSyncDetails.errors.length > 0 ? (
-                  <div className="facebook-group-sync-detail-section is-error">
-                    <strong>Lỗi cần kiểm tra ({facebookGroupSyncDetails.errors.length})</strong>
-                    {facebookGroupSyncDetails.errors.map((error, index) => (
-                      <p key={`error-${index}`}>{error}</p>
-                    ))}
-                  </div>
-                ) : null}
+                    );
+                  })
+                ) : (
+                  <p className="channel-subselection-empty">Không có nhóm không phù hợp.</p>
+                )}
               </div>
               <div className="form-actions">
                 <button
                   type="button"
-                  className="primary-button compact-button"
+                  className="text-button compact-button"
                   onClick={() => setIsFacebookGroupSyncDetailsOpen(false)}
                 >
                   Đóng
@@ -6652,6 +6737,10 @@ function buildFacebookGroupDiscoverMessage(result: DiscoverFacebookGroupsRespons
   return `Quét xong: ${summary}. Tổng: ${result.valid}/${result.requested} nhóm hợp lệ.${issueText}`;
 }
 
+function getFacebookGroupDetailKey(group: FacebookGroupSyncDetailItem) {
+  return group.externalId ?? group.url ?? group.name;
+}
+
 function buildFacebookGroupSyncDetails(result: DiscoverFacebookGroupsResponse): FacebookGroupSyncDetails | null {
   const accepted = result.items
     .filter((item) => item.action === 'created' || item.action === 'updated' || item.action === 'reused')
@@ -6675,7 +6764,9 @@ function buildFacebookGroupSyncDetails(result: DiscoverFacebookGroupsResponse): 
     .filter((item) => item.reason?.toLowerCase().includes('recruitment filter'))
     .map((item) => ({
       name: item.targetName,
+      url: item.targetUrl,
       externalId: item.targetExternalId,
+      targetId: item.targetId,
       reason: 'Không khớp bộ lọc nhóm tuyển dụng.',
     }));
   const skipped = skippedItems

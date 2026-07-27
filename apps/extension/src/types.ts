@@ -338,6 +338,9 @@ export interface FacebookPublishTarget {
   facebookAccountLabel?: string | null;
   facebookAccountId?: string | null;
   facebookAccountExternalId?: string | null;
+  manualIncluded?: boolean;
+  manualIncludedAt?: string | null;
+  manualIncludedBy?: string | null;
 }
 
 export interface FacebookAccount {
@@ -353,6 +356,13 @@ export interface CreateFacebookGroupRequest {
   targetName: string;
   targetUrl: string;
   facebookAccountId?: string;
+}
+
+export interface ManualIncludeFacebookGroupRequest {
+  targetName: string;
+  targetUrl: string;
+  targetExternalId?: string | null;
+  facebookAccountId: string;
 }
 
 export interface UpdateFacebookGroupRequest {

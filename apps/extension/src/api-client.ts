@@ -19,6 +19,7 @@ import type {
   AmisJobSnapshot,
   CreateAmisCareerQuestionRequest,
   CreateFacebookGroupRequest,
+  ManualIncludeFacebookGroupRequest,
   DiscoverFacebookGroupsRequest,
   DiscoverFacebookGroupsResponse,
   ExtensionInstance,
@@ -514,6 +515,17 @@ export async function createFacebookGroup(
   payload: CreateFacebookGroupRequest,
 ) {
   return request<FacebookPublishTarget>('/extension/facebook/groups', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function manuallyIncludeFacebookGroup(
+  accessToken: string,
+  payload: ManualIncludeFacebookGroupRequest,
+) {
+  return request<FacebookPublishTarget>('/extension/facebook/groups/manual-include', {
     method: 'POST',
     accessToken,
     body: payload,

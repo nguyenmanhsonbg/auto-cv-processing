@@ -50,6 +50,116 @@ a {
   padding: 18px;
 }
 
+.extension-toast {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 100;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 16px;
+  align-items: start;
+  gap: 8px;
+  width: min(360px, calc(100vw - 24px));
+  min-height: 72px;
+  overflow: hidden;
+  border-radius: 8px;
+  padding: 16px 16px 20px;
+  background: #2b3f3a;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.24);
+  font-family: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.extension-toast-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+}
+
+.extension-toast-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.extension-toast.is-success .extension-toast-icon,
+.extension-toast.is-success .extension-toast-copy strong {
+  color: #5ae02f;
+}
+
+.extension-toast.is-error .extension-toast-icon,
+.extension-toast.is-error .extension-toast-copy strong {
+  color: #ff7a7a;
+}
+
+.extension-toast.is-success .extension-toast-progress {
+  background-color: #5ae02f;
+}
+
+.extension-toast.is-error .extension-toast-progress {
+  background-color: #ff7a7a;
+}
+
+.extension-toast.is-success .extension-toast-icon,
+.extension-toast.is-error .extension-toast-icon {
+  background: transparent;
+}
+
+.extension-toast-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.extension-toast-copy strong {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.extension-toast-copy span {
+  color: #eff0f7;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.extension-toast-close {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 3px;
+  padding: 0;
+  color: #6c708a;
+  background: transparent;
+}
+
+.extension-toast-close:hover {
+  color: #eff0f7;
+  background: rgba(239, 240, 247, 0.1);
+}
+
+.extension-toast-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.extension-toast-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  transform-origin: left center;
+  animation: extension-toast-progress 5s linear forwards;
+}
+
+@keyframes extension-toast-progress {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
 .panel-header {
   display: flex;
   align-items: flex-start;
@@ -1010,6 +1120,7 @@ dd {
 .channel-subselection-title {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   border: 1px solid #a7f3d0;
   border-bottom: 0;
@@ -1021,6 +1132,42 @@ dd {
   font-weight: 800;
   line-height: 1;
   text-transform: uppercase;
+}
+
+.channel-subselection-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.channel-subselection-reload-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  color: #047857;
+  background: transparent;
+  font: inherit;
+  text-transform: none;
+}
+
+.channel-subselection-reload-button:hover:not(:disabled) {
+  background: #a7f3d0;
+}
+
+.channel-subselection-reload-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.channel-subselection-reload-button svg {
+  width: 13px;
+  height: 13px;
 }
 
 .channel-subselection-account {
@@ -1139,6 +1286,126 @@ dd {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: inherit;
+}
+
+.facebook-ineligible-trigger {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  padding: 7px 0 7px 4px;
+  color: #047857;
+  background: transparent;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: right;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.facebook-ineligible-trigger:hover {
+  color: #065f46;
+}
+
+.facebook-ineligible-trigger svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: #9ca3af;
+}
+
+.facebook-ineligible-modal-header {
+  align-items: center;
+  padding: 12px 16px;
+}
+
+.facebook-ineligible-modal-header h2 {
+  margin: 0;
+  color: #262626;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.55px;
+  line-height: 16.5px;
+  text-transform: uppercase;
+}
+
+.facebook-ineligible-modal-header .icon-button {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  padding: 0;
+  color: #9ca3af;
+  background: transparent;
+}
+
+.facebook-ineligible-modal-header .icon-button:hover {
+  color: #4b5563;
+  background: #f3f4f6;
+}
+
+.facebook-ineligible-modal-header .icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.facebook-ineligible-modal-body {
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 0 16px 12px;
+}
+
+.facebook-ineligible-modal-list {
+  display: grid;
+  min-height: 0;
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+}
+
+.facebook-ineligible-modal-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #f3f4f6;
+  padding: 9px 10px;
+}
+
+.facebook-ineligible-modal-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.facebook-ineligible-modal-copy strong {
+  color: #374151;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.facebook-ineligible-modal-copy span {
+  color: #9ca3af;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.facebook-ineligible-modal-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.compact-icon-button {
+  width: 28px;
+  min-height: 28px;
+  padding: 5px;
+}
+
+.compact-icon-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .facebook-image-upload {
@@ -4006,12 +4273,22 @@ dd {
 }
 
 .channel-subselection-summary {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
-  border-bottom: 1px solid #edf1f7;
-  padding: 10px 12px;
+  padding: 10px 0;
   color: #4b5563;
   font-size: 11px;
   line-height: 1.35;
+}
+
+.channel-subselection-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #edf1f7;
+  padding: 0 8px 0 12px;
 }
 
 .facebook-content-panel {

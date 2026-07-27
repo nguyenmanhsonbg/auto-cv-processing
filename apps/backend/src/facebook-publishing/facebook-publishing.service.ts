@@ -13,6 +13,7 @@ import {
 } from './entities/facebook-group-sync-state.entity';
 import {
   CreateFacebookGroupInput,
+  ManualIncludeFacebookGroupInput,
   ExtensionFacebookPublishPlan,
   FacebookReviewStatus,
   FacebookPublishTargetEligibilityStatus,
@@ -208,8 +209,17 @@ export class FacebookPublishingService {
           .execute();
       }
     } else {
-      if (hasDisplayName) {
+      const existingDisplayName = this.normalizeFacebookAccountDisplayName(
+        account.displayName,
+        facebookExternalId,
+      );
+      if (normalizedDisplayName) {
         account.displayName = normalizedDisplayName;
+      } else if (!existingDisplayName) {
+        // Do not retain generic labels such as "Facebook account" from an
+        // earlier auth attempt, but preserve a previously verified real name
+        // when the current browser probe has no usable label.
+        account.displayName = null;
       }
       if (normalizedProfileUrl) {
         account.profileUrl = normalizedProfileUrl;
@@ -312,6 +322,70 @@ export class FacebookPublishingService {
     return this.toResolvedTarget(await this.targetsRepo.save(target));
   }
 
+  async manuallyIncludeExtensionGroup(input: ManualIncludeFacebookGroupInput): Promise<ResolvedFacebookPublishTarget> {
+    await this.assertFacebookAccountOwner(input.ownerUserId, input.facebookAccountId);
+    const name = this.requireText(input.targetName, 'targetName');
+    const groupUrl = this.normalizeFacebookGroupUrl(input.targetUrl);
+    const discoveryTime = new Date();
+    const matches = await this.targetsRepo.find({
+      where: {
+        ownerUserId: input.ownerUserId,
+        type: FacebookPublishTargetType.GROUP,
+        externalId: groupUrl.externalId,
+      },
+      order: { createdAt: 'ASC' },
+    });
+    const scopedMatches = matches.filter((target) => this.isTargetInAccountScope(
+      target.ownerExtensionInstanceId,
+      input.ownerExtensionInstanceId,
+      target.facebookAccountId,
+      input.facebookAccountId,
+    ));
+    const target = scopedMatches.find((candidate) => candidate.active)
+      ?? scopedMatches.find((candidate) => !candidate.active);
+
+    if (target) {
+      target.name = name;
+      target.url = groupUrl.url;
+      target.externalId = groupUrl.externalId;
+      target.active = true;
+      target.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? target.ownerExtensionInstanceId;
+      target.facebookAccountId = input.facebookAccountId ?? target.facebookAccountId;
+      target.manualIncluded = true;
+      target.manualIncludedAt = discoveryTime;
+      target.manualIncludedBy = input.ownerUserId;
+      target.lastDiscoveredAt = discoveryTime;
+      if (!target.lastVerifiedAt) {
+        target.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
+        target.eligibilityReason = 'Group was added manually and needs verification.';
+      }
+      return this.toResolvedTarget(await this.targetsRepo.save(target));
+    }
+
+    const priority = await this.getNextGroupPriority(input.ownerUserId);
+    const createdTarget = this.targetsRepo.create({
+      type: FacebookPublishTargetType.GROUP,
+      name,
+      externalId: groupUrl.externalId,
+      url: groupUrl.url,
+      ownerUserId: input.ownerUserId,
+      ownerExtensionInstanceId: input.ownerExtensionInstanceId ?? null,
+      facebookAccountId: input.facebookAccountId ?? null,
+      active: true,
+      manualIncluded: true,
+      manualIncludedAt: discoveryTime,
+      manualIncludedBy: input.ownerUserId,
+      priority,
+      eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
+      eligibilityReason: 'Group was added manually and needs verification.',
+      lastVerifiedAt: null,
+      lastDiscoveredAt: discoveryTime,
+      dailyPublishLimit: 10,
+    });
+
+    return this.toResolvedTarget(await this.targetsRepo.save(createdTarget));
+  }
+
   async discoverAndSyncExtensionGroups(input: DiscoverFacebookGroupsInput): Promise<DiscoverFacebookGroupsResponseDto> {
     await this.assertFacebookAccountOwner(input.ownerUserId, input.facebookAccountId);
     const requested = input.groups.length;
@@ -333,6 +407,25 @@ export class FacebookPublishingService {
       items: [],
     };
 
+    const manualIncludedTargets = await this.targetsRepo.find({
+      where: {
+        ownerUserId: input.ownerUserId,
+        type: FacebookPublishTargetType.GROUP,
+        manualIncluded: true,
+      },
+    });
+    const manualIncludedExternalIds = new Set(
+      manualIncludedTargets
+        .filter((target) => this.isTargetInAccountScope(
+          target.ownerExtensionInstanceId,
+          input.ownerExtensionInstanceId,
+          target.facebookAccountId,
+          input.facebookAccountId,
+        ))
+        .map((target) => target.externalId?.trim().toLowerCase())
+        .filter((value): value is string => Boolean(value)),
+    );
+
     const uniqueGroups = new Map<string, { targetName: string; targetUrl: string }>();
     for (const rawItem of input.groups) {
       try {
@@ -340,7 +433,8 @@ export class FacebookPublishingService {
         const groupUrl = this.normalizeFacebookGroupUrl(rawItem.targetUrl);
 
         if (!groupUrl.externalId) continue;
-        if (!this.isItRecruitmentFacebookGroupName(name)) {
+        const isManualIncluded = manualIncludedExternalIds.has(groupUrl.externalId.toLowerCase());
+        if (!isManualIncluded && !this.isItRecruitmentFacebookGroupName(name)) {
           result.filtered += 1;
           result.skipped += 1;
           result.items.push({
@@ -547,11 +641,14 @@ export class FacebookPublishingService {
             .map((item) => item.targetExternalId?.trim().toLowerCase())
             .filter((value): value is string => Boolean(value)),
         );
-        const removableTargets = activeTargets.filter((target) => this.isTargetInAccountScope(
-          target.ownerExtensionInstanceId,
-          input.ownerExtensionInstanceId,
-          target.facebookAccountId,
-          input.facebookAccountId,
+        const removableTargets = activeTargets.filter((target) => (
+          !target.manualIncluded
+          && this.isTargetInAccountScope(
+            target.ownerExtensionInstanceId,
+            input.ownerExtensionInstanceId,
+            target.facebookAccountId,
+            input.facebookAccountId,
+          )
         ));
 
         for (const target of removableTargets) {
@@ -1041,6 +1138,9 @@ export class FacebookPublishingService {
         facebookAccountExternalId: target.facebookAccountId
           ? accountExternalIds.get(target.facebookAccountId) ?? null
           : null,
+        manualIncluded: target.manualIncluded,
+        manualIncludedAt: target.manualIncludedAt?.toISOString() ?? null,
+        manualIncludedBy: target.manualIncludedBy,
       };
     });
   }
@@ -1211,7 +1311,16 @@ export class FacebookPublishingService {
 
   private normalizeFacebookAccountDisplayName(value: string | null | undefined, facebookExternalId: string) {
     const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
-    if (!normalized || /^account\s+\d+$/i.test(normalized)) return null;
+    if (!normalized) return null;
+    const comparable = normalized
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    if (
+      /^(?:account(?:\s+id)?(?:\s+\d+)?|facebook(?:\s+account)?|\(\d+\)\s*facebook|thong\s+bao|notification)$/i.test(comparable)
+    ) {
+      return null;
+    }
     if (normalized === facebookExternalId || normalized.length > 100) return null;
     if (/đã phê duyệt một lần đăng nhập|approved a login|notification/i.test(normalized)) return null;
     return normalized;

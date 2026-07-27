@@ -13,6 +13,7 @@ import {
   FacebookPublishHistoryStatusCheckDto,
   DiscoverFacebookGroupsDto,
   GenerateFacebookPreviewContentDto,
+  ManualIncludeFacebookGroupDto,
   ReportFacebookPublishResultDto,
   ResolveFacebookAccountDto,
   UpdateFacebookGroupDto,
@@ -125,6 +126,33 @@ export class ExtensionFacebookController {
       meta: {
         timestamp: new Date().toISOString(),
       },
+    };
+  }
+
+  @Post('groups/manual-include')
+  @ApiOperation({ summary: 'Manually include a Facebook group excluded by the recruitment filter' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
+  @ApiBody({ type: ManualIncludeFacebookGroupDto })
+  @ApiResponse({ status: 201, description: 'Facebook group manually included.' })
+  async manuallyIncludeGroup(
+    @Body() dto: ManualIncludeFacebookGroupDto,
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const group = await this.facebookPublishingService.manuallyIncludeExtensionGroup({
+      ownerUserId: req.user.id,
+      targetName: dto.targetName,
+      targetUrl: dto.targetUrl,
+      targetExternalId: dto.targetExternalId ?? null,
+      ownerExtensionInstanceId: extensionInstance?.id ?? null,
+      facebookAccountId: dto.facebookAccountId,
+    });
+
+    return {
+      success: true,
+      data: group,
+      meta: { timestamp: new Date().toISOString() },
     };
   }
 
