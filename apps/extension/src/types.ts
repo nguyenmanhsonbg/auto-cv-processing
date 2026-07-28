@@ -595,6 +595,7 @@ export interface AmisApplicationItem {
   mobile?: string;
   birthday?: string;
   recruitmentRoundName?: string;
+  reasonRemoved?: string;
   attractivePersonnelName?: string;
   attractivePersonnelId?: string;
   status?: number;
@@ -682,6 +683,7 @@ export interface AmisApplicationListItem {
   externalApplicationId: string | null;
   amisRecruitmentRoundId: string | null;
   amisRecruitmentRoundName: string | null;
+  amisReasonRemoved: string | null;
   amisStatus: number | null;
   attachmentCvId: string | null;
   attachmentCvName: string | null;
@@ -695,6 +697,7 @@ export interface AmisCandidateStageChangedPayload {
   amisCandidateId: string;
   amisRecruitmentRoundId: string | null;
   amisRecruitmentRoundName: string | null;
+  reasonRemoved: string | null;
   amisStatus: number | null;
   sourceUrl: string;
   pageUrl: string;

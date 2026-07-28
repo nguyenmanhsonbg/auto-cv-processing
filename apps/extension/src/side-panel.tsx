@@ -478,6 +478,7 @@ function SidePanel() {
     amisRecruitmentRoundId: string;
     amisRecruitmentRoundName: string | null;
     amisStatus: number | null;
+    reasonRemoved: string | null;
   }>());
   const processedAmisCandidateStageEventsRef = useRef(new Map<string, string>());
   const pendingAmisUploadApplicationIdsRef = useRef(new Set<string>());
@@ -1418,10 +1419,12 @@ function SidePanel() {
     }
 
     const eventKey = `${payload.amisRecruitmentId}:${payload.amisCandidateId}`;
+    const reasonRemoved = payload.reasonRemoved ?? null;
     const eventSignature = [
       payload.amisRecruitmentRoundId,
       payload.amisRecruitmentRoundName ?? '',
       payload.amisStatus ?? '',
+      reasonRemoved ?? '',
     ].join(':');
     if (processedAmisCandidateStageEventsRef.current.get(eventKey) === eventSignature) return;
     processedAmisCandidateStageEventsRef.current.set(eventKey, eventSignature);
@@ -1429,6 +1432,7 @@ function SidePanel() {
       amisRecruitmentRoundId: payload.amisRecruitmentRoundId,
       amisRecruitmentRoundName: payload.amisRecruitmentRoundName,
       amisStatus: payload.amisStatus,
+      reasonRemoved,
     });
 
     setApplicationsContext((current) => {
@@ -1442,6 +1446,7 @@ function SidePanel() {
               amisRecruitmentRoundId: payload.amisRecruitmentRoundId,
               amisRecruitmentRoundName: payload.amisRecruitmentRoundName,
               amisStatus: payload.amisStatus,
+              amisReasonRemoved: reasonRemoved,
             }
           : application),
       };
@@ -1476,7 +1481,9 @@ function SidePanel() {
         const override = amisCandidateStageOverridesRef.current.get(eventKey);
         if (!override) return application;
 
-        if (application.amisRecruitmentRoundId === override.amisRecruitmentRoundId) {
+        if (application.amisRecruitmentRoundId === override.amisRecruitmentRoundId
+          && application.amisStatus === override.amisStatus
+          && application.amisReasonRemoved === override.reasonRemoved) {
           amisCandidateStageOverridesRef.current.delete(eventKey);
           return application;
         }
@@ -1486,6 +1493,7 @@ function SidePanel() {
           amisRecruitmentRoundId: override.amisRecruitmentRoundId,
           amisRecruitmentRoundName: override.amisRecruitmentRoundName,
           amisStatus: override.amisStatus,
+          amisReasonRemoved: override.reasonRemoved,
         };
       }),
     };
@@ -5486,6 +5494,8 @@ function SidePanel() {
               const canSyncToAmis = !isAmisCvUploaded && canUploadApplicationCv(application);
               const currentStageIndex = getAmisCandidateStageIndex(application.amisRecruitmentRoundName);
               const currentStageLabel = application.amisRecruitmentRoundName ?? 'Chưa cập nhật';
+              const isAmisRejected = application.amisStatus === 0;
+              const rejectionReason = application.amisReasonRemoved?.trim() || null;
               const recruiterName = application.attractivePersonnelName ?? 'Chưa phân công';
               const appliedDate = formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-';
 
@@ -5512,13 +5522,19 @@ function SidePanel() {
                       {AMIS_CANDIDATE_STAGES.map((stage, stageIndex) => (
                         <div
                           key={stage}
-                          className={`cv-candidate-process-step${stageIndex < currentStageIndex ? ' is-complete' : ''}${stageIndex === currentStageIndex ? ' is-current' : ''}`}
+                          className={`cv-candidate-process-step${stageIndex < currentStageIndex ? ' is-complete' : ''}${stageIndex === currentStageIndex && !isAmisRejected ? ' is-current' : ''}${stageIndex === currentStageIndex && isAmisRejected ? ' is-failed' : ''}`}
                         >
                           <span className="cv-candidate-process-marker" aria-hidden="true" />
                           <span>{stage}</span>
                         </div>
                       ))}
                     </div>
+                    {isAmisRejected && rejectionReason ? (
+                      <div className="cv-candidate-rejection-reason">
+                        <strong>Lý do bị loại:</strong>
+                        <span>{rejectionReason}</span>
+                      </div>
+                    ) : null}
                     <div className="cv-candidate-meta">
                       <span className="cv-candidate-source">
                         <SourceIcon />
@@ -7985,6 +8001,7 @@ function isAmisCandidateStageChangedMessage(value: unknown): value is {
     && typeof stage.amisRecruitmentRoundId === 'string'
     && (stage.amisRecruitmentRoundName === null || typeof stage.amisRecruitmentRoundName === 'string')
     && (stage.amisStatus === null || typeof stage.amisStatus === 'number')
+    && (stage.reasonRemoved === undefined || stage.reasonRemoved === null || typeof stage.reasonRemoved === 'string')
     && typeof stage.sourceUrl === 'string'
     && typeof stage.pageUrl === 'string'
     && typeof stage.changedAt === 'string';

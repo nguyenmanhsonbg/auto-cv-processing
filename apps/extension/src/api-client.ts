@@ -317,6 +317,7 @@ export async function updateAmisApplicationStage(
         recruitmentRoundId: payload.amisRecruitmentRoundId,
         recruitmentRoundName: payload.amisRecruitmentRoundName ?? undefined,
         status: payload.amisStatus ?? undefined,
+        reasonRemoved: payload.reasonRemoved,
         sourceUrl: payload.sourceUrl,
         changedAt: payload.changedAt,
       },

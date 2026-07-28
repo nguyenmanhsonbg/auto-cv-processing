@@ -303,6 +303,12 @@ function mapAmisCandidateStageResponse(
     'RecruitmentRound',
     'recruitmentRoundName',
   ]));
+  const reasonRemoved = cleanText(readFirst(current, [
+    'ReasonRemoved',
+    'ReasonRemovedName',
+    'reasonRemoved',
+    'reasonRemovedName',
+  ]));
 
   if (!amisRecruitmentId || !amisCandidateId || !amisRecruitmentRoundId) return null;
 
@@ -311,6 +317,7 @@ function mapAmisCandidateStageResponse(
     amisCandidateId,
     amisRecruitmentRoundId,
     amisRecruitmentRoundName: amisRecruitmentRoundName || null,
+    reasonRemoved: reasonRemoved || null,
     amisStatus: readNumber(current, ['Status', 'status']) ?? null,
     sourceUrl,
     pageUrl,

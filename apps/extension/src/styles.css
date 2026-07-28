@@ -6560,6 +6560,57 @@ dd {
   font-weight: 600;
 }
 
+.cv-candidate-process-step.is-failed {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.cv-candidate-process-step.is-failed::after {
+  background: #ef4444;
+}
+
+.cv-candidate-process-step.is-failed .cv-candidate-process-marker {
+  border-color: #dc2626;
+  background: #dc2626;
+}
+
+.cv-candidate-process-step.is-failed .cv-candidate-process-marker::before {
+  width: auto;
+  height: auto;
+  border: 0;
+  color: #ffffff;
+  content: '\00d7';
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  transform: none;
+}
+
+.cv-candidate-rejection-reason {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.cv-candidate-rejection-reason strong {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.cv-candidate-rejection-reason span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .cv-candidate-recruiter {
   grid-area: recruiter;
   color: #0b1c30;

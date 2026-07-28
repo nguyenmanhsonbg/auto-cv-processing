@@ -779,6 +779,12 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
     'SourceName',
     'sourceName',
   ]));
+  const reasonRemoved = cleanText(readFirst(row, [
+    'ReasonRemoved',
+    'ReasonRemovedName',
+    'reasonRemoved',
+    'reasonRemovedName',
+  ]));
   if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) return null;
   if (!email && !mobile) return null;
 
@@ -798,6 +804,7 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
     ...(cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])) ? {
       recruitmentRoundName: cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])),
     } : {}),
+    ...(reasonRemoved ? { reasonRemoved } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']) !== undefined ? {
       recruitmentChannelId: readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']),
@@ -824,6 +831,8 @@ function sanitizeApplicationSnapshot(row: Record<string, unknown>) {
     'RecruitmentID',
     'RecruitmentRoundID',
     'RecruitmentRoundName',
+    'ReasonRemoved',
+    'ReasonRemovedName',
     'Status',
     'CandidateID',
     'CandidateConvertID',
@@ -2470,6 +2479,7 @@ function isAmisCandidateStageChangedMessage(value: unknown): value is {
     && (candidateStage.amisRecruitmentRoundId === null || typeof candidateStage.amisRecruitmentRoundId === 'string')
     && (candidateStage.amisRecruitmentRoundName === null || typeof candidateStage.amisRecruitmentRoundName === 'string')
     && (candidateStage.amisStatus === null || typeof candidateStage.amisStatus === 'number')
+    && (candidateStage.reasonRemoved === undefined || candidateStage.reasonRemoved === null || typeof candidateStage.reasonRemoved === 'string')
     && typeof candidateStage.sourceUrl === 'string'
     && typeof candidateStage.pageUrl === 'string'
     && typeof candidateStage.changedAt === 'string';

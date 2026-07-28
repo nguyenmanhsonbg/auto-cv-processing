@@ -270,6 +270,12 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
     'attractivePersonnelId',
     'AttractivePersonnelId',
   ]));
+  const reasonRemoved = cleanText(readFirst(row, [
+    'ReasonRemoved',
+    'ReasonRemovedName',
+    'reasonRemoved',
+    'reasonRemovedName',
+  ]));
 
   if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) return null;
   if (!email && !mobile) return null;
@@ -290,6 +296,7 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
     ...(cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])) ? {
       recruitmentRoundName: cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])),
     } : {}),
+    ...(reasonRemoved ? { reasonRemoved } : {}),
     ...(attractivePersonnelName ? { attractivePersonnelName } : {}),
     ...(attractivePersonnelId ? { attractivePersonnelId } : {}),
     ...(status !== undefined ? { status } : {}),
@@ -438,6 +445,8 @@ function sanitizeApplicationSnapshot(row: Record<string, unknown>) {
     'RecruitmentID',
     'RecruitmentRoundID',
     'RecruitmentRoundName',
+    'ReasonRemoved',
+    'ReasonRemovedName',
     'AttractivePersonnel',
     'AttractivePersonnelID',
     'AttractivePersonnelName',

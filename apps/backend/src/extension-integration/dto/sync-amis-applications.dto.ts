@@ -55,6 +55,11 @@ export class SyncAmisApplicationItemDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  reasonRemoved?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   attractivePersonnelName?: string;
 
   @ApiPropertyOptional()
@@ -248,6 +253,9 @@ export class AmisApplicationListItemDto {
 
   @ApiPropertyOptional()
   amisRecruitmentRoundName: string | null;
+
+  @ApiPropertyOptional()
+  amisReasonRemoved: string | null;
 
   @ApiPropertyOptional()
   attractivePersonnelName: string | null;

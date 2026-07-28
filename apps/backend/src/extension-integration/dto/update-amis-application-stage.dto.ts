@@ -11,6 +11,11 @@ export class UpdateAmisApplicationStageDto {
   @IsString()
   recruitmentRoundName?: string;
 
+  @ApiPropertyOptional({ description: 'The AMIS rejection reason, or null when the candidate is active again.' })
+  @IsOptional()
+  @IsString()
+  reasonRemoved?: string | null;
+
   @ApiPropertyOptional({ description: 'The numeric AMIS application status, when available.' })
   @IsOptional()
   @IsNumber()

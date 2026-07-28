@@ -983,6 +983,7 @@ export class ExtensionIntegrationService {
         ...(mobile ? { mobile } : {}),
         ...(this.optionalText(item.birthday) ? { birthday: this.optionalText(item.birthday) ?? undefined } : {}),
         ...(this.optionalText(item.recruitmentRoundName) ? { recruitmentRoundName: this.optionalText(item.recruitmentRoundName) ?? undefined } : {}),
+        ...(this.optionalText(item.reasonRemoved) ? { reasonRemoved: this.optionalText(item.reasonRemoved) ?? undefined } : {}),
         ...(this.optionalText(item.attractivePersonnelName) ? { attractivePersonnelName: this.optionalText(item.attractivePersonnelName) ?? undefined } : {}),
         ...(this.optionalText(item.attractivePersonnelId) ? { attractivePersonnelId: this.optionalText(item.attractivePersonnelId) ?? undefined } : {}),
         ...(typeof item.status === 'number' ? { status: item.status } : {}),
@@ -1085,6 +1086,7 @@ export class ExtensionIntegrationService {
       recruitmentId: item.recruitmentId,
       recruitmentRoundId: item.recruitmentRoundId,
       recruitmentRoundName: item.recruitmentRoundName ?? null,
+      reasonRemoved: item.reasonRemoved ?? null,
       attractivePersonnelName: item.attractivePersonnelName ?? null,
       attractivePersonnelId: item.attractivePersonnelId ?? null,
       candidateId: item.candidateId,
@@ -1519,6 +1521,12 @@ export class ExtensionIntegrationService {
           externalApplicationId: application.externalApplicationId,
           amisRecruitmentRoundId: this.optionalText(rawPayload.recruitmentRoundId),
           amisRecruitmentRoundName: this.optionalText(rawPayload.recruitmentRoundName),
+          amisReasonRemoved: this.optionalText(
+            rawPayload.reasonRemoved
+              ?? rawPayload.ReasonRemoved
+              ?? rawPayload.reasonRemovedName
+              ?? rawPayload.ReasonRemovedName,
+          ),
           amisStatus: typeof rawPayload.status === 'number' ? rawPayload.status : null,
           attachmentCvId: this.optionalText(rawPayload.attachmentCvId),
           attachmentCvName: this.optionalText(rawPayload.attachmentCvName),
@@ -1562,6 +1570,9 @@ export class ExtensionIntegrationService {
       ...rawPayload,
       recruitmentRoundId: normalizedRoundId,
       recruitmentRoundName: this.optionalText(dto.recruitmentRoundName),
+      reasonRemoved: typeof dto.reasonRemoved === 'undefined'
+        ? this.optionalText(rawPayload.reasonRemoved ?? rawPayload.ReasonRemoved)
+        : this.optionalText(dto.reasonRemoved),
       ...(typeof dto.status === 'number' ? { status: dto.status } : {}),
       ...(this.optionalText(dto.sourceUrl) ? { stageSourceUrl: this.optionalText(dto.sourceUrl) } : {}),
       ...(this.optionalText(dto.changedAt) ? { stageChangedAt: this.optionalText(dto.changedAt) } : {}),
