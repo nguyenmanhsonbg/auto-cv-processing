@@ -6,6 +6,7 @@ export * from './sync-amis-careers.dto';
 export * from './report-facebook-publish-result.dto';
 export * from './facebook-publish-history-status-check.dto';
 export * from './create-facebook-group.dto';
+export * from './manual-include-facebook-group.dto';
 export * from './update-facebook-group.dto';
 export * from './discover-facebook-groups.dto';
 export * from './sync-amis-applications.dto';

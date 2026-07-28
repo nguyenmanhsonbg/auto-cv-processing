@@ -247,6 +247,7 @@ export interface FacebookPublishProgress {
   status: string;
   currentIndex: number;
   total: number;
+  delayRemainingSeconds?: number;
   target?: FacebookPublishTarget;
   message: string;
   results: FacebookPublishResultPayload[];

@@ -14,6 +14,7 @@ const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 
 interface AmisSourceColumnItem {
   applicationId: string;
+  amisCandidateId?: string | null;
   candidateName: string;
   email: string | null;
   mobile: string | null;
@@ -35,6 +36,7 @@ interface AmisSourceColumnDataResponse {
 }
 
 interface SourceLookup {
+  byAmisCandidateId: Map<string, AmisSourceColumnItem | null>;
   byEmail: Map<string, AmisSourceColumnItem | null>;
   byMobile: Map<string, AmisSourceColumnItem | null>;
   byName: Map<string, AmisSourceColumnItem | null>;
@@ -628,6 +630,11 @@ function isAmisApplicationsSyncedMessage(value: unknown): value is {
 }
 
 function findSourceForRow(row: HTMLElement, sourceLookup: SourceLookup) {
+  const amisCandidateId = normalizeExternalId(readRowAmisCandidateId(row));
+  if (amisCandidateId && sourceLookup.byAmisCandidateId.has(amisCandidateId)) {
+    return sourceLookup.byAmisCandidateId.get(amisCandidateId) ?? null;
+  }
+
   const email = normalizeEmail(readRowEmail(row));
   if (email && sourceLookup.byEmail.has(email)) return sourceLookup.byEmail.get(email) ?? null;
 
@@ -638,6 +645,47 @@ function findSourceForRow(row: HTMLElement, sourceLookup: SourceLookup) {
   if (name && sourceLookup.byName.has(name)) return sourceLookup.byName.get(name) ?? null;
 
   return null;
+}
+
+function readRowAmisCandidateId(row: HTMLElement) {
+  const attributeNames = [
+    'data-candidate-id',
+    'data-candidateid',
+    'data-candidate-convert-id',
+    'data-candidateconvertid',
+    'data-row-key',
+    'data-key',
+  ];
+
+  for (const element of [row, ...Array.from(row.querySelectorAll<HTMLElement>('*'))]) {
+    for (const attributeName of attributeNames) {
+      const value = element.getAttribute(attributeName);
+      const candidateId = extractAmisCandidateId(value);
+      if (candidateId) return candidateId;
+    }
+  }
+
+  for (const element of row.querySelectorAll<HTMLElement>('[src], [href]')) {
+    const candidateId = extractAmisCandidateId(
+      element.getAttribute('src') ?? element.getAttribute('href'),
+    );
+    if (candidateId) return candidateId;
+  }
+
+  return '';
+}
+
+function extractAmisCandidateId(value: string | null) {
+  if (!value?.trim()) return '';
+
+  const avatarId = value.match(/[?&]avatarID=([^&#]+)/i)?.[1];
+  if (!avatarId) return '';
+
+  try {
+    return decodeURIComponent(avatarId).trim();
+  } catch {
+    return avatarId.trim();
+  }
 }
 
 function readRowName(row: HTMLElement) {
@@ -665,6 +713,11 @@ function readRowMobile(row: HTMLElement) {
 function buildSourceLookup(items: AmisSourceColumnItem[]): SourceLookup {
   const lookup = createEmptyLookup();
   for (const item of items) {
+    addLookupValue(
+      lookup.byAmisCandidateId,
+      normalizeExternalId(item.amisCandidateId),
+      item,
+    );
     addLookupValue(lookup.byEmail, normalizeEmail(item.email), item);
     addLookupValue(lookup.byMobile, normalizeMobile(item.mobile), item);
     addLookupValue(lookup.byName, normalizeIdentity(item.candidateName), item);
@@ -674,6 +727,7 @@ function buildSourceLookup(items: AmisSourceColumnItem[]): SourceLookup {
 
 function createEmptyLookup(): SourceLookup {
   return {
+    byAmisCandidateId: new Map(),
     byEmail: new Map(),
     byMobile: new Map(),
     byName: new Map(),
@@ -715,6 +769,10 @@ function normalizeMobile(value: string | null | undefined) {
   return digits.length > 9 ? digits.slice(-9) : digits;
 }
 
+function normalizeExternalId(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? '';
+}
+
 function normalizeIdentity(value: string | null | undefined) {
   return (value ?? '')
     .normalize('NFD')
@@ -750,6 +808,9 @@ function isSourceColumnDataResponse(value: unknown): value is AmisSourceColumnDa
       typeof item === 'object'
       && item !== null
       && typeof (item as AmisSourceColumnItem).applicationId === 'string'
+      && (typeof (item as AmisSourceColumnItem).amisCandidateId === 'undefined'
+        || typeof (item as AmisSourceColumnItem).amisCandidateId === 'string'
+        || (item as AmisSourceColumnItem).amisCandidateId === null)
       && typeof (item as AmisSourceColumnItem).candidateName === 'string'
       && (typeof (item as AmisSourceColumnItem).email === 'string' || (item as AmisSourceColumnItem).email === null)
       && (typeof (item as AmisSourceColumnItem).mobile === 'string' || (item as AmisSourceColumnItem).mobile === null)

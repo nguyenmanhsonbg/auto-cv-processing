@@ -16,6 +16,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { JobPostingForm } from '@/components/recruitment/JobPostingForm';
+import { FacebookPublishResultsPanel } from '@/components/recruitment/FacebookPublishResultsPanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -66,6 +67,7 @@ import {
   type FacebookImageAttachFailureDecision,
   type FacebookPublishAttachment,
   type FacebookPublishPlan,
+  type FacebookPublishProgress,
   type FacebookPublishResultPayload,
   type FacebookPublishTarget,
   type FacebookPublishTargetEligibilityStatus,
@@ -445,6 +447,9 @@ export function JobPostingDetailPage() {
   const [editingFacebookGroup, setEditingFacebookGroup] = useState<FacebookPublishTarget | null>(null);
   const [facebookGroupSaving, setFacebookGroupSaving] = useState(false);
   const [facebookPublishStatus, setFacebookPublishStatus] = useState<string | null>(null);
+  const [facebookPublishProgress, setFacebookPublishProgress] = useState<FacebookPublishProgress | null>(null);
+  const [facebookPublishPlan, setFacebookPublishPlan] = useState<FacebookPublishPlan | null>(null);
+  const [publishResultChannels, setPublishResultChannels] = useState<JobPostingChannelStatus[]>([]);
   const [publishNote, setPublishNote] = useState('');
   const [publishError, setPublishError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -561,6 +566,9 @@ export function JobPostingDetailPage() {
     setSubmitting(true);
     setPublishError(null);
     setFacebookPublishStatus(null);
+    setFacebookPublishProgress(null);
+    setFacebookPublishPlan(null);
+    setPublishResultChannels([]);
     let facebookPlan: FacebookPublishPlan | null = null;
     let latestFacebookResults: FacebookPublishResultPayload[] = [];
 
@@ -579,6 +587,8 @@ export function JobPostingDetailPage() {
           ? { ...response.facebookPublishPlan, attachments: [facebookImageAttachment] }
           : response.facebookPublishPlan;
         facebookPlan = planForPublish;
+        setFacebookPublishPlan(planForPublish);
+        setPublishResultChannels(response.channels ?? []);
         const accessToken = apiClient.getToken() ?? localStorage.getItem('token');
         if (!accessToken) {
           throw new Error('Authentication token is required for browser Facebook publishing.');
@@ -588,14 +598,17 @@ export function JobPostingDetailPage() {
           onProgress: (progress) => {
             latestFacebookResults = progress.results;
             setFacebookPublishStatus(progress.message);
+            setFacebookPublishProgress(progress);
           },
           onImageAttachFailed: requestFacebookImageAttachDecision,
         });
         toast({ title: 'Facebook publishing completed in this browser' });
       }
       toast({ title: 'Job posting publish requested' });
-      setPublishOpen(false);
-      setPublishNote('');
+      if (!selectedChannels.includes('FACEBOOK')) {
+        setPublishOpen(false);
+        setPublishNote('');
+      }
       clearFacebookImageAttachment();
       await reload();
     } catch (err) {
@@ -654,11 +667,14 @@ export function JobPostingDetailPage() {
   };
 
   const toggleFacebookChannel = async () => {
-    if (selectedChannels.includes('FACEBOOK')) {
+      if (selectedChannels.includes('FACEBOOK')) {
       setSelectedChannels((current) => current.filter((item) => item !== 'FACEBOOK'));
       setFacebookGroupLoadState('IDLE');
       setFacebookGroupMessage(null);
       setFacebookPublishStatus(null);
+      setFacebookPublishProgress(null);
+      setFacebookPublishPlan(null);
+      setPublishResultChannels([]);
       clearFacebookImageAttachment();
       return;
     }
@@ -1184,11 +1200,14 @@ export function JobPostingDetailPage() {
           if (!open) {
             setPublishError(null);
             setFacebookPublishStatus(null);
+            setFacebookPublishProgress(null);
+            setFacebookPublishPlan(null);
+            setPublishResultChannels([]);
             clearFacebookImageAttachment();
           }
         }}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-h-[calc(100vh-2rem)] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Publish Job Posting</DialogTitle>
             <DialogDescription>
@@ -1491,6 +1510,13 @@ export function JobPostingDetailPage() {
                       </div>
                     ) : null}
 
+                    {facebookPublishProgress ? (
+                      <FacebookPublishResultsPanel
+                        progress={facebookPublishProgress}
+                        plan={facebookPublishPlan}
+                        channels={publishResultChannels}
+                      />
+                    ) : null}
                     {facebookPublishStatus ? (
                       <p className="rounded-md bg-white p-2 text-xs text-emerald-900">
                         {facebookPublishStatus}

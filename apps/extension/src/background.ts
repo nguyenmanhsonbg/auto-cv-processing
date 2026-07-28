@@ -902,6 +902,7 @@ async function handleAmisSourceColumnData(
       amisRecruitmentId,
       items: context.applications.map((application) => ({
         applicationId: application.applicationId,
+        amisCandidateId: application.amisCandidateId,
         candidateName: application.candidateName,
         email: application.email,
         mobile: application.mobile,
