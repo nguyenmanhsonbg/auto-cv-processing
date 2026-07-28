@@ -28,7 +28,8 @@ import { GhostscriptHttpPdfSanitizer } from './sanitizer/ghostscript-http-pdf-sa
         const mode = (process.env.CV_PDF_SANITIZER_MODE ?? 'GHOSTSCRIPT_DOCKER')
           .trim()
           .toUpperCase();
-        if (mode === 'HTTP_SERVICE') return new GhostscriptHttpPdfSanitizer();
+        // DISPOSABLE_POOL exposes the same HTTP /sanitize contract through the configured pool manager.
+        if (mode === 'HTTP_SERVICE' || mode === 'DISPOSABLE_POOL') return new GhostscriptHttpPdfSanitizer();
         if (mode === 'GHOSTSCRIPT_DOCKER') return new GhostscriptDockerPdfSanitizer();
         throw new Error(`Unsupported CV_PDF_SANITIZER_MODE: ${mode}`);
       },

@@ -88,6 +88,10 @@ export async function seedTestJobDescriptions() {
       initializedBySeed = true;
     }
 
+    if (shouldSynchronizeSchemaForSeed()) {
+      await dataSource.synchronize();
+    }
+
     const userRepository = dataSource.getRepository(UserEntity);
     let user = await userRepository.findOne({ where: { email: TEST_USER_EMAIL } });
     let userCreated = false;
@@ -180,6 +184,12 @@ async function initializeDataSourceWithRetry() {
   }
 
   throw lastError;
+}
+
+function shouldSynchronizeSchemaForSeed() {
+  const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase();
+  const synchronizeFlag = process.env.TYPEORM_SYNCHRONIZE?.trim().toLowerCase();
+  return nodeEnv === 'development' && synchronizeFlag === 'true';
 }
 
 if (require.main === module) {
