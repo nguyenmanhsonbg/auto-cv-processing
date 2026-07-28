@@ -1,10 +1,14 @@
 const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
 const AMIS_SAVE_RECRUITMENT_PATH = '/RecruitmentAPI/api/recruitment/SaveRecruitment';
+const AMIS_CANDIDATE_ADDITIONAL_INFO_PATH = '/RecruitmentAPI/api/Candidate/candidate-additional-infor/';
+const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_CANDIDATE_STAGE_CHANGED';
 const HOOK_INSTALLED_KEY = '__VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__';
+const CANDIDATE_STAGE_HOOK_INSTALLED_KEY = '__VCS_AMIS_CANDIDATE_STAGE_HOOK_INSTALLED__';
 
 const hookWindow = window as Window & {
   __VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__?: boolean;
+  __VCS_AMIS_CANDIDATE_STAGE_HOOK_INSTALLED__?: boolean;
 };
 
 if (!hookWindow[HOOK_INSTALLED_KEY]) {
@@ -16,6 +20,12 @@ if (!hookWindow[HOOK_INSTALLED_KEY]) {
       trigger: 'XMLHttpRequest.loadend',
     },
   });
+}
+
+if (!hookWindow[CANDIDATE_STAGE_HOOK_INSTALLED_KEY]) {
+  hookWindow[CANDIDATE_STAGE_HOOK_INSTALLED_KEY] = true;
+  installCandidateStageXhrHook();
+  installCandidateStageFetchHook();
 }
 
 function installXhrHook() {
@@ -92,6 +102,58 @@ function installXhrHook() {
   };
 }
 
+function installCandidateStageXhrHook() {
+  const xhrPrototype = window.XMLHttpRequest?.prototype as XMLHttpRequest & {
+    open: (...args: unknown[]) => void;
+    send: (...args: unknown[]) => void;
+  } | undefined;
+  if (!xhrPrototype) return;
+
+  const originalOpen = xhrPrototype.open;
+  const originalSend = xhrPrototype.send;
+
+  xhrPrototype.open = function openWithCandidateStageCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
+    const [, url] = args;
+    this.__vcsAmisCandidateStageRequestUrl = getRequestUrl(url);
+    return Reflect.apply(originalOpen, this, args);
+  };
+
+  xhrPrototype.send = function sendWithCandidateStageCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
+    const requestUrl = this.__vcsAmisCandidateStageRequestUrl;
+    if (requestUrl && isAmisCandidateAdditionalInfoUrl(requestUrl)) {
+      this.addEventListener('loadend', () => {
+        if (this.status < 200 || this.status >= 300) return;
+
+        try {
+          publishCandidateStage(readXhrJson(this), requestUrl);
+        } catch {
+          // AMIS may return a non-JSON response for an expired session.
+        }
+      }, { once: true });
+    }
+
+    return Reflect.apply(originalSend, this, args);
+  };
+}
+
+function installCandidateStageFetchHook() {
+  const originalFetch = window.fetch?.bind(window);
+  if (!originalFetch) return;
+
+  window.fetch = async (...args: Parameters<typeof fetch>) => {
+    const requestUrl = getRequestUrl(args[0] instanceof Request ? args[0].url : args[0]);
+    const response = await originalFetch(...args);
+
+    if (requestUrl && isAmisCandidateAdditionalInfoUrl(requestUrl) && response.ok) {
+      void response.clone().text()
+        .then((text) => publishCandidateStage(parseJsonText(text), requestUrl))
+        .catch(() => undefined);
+    }
+
+    return response;
+  };
+}
+
 function publishCapture(responseJson: unknown, requestUrl: string) {
   const capture = mapAmisSaveRecruitmentResponse(
     responseJson,
@@ -122,6 +184,21 @@ function publishCapture(responseJson: unknown, requestUrl: string) {
       hasAmisRecruitmentId: Boolean(capture.amisRecruitmentId),
     },
   });
+}
+
+function publishCandidateStage(responseJson: unknown, requestUrl: string) {
+  const stage = mapAmisCandidateStageResponse(
+    responseJson,
+    new URL(requestUrl, window.location.origin).toString(),
+    window.location.href,
+  );
+  if (!stage) return;
+
+  window.postMessage({
+    source: 'vcs-recruitment-extension',
+    type: AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE,
+    payload: stage,
+  }, window.location.origin);
 }
 
 function publishDiagnostic(
@@ -182,6 +259,63 @@ function parseJsonText(text: string) {
 
 function isAmisSaveRecruitmentUrl(url: string) {
   return url.toLowerCase().includes(AMIS_SAVE_RECRUITMENT_PATH.toLowerCase());
+}
+
+function isAmisCandidateAdditionalInfoUrl(url: string) {
+  return url.toLowerCase().includes(AMIS_CANDIDATE_ADDITIONAL_INFO_PATH.toLowerCase());
+}
+
+function mapAmisCandidateStageResponse(
+  response: unknown,
+  sourceUrl: string,
+  pageUrl: string,
+) {
+  if (!isObject(response)) return null;
+  if ((response.Success ?? response.success) === false) return null;
+
+  const responseData = response.Data ?? response.data;
+  if (!isObject(responseData)) return null;
+
+  const details = responseData.ListRecruitmentDetails ?? responseData.listRecruitmentDetails;
+  if (!Array.isArray(details)) return null;
+
+  const current = details.find((value) => isObject(value)) as Record<string, unknown> | undefined;
+  if (!current) return null;
+
+  const amisRecruitmentId = cleanText(readFirst(current, [
+    'RecruitmentID',
+    'RecruitmentId',
+    'recruitmentId',
+    'recruitmentID',
+  ]));
+  const amisCandidateId = cleanText(readFirst(current, [
+    'CandidateID',
+    'CandidateId',
+    'candidateId',
+  ]));
+  const amisRecruitmentRoundId = cleanText(readFirst(current, [
+    'RecruitmentRoundID',
+    'RecruitmentRoundId',
+    'recruitmentRoundId',
+  ]));
+  const amisRecruitmentRoundName = cleanText(readFirst(current, [
+    'RecruitmentRoundName',
+    'RecruitmentRound',
+    'recruitmentRoundName',
+  ]));
+
+  if (!amisRecruitmentId || !amisCandidateId || !amisRecruitmentRoundId) return null;
+
+  return {
+    amisRecruitmentId,
+    amisCandidateId,
+    amisRecruitmentRoundId,
+    amisRecruitmentRoundName: amisRecruitmentRoundName || null,
+    amisStatus: readNumber(current, ['Status', 'status']) ?? null,
+    sourceUrl,
+    pageUrl,
+    changedAt: new Date().toISOString(),
+  };
 }
 
 function mapAmisSaveRecruitmentResponse(
@@ -401,6 +535,17 @@ function readFirstValue(data: Record<string, unknown>, keys: string[]) {
   return undefined;
 }
 
+function readNumber(data: Record<string, unknown>, keys: string[]) {
+  const value = readFirstValue(data, keys);
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 function describePayloadShape(value: unknown) {
   if (!isObject(value)) {
     return { responseType: typeof value };
@@ -424,4 +569,5 @@ function isObject(value: unknown): value is Record<string, unknown> {
 interface HookedXMLHttpRequest extends XMLHttpRequest {
   __vcsAmisRequestMethod?: string;
   __vcsAmisRequestUrl?: string;
+  __vcsAmisCandidateStageRequestUrl?: string;
 }

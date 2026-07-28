@@ -29,6 +29,7 @@ import {
   SyncAmisApplicationsDto,
   SyncAmisApplicationsResponseDto,
   SyncAmisJobPostingDto,
+  UpdateAmisApplicationStageDto,
   UpdateAmisCareerQuestionCategoriesDto,
   UpdateJobDescriptionQuestionSetItemDto,
 } from './dto';
@@ -982,6 +983,8 @@ export class ExtensionIntegrationService {
         ...(mobile ? { mobile } : {}),
         ...(this.optionalText(item.birthday) ? { birthday: this.optionalText(item.birthday) ?? undefined } : {}),
         ...(this.optionalText(item.recruitmentRoundName) ? { recruitmentRoundName: this.optionalText(item.recruitmentRoundName) ?? undefined } : {}),
+        ...(this.optionalText(item.attractivePersonnelName) ? { attractivePersonnelName: this.optionalText(item.attractivePersonnelName) ?? undefined } : {}),
+        ...(this.optionalText(item.attractivePersonnelId) ? { attractivePersonnelId: this.optionalText(item.attractivePersonnelId) ?? undefined } : {}),
         ...(typeof item.status === 'number' ? { status: item.status } : {}),
         ...(typeof item.recruitmentChannelId === 'number' ? { recruitmentChannelId: item.recruitmentChannelId } : {}),
         ...(this.optionalText(item.channelName) ? { channelName: this.optionalText(item.channelName) ?? undefined } : {}),
@@ -1082,6 +1085,8 @@ export class ExtensionIntegrationService {
       recruitmentId: item.recruitmentId,
       recruitmentRoundId: item.recruitmentRoundId,
       recruitmentRoundName: item.recruitmentRoundName ?? null,
+      attractivePersonnelName: item.attractivePersonnelName ?? null,
+      attractivePersonnelId: item.attractivePersonnelId ?? null,
       candidateId: item.candidateId,
       candidateConvertId: item.candidateConvertId ?? null,
       status: item.status ?? null,
@@ -1501,6 +1506,16 @@ export class ExtensionIntegrationService {
             ?? (typeof rawPayload.channelName === 'string' && rawPayload.channelName.trim()
               ? this.resolveAmisApplicationChannel(rawPayload.channelName)
               : null),
+          attractivePersonnelName: this.optionalText(
+            rawPayload.attractivePersonnelName
+              ?? rawPayload.AttractivePersonnel
+              ?? rawPayload.AttractivePersonnelName,
+          ),
+          attractivePersonnelId: this.optionalText(
+            rawPayload.attractivePersonnelId
+              ?? rawPayload.AttractivePersonnelID
+              ?? rawPayload.AttractivePersonnelId,
+          ),
           externalApplicationId: application.externalApplicationId,
           amisRecruitmentRoundId: this.optionalText(rawPayload.recruitmentRoundId),
           amisRecruitmentRoundName: this.optionalText(rawPayload.recruitmentRoundName),
@@ -1512,6 +1527,55 @@ export class ExtensionIntegrationService {
           updatedAt: application.updatedAt.toISOString(),
         };
       }),
+    };
+  }
+
+  async updateAmisApplicationStage(
+    amisRecruitmentId: string,
+    amisCandidateId: string,
+    dto: UpdateAmisApplicationStageDto,
+  ) {
+    const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
+    const normalizedCandidateId = this.requireText(amisCandidateId, 'amisCandidateId');
+    const normalizedRoundId = this.requireText(dto.recruitmentRoundId, 'recruitmentRoundId');
+    const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(normalizedRecruitmentId);
+    const applications = await this.dataSource.getRepository(ApplicationEntity).find({
+      where: { jobPostingId },
+      relations: ['sources'],
+    });
+    const applicationRow = this.buildAmisApplicationListRows(
+      applications,
+      normalizedRecruitmentId,
+    ).find(({ source }) => source?.amisCandidateId === normalizedCandidateId);
+
+    if (!applicationRow?.source) {
+      throw new BadRequestException({
+        code: 'AMIS_APPLICATION_NOT_FOUND',
+        message: 'The AMIS application was not found for this recruitment and candidate.',
+      });
+    }
+
+    const source = applicationRow.source;
+    const rawPayload = this.isRecord(source.rawPayload) ? source.rawPayload : {};
+    const updatedAt = new Date().toISOString();
+    source.rawPayload = {
+      ...rawPayload,
+      recruitmentRoundId: normalizedRoundId,
+      recruitmentRoundName: this.optionalText(dto.recruitmentRoundName),
+      ...(typeof dto.status === 'number' ? { status: dto.status } : {}),
+      ...(this.optionalText(dto.sourceUrl) ? { stageSourceUrl: this.optionalText(dto.sourceUrl) } : {}),
+      ...(this.optionalText(dto.changedAt) ? { stageChangedAt: this.optionalText(dto.changedAt) } : {}),
+      stageUpdatedAt: updatedAt,
+    };
+    await this.dataSource.getRepository(ApplicationSourceEntity).save(source);
+
+    return {
+      updated: true,
+      amisRecruitmentId: normalizedRecruitmentId,
+      amisCandidateId: normalizedCandidateId,
+      recruitmentRoundId: normalizedRoundId,
+      recruitmentRoundName: this.optionalText(dto.recruitmentRoundName),
+      updatedAt,
     };
   }
 

@@ -14,6 +14,7 @@ import type {
   ApplicationDetailRecord,
   ParsedProfileRecord,
   AmisApplicationsForRecruitment,
+  AmisCandidateStageChangedPayload,
   AmisCareerCatalogItem,
   AmisCareerQuestionContext,
   AmisJobSnapshot,
@@ -299,6 +300,26 @@ export async function getAmisApplicationsForRecruitment(
     {
       method: 'GET',
       accessToken,
+    },
+  );
+}
+
+export async function updateAmisApplicationStage(
+  accessToken: string,
+  payload: AmisCandidateStageChangedPayload,
+) {
+  return request<{ updated: boolean }>(
+    `/extension/amis/recruitments/${encodeURIComponent(payload.amisRecruitmentId)}/applications/${encodeURIComponent(payload.amisCandidateId)}/stage`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: {
+        recruitmentRoundId: payload.amisRecruitmentRoundId,
+        recruitmentRoundName: payload.amisRecruitmentRoundName ?? undefined,
+        status: payload.amisStatus ?? undefined,
+        sourceUrl: payload.sourceUrl,
+        changedAt: payload.changedAt,
+      },
     },
   );
 }

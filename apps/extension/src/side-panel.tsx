@@ -30,6 +30,7 @@ import {
   syncAndPublishAmisJob,
   syncFacebookGroups,
   syncVcsPortalJobDescriptions,
+  updateAmisApplicationStage,
   updateFacebookGroup,
   updateFacebookPublishHistoryStatusCheck,
   verifyFacebookGroup,
@@ -79,6 +80,7 @@ import type {
   AmisAutoSyncState,
   AmisApplicationsForRecruitment,
   AmisApplicationItem,
+  AmisCandidateStageChangedPayload,
   AmisExtractionResult,
   AmisJobSnapshot,
   ApiPagination,
@@ -249,6 +251,7 @@ const AMIS_SOURCE_NAME_BY_CHANNEL: Readonly<Record<string, string>> = {
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
+const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_STAGE_CHANGED';
 const JOB_DESCRIPTION_QUESTION_SELECTION_PREFIX = 'vcs:selected-jd-questions:';
 const MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS = 3;
 const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
@@ -256,6 +259,7 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'cv', label: 'CV' },
 ];
 const CV_APPLICATION_PAGE_SIZE = 5;
+const AMIS_CANDIDATE_STAGES = ['Ứng tuyển', 'Thi tuyển', 'Phỏng vấn', 'Offer', 'Đã tuyển'] as const;
 const CV_SYNC_FILTER_OPTIONS: Array<{ value: CvSyncFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'AMIS_NOT_SYNCED', label: 'Chưa đồng bộ AMIS' },
@@ -470,6 +474,12 @@ function SidePanel() {
   const activeAmisRecruitmentIdRef = useRef<string | null>(null);
   const activeSnapshotRecruitmentIdRef = useRef<string | null>(null);
   const applicationsRequestSeqRef = useRef(0);
+  const amisCandidateStageOverridesRef = useRef(new Map<string, {
+    amisRecruitmentRoundId: string;
+    amisRecruitmentRoundName: string | null;
+    amisStatus: number | null;
+  }>());
+  const processedAmisCandidateStageEventsRef = useRef(new Map<string, string>());
   const pendingAmisUploadApplicationIdsRef = useRef(new Set<string>());
   const pendingAmisUploadTimeoutsRef = useRef(new Map<string, number>());
   const postingSnapshotRefreshSeqRef = useRef(0);
@@ -549,6 +559,8 @@ function SidePanel() {
 
   useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
+    amisCandidateStageOverridesRef.current.clear();
+    processedAmisCandidateStageEventsRef.current.clear();
   }, [amisRecruitmentId]);
 
   useEffect(() => () => {
@@ -592,6 +604,11 @@ function SidePanel() {
           silent: true,
           sourceTabId: sender.tab?.id,
         });
+        return;
+      }
+
+      if (isAmisCandidateStageChangedMessage(message)) {
+        void applyAmisCandidateStageChangedMessage(message.payload, sender.tab?.id);
         return;
       }
 
@@ -1358,7 +1375,7 @@ function SidePanel() {
         return;
       }
 
-      setApplicationsContext(context);
+      setApplicationsContext(mergeAmisCandidateStageOverrides(context));
       const hasNewAmisUploadConfirmation = reconcilePendingAmisUploads(context);
       setApplicationsState('READY');
       if (pendingAmisUploadApplicationIdsRef.current.size === 0 && !hasNewAmisUploadConfirmation) {
@@ -1384,6 +1401,94 @@ function SidePanel() {
       setApplicationsState('ERROR');
       setApplicationsMessage(toErrorMessage(err));
     }
+  }
+
+  async function applyAmisCandidateStageChangedMessage(
+    payload: AmisCandidateStageChangedPayload,
+    sourceTabId?: number,
+  ) {
+    if (!payload.amisRecruitmentRoundId) return;
+    if (activeAmisRecruitmentIdRef.current !== payload.amisRecruitmentId) return;
+
+    try {
+      const activeTab = await getActiveTab();
+      if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return;
+    } catch {
+      return;
+    }
+
+    const eventKey = `${payload.amisRecruitmentId}:${payload.amisCandidateId}`;
+    const eventSignature = [
+      payload.amisRecruitmentRoundId,
+      payload.amisRecruitmentRoundName ?? '',
+      payload.amisStatus ?? '',
+    ].join(':');
+    if (processedAmisCandidateStageEventsRef.current.get(eventKey) === eventSignature) return;
+    processedAmisCandidateStageEventsRef.current.set(eventKey, eventSignature);
+    amisCandidateStageOverridesRef.current.set(eventKey, {
+      amisRecruitmentRoundId: payload.amisRecruitmentRoundId,
+      amisRecruitmentRoundName: payload.amisRecruitmentRoundName,
+      amisStatus: payload.amisStatus,
+    });
+
+    setApplicationsContext((current) => {
+      if (!current || current.amisRecruitmentId !== payload.amisRecruitmentId) return current;
+
+      return {
+        ...current,
+        applications: current.applications.map((application) => application.amisCandidateId === payload.amisCandidateId
+          ? {
+              ...application,
+              amisRecruitmentRoundId: payload.amisRecruitmentRoundId,
+              amisRecruitmentRoundName: payload.amisRecruitmentRoundName,
+              amisStatus: payload.amisStatus,
+            }
+          : application),
+      };
+    });
+
+    const accessToken = tokenRef.current;
+    if (!accessToken) return;
+
+    try {
+      await updateAmisApplicationStage(accessToken, payload);
+      await loadAmisApplications(accessToken, payload.amisRecruitmentId, { silent: true });
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+
+      setApplicationsMessage(`Stage update could not be saved: ${toErrorMessage(err)}`);
+    }
+  }
+
+  function mergeAmisCandidateStageOverrides(context: AmisApplicationsForRecruitment) {
+    return {
+      ...context,
+      applications: context.applications.map((application) => {
+        if (!application.amisCandidateId) return application;
+
+        const eventKey = `${context.amisRecruitmentId}:${application.amisCandidateId}`;
+        const override = amisCandidateStageOverridesRef.current.get(eventKey);
+        if (!override) return application;
+
+        if (application.amisRecruitmentRoundId === override.amisRecruitmentRoundId) {
+          amisCandidateStageOverridesRef.current.delete(eventKey);
+          return application;
+        }
+
+        return {
+          ...application,
+          amisRecruitmentRoundId: override.amisRecruitmentRoundId,
+          amisRecruitmentRoundName: override.amisRecruitmentRoundName,
+          amisStatus: override.amisStatus,
+        };
+      }),
+    };
   }
 
   async function refreshAmisRecruitmentContextFromActiveTab(options: { silent?: boolean; sourceTabId?: number } = {}) {
@@ -5379,6 +5484,10 @@ function SidePanel() {
               const score = aiScreeningDone ? getApplicationMatchScore(application) : null;
               const isSelected = selectedCvApplicationIds.has(application.applicationId);
               const canSyncToAmis = !isAmisCvUploaded && canUploadApplicationCv(application);
+              const currentStageIndex = getAmisCandidateStageIndex(application.amisRecruitmentRoundName);
+              const currentStageLabel = application.amisRecruitmentRoundName ?? 'Chưa cập nhật';
+              const recruiterName = application.attractivePersonnelName ?? 'Chưa phân công';
+              const appliedDate = formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-';
 
               return (
                 <li key={application.applicationId} className={isSelected ? 'is-selected' : ''}>
@@ -5395,8 +5504,20 @@ function SidePanel() {
                       <div>
                         <strong>{application.candidateName}</strong>
                         <span>{[application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact'}</span>
+                        <span className="cv-candidate-applied-date">Ngày ứng tuyển: {appliedDate}</span>
                       </div>
                       {score != null ? <b className="cv-candidate-score">{score}</b> : null}
+                    </div>
+                    <div className="cv-candidate-process" aria-label={`Vòng hiện tại: ${currentStageLabel}`}>
+                      {AMIS_CANDIDATE_STAGES.map((stage, stageIndex) => (
+                        <div
+                          key={stage}
+                          className={`cv-candidate-process-step${stageIndex < currentStageIndex ? ' is-complete' : ''}${stageIndex === currentStageIndex ? ' is-current' : ''}`}
+                        >
+                          <span className="cv-candidate-process-marker" aria-hidden="true" />
+                          <span>{stage}</span>
+                        </div>
+                      ))}
                     </div>
                     <div className="cv-candidate-meta">
                       <span className="cv-candidate-source">
@@ -5404,11 +5525,8 @@ function SidePanel() {
                         <span>Nguồn</span>
                         <span className="cv-source-chip">{getCvSourceLabel(application)}</span>
                       </span>
-                      <span className="cv-candidate-date">
-                        <CalendarIcon />
-                        <span>
-                          Ngày ứng tuyển: <strong>{formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-'}</strong>
-                        </span>
+                      <span className="cv-candidate-recruiter">
+                        Nhân sự khai thác: <strong>{recruiterName}</strong>
                       </span>
                     </div>
                     <div className="cv-candidate-details">
@@ -6593,15 +6711,6 @@ function ChevronDownIcon() {
   );
 }
 
-function CalendarIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M5 2.5v2M11 2.5v2M2.5 6h11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function SourceIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
@@ -7507,6 +7616,23 @@ function getAmisSourceName(sourceChannel?: string | null) {
   return normalizedChannel ? AMIS_SOURCE_NAME_BY_CHANNEL[normalizedChannel] ?? null : null;
 }
 
+function getAmisCandidateStageIndex(value?: string | null) {
+  const normalized = value
+    ?.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/Đ/g, 'D')
+    .replace(/đ/g, 'd')
+    .toUpperCase()
+    .trim();
+  if (!normalized) return -1;
+  if (normalized.includes('DA TUYEN')) return 4;
+  if (normalized.includes('OFFER')) return 3;
+  if (normalized.includes('PHONG VAN')) return 2;
+  if (normalized.includes('THI TUYEN')) return 1;
+  if (normalized.includes('UNG TUYEN')) return 0;
+  return -1;
+}
+
 function formatStatusText(value: string) {
   return value
     .toLowerCase()
@@ -7841,6 +7967,27 @@ function isApplicationsSyncedMessage(value: unknown): value is {
     && typeof payload === 'object'
     && payload !== null
     && typeof (payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string';
+}
+
+function isAmisCandidateStageChangedMessage(value: unknown): value is {
+  type: typeof AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE;
+  payload: AmisCandidateStageChangedPayload;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { type?: unknown }).type !== AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE) return false;
+
+  const payload = (value as { payload?: unknown }).payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  const stage = payload as Partial<AmisCandidateStageChangedPayload>;
+  return typeof stage.amisRecruitmentId === 'string'
+    && typeof stage.amisCandidateId === 'string'
+    && typeof stage.amisRecruitmentRoundId === 'string'
+    && (stage.amisRecruitmentRoundName === null || typeof stage.amisRecruitmentRoundName === 'string')
+    && (stage.amisStatus === null || typeof stage.amisStatus === 'number')
+    && typeof stage.sourceUrl === 'string'
+    && typeof stage.pageUrl === 'string'
+    && typeof stage.changedAt === 'string';
 }
 
 function isExtractionForRecruitment(extraction: AmisExtractionResult, recruitmentId: string) {

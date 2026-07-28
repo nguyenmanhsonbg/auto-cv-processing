@@ -14,3 +14,4 @@ export * from './verify-facebook-group.dto';
 export * from './sync-vcs-portal-jds.dto';
 export * from './generate-facebook-preview-content.dto';
 export * from './resolve-facebook-account.dto';
+export * from './update-amis-application-stage.dto';
