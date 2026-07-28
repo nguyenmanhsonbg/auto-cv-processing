@@ -83,6 +83,7 @@ import type {
   AmisCandidateStageChangedPayload,
   AmisExtractionResult,
   AmisJobSnapshot,
+  AmisRecruitmentRound,
   ApiPagination,
   ChannelPostingResult,
   ExtensionChannel,
@@ -249,9 +250,11 @@ const AMIS_SOURCE_NAME_BY_CHANNEL: Readonly<Record<string, string>> = {
   VIETNAMWORKS: 'VietnamWorks',
 };
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
+const GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_ROUNDS';
 const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_STAGE_CHANGED';
+const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_ROUNDS_CHANGED';
 const JOB_DESCRIPTION_QUESTION_SELECTION_PREFIX = 'vcs:selected-jd-questions:';
 const MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS = 3;
 const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
@@ -259,7 +262,6 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'cv', label: 'CV' },
 ];
 const CV_APPLICATION_PAGE_SIZE = 5;
-const AMIS_CANDIDATE_STAGES = ['Ứng tuyển', 'Thi tuyển', 'Phỏng vấn', 'Offer', 'Đã tuyển'] as const;
 const CV_SYNC_FILTER_OPTIONS: Array<{ value: CvSyncFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'AMIS_NOT_SYNCED', label: 'Chưa đồng bộ AMIS' },
@@ -457,6 +459,7 @@ function SidePanel() {
   const [selectedJobQuestionIds, setSelectedJobQuestionIds] = useState<Set<string>>(new Set());
   const [applicationsState, setApplicationsState] = useState<ApplicationsState>('IDLE');
   const [applicationsContext, setApplicationsContext] = useState<AmisApplicationsForRecruitment | null>(null);
+  const [amisRecruitmentRounds, setAmisRecruitmentRounds] = useState<AmisRecruitmentRound[]>([]);
   const [activeAmisCandidateId, setActiveAmisCandidateId] = useState<string | null>(null);
   const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
   const [cvUploadApplicationId, setCvUploadApplicationId] = useState<string | null>(null);
@@ -610,6 +613,17 @@ function SidePanel() {
 
       if (isAmisCandidateStageChangedMessage(message)) {
         void applyAmisCandidateStageChangedMessage(message.payload, sender.tab?.id);
+        return;
+      }
+
+      if (isAmisRecruitmentRoundsChangedMessage(message)) {
+        if (
+          activeAmisRecruitmentIdRef.current
+          && activeAmisRecruitmentIdRef.current !== message.payload.amisRecruitmentId
+        ) {
+          return;
+        }
+        setAmisRecruitmentRounds(message.payload.rounds);
         return;
       }
 
@@ -1556,6 +1570,21 @@ function SidePanel() {
 
       missedRecruitmentContextCountRef.current = 0;
       const contextChanged = setActiveAmisRecruitmentContext(context.amisRecruitmentId, context.amisRecruitmentRoundId ?? null);
+      try {
+        const roundsResponse = await sendMessageToAmisTab(activeTab.id, {
+          type: GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE,
+          payload: { amisRecruitmentId: context.amisRecruitmentId },
+        });
+        if (
+          isAmisRecruitmentRoundsResponse(roundsResponse)
+          && roundsResponse.ok
+          && roundsResponse.amisRecruitmentId === context.amisRecruitmentId
+        ) {
+          setAmisRecruitmentRounds(roundsResponse.rounds);
+        }
+      } catch {
+        // The passive AMIS response capture may arrive shortly after route hydration.
+      }
       await refreshPostingSnapshotForActiveContext(context.amisRecruitmentId, activeTab, {
         force: contextChanged,
         silent: true,
@@ -1932,6 +1961,7 @@ function SidePanel() {
     if (previousRecruitmentId !== normalizedRecruitmentId) {
       applicationsRequestSeqRef.current += 1;
       lastApplicationsFallbackSyncUrlRef.current = null;
+      setAmisRecruitmentRounds([]);
       clearPendingAmisUploads();
       setApplicationsContext(null);
       setApplicationsMessage(null);
@@ -5492,8 +5522,15 @@ function SidePanel() {
               const score = aiScreeningDone ? getApplicationMatchScore(application) : null;
               const isSelected = selectedCvApplicationIds.has(application.applicationId);
               const canSyncToAmis = !isAmisCvUploaded && canUploadApplicationCv(application);
-              const currentStageIndex = getAmisCandidateStageIndex(application.amisRecruitmentRoundName);
-              const currentStageLabel = application.amisRecruitmentRoundName ?? 'Chưa cập nhật';
+              const candidateStages = getAmisCandidateStageOptions(amisRecruitmentRounds, application);
+              const currentStageIndex = getAmisCandidateStageIndex(
+                candidateStages,
+                application.amisRecruitmentRoundId,
+                application.amisRecruitmentRoundName,
+              );
+              const currentStageLabel = candidateStages[currentStageIndex]?.name
+                ?? application.amisRecruitmentRoundName
+                ?? 'Chưa cập nhật';
               const isAmisRejected = application.amisStatus === 0;
               const rejectionReason = application.amisReasonRemoved?.trim() || null;
               const recruiterName = application.attractivePersonnelName ?? 'Chưa phân công';
@@ -5518,14 +5555,18 @@ function SidePanel() {
                       </div>
                       {score != null ? <b className="cv-candidate-score">{score}</b> : null}
                     </div>
-                    <div className="cv-candidate-process" aria-label={`Vòng hiện tại: ${currentStageLabel}`}>
-                      {AMIS_CANDIDATE_STAGES.map((stage, stageIndex) => (
+                    <div
+                      className="cv-candidate-process"
+                      style={{ '--cv-stage-count': String(candidateStages.length) } as React.CSSProperties}
+                      aria-label={`Vòng hiện tại: ${currentStageLabel}`}
+                    >
+                      {candidateStages.map((stage, stageIndex) => (
                         <div
-                          key={stage}
+                          key={stage.id}
                           className={`cv-candidate-process-step${stageIndex < currentStageIndex ? ' is-complete' : ''}${stageIndex === currentStageIndex && !isAmisRejected ? ' is-current' : ''}${stageIndex === currentStageIndex && isAmisRejected ? ' is-failed' : ''}`}
                         >
                           <span className="cv-candidate-process-marker" aria-hidden="true" />
-                          <span>{stage}</span>
+                          <span>{stage.name}</span>
                         </div>
                       ))}
                     </div>
@@ -7632,21 +7673,50 @@ function getAmisSourceName(sourceChannel?: string | null) {
   return normalizedChannel ? AMIS_SOURCE_NAME_BY_CHANNEL[normalizedChannel] ?? null : null;
 }
 
-function getAmisCandidateStageIndex(value?: string | null) {
-  const normalized = value
+function getAmisCandidateStageOptions(
+  rounds: AmisRecruitmentRound[],
+  application: ExtensionApplication,
+) {
+  if (rounds.length > 0) return rounds;
+
+  const currentName = normalizeOptionalText(application.amisRecruitmentRoundName);
+  if (!currentName) return [];
+
+  return [{
+    id: application.amisRecruitmentRoundId ?? `current:${currentName}`,
+    name: currentName,
+    sortOrder: 1,
+    roundType: null,
+    roundTypeId: null,
+    color: null,
+  } satisfies AmisRecruitmentRound];
+}
+
+function getAmisCandidateStageIndex(
+  rounds: AmisRecruitmentRound[],
+  roundId?: string | null,
+  roundName?: string | null,
+) {
+  const normalizedRoundId = normalizeOptionalText(roundId);
+  if (normalizedRoundId) {
+    const idIndex = rounds.findIndex((round) => round.id === normalizedRoundId);
+    if (idIndex >= 0) return idIndex;
+  }
+
+  const normalizedName = normalizeAmisStageName(roundName);
+  if (!normalizedName) return -1;
+
+  return rounds.findIndex((round) => normalizeAmisStageName(round.name) === normalizedName);
+}
+
+function normalizeAmisStageName(value?: string | null) {
+  return normalizeOptionalText(value)
     ?.normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/Đ/g, 'D')
     .replace(/đ/g, 'd')
     .toUpperCase()
-    .trim();
-  if (!normalized) return -1;
-  if (normalized.includes('DA TUYEN')) return 4;
-  if (normalized.includes('OFFER')) return 3;
-  if (normalized.includes('PHONG VAN')) return 2;
-  if (normalized.includes('THI TUYEN')) return 1;
-  if (normalized.includes('UNG TUYEN')) return 0;
-  return -1;
+    .trim() ?? null;
 }
 
 function formatStatusText(value: string) {
@@ -8007,6 +8077,37 @@ function isAmisCandidateStageChangedMessage(value: unknown): value is {
     && typeof stage.changedAt === 'string';
 }
 
+function isAmisRecruitmentRoundsChangedMessage(value: unknown): value is {
+  type: typeof AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE;
+  payload: {
+    amisRecruitmentId: string;
+    rounds: AmisRecruitmentRound[];
+    sourceUrl: string;
+    pageUrl: string;
+    capturedAt: string;
+  };
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { type?: unknown }).type !== AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE) return false;
+
+  const payload = (value as { payload?: unknown }).payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+  const roundsPayload = payload as {
+    amisRecruitmentId?: unknown;
+    rounds?: unknown;
+    sourceUrl?: unknown;
+    pageUrl?: unknown;
+    capturedAt?: unknown;
+  };
+
+  return typeof roundsPayload.amisRecruitmentId === 'string'
+    && typeof roundsPayload.sourceUrl === 'string'
+    && typeof roundsPayload.pageUrl === 'string'
+    && typeof roundsPayload.capturedAt === 'string'
+    && Array.isArray(roundsPayload.rounds)
+    && roundsPayload.rounds.every(isAmisRecruitmentRound);
+}
+
 function isExtractionForRecruitment(extraction: AmisExtractionResult, recruitmentId: string) {
   return extraction.detected
     && Boolean(extraction.snapshot)
@@ -8030,6 +8131,34 @@ function isAmisRecruitmentContextResponse(value: unknown): value is {
     && value !== null
     && typeof (value as { ok?: unknown }).ok === 'boolean'
     && typeof (value as { pageUrl?: unknown }).pageUrl === 'string';
+}
+
+function isAmisRecruitmentRoundsResponse(value: unknown): value is {
+  ok: boolean;
+  amisRecruitmentId: string | null;
+  rounds: AmisRecruitmentRound[];
+  sourceUrl: string;
+  error?: string;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { ok?: unknown }).ok === 'boolean'
+    && (typeof (value as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string'
+      || (value as { amisRecruitmentId?: unknown }).amisRecruitmentId === null)
+    && typeof (value as { sourceUrl?: unknown }).sourceUrl === 'string'
+    && Array.isArray((value as { rounds?: unknown }).rounds)
+    && (value as { rounds: unknown[] }).rounds.every(isAmisRecruitmentRound);
+}
+
+function isAmisRecruitmentRound(value: unknown): value is AmisRecruitmentRound {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { id?: unknown }).id === 'string'
+    && typeof (value as { name?: unknown }).name === 'string'
+    && typeof (value as { sortOrder?: unknown }).sortOrder === 'number'
+    && ((value as { roundType?: unknown }).roundType === null || typeof (value as { roundType?: unknown }).roundType === 'number')
+    && ((value as { roundTypeId?: unknown }).roundTypeId === null || typeof (value as { roundTypeId?: unknown }).roundTypeId === 'string')
+    && ((value as { color?: unknown }).color === null || typeof (value as { color?: unknown }).color === 'string');
 }
 
 function isAmisApplicationsFetchResponse(value: unknown): value is {

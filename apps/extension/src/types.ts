@@ -704,6 +704,15 @@ export interface AmisCandidateStageChangedPayload {
   changedAt: string;
 }
 
+export interface AmisRecruitmentRound {
+  id: string;
+  name: string;
+  sortOrder: number;
+  roundType: number | null;
+  roundTypeId: string | null;
+  color: string | null;
+}
+
 export interface AmisApplicationsForRecruitment {
   amisRecruitmentId: string;
   jobPostingId: string;

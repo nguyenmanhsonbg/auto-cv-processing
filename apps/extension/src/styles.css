@@ -6490,9 +6490,11 @@ dd {
 
 .cv-candidate-process {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--cv-stage-count, 1), minmax(72px, 1fr));
   gap: 0;
+  overflow-x: auto;
   padding: 2px 0 0;
+  scrollbar-width: thin;
 }
 
 .cv-candidate-process-step {
