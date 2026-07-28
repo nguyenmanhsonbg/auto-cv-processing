@@ -258,6 +258,7 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'cv', label: 'CV' },
 ];
 const CV_APPLICATION_PAGE_SIZE = 5;
+const GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE = 'VCS_GET_AMIS_CANDIDATE_FORM_STATE';
 const CV_QUESTION_FILTER_OPTIONS: Array<{ value: CvQuestionFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'NOT_ANSWERED', label: 'Chưa trả lời' },
@@ -466,6 +467,7 @@ function SidePanel() {
   const [applicationsContext, setApplicationsContext] = useState<AmisApplicationsForRecruitment | null>(null);
   const [activeAmisCandidateId, setActiveAmisCandidateId] = useState<string | null>(null);
   const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
+  const [isAmisCandidateFormOpen, setIsAmisCandidateFormOpen] = useState(false);
   const [cvUploadApplicationId, setCvUploadApplicationId] = useState<string | null>(null);
   const [pendingAmisUploadApplicationIds, setPendingAmisUploadApplicationIds] = useState<Set<string>>(new Set());
   const [aiEvaluationApplicationId, setAiEvaluationApplicationId] = useState<string | null>(null);
@@ -479,6 +481,9 @@ function SidePanel() {
   const [cvSourceFilter, setCvSourceFilter] = useState<CvSourceFilter>('ALL');
   const [openCvFilter, setOpenCvFilter] = useState<CvFilterDropdownKey | null>(null);
   const [cvApplicationPage, setCvApplicationPage] = useState(1);
+  const amisCandidateFormOpenRef = useRef(false);
+  const amisUnsavedChangesPromptOpenRef = useRef(false);
+  const pendingAmisUploadCancelTimeoutRef = useRef<number | null>(null);
   const lastJobQuestionContextIdRef = useRef<string | null>(null);
   const lastApplicationsFallbackSyncUrlRef = useRef<string | null>(null);
   const activeAmisRecruitmentIdRef = useRef<string | null>(null);
@@ -562,6 +567,83 @@ function SidePanel() {
   }, [openCvFilter]);
 
   useEffect(() => {
+    let disposed = false;
+
+    const schedulePendingUploadCancellation = () => {
+      if (pendingAmisUploadApplicationIdsRef.current.size === 0) return;
+      if (pendingAmisUploadCancelTimeoutRef.current !== null) {
+        window.clearTimeout(pendingAmisUploadCancelTimeoutRef.current);
+      }
+
+      pendingAmisUploadCancelTimeoutRef.current = window.setTimeout(async () => {
+        pendingAmisUploadCancelTimeoutRef.current = null;
+        if (
+          amisCandidateFormOpenRef.current
+          || amisUnsavedChangesPromptOpenRef.current
+          || pendingAmisUploadApplicationIdsRef.current.size === 0
+        ) return;
+
+        if (token && amisRecruitmentId) {
+          await loadAmisApplications(token, amisRecruitmentId, { silent: true });
+        }
+
+        if (
+          !amisCandidateFormOpenRef.current
+          && !amisUnsavedChangesPromptOpenRef.current
+          && pendingAmisUploadApplicationIdsRef.current.size > 0
+        ) {
+          clearPendingAmisUploads();
+          setApplicationsMessage('Đã hủy lưu trên AMIS. Hồ sơ chưa được lưu.');
+        }
+      }, 1_200);
+    };
+
+    const checkAmisCandidateForm = async () => {
+      try {
+        const activeTab = await getActiveTab();
+        if (disposed || !activeTab.id || !activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+          if (!disposed) setIsAmisCandidateFormOpen(false);
+          return;
+        }
+
+        const response = await sendMessageToAmisTab(activeTab.id, {
+          type: GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE,
+        });
+        if (!disposed) {
+          const nextFormOpen = Boolean((response as { open?: unknown } | null)?.open);
+          const nextPromptOpen = Boolean((response as { unsavedChangesPromptOpen?: unknown } | null)?.unsavedChangesPromptOpen);
+          const formWasOpen = amisCandidateFormOpenRef.current;
+          const promptWasOpen = amisUnsavedChangesPromptOpenRef.current;
+
+          amisCandidateFormOpenRef.current = nextFormOpen;
+          amisUnsavedChangesPromptOpenRef.current = nextPromptOpen;
+          setIsAmisCandidateFormOpen(nextFormOpen);
+
+          if (
+            (!nextFormOpen && !nextPromptOpen)
+            && ((formWasOpen && !nextFormOpen) || (promptWasOpen && !nextPromptOpen))
+          ) {
+            schedulePendingUploadCancellation();
+          }
+        }
+      } catch {
+        if (!disposed) setIsAmisCandidateFormOpen(false);
+      }
+    };
+
+    void checkAmisCandidateForm();
+    const intervalId = window.setInterval(() => void checkAmisCandidateForm(), 700);
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      if (pendingAmisUploadCancelTimeoutRef.current !== null) {
+        window.clearTimeout(pendingAmisUploadCancelTimeoutRef.current);
+        pendingAmisUploadCancelTimeoutRef.current = null;
+      }
+    };
+  }, [amisRecruitmentId, token]);
+
+  useEffect(() => {
     activeAmisRecruitmentIdRef.current = amisRecruitmentId;
   }, [amisRecruitmentId]);
 
@@ -570,6 +652,10 @@ function SidePanel() {
       window.clearTimeout(timeoutId);
     }
     pendingAmisUploadTimeoutsRef.current.clear();
+    if (pendingAmisUploadCancelTimeoutRef.current !== null) {
+      window.clearTimeout(pendingAmisUploadCancelTimeoutRef.current);
+      pendingAmisUploadCancelTimeoutRef.current = null;
+    }
   }, []);
 
   useEffect(() => () => {
@@ -5324,7 +5410,7 @@ function SidePanel() {
           <button
             type="button"
             className="cv-bulk-sync-button"
-            disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId)}
+            disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId) || !isAmisCandidateFormOpen}
             onClick={() => void uploadApplicationCvsToAmisForm(selectedFilteredApplications)}
           >
             <RefreshIcon />
@@ -5422,8 +5508,19 @@ function SidePanel() {
               const canRunAiScreening = questionStatus.code === 'ANSWERED';
               const score = aiScreeningDone ? getApplicationMatchScore(application) : null;
               const isSelected = selectedCvApplicationIds.has(application.applicationId);
-              const canSyncToAmis = !isAmisCvUploaded && canUploadApplicationCv(application);
               const isAiEvaluationUploaded = aiEvaluationUploadedApplicationIds.has(application.applicationId);
+              const isAmisSynced = Boolean(application.amisCandidateId);
+              const canShowAmisSyncButton = !isAmisSynced && !isAmisCvUploaded;
+              const canShowAiScreeningButton = questionStatus.code === 'ANSWERED'
+                && isAmisSynced
+                && !aiScreeningDone
+                && !isAiEvaluationUploaded;
+              const canShowAiUploadButton = isAmisSynced
+                && isAmisCvUploaded
+                && aiScreeningDone
+                && isCurrentAmisCandidate
+                && !isAiEvaluationUploaded;
+              const canSyncToAmis = canShowAmisSyncButton && canUploadApplicationCv(application);
               const aiEvaluationStatus = getApplicationAiEvaluationStatus(application, isAiEvaluationUploaded);
 
               return (
@@ -5476,7 +5573,7 @@ function SidePanel() {
                       <p>CV này không có ghi chú nào.</p>
                     </div>
                     <div className="cv-candidate-footer">
-                      {!isAmisCvUploaded ? (
+                      {canShowAmisSyncButton && isAmisCandidateFormOpen ? (
                         <button
                           type="button"
                           className="cv-sync-amis-button"
@@ -5490,7 +5587,7 @@ function SidePanel() {
                               : 'Đồng bộ'}
                         </button>
                       ) : null}
-                      {!aiScreeningDone && !isAiEvaluationUploaded ? (
+                      {canShowAiScreeningButton ? (
                         <button
                           type="button"
                           className="cv-sync-amis-button"
@@ -5500,7 +5597,7 @@ function SidePanel() {
                           {aiScreeningRunning ? 'Đang đánh giá...' : 'Đánh giá AI'}
                         </button>
                       ) : null}
-                      {isAmisCvUploaded && aiScreeningDone && isCurrentAmisCandidate && !isAiEvaluationUploaded ? (
+                      {canShowAiUploadButton ? (
                         <button
                           type="button"
                           className="cv-sync-amis-button"
