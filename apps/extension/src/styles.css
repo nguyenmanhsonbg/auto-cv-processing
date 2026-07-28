@@ -5669,7 +5669,7 @@ dd {
   white-space: nowrap;
 }
 
-.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge) {
+.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
   display: block;
   min-width: 0;
   margin-top: 2px;
@@ -6260,16 +6260,24 @@ dd {
   font-size: 17px;
 }
 
-.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge) {
+.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
   color: #6b7280;
   font-size: 12px;
 }
 
+.cv-candidate-main .cv-candidate-applied-date {
+  color: #404040;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16.5px;
+}
+
 .cv-candidate-meta {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'source recruiter';
   align-items: center;
-  gap: 12px;
-  justify-content: space-between;
+  gap: 8px 12px;
   border-bottom: 1px solid #e6ebef;
   padding: 0 0 11px;
   color: #4b5563;
@@ -6281,25 +6289,22 @@ dd {
   font-weight: 750;
 }
 
-.cv-candidate-source,
-.cv-candidate-date {
+.cv-candidate-source {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
-.cv-candidate-source svg,
-.cv-candidate-date svg {
+.cv-candidate-source {
+  grid-area: source;
+}
+
+.cv-candidate-source svg {
   width: 13px;
   height: 13px;
   flex: 0 0 auto;
   color: #667085;
-}
-
-.cv-candidate-date {
-  margin-left: auto;
-  white-space: nowrap;
 }
 
 .cv-candidate-status-grid {
@@ -6470,7 +6475,7 @@ dd {
   font-size: 16px;
 }
 
-.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge) {
+.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
   color: #6b7280;
   font-size: 11px;
 }
@@ -6480,12 +6485,192 @@ dd {
   width: 31px;
   height: 31px;
   place-items: center;
-  border: 1px solid #acdccc;
+  border: 1px solid #fb923c;
   border-radius: 999px;
-  color: #08634c;
-  background: #d9f1e9;
+  color: #fb923c;
+  background: #fff7ed;
   font-size: 11px;
   font-weight: 950;
+}
+
+.cv-candidate-process {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  padding: 2px 0 0;
+}
+
+.cv-candidate-process-step {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 7px;
+  color: #374151;
+  font-family: Pretendard, Roboto, sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
+  text-align: center;
+  transition: color 350ms ease-out;
+}
+
+.cv-candidate-process-step::after {
+  position: absolute;
+  top: 7px;
+  right: 50%;
+  left: -50%;
+  height: 2px;
+  background: #e5e7eb;
+  content: '';
+}
+
+.cv-candidate-process-step::before {
+  position: absolute;
+  z-index: 1;
+  top: 7px;
+  right: 50%;
+  left: -50%;
+  height: 2px;
+  background: #3b82f6;
+  content: '';
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition:
+    transform 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 450ms ease-out;
+}
+
+.cv-candidate-process-step:first-child::after {
+  display: none;
+}
+
+.cv-candidate-process-step:first-child::before {
+  display: none;
+}
+
+.cv-candidate-process-step.is-complete::before,
+.cv-candidate-process-step.is-current::before {
+  transform: scaleX(1);
+}
+
+.cv-candidate-process-marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border: 2px solid #dbeafe;
+  border-radius: 999px;
+  background: #ffffff;
+  transition:
+    border-color 350ms ease-out,
+    background-color 350ms ease-out,
+    transform 350ms ease-out;
+}
+
+.cv-candidate-process-marker::before {
+  opacity: 0;
+  transform: rotate(-45deg) translate(1px, -1px) scale(0.5);
+  transition:
+    opacity 250ms ease-out,
+    transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cv-candidate-process-step.is-complete .cv-candidate-process-marker,
+.cv-candidate-process-step.is-current .cv-candidate-process-marker {
+  border-color: #3b82f6;
+  background: #3b82f6;
+}
+
+.cv-candidate-process-step.is-complete .cv-candidate-process-marker::before {
+  width: 5px;
+  height: 3px;
+  border-bottom: 2px solid #ffffff;
+  border-left: 2px solid #ffffff;
+  content: '';
+  opacity: 1;
+  transform: rotate(-45deg) translate(1px, -1px) scale(1);
+}
+
+.cv-candidate-process-step.is-current {
+  color: rgba(47, 43, 61, 0.9);
+  font-weight: 600;
+}
+
+.cv-candidate-process-step.is-failed {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.cv-candidate-process-step.is-failed::before {
+  background: #ef4444;
+  transform: scaleX(1);
+}
+
+.cv-candidate-process-step.is-failed .cv-candidate-process-marker {
+  border-color: #dc2626;
+  background: #dc2626;
+}
+
+.cv-candidate-process-step.is-failed .cv-candidate-process-marker::before {
+  width: auto;
+  height: auto;
+  border: 0;
+  color: #ffffff;
+  content: '\00d7';
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-candidate-process-step::before,
+  .cv-candidate-process-marker,
+  .cv-candidate-process-marker::before {
+    transition: none;
+  }
+}
+
+.cv-candidate-rejection-reason {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.cv-candidate-rejection-reason strong {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.cv-candidate-rejection-reason span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cv-candidate-recruiter {
+  grid-area: recruiter;
+  color: #0b1c30;
+  font-family: Inter, Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.cv-candidate-recruiter strong {
+  font-weight: 600;
 }
 
 .cv-candidate-applied {
@@ -6685,7 +6870,8 @@ dd {
   }
 
   .cv-candidate-meta {
-    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'source' 'recruiter';
     justify-content: stretch;
   }
 

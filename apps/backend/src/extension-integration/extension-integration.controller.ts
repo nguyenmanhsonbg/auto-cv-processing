@@ -16,6 +16,7 @@ import {
   SyncAmisCareersDto,
   SyncAmisCareersResponseDto,
   SyncAmisJobPostingDto,
+  UpdateAmisApplicationStageDto,
   UpdateAmisCareerQuestionCategoriesDto,
   UpdateJobDescriptionQuestionSetItemDto,
 } from './dto';
@@ -268,6 +269,21 @@ export class ExtensionIntegrationController {
   })
   async listApplicationsForRecruitment(@Param('amisRecruitmentId') amisRecruitmentId: string) {
     return this.extensionIntegrationService.listAmisApplicationsForRecruitment(amisRecruitmentId);
+  }
+
+  @Patch('recruitments/:amisRecruitmentId/applications/:amisCandidateId/stage')
+  @ApiOperation({ summary: 'Update the latest AMIS candidate recruitment stage captured from the browser' })
+  @ApiBody({ type: UpdateAmisApplicationStageDto })
+  async updateApplicationStage(
+    @Param('amisRecruitmentId') amisRecruitmentId: string,
+    @Param('amisCandidateId') amisCandidateId: string,
+    @Body() dto: UpdateAmisApplicationStageDto,
+  ) {
+    return this.extensionIntegrationService.updateAmisApplicationStage(
+      amisRecruitmentId,
+      amisCandidateId,
+      dto,
+    );
   }
 
   @Get('careers')

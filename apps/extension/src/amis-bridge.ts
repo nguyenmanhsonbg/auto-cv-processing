@@ -1,9 +1,11 @@
-import type { AmisApplicationItem, AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisSelectedCareerResult } from './types';
+import type { AmisApplicationItem, AmisCandidateStageChangedPayload, AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisSelectedCareerResult } from './types';
 
 (() => {
 
 const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
+const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_STAGE_CHANGED';
+const VCS_AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_CANDIDATE_STAGE_CHANGED';
 const BACKGROUND_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
 const BACKGROUND_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
 const BRIDGE_INSTALLED_KEY = '__VCS_AMIS_BRIDGE_INSTALLED__';
@@ -181,6 +183,14 @@ const windowMessageListener = (event: MessageEvent) => {
 
     if (isDiagnosticMessage(event.data)) {
       sendDiagnostic(event.data.payload);
+      return;
+    }
+
+    if (isAmisCandidateStageChangedMessage(event.data)) {
+      void chrome.runtime?.sendMessage?.({
+        type: AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE,
+        payload: event.data.payload,
+      }).catch(() => undefined);
     }
 };
 
@@ -778,6 +788,12 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
     'SourceName',
     'sourceName',
   ]));
+  const reasonRemoved = cleanText(readFirst(row, [
+    'ReasonRemoved',
+    'ReasonRemovedName',
+    'reasonRemoved',
+    'reasonRemovedName',
+  ]));
   if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) return null;
   if (!email && !mobile) return null;
 
@@ -797,6 +813,7 @@ function mapApplicationRow(row: unknown): AmisApplicationItem | null {
     ...(cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])) ? {
       recruitmentRoundName: cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])),
     } : {}),
+    ...(reasonRemoved ? { reasonRemoved } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']) !== undefined ? {
       recruitmentChannelId: readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']),
@@ -823,6 +840,8 @@ function sanitizeApplicationSnapshot(row: Record<string, unknown>) {
     'RecruitmentID',
     'RecruitmentRoundID',
     'RecruitmentRoundName',
+    'ReasonRemoved',
+    'ReasonRemovedName',
     'Status',
     'CandidateID',
     'CandidateConvertID',
@@ -2436,6 +2455,30 @@ function isDiagnosticMessage(value: unknown): value is {
     && (value as { source?: unknown }).source === 'vcs-recruitment-extension'
     && (value as { type?: unknown }).type === AMIS_DIAGNOSTIC_MESSAGE_TYPE
     && isAmisDiagnosticEvent((value as { payload?: unknown }).payload);
+}
+
+function isAmisCandidateStageChangedMessage(value: unknown): value is {
+  source: 'vcs-recruitment-extension';
+  type: typeof VCS_AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE;
+  payload: AmisCandidateStageChangedPayload;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { source?: unknown }).source !== 'vcs-recruitment-extension') return false;
+  if ((value as { type?: unknown }).type !== VCS_AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE) return false;
+
+  const payload = (value as { payload?: unknown }).payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  const candidateStage = payload as Partial<AmisCandidateStageChangedPayload>;
+  return typeof candidateStage.amisRecruitmentId === 'string'
+    && typeof candidateStage.amisCandidateId === 'string'
+    && (candidateStage.amisRecruitmentRoundId === null || typeof candidateStage.amisRecruitmentRoundId === 'string')
+    && (candidateStage.amisRecruitmentRoundName === null || typeof candidateStage.amisRecruitmentRoundName === 'string')
+    && (candidateStage.amisStatus === null || typeof candidateStage.amisStatus === 'number')
+    && (candidateStage.reasonRemoved === undefined || candidateStage.reasonRemoved === null || typeof candidateStage.reasonRemoved === 'string')
+    && typeof candidateStage.sourceUrl === 'string'
+    && typeof candidateStage.pageUrl === 'string'
+    && typeof candidateStage.changedAt === 'string';
 }
 
 function isFillAmisRecruitmentFormMessage(value: unknown): value is {
