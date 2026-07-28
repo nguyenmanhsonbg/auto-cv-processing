@@ -38,6 +38,8 @@ import { ApplicationListPage } from '@/pages/recruitment/applications/Applicatio
 import { ApplicationDetailPage } from '@/pages/recruitment/applications/ApplicationDetailPage';
 import { FreelancerDetailPage } from '@/pages/interviewer/candidates/FreelancerDetailPage';
 import { FreelancerLandingPage } from '@/pages/interviewer/candidates/FreelancerLandingPage';
+import { InternalDetailPage } from '@/pages/interviewer/candidates/InternalDetailPage';
+import { InternalListPage } from '@/pages/interviewer/candidates/InternalListPage';
 import { FreelancerRouteGuard } from '@/components/recruitment/FreelancerRouteGuard';
 import { Toaster } from '@/components/ui/toaster';
 
@@ -61,6 +63,10 @@ export function AppRoutes() {
             <Route path=":freelancerId" element={<HrRouteGuard />}>
               <Route index element={<FreelancerDetailPage />} />
             </Route>
+          </Route>
+          <Route path="candidates/internals" element={<HrRouteGuard />}>
+            <Route index element={<InternalListPage />} />
+            <Route path=":internalId" element={<InternalDetailPage />} />
           </Route>
           <Route path="candidates/new" element={<CandidateCreatePage />} />
           <Route path="candidates/:slug" element={<CandidateDetailPage />} />

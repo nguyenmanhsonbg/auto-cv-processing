@@ -55,6 +55,19 @@ import { QuestionType } from '@interview-assistant/shared';
 import { ApplicationsService } from '../applications/applications.service';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { ApplicationSourceEntity } from '../applications/entities/application-source.entity';
+import { FreelancersService } from '../freelancers/freelancers.service';
+import { FreelancerStatusFilter } from '../freelancers/dto/list-freelancers-query.dto';
+import { InternalsService } from '../internals/internals.service';
+import {
+  ExtensionReferralSourceType,
+  ListExtensionReferralSourcesQueryDto,
+} from './dto';
+import {
+  buildReferralSourceMetrics,
+  mapReferralApplicationRow,
+  type ReferralApplicationRow,
+  type ReferralSourceMetrics,
+} from './referral-source-summary.util';
 
 const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
 
@@ -83,6 +96,23 @@ export interface ExtensionCatalogSyncContext {
   extensionInstanceId?: string | null;
 }
 
+export interface ExtensionReferralSourceApplication extends ReferralApplicationRow {}
+
+export interface ExtensionReferralSourceGroup {
+  sourceType: ExtensionReferralSourceType;
+  sourceId: string;
+  identifier: string | null;
+  name: string | null;
+  email: string;
+  phone: string | null;
+  isActive: boolean;
+  applicationCount: number;
+  metrics: ReferralSourceMetrics;
+  applications: ExtensionReferralSourceApplication[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 @Injectable()
 export class ExtensionIntegrationService {
   constructor(
@@ -92,6 +122,8 @@ export class ExtensionIntegrationService {
     private readonly categoriesService: CategoriesService,
     private readonly facebookPublishingService: FacebookPublishingService,
     private readonly applicationsService: ApplicationsService,
+    private readonly freelancersService: FreelancersService,
+    private readonly internalsService: InternalsService,
   ) {}
 
   async syncAndPublishFromAmis(
@@ -1513,6 +1545,134 @@ export class ExtensionIntegrationService {
         };
       }),
     };
+  }
+
+  async listExtensionReferralSources(query: ListExtensionReferralSourcesQueryDto) {
+    if (query.source === ExtensionReferralSourceType.INTERNAL) {
+      const result = await this.internalsService.findPaginated({
+        page: query.page,
+        limit: query.limit,
+        search: query.search,
+        status: query.status,
+        sortBy: 'createdAt',
+        sortOrder: 'DESC',
+      });
+      const data = await Promise.all(
+        result.data.map((internal) => this.buildInternalReferralSourceGroup(internal)),
+      );
+      return { data, page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages };
+    }
+
+    const result = await this.freelancersService.findPaginated({
+      page: query.page,
+      limit: query.limit,
+      search: query.search,
+      status: query.status === 'ACTIVE'
+        ? FreelancerStatusFilter.ACTIVE
+        : query.status === 'INACTIVE'
+          ? FreelancerStatusFilter.INACTIVE
+          : undefined,
+      sortBy: 'createdAt',
+      sortOrder: 'DESC',
+    });
+    const data = await Promise.all(
+      result.data.map((freelancer) => this.buildFreelancerReferralSourceGroup(freelancer)),
+    );
+    return { data, page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages };
+  }
+
+  private async buildFreelancerReferralSourceGroup(
+    freelancer: Awaited<ReturnType<FreelancersService['findPaginated']>>['data'][number],
+  ): Promise<ExtensionReferralSourceGroup> {
+    const applications = await this.listAllFreelancerApplications(freelancer.freelancerId);
+    return {
+      sourceType: ExtensionReferralSourceType.FREELANCER,
+      sourceId: freelancer.freelancerId,
+      identifier: freelancer.identifier,
+      name: freelancer.user.name,
+      email: freelancer.user.email,
+      phone: freelancer.phone,
+      isActive: freelancer.isActive,
+      applicationCount: applications.length,
+      metrics: buildReferralSourceMetrics(applications),
+      applications,
+      createdAt: freelancer.createdAt,
+      updatedAt: freelancer.updatedAt,
+    };
+  }
+
+  private async buildInternalReferralSourceGroup(
+    internal: Awaited<ReturnType<InternalsService['findPaginated']>>['data'][number],
+  ): Promise<ExtensionReferralSourceGroup> {
+    const applications = await this.listAllInternalApplications(internal.internalId);
+    return {
+      sourceType: ExtensionReferralSourceType.INTERNAL,
+      sourceId: internal.internalId,
+      identifier: null,
+      name: null,
+      email: internal.email,
+      phone: null,
+      isActive: internal.isActive,
+      applicationCount: applications.length,
+      metrics: buildReferralSourceMetrics(applications),
+      applications,
+      createdAt: internal.createdAt,
+      updatedAt: internal.updatedAt,
+    };
+  }
+
+  private async listAllFreelancerApplications(freelancerId: string) {
+    const all: ExtensionReferralSourceApplication[] = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const result = await this.freelancersService.findApplications(freelancerId, {
+        page,
+        limit: 100,
+        sortOrder: 'DESC',
+      });
+      all.push(...result.data.map((application) => mapReferralApplicationRow({
+        referralId: application.referralId,
+        applicationId: application.applicationId,
+        candidate: { ...application.candidate, assignees: application.assignees },
+        jobPosting: application.jobPosting,
+        processStatus: application.processStatus,
+        hrReceptionStatus: application.hrReceptionStatus,
+        evaluation: application.evaluation,
+        createdAt: application.createdAt,
+        updatedAt: application.updatedAt,
+      })));
+      totalPages = result.totalPages;
+      page += 1;
+    } while (page <= totalPages);
+    return all;
+  }
+
+  private async listAllInternalApplications(internalId: string) {
+    const all: ExtensionReferralSourceApplication[] = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const result = await this.internalsService.findApplications(internalId, {
+        page,
+        limit: 100,
+        sortOrder: 'DESC',
+      });
+      all.push(...result.data.map((application) => mapReferralApplicationRow({
+        referralId: application.referralId,
+        applicationId: application.applicationId,
+        candidate: { ...application.candidate, assignees: application.assignees },
+        jobPosting: application.jobPosting,
+        processStatus: application.processStatus,
+        hrReceptionStatus: application.hrReceptionStatus,
+        evaluation: application.evaluation,
+        createdAt: application.createdAt,
+        updatedAt: application.updatedAt,
+      })));
+      totalPages = result.totalPages;
+      page += 1;
+    } while (page <= totalPages);
+    return all;
   }
 
   async listAmisCareers(): Promise<AmisCareerCatalogItemDto[]> {

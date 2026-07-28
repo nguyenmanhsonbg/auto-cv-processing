@@ -33,6 +33,9 @@ export class FreelancerEntity {
   @Column({ type: 'varchar', length: 8, update: false })
   identifier: string;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  phone: string | null;
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 

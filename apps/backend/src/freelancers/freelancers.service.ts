@@ -10,14 +10,18 @@ import {
   CvDocumentsService,
 } from '../cv-documents/cv-documents.service';
 import { ApplicationStatus, HrReviewDecisionType } from '../recruitment-common';
+import { InternalEntity } from '../internals/entities/internal.entity';
+import { ApplicationReferralSourceType } from '../internals/internals.types';
 import { FreelancerStatusFilter } from './dto/list-freelancers-query.dto';
 import { ApplicationReferralEntity } from './entities/application-referral.entity';
 import { FreelancerIdentifierCounterEntity } from './entities/freelancer-identifier-counter.entity';
 import { FreelancerEntity } from './entities/freelancer.entity';
+import { normalizeFreelancerPhone } from '../extension-integration/referral-source-summary.util';
 
 export interface CreateFreelancerInput {
   name: string;
   email: string;
+  phone?: string | null;
   createdById: string;
 }
 
@@ -41,7 +45,8 @@ export interface ListFreelancerApplicationsParams {
 
 export interface CreateReferralInput {
   applicationId: string;
-  freelancerId: string;
+  freelancerId?: string | null;
+  internalId?: string | null;
 }
 
 export interface UpdateFreelancerApplicationEvaluationInput {
@@ -59,6 +64,7 @@ export interface FreelancerUserSummary {
 export interface FreelancerSummary {
   freelancerId: string;
   identifier: string;
+  phone: string | null;
   isActive: boolean;
   applicationCount: number;
   user: FreelancerUserSummary;
@@ -85,6 +91,12 @@ export interface FreelancerApplicationSummary {
   processStatus: ApplicationStatus;
   hrReceptionStatus: HrReviewDecisionType | null;
   evaluation: string | null;
+  appliedAt: Date;
+  assignees: Array<{
+    userId: string;
+    name: string;
+    email: string;
+  }>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -112,6 +124,7 @@ export class FreelancersService {
   async create(input: CreateFreelancerInput): Promise<FreelancerCreateResult> {
     const name = this.requireText(input.name, 'Freelancer name');
     const email = this.requireText(input.email, 'Freelancer email');
+    const phone = normalizeFreelancerPhone(input.phone);
     const createdById = this.requireText(input.createdById, 'Created by user id');
 
     try {
@@ -163,6 +176,7 @@ export class FreelancersService {
           freelancersRepo.create({
             userId: user.id,
             identifier,
+            phone,
             isActive: true,
             createdById: createdBy.id,
           }),
@@ -360,9 +374,17 @@ export class FreelancersService {
     input: CreateReferralInput,
   ): Promise<ApplicationReferralEntity> {
     const applicationId = this.requireText(input.applicationId, 'Application id');
-    const freelancerId = this.requireText(input.freelancerId, 'Freelancer id');
+    const freelancerId = this.optionalText(input.freelancerId);
+    const internalId = this.optionalText(input.internalId);
+    if (Boolean(freelancerId) === Boolean(internalId)) {
+      throw new BadRequestException({
+        code: 'REFERRAL_SOURCE_CONFLICT',
+        message: 'Exactly one referral source is required.',
+      });
+    }
     const applicationsRepo = manager.getRepository(ApplicationEntity);
     const freelancersRepo = manager.getRepository(FreelancerEntity);
+    const internalsRepo = manager.getRepository(InternalEntity);
     const referralsRepo = manager.getRepository(ApplicationReferralEntity);
 
     const application = await applicationsRepo.findOne({ where: { id: applicationId } });
@@ -373,16 +395,32 @@ export class FreelancersService {
       });
     }
 
-    const freelancer = await freelancersRepo.findOne({
-      where: { id: freelancerId, isActive: true },
-    });
-    if (!freelancer) throw this.freelancerNotFoundError();
+    if (freelancerId) {
+      const freelancer = await freelancersRepo.findOne({
+        where: { id: freelancerId, isActive: true },
+      });
+      if (!freelancer) throw this.freelancerNotFoundError();
+    } else {
+      const internal = await internalsRepo.findOne({
+        where: { id: internalId as string, isActive: true },
+      });
+      if (!internal) {
+        throw new BadRequestException({
+          code: 'INVALID_INTERNAL_EMAIL',
+          message: 'Internal email is inactive or unavailable.',
+        });
+      }
+    }
 
     try {
       return await referralsRepo.save(
         referralsRepo.create({
           applicationId,
-          freelancerId,
+          sourceType: freelancerId
+            ? ApplicationReferralSourceType.FREELANCER
+            : ApplicationReferralSourceType.INTERNAL,
+          freelancerId: freelancerId ?? null,
+          internalId: internalId ?? null,
           evaluation: null,
         }),
       );
@@ -390,7 +428,7 @@ export class FreelancersService {
       if (this.isApplicationReferralUniqueViolation(error)) {
         throw new BadRequestException({
           code: 'APPLICATION_REFERRAL_EXISTS',
-          message: 'Application already has a freelancer referral.',
+          message: 'Application already has a referral source.',
         });
       }
       throw error;
@@ -409,6 +447,7 @@ export class FreelancersService {
       .createQueryBuilder('referral')
       .innerJoinAndSelect('referral.application', 'application')
       .innerJoinAndSelect('application.candidate', 'candidate')
+      .leftJoinAndSelect('candidate.assignees', 'assignee')
       .innerJoinAndSelect('application.jobPosting', 'jobPosting')
       .where('referral.freelancerId = :freelancerId', { freelancerId })
       .orderBy('referral.createdAt', sortOrder)
@@ -499,6 +538,7 @@ export class FreelancersService {
     return {
       freelancerId: freelancer.id,
       identifier: freelancer.identifier,
+      phone: freelancer.phone ?? null,
       isActive: freelancer.isActive,
       applicationCount: this.extractApplicationCount(freelancer),
       user: {
@@ -544,6 +584,12 @@ export class FreelancersService {
       processStatus: application.status,
       hrReceptionStatus: application.hrReviewStatus,
       evaluation: referral.evaluation,
+      appliedAt: referral.createdAt,
+      assignees: (application.candidate.assignees ?? []).map((assignee) => ({
+        userId: assignee.id,
+        name: assignee.name,
+        email: assignee.email,
+      })),
       createdAt: referral.createdAt,
       updatedAt: referral.updatedAt,
     };

@@ -74,6 +74,7 @@ import {
 } from './facebook-group-graphql-capture';
 import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { createMockAmisSyncRequest } from './mock-amis';
+import { ReferralManagementPanel } from './referral-management';
 import { clearSelectedJobQuestionContextForTab, saveSelectedJobQuestionContext } from './selected-job-question-store';
 import type {
   AmisAutoSyncState,
@@ -115,7 +116,7 @@ type ExtensionToastState = {
 };
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
-type WorkspaceTab = 'overview' | 'posting' | 'cv';
+type WorkspaceTab = 'overview' | 'posting' | 'cv' | 'freelancer' | 'internal';
 type CvWorkspaceView = 'overview' | 'list';
 type CvStatusFilter = 'ALL' | 'PASSED' | 'REVIEW' | 'FAILED';
 type CvQuestionFilter = 'ALL' | 'ANSWERED' | 'NOT_ANSWERED';
@@ -256,6 +257,8 @@ const MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS = 3;
 const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'posting', label: 'Đăng bài' },
   { id: 'cv', label: 'CV' },
+  { id: 'freelancer', label: 'Freelancer' },
+  { id: 'internal', label: 'Nội bộ' },
 ];
 const CV_APPLICATION_PAGE_SIZE = 5;
 const GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE = 'VCS_GET_AMIS_CANDIDATE_FORM_STATE';
@@ -3664,7 +3667,7 @@ function SidePanel() {
 
   function renderWorkspacePanel(tab: WorkspaceTab) {
     const isPinned = pinnedWorkspaceTab === tab;
-    const isFlatTab = tab === 'posting' || tab === 'cv';
+    const isFlatTab = tab === 'posting' || tab === 'cv' || tab === 'freelancer' || tab === 'internal';
 
     return (
       <section key={tab} className={`workspace-panel workspace-panel-${tab}${isPinned ? ' is-pinned' : ''}${isFlatTab ? ' is-flat' : ''}`}>
@@ -3689,6 +3692,12 @@ function SidePanel() {
         {tab === 'overview' ? renderOverviewPanel() : null}
         {tab === 'posting' ? renderPostingPanel() : null}
         {tab === 'cv' ? renderCvPanel() : null}
+        {tab === 'freelancer' && token ? (
+          <ReferralManagementPanel source="FREELANCER" accessToken={token} onNotify={showExtensionToast} />
+        ) : null}
+        {tab === 'internal' && token ? (
+          <ReferralManagementPanel source="INTERNAL" accessToken={token} onNotify={showExtensionToast} />
+        ) : null}
       </section>
     );
   }
@@ -5812,6 +5821,8 @@ function SidePanel() {
                     {tab.id === 'overview' ? <HomeIcon /> : null}
                     {tab.id === 'posting' ? <PostingIcon /> : null}
                     {tab.id === 'cv' ? <CvIcon /> : null}
+                    {tab.id === 'freelancer' ? <PeopleIcon /> : null}
+                    {tab.id === 'internal' ? <PeopleIcon /> : null}
                     <span>{tab.label}</span>
                   </button>
                 );
@@ -6780,6 +6791,16 @@ function CvIcon({ className }: IconProps) {
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="M5.2 2.5h5.6l1.7 1.8v9.2h-9v-11h1.7Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
       <path d="M10.7 2.7v1.8h1.8M5.7 7h4.6M5.7 9.5h4.6M5.7 12h2.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PeopleIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="5.2" r="2.1" fill="currentColor" />
+      <path d="M3.8 13c.4-2.2 1.8-3.4 4.2-3.4s3.8 1.2 4.2 3.4" fill="currentColor" />
+      <path d="M3.2 7.3a1.7 1.7 0 0 0 0 3.3M12.8 7.3a1.7 1.7 0 0 1 0 3.3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
     </svg>
   );
 }

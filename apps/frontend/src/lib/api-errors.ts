@@ -13,6 +13,9 @@ export type ApiErrorCode =
   | 'DUPLICATE_CV_FILE'
   | 'IDEMPOTENCY_CONFLICT'
   | 'INVALID_FREELANCER_CODE'
+  | 'INVALID_INTERNAL_EMAIL'
+  | 'INTERNAL_EMAIL_EXISTS'
+  | 'REFERRAL_SOURCE_CONFLICT'
   | 'INVALID_STATE_TRANSITION'
   | 'FORBIDDEN'
   | 'NOT_FOUND'
@@ -54,6 +57,9 @@ export const API_ERROR_CODES = {
   DUPLICATE_CV_FILE: 'DUPLICATE_CV_FILE',
   IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
   INVALID_FREELANCER_CODE: 'INVALID_FREELANCER_CODE',
+  INVALID_INTERNAL_EMAIL: 'INVALID_INTERNAL_EMAIL',
+  INTERNAL_EMAIL_EXISTS: 'INTERNAL_EMAIL_EXISTS',
+  REFERRAL_SOURCE_CONFLICT: 'REFERRAL_SOURCE_CONFLICT',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
@@ -61,6 +67,9 @@ export const API_ERROR_CODES = {
 } as const satisfies Record<string, ApiErrorCode>;
 
 const PUBLIC_SAFE_MESSAGES: Record<string, string> = {
+  [API_ERROR_CODES.INVALID_INTERNAL_EMAIL]: 'Email nội bộ phải dùng tên miền @viettel.com.vn và đang hoạt động.',
+  [API_ERROR_CODES.INTERNAL_EMAIL_EXISTS]: 'Email nội bộ này đã tồn tại trong danh sách quản lý.',
+  [API_ERROR_CODES.REFERRAL_SOURCE_CONFLICT]: 'Chỉ được chọn một loại người giới thiệu.',
   [API_ERROR_CODES.VALIDATION_ERROR]: 'Thông tin gửi lên chưa hợp lệ. Vui lòng kiểm tra lại.',
   [API_ERROR_CODES.UNSUPPORTED_FILE_TYPE]:
     'Định dạng CV chưa được hỗ trợ. Vui lòng tải lên PDF, DOCX hoặc XLSX.',
@@ -88,6 +97,9 @@ const PUBLIC_SAFE_MESSAGES: Record<string, string> = {
 };
 
 const INTERNAL_SAFE_MESSAGES: Record<string, string> = {
+  [API_ERROR_CODES.INVALID_INTERNAL_EMAIL]: 'Internal email không hợp lệ hoặc không hoạt động.',
+  [API_ERROR_CODES.INTERNAL_EMAIL_EXISTS]: 'Internal email đã tồn tại trong danh sách quản lý.',
+  [API_ERROR_CODES.REFERRAL_SOURCE_CONFLICT]: 'Không được gửi đồng thời hai nguồn referral.',
   [API_ERROR_CODES.VALIDATION_ERROR]: 'Dữ liệu không hợp lệ.',
   [API_ERROR_CODES.UNSUPPORTED_FILE_TYPE]: 'File type hoặc MIME không được hỗ trợ.',
   [API_ERROR_CODES.FILE_TOO_LARGE]: 'File vượt giới hạn dung lượng cấu hình.',

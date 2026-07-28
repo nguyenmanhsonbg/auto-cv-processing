@@ -53,6 +53,8 @@ export class ApplicationSourcesService {
         'application',
         'application.candidate',
         'application.freelancerReferral',
+        'application.freelancerReferral.internal',
+        'application.freelancerReferral.freelancer',
         'application.jobPosting',
         'application.jobDescriptionVersion',
       ],

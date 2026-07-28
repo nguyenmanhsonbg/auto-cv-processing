@@ -7,6 +7,76 @@ export interface ExtensionUser {
   role: UserRole;
 }
 
+export type ReferralManagementSource = 'FREELANCER' | 'INTERNAL';
+
+export interface ReferralManagementMetrics {
+  total: number;
+  processing: number;
+  passed: number;
+  passRate: number;
+}
+
+export interface ReferralManagementAssignee {
+  userId: string;
+  name: string;
+  email: string;
+}
+
+export interface ReferralManagementApplication {
+  referralId: string;
+  applicationId: string;
+  candidate: {
+    candidateId: string;
+    fullName: string;
+  };
+  jobPosting: {
+    jobPostingId: string;
+    title: string;
+  };
+  processStatus: string | null;
+  hrReceptionStatus: string | null;
+  evaluation: string | null;
+  appliedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  assignees: ReferralManagementAssignee[];
+}
+
+export interface ReferralManagementPerson {
+  sourceType: ReferralManagementSource;
+  sourceId: string;
+  identifier: string | null;
+  name: string | null;
+  email: string;
+  phone: string | null;
+  isActive: boolean;
+  applicationCount: number;
+  metrics: ReferralManagementMetrics;
+  applications: ReferralManagementApplication[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReferralManagementPage {
+  data: ReferralManagementPerson[];
+  pagination: ApiPagination | null;
+}
+
+export interface CreatedFreelancerResult {
+  freelancerId: string;
+  identifier: string;
+  phone: string | null;
+  isActive: boolean;
+  applicationCount: number;
+  user: {
+    userId: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+  initialPassword: string;
+}
+
 export interface ApiPagination {
   page: number;
   limit: number;

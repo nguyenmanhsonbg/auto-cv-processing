@@ -1,5 +1,5 @@
 import { UserRole } from '@interview-assistant/shared';
-import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -18,6 +18,7 @@ import {
   SyncAmisJobPostingDto,
   UpdateAmisCareerQuestionCategoriesDto,
   UpdateJobDescriptionQuestionSetItemDto,
+  ListExtensionReferralSourcesQueryDto,
 } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { ExtensionInstancesService } from './extension-instances.service';
@@ -268,6 +269,27 @@ export class ExtensionIntegrationController {
   })
   async listApplicationsForRecruitment(@Param('amisRecruitmentId') amisRecruitmentId: string) {
     return this.extensionIntegrationService.listAmisApplicationsForRecruitment(amisRecruitmentId);
+  }
+
+  @Get('referral-sources')
+  @ApiOperation({ summary: 'List global Freelancer or Internal referral-source applications' })
+  @ApiResponse({
+    status: 200,
+    description: 'Global referral-source people with all related applications.',
+  })
+  async listReferralSources(@Query() query: ListExtensionReferralSourcesQueryDto) {
+    const result = await this.extensionIntegrationService.listExtensionReferralSources(query);
+    return {
+      success: true,
+      data: result.data,
+      pagination: {
+        page: result.page,
+        limit: result.limit,
+        total: result.total,
+        totalPages: result.totalPages,
+      },
+      meta: { timestamp: new Date().toISOString() },
+    };
   }
 
   @Get('careers')

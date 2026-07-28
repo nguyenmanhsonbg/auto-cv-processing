@@ -42,6 +42,7 @@ export interface PublicApplicationPayload {
   phone: string;
   note?: string;
   freelancerCode?: string;
+  internalEmail?: string;
 }
 
 export interface PublicApplyResponse {
@@ -93,6 +94,9 @@ export function submitPublicApplication(
     note: payload.note,
     ...(payload.freelancerCode !== undefined && payload.freelancerCode !== ''
       ? { freelancerCode: payload.freelancerCode }
+      : {}),
+    ...(payload.internalEmail !== undefined && payload.internalEmail !== ''
+      ? { internalEmail: payload.internalEmail }
       : {}),
   };
 

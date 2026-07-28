@@ -24,13 +24,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
+
+type ReferralSource = 'none' | 'freelancer' | 'internal';
 
 interface ApplyFormState {
   fullName: string;
   email: string;
   phone: string;
+  referralSource: ReferralSource;
   freelancerCode: string;
+  internalEmail: string;
   note: string;
   consent: boolean;
 }
@@ -47,13 +52,16 @@ interface ApplyResultState {
 
 const EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION = 'EXACT_ORIGINAL_FILE_HASH_V1';
 const FREELANCER_CODE_PATTERN = /^FL[0-9]{6}$/;
+const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@viettel\.com\.vn$/i;
 const INVALID_FREELANCER_CODE_MESSAGE = 'Mã giới thiệu không hợp lệ';
 
 const INITIAL_FORM: ApplyFormState = {
   fullName: '',
   email: '',
   phone: '',
+  referralSource: 'none',
   freelancerCode: '',
+  internalEmail: '',
   note: '',
   consent: false,
 };
@@ -72,6 +80,10 @@ function isEmail(value: string) {
 
 function isFreelancerCode(value: string) {
   return FREELANCER_CODE_PATTERN.test(value);
+}
+
+function isInternalEmail(value: string) {
+  return INTERNAL_EMAIL_PATTERN.test(value);
 }
 
 function isApplyOpen(job: PublicJobPostingDetail) {
@@ -155,6 +167,21 @@ export function PublicJobApplyPage() {
     setResult(null);
   };
 
+  const updateReferralSource = (value: ReferralSource) => {
+    setForm((prev) => ({
+      ...prev,
+      referralSource: value,
+      freelancerCode: value === 'freelancer' ? prev.freelancerCode : '',
+      internalEmail: value === 'internal' ? prev.internalEmail : '',
+    }));
+    setFieldErrors((prev) => ({
+      ...prev,
+      freelancerCode: undefined,
+      internalEmail: undefined,
+    }));
+    setResult(null);
+  };
+
   const validateForm = () => {
     const nextErrors: Partial<Record<ApplyFieldErrorKey, string>> = {};
 
@@ -169,8 +196,15 @@ export function PublicJobApplyPage() {
     if (!form.phone.trim()) {
       nextErrors.phone = 'Vui long nhap so dien thoai.';
     }
-    if (form.freelancerCode !== '' && !isFreelancerCode(form.freelancerCode)) {
+    if (form.referralSource === 'freelancer'
+      && form.freelancerCode.trim() !== ''
+      && !isFreelancerCode(form.freelancerCode.trim())) {
       nextErrors.freelancerCode = INVALID_FREELANCER_CODE_MESSAGE;
+    }
+    if (form.referralSource === 'internal'
+      && form.internalEmail.trim() !== ''
+      && !isInternalEmail(form.internalEmail.trim())) {
+      nextErrors.internalEmail = 'Email nội bộ phải có đuôi @viettel.com.vn.';
     }
     if (!cvFile) {
       nextErrors.cvFile = 'Vui long tai len CV.';
@@ -201,8 +235,11 @@ export function PublicJobApplyPage() {
           email: form.email.trim(),
           phone: form.phone.trim(),
           note: form.note.trim() || undefined,
-          ...(form.freelancerCode !== ''
-            ? { freelancerCode: form.freelancerCode }
+          ...(form.referralSource === 'freelancer' && form.freelancerCode.trim() !== ''
+            ? { freelancerCode: form.freelancerCode.trim() }
+            : {}),
+          ...(form.referralSource === 'internal' && form.internalEmail.trim() !== ''
+            ? { internalEmail: form.internalEmail.trim() }
             : {}),
         },
         cvFile,
@@ -224,6 +261,13 @@ export function PublicJobApplyPage() {
         setFieldErrors((prev) => ({
           ...prev,
           freelancerCode: INVALID_FREELANCER_CODE_MESSAGE,
+        }));
+        return;
+      }
+      if (errorCode === API_ERROR_CODES.INVALID_INTERNAL_EMAIL) {
+        setFieldErrors((prev) => ({
+          ...prev,
+          internalEmail: 'Email nội bộ phải có đuôi @viettel.com.vn và đang hoạt động.',
         }));
         return;
       }
@@ -369,6 +413,30 @@ export function PublicJobApplyPage() {
                   )}
                 </div>
 
+                <div className="space-y-3 md:col-span-2">
+                  <Label>Nguoi gioi thieu (khong bat buoc)</Label>
+                  <RadioGroup
+                    value={form.referralSource}
+                    onValueChange={(value) => updateReferralSource(value as ReferralSource)}
+                    disabled={submitting || !applyOpen}
+                    className="grid gap-2 md:grid-cols-3"
+                  >
+                    <label className="flex items-center gap-2 rounded-md border p-3 text-sm">
+                      <RadioGroupItem value="none" />
+                      <span>Khong chon</span>
+                    </label>
+                    <label className="flex items-center gap-2 rounded-md border p-3 text-sm">
+                      <RadioGroupItem value="freelancer" />
+                      <span>Freelancer</span>
+                    </label>
+                    <label className="flex items-center gap-2 rounded-md border p-3 text-sm">
+                      <RadioGroupItem value="internal" />
+                      <span>Noi bo</span>
+                    </label>
+                  </RadioGroup>
+                </div>
+
+                {form.referralSource === 'freelancer' ? (
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="freelancerCode">Mã giới thiệu (không bắt buộc)</Label>
                   <Input
@@ -382,6 +450,24 @@ export function PublicJobApplyPage() {
                     <p className="text-sm text-destructive">{fieldErrors.freelancerCode}</p>
                   )}
                 </div>
+                ) : null}
+
+                {form.referralSource === 'internal' ? (
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="internalEmail">Email noi bo (khong bat buoc)</Label>
+                  <Input
+                    id="internalEmail"
+                    type="email"
+                    value={form.internalEmail}
+                    onChange={(event) => updateForm('internalEmail', event.target.value)}
+                    disabled={submitting || !applyOpen}
+                    placeholder="employee@viettel.com.vn"
+                  />
+                  {fieldErrors.internalEmail && (
+                    <p className="text-sm text-destructive">{fieldErrors.internalEmail}</p>
+                  )}
+                </div>
+                ) : null}
               </div>
 
               <div className="space-y-2">

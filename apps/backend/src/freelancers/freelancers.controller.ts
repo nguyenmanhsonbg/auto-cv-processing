@@ -65,6 +65,7 @@ export class FreelancersController {
     const data = await this.freelancersService.create({
       name: dto.name,
       email: dto.email,
+      phone: dto.phone,
       createdById: req?.user?.id,
     });
 
@@ -280,6 +281,7 @@ export class FreelancersController {
     const response: Record<string, unknown> = {
       freelancerId: data.freelancerId,
       identifier: data.identifier,
+      phone: data.phone,
       isActive: data.isActive,
       applicationCount: data.applicationCount,
       user: {
@@ -315,6 +317,8 @@ export class FreelancersController {
       processStatus: data.processStatus,
       hrReceptionStatus: data.hrReceptionStatus,
       evaluation: data.evaluation,
+      appliedAt: data.appliedAt?.toISOString(),
+      assignees: data.assignees,
       createdAt: data.createdAt?.toISOString(),
       updatedAt: data.updatedAt?.toISOString(),
     };

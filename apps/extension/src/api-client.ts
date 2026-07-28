@@ -47,6 +47,10 @@ import type {
   RunApplicationAiScreeningResponse,
   UpdateFacebookGroupRequest,
   VerifyFacebookGroupRequest,
+  CreatedFreelancerResult,
+  ReferralManagementPage,
+  ReferralManagementPerson,
+  ReferralManagementSource,
 } from './types';
 
 export class ApiClientError extends Error {
@@ -301,6 +305,60 @@ export async function getAmisApplicationsForRecruitment(
       accessToken,
     },
   );
+}
+
+export async function getReferralManagementSources(
+  accessToken: string,
+  source: ReferralManagementSource,
+  params: { page?: number; limit?: number; search?: string; status?: 'ACTIVE' | 'INACTIVE' } = {},
+) {
+  const searchParams = new URLSearchParams({
+    source,
+    page: String(params.page ?? 1),
+    limit: String(params.limit ?? 10),
+  });
+  if (params.search?.trim()) searchParams.set('search', params.search.trim());
+  if (params.status) searchParams.set('status', params.status);
+
+  return requestWithPagination<ReferralManagementPerson>(
+    `/extension/amis/referral-sources?${searchParams.toString()}`,
+    { method: 'GET', accessToken },
+  ) as Promise<ReferralManagementPage>;
+}
+
+export async function createFreelancer(
+  accessToken: string,
+  payload: { name: string; email: string; phone?: string },
+) {
+  return request<CreatedFreelancerResult>('/freelancers', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
+export async function createInternal(accessToken: string, email: string) {
+  return request<ReferralManagementPerson>('/internals', {
+    method: 'POST',
+    accessToken,
+    body: { email },
+  });
+}
+
+export async function updateFreelancerStatus(accessToken: string, freelancerId: string, isActive: boolean) {
+  return request<ReferralManagementPerson>(`/freelancers/${encodeURIComponent(freelancerId)}/status`, {
+    method: 'PATCH',
+    accessToken,
+    body: { isActive },
+  });
+}
+
+export async function updateInternalStatus(accessToken: string, internalId: string, isActive: boolean) {
+  return request<ReferralManagementPerson>(`/internals/${encodeURIComponent(internalId)}/status`, {
+    method: 'PATCH',
+    accessToken,
+    body: { isActive },
+  });
 }
 
 export async function runApplicationAiScreening(

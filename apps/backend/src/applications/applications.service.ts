@@ -21,6 +21,10 @@ import { FormAnswerEntity } from '../form-sessions/entities/form-answer.entity';
 import { FormSessionEntity } from '../form-sessions/entities/form-session.entity';
 import { FreelancerEntity } from '../freelancers/entities/freelancer.entity';
 import { FreelancersService } from '../freelancers/freelancers.service';
+import { InternalsService } from '../internals/internals.service';
+import { ApplicationReferralSourceType } from '../internals/internals.types';
+import { normalizeInternalEmail } from '../internals/internal-email.util';
+import { normalizeReferralSourceInput } from './referral-source.util';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
 import { MappingResultEntity } from '../mapping/entities/mapping-result.entity';
@@ -61,6 +65,7 @@ export interface CreateApplicationBaseInput {
   candidate?: ApplicationCandidateInput;
   candidateId?: string;
   freelancerCode?: string | null;
+  internalEmail?: string | null;
   sourceChannel?: RecruitmentChannel | null;
   externalLeadId?: string | null;
   externalApplicationId?: string | null;
@@ -160,10 +165,25 @@ export class ApplicationsService {
     private readonly aiService?: AiService,
     @Optional()
     private readonly freelancersService?: FreelancersService,
+    @Optional()
+    private readonly internalsService?: InternalsService,
   ) {}
 
   async assertPublicReferralCode(code?: string | null): Promise<void> {
-    await this.resolvePublicReferralFreelancer(code);
+    await this.assertPublicReferralSource(code, null);
+  }
+
+  async assertPublicReferralSource(
+    freelancerCode?: string | null,
+    internalEmail?: string | null,
+  ): Promise<void> {
+    const source = this.normalizeReferralSource(freelancerCode, internalEmail);
+    if (source.freelancerCode) {
+      await this.resolvePublicReferralFreelancer(source.freelancerCode);
+    }
+    if (source.internalEmail) {
+      normalizeInternalEmail(source.internalEmail);
+    }
   }
 
   async recordCvContentSimilarityCheck(input: RecordCvContentSimilarityInput): Promise<void> {
@@ -268,6 +288,7 @@ export class ApplicationsService {
       .leftJoinAndSelect('application.freelancerReferral', 'freelancerReferral')
       .leftJoinAndSelect('freelancerReferral.freelancer', 'freelancer')
       .leftJoinAndSelect('freelancer.user', 'freelancerUser')
+      .leftJoinAndSelect('freelancerReferral.internal', 'internal')
       .orderBy(sortCol, sortOrder);
 
     const search = params.search?.trim();
@@ -335,6 +356,7 @@ export class ApplicationsService {
       'freelancerReferral',
       'freelancerReferral.freelancer',
       'freelancerReferral.freelancer.user',
+      'freelancerReferral.internal',
     ]);
   }
 
@@ -818,10 +840,7 @@ export class ApplicationsService {
         };
       }
 
-      const referralFreelancer = await this.resolvePublicReferralFreelancer(
-        input.freelancerCode,
-        manager,
-      );
+      const referralSource = await this.resolvePublicReferralSource(input, manager);
       const application = manager.getRepository(ApplicationEntity).create({
         candidateId: candidate.id,
         jobPostingId: posting.id,
@@ -844,10 +863,15 @@ export class ApplicationsService {
         sourceChannel,
         externalApplicationId,
       );
-      if (referralFreelancer) {
+      if (referralSource) {
         await this.getFreelancersService().createReferral(manager, {
           applicationId: savedApplication.id,
-          freelancerId: referralFreelancer.id,
+          freelancerId: referralSource.type === ApplicationReferralSourceType.FREELANCER
+            ? referralSource.id
+            : null,
+          internalId: referralSource.type === ApplicationReferralSourceType.INTERNAL
+            ? referralSource.id
+            : null,
         });
       }
       await this.workflowStateService.recordEvent(
@@ -1021,14 +1045,22 @@ export class ApplicationsService {
 
     if (input.source !== ApplicationSourceType.PORTAL) return;
 
-    const existingReferralFreelancerId = this.optionalText(
-      existingSource.application?.freelancerReferral?.freelancerId,
-    );
-    const incomingReferralFreelancerId = this.optionalText(
-      (await this.resolvePublicReferralFreelancer(input.freelancerCode, manager))?.id,
-    );
+    const existingReferral = existingSource.application?.freelancerReferral;
+    const incomingReferral = await this.resolvePublicReferralSource(input, manager);
+    const existingReferralType = existingReferral?.sourceType
+      ?? (existingReferral?.internalId
+        ? ApplicationReferralSourceType.INTERNAL
+        : existingReferral?.freelancerId
+          ? ApplicationReferralSourceType.FREELANCER
+          : null);
+    const existingReferralKey = existingReferral && existingReferralType
+      ? `${existingReferralType}:${existingReferral.freelancerId ?? existingReferral.internalId ?? ''}`
+      : null;
+    const incomingReferralKey = incomingReferral
+      ? `${incomingReferral.type}:${incomingReferral.id}`
+      : null;
 
-    if (existingReferralFreelancerId !== incomingReferralFreelancerId) {
+    if (existingReferralKey !== incomingReferralKey) {
       this.throwIdempotencyConflict();
     }
   }
@@ -1762,6 +1794,13 @@ export class ApplicationsService {
     return this.freelancersService;
   }
 
+  private getInternalsService() {
+    if (!this.internalsService) {
+      throw new Error('InternalsService is not configured');
+    }
+    return this.internalsService;
+  }
+
   private assertValidApplicationStatus(
     status: ApplicationStatus,
     fieldName: string,
@@ -1878,6 +1917,34 @@ export class ApplicationsService {
   private recordText(record: Record<string, unknown> | null, key: string) {
     const value = record?.[key];
     return typeof value === 'string' ? this.optionalText(value) : null;
+  }
+
+  private normalizeReferralSource(
+    freelancerCode?: string | null,
+    internalEmail?: string | null,
+  ) {
+    return normalizeReferralSourceInput({ freelancerCode, internalEmail });
+  }
+
+  private async resolvePublicReferralSource(
+    input: CreateApplicationInput,
+    manager: EntityManager,
+  ): Promise<{ type: ApplicationReferralSourceType; id: string } | null> {
+    const source = this.normalizeReferralSource(input.freelancerCode, input.internalEmail);
+    if (source.freelancerCode) {
+      const freelancer = await this.resolvePublicReferralFreelancer(source.freelancerCode, manager);
+      return freelancer
+        ? { type: ApplicationReferralSourceType.FREELANCER, id: freelancer.id }
+        : null;
+    }
+    if (source.internalEmail) {
+      const internal = await this.getInternalsService().resolveOrCreateActiveByEmail(
+        source.internalEmail,
+        manager,
+      );
+      return { type: ApplicationReferralSourceType.INTERNAL, id: internal.id };
+    }
+    return null;
   }
 
   private async resolvePublicReferralFreelancer(

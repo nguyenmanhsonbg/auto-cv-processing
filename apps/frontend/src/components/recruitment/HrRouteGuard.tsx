@@ -29,7 +29,7 @@ export function HrRouteGuard() {
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold">Access denied</h1>
         <p className="text-sm text-muted-foreground">
-          Freelancer management is available to HR and Admin users.
+          This management workspace is available to HR and Admin users.
         </p>
       </div>
     );

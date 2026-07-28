@@ -29,6 +29,7 @@ const defaultNavItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Candidates', href: '/candidates', icon: Users },
   { label: 'Freelancers', href: '/candidates/freelancers', icon: Users },
+  { label: 'Internals', href: '/candidates/internals', icon: Users },
   { label: 'Sessions', href: '/sessions', icon: ClipboardList },
 ];
 
@@ -113,8 +114,9 @@ function SidebarContent() {
           const Icon = item.icon;
           const isCandidatePage = location.pathname.startsWith('/candidates');
           const isFreelancerPage = location.pathname.startsWith('/candidates/freelancers');
+          const isInternalPage = location.pathname.startsWith('/candidates/internals');
           const isActive = item.href === '/candidates'
-            ? isCandidatePage && !isFreelancerPage
+            ? isCandidatePage && !isFreelancerPage && !isInternalPage
             : location.pathname.startsWith(item.href);
 
           return (
