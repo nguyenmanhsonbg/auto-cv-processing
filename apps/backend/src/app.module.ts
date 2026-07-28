@@ -13,6 +13,8 @@ import { EvaluationsModule } from './evaluations/evaluations.module';
 import { ExtensionIntegrationModule } from './extension-integration/extension-integration.module';
 import { ExportModule } from './export/export.module';
 import { FileParserModule } from './file-parser/file-parser.module';
+import { FreelancersModule } from './freelancers/freelancers.module';
+import { InternalsModule } from './internals/internals.module';
 import { JobDescriptionsModule } from './job-descriptions/job-descriptions.module';
 import { JobPostingsModule } from './job-postings/job-postings.module';
 import { LevelsModule } from './levels/levels.module';
@@ -75,6 +77,8 @@ import { WebSocketModule } from './websocket/websocket.module';
     LevelsModule,
     ApplicationsModule,
     CvDocumentsModule,
+    FreelancersModule,
+    InternalsModule,
     JobDescriptionsModule,
     JobPostingsModule,
     ExtensionIntegrationModule,

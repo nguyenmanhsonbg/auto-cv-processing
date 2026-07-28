@@ -35,6 +35,8 @@ interface NormalizedVcsPortalApplyPayload {
   externalApplicationId: string;
   trafficSource: string | null;
   sourceChannel: RecruitmentChannel;
+  freelancerCode: string | null;
+  internalEmail: string | null;
   formId: number;
   submittedAt: string;
   job: {
@@ -106,6 +108,8 @@ export class VcsPortalApplyWebhookService {
         sourceChannel: payload.sourceChannel,
         externalLeadId: payload.job.sourceJobId,
         externalApplicationId: payload.externalApplicationId,
+        freelancerCode: payload.freelancerCode,
+        internalEmail: payload.internalEmail,
         rawPayload: this.toApplicationRawPayload(payload, jobPosting.id),
       });
 
@@ -157,6 +161,7 @@ export class VcsPortalApplyWebhookService {
           sourceEntryId: payload.sourceEntryId,
           trafficSource: payload.trafficSource,
           sourceChannel: payload.sourceChannel,
+          referralSource: this.resolveReferralSourceType(payload),
           externalApplicationId: payload.externalApplicationId,
         },
       };
@@ -220,6 +225,7 @@ export class VcsPortalApplyWebhookService {
     const normalizedCvMetadata = this.normalizeCvMetadata(cvMetadata);
     const normalizedCandidate = this.normalizeCandidate(candidate, candidateFields, sourceEntryId);
     const trafficSource = this.resolveTrafficSourceChannel(raw.traffic_source);
+    const referralSource = this.resolveReferralSource(raw);
 
     return {
       raw,
@@ -227,6 +233,8 @@ export class VcsPortalApplyWebhookService {
       externalApplicationId: `${VCS_PORTAL_WEBHOOK_EXTERNAL_PREFIX}:${sourceEntryId}`,
       trafficSource: trafficSource.trafficSource,
       sourceChannel: trafficSource.sourceChannel,
+      freelancerCode: referralSource.freelancerCode,
+      internalEmail: referralSource.internalEmail,
       formId,
       submittedAt: this.requireText(raw.submitted_at, 'submitted_at'),
       job: {
@@ -421,6 +429,7 @@ export class VcsPortalApplyWebhookService {
       externalApplicationId: payload.externalApplicationId,
       trafficSource: payload.trafficSource,
       sourceChannel: payload.sourceChannel,
+      referralSource: this.resolveReferralSourceType(payload),
       formId: payload.formId,
       submittedAt: payload.submittedAt,
       jobPostingId,
@@ -430,6 +439,8 @@ export class VcsPortalApplyWebhookService {
       candidateEmailHash: this.hashOptionalText(payload.candidate.email?.toLowerCase() ?? null),
       candidatePhoneHash: this.hashOptionalText(payload.candidate.phone),
       candidateNameHash: this.hashOptionalText(payload.candidate.name.toLowerCase()),
+      freelancerCodeHash: this.hashOptionalText(payload.freelancerCode?.toLowerCase() ?? null),
+      internalEmailHash: this.hashOptionalText(payload.internalEmail?.toLowerCase() ?? null),
       candidateFields: payload.candidateFields,
       cvMetadata: payload.cvMetadata.raw,
       payload: payload.raw,
@@ -486,6 +497,19 @@ export class VcsPortalApplyWebhookService {
       trafficSource,
       sourceChannel: channelByTrafficSource[trafficSource] ?? RecruitmentChannel.OTHER,
     };
+  }
+
+  private resolveReferralSource(raw: JsonRecord) {
+    return {
+      freelancerCode: this.firstText([raw.freelancerCode, raw.freelancer_code]),
+      internalEmail: this.firstText([raw.internalEmail, raw.internal_email]),
+    };
+  }
+
+  private resolveReferralSourceType(payload: NormalizedVcsPortalApplyPayload) {
+    if (payload.internalEmail) return 'INTERNAL';
+    if (payload.freelancerCode) return 'FREELANCER';
+    return null;
   }
 
   private requireRecord(value: unknown, fieldName: string): JsonRecord {

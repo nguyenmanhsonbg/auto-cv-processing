@@ -106,7 +106,9 @@ type PublicApplyErrorCode =
   | 'DUPLICATE_CV_FILE'
   | 'FILE_TOO_LARGE'
   | 'IDEMPOTENCY_CONFLICT'
+  | 'INVALID_INTERNAL_EMAIL'
   | 'INVALID_STATE_TRANSITION'
+  | 'INVALID_FREELANCER_CODE'
   | 'MALWARE_DETECTED'
   | 'NOT_FOUND'
   | 'UNSUPPORTED_FILE_TYPE'
@@ -349,6 +351,8 @@ export class PublicJobPostingsController {
         email: { type: 'string', format: 'email' },
         phone: { type: 'string' },
         note: { type: 'string' },
+        freelancerCode: { type: 'string' },
+        internalEmail: { type: 'string', format: 'email', example: 'employee@viettel.com.vn' },
         cvFile: { type: 'string', format: 'binary' },
       },
     },
@@ -391,6 +395,22 @@ export class PublicJobPostingsController {
         ipAddress: this.getClientIp(req),
         userAgent: normalizeHeader(req.headers['user-agent']),
       });
+      const referralSourceValidator = this.applicationsService as ApplicationsService & {
+        assertPublicReferralSource?: (
+          freelancerCode?: string | null,
+          internalEmail?: string | null,
+        ) => Promise<void>;
+        assertPublicReferralCode?: (freelancerCode?: string | null) => Promise<void>;
+      };
+      if (typeof referralSourceValidator.assertPublicReferralSource === 'function') {
+        await referralSourceValidator.assertPublicReferralSource(
+          dto.freelancerCode,
+          dto.internalEmail,
+        );
+      } else if (typeof referralSourceValidator.assertPublicReferralCode === 'function') {
+        // Keep older integrations/tests that only expose the Freelancer validator working.
+        await referralSourceValidator.assertPublicReferralCode(dto.freelancerCode);
+      }
       const uploadedResumeText = await this.extractAndValidateUploadedCvText(
         file,
         candidate,
@@ -407,6 +427,8 @@ export class PublicJobPostingsController {
         candidate,
         sourceChannel: RecruitmentChannel.VCS_PORTAL,
         externalApplicationId: normalizedIdempotencyKey,
+        freelancerCode: dto.freelancerCode ?? null,
+        internalEmail: dto.internalEmail ?? null,
         rawPayload: this.toApplyRawPayload(dto, jobPostingId),
       });
       applicationIdForRollback = applicationResult.application.id;
@@ -654,6 +676,13 @@ export class PublicJobPostingsController {
       candidateEmailHash: this.hashIdentityText(dto.email, true),
       candidatePhoneHash: this.hashIdentityText(dto.phone),
       hasNote: Boolean(note),
+      referralSource: dto.internalEmail?.trim()
+        ? 'INTERNAL'
+        : dto.freelancerCode?.trim()
+          ? 'FREELANCER'
+          : null,
+      freelancerCodeHash: this.hashIdentityText(dto.freelancerCode, true),
+      internalEmailHash: this.hashIdentityText(dto.internalEmail, true),
     };
   }
 
@@ -1022,6 +1051,30 @@ function toPublicApplyError(exception: unknown): PublicApplyError {
       HttpStatus.CONFLICT,
       'IDEMPOTENCY_CONFLICT',
       'Idempotency key was already used with different application data.',
+    );
+  }
+
+  if (code === 'INVALID_FREELANCER_CODE') {
+    return buildPublicApplyError(
+      HttpStatus.BAD_REQUEST,
+      'INVALID_FREELANCER_CODE',
+      'Mã giới thiệu không hợp lệ',
+    );
+  }
+
+  if (code === 'INVALID_INTERNAL_EMAIL') {
+    return buildPublicApplyError(
+      HttpStatus.BAD_REQUEST,
+      'INVALID_INTERNAL_EMAIL',
+      'Internal email must use the @viettel.com.vn domain and be active.',
+    );
+  }
+
+  if (code === 'REFERRAL_SOURCE_CONFLICT') {
+    return buildPublicApplyError(
+      HttpStatus.BAD_REQUEST,
+      'VALIDATION_ERROR',
+      'Choose either a freelancer code or an Internal email, not both.',
     );
   }
 

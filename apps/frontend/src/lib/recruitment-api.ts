@@ -292,11 +292,30 @@ export interface ApplicationJobPostingSummary {
   jobDescriptionVersionId?: string | null;
 }
 
+export interface ApplicationInternalSummary {
+  referralId?: string | null;
+  internalId?: string | null;
+  email?: string | null;
+}
+
+export interface ApplicationFreelancerSummary {
+  referralId?: string | null;
+  freelancerId?: string | null;
+  identifier?: string | null;
+  name?: string | null;
+}
+
 export interface ApplicationListRecord {
   applicationId: string;
   candidate?: ApplicationCandidateSummary | null;
   jobPosting?: ApplicationJobPostingSummary | null;
+  freelancer?: ApplicationFreelancerSummary | null;
+  internal?: ApplicationInternalSummary | null;
+  referralSource?: 'FREELANCER' | 'INTERNAL' | null;
+  referralEvaluation?: string | null;
+  freelancerEvaluation?: string | null;
   status?: string | null;
+  hrReceptionStatus?: string | null;
   sourceChannel?: string | null;
   mappingScore?: number | null;
   aiScreeningScore?: number | null;

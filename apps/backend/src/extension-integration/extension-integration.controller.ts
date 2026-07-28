@@ -1,10 +1,14 @@
 import { UserRole } from '@interview-assistant/shared';
-import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
+import { CreateFreelancerDto } from '../freelancers/dto/create-freelancer.dto';
+import { UpdateFreelancerStatusDto } from '../freelancers/dto/update-freelancer-status.dto';
+import { CreateInternalDto } from '../internals/dto/create-internal.dto';
+import { UpdateInternalStatusDto } from '../internals/dto/update-internal-status.dto';
 import {
   ExtensionSyncResponseDto,
   AmisCareerCatalogItemDto,
@@ -19,6 +23,7 @@ import {
   UpdateAmisApplicationStageDto,
   UpdateAmisCareerQuestionCategoriesDto,
   UpdateJobDescriptionQuestionSetItemDto,
+  ListExtensionReferralSourcesQueryDto,
 } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { ExtensionInstancesService } from './extension-instances.service';
@@ -284,6 +289,99 @@ export class ExtensionIntegrationController {
       amisCandidateId,
       dto,
     );
+  }
+
+  @Get('referral-sources')
+  @ApiOperation({ summary: 'List global Freelancer or Internal referral-source applications' })
+  @ApiResponse({
+    status: 200,
+    description: 'Global referral-source people with all related applications.',
+  })
+  async listReferralSources(@Query() query: ListExtensionReferralSourcesQueryDto) {
+    const result = await this.extensionIntegrationService.listExtensionReferralSources(query);
+    return {
+      success: true,
+      data: result.data,
+      pagination: {
+        page: result.page,
+        limit: result.limit,
+        total: result.total,
+        totalPages: result.totalPages,
+      },
+      meta: { timestamp: new Date().toISOString() },
+    };
+  }
+
+  @Post('referral-sources/freelancers')
+  @ApiOperation({ summary: 'Create a Freelancer referral source from the browser extension' })
+  @ApiBody({ type: CreateFreelancerDto })
+  async createReferralFreelancer(
+    @Body() dto: CreateFreelancerDto,
+    @Request() req: ExtensionAuthenticatedRequest,
+  ) {
+    const data = await this.extensionIntegrationService.createExtensionReferralFreelancer(
+      dto,
+      req.user.id,
+    );
+    return {
+      success: true,
+      data,
+      meta: { timestamp: new Date().toISOString() },
+    };
+  }
+
+  @Post('referral-sources/internals')
+  @ApiOperation({ summary: 'Create an Internal referral source from the browser extension' })
+  @ApiBody({ type: CreateInternalDto })
+  async createReferralInternal(
+    @Body() dto: CreateInternalDto,
+    @Request() req: ExtensionAuthenticatedRequest,
+  ) {
+    const data = await this.extensionIntegrationService.createExtensionReferralInternal(
+      dto,
+      req.user.id,
+    );
+    return {
+      success: true,
+      data,
+      meta: { timestamp: new Date().toISOString() },
+    };
+  }
+
+  @Patch('referral-sources/freelancers/:freelancerId/status')
+  @ApiOperation({ summary: 'Activate or deactivate a Freelancer referral source from the browser extension' })
+  @ApiBody({ type: UpdateFreelancerStatusDto })
+  async updateReferralFreelancerStatus(
+    @Param('freelancerId', ParseUUIDPipe) freelancerId: string,
+    @Body() dto: UpdateFreelancerStatusDto,
+  ) {
+    const data = await this.extensionIntegrationService.updateExtensionReferralFreelancerStatus(
+      freelancerId,
+      dto.isActive,
+    );
+    return {
+      success: true,
+      data,
+      meta: { timestamp: new Date().toISOString() },
+    };
+  }
+
+  @Patch('referral-sources/internals/:internalId/status')
+  @ApiOperation({ summary: 'Activate or deactivate an Internal referral source from the browser extension' })
+  @ApiBody({ type: UpdateInternalStatusDto })
+  async updateReferralInternalStatus(
+    @Param('internalId', ParseUUIDPipe) internalId: string,
+    @Body() dto: UpdateInternalStatusDto,
+  ) {
+    const data = await this.extensionIntegrationService.updateExtensionReferralInternalStatus(
+      internalId,
+      dto.isActive,
+    );
+    return {
+      success: true,
+      data,
+      meta: { timestamp: new Date().toISOString() },
+    };
   }
 
   @Get('careers')

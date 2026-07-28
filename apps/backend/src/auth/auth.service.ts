@@ -10,6 +10,7 @@ import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { RegisterDto, CreateUserDto, UpdateUserDto } from './dto/login.dto';
 import { UserRole, PaginatedResponse } from '@interview-assistant/shared';
+import { FreelancerEntity } from '../freelancers/entities/freelancer.entity';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -18,6 +19,8 @@ export class AuthService implements OnModuleInit {
     private userRepo: Repository<UserEntity>,
     @InjectRepository(RefreshTokenEntity)
     private refreshTokenRepo: Repository<RefreshTokenEntity>,
+    @InjectRepository(FreelancerEntity)
+    private freelancerRepo: Repository<FreelancerEntity>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
@@ -30,6 +33,7 @@ export class AuthService implements OnModuleInit {
   async validateUser(email: string, password: string) {
     const user = await this.userRepo.findOne({ where: { email } });
     if (user && (await bcrypt.compare(password, user.password))) {
+      await this.assertUserCanAuthenticate(user);
       const { password: _, ...result } = user;
       return result;
     }
@@ -96,7 +100,8 @@ export class AuthService implements OnModuleInit {
     );
   }
 
-  async login(user: { id: string; email: string; role: string; name: string }) {
+  async login(user: { id: string; email: string; role: UserRole; name: string }) {
+    await this.assertUserCanAuthenticate(user);
     const refreshToken = await this.createRefreshToken(user.id);
     return {
       accessToken: this.signAccessToken(user),
@@ -129,6 +134,13 @@ export class AuthService implements OnModuleInit {
     const nextTokenHash = this.hashRefreshToken(nextRefreshToken);
     existingToken.revokedAt = new Date();
     existingToken.replacedByTokenHash = nextTokenHash;
+
+    try {
+      await this.assertUserCanAuthenticate(existingToken.user);
+    } catch (error) {
+      await this.refreshTokenRepo.save(existingToken);
+      throw error;
+    }
 
     const nextTokenEntity = this.refreshTokenRepo.create({
       userId: existingToken.userId,
@@ -214,17 +226,23 @@ export class AuthService implements OnModuleInit {
     return result;
   }
 
-  async findById(id: string) {
-    return this.userRepo.findOne({ where: { id } });
+  async findById(id: string): Promise<Omit<UserEntity, 'password'> | null> {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) return null;
+
+    const { password: _, ...result } = user;
+    return result;
   }
 
   // ── User assignment dropdown (all authenticated users) ──
 
   async listAssignableUsers(): Promise<{ id: string; name: string; email: string; role: string }[]> {
-    return this.userRepo.find({
-      select: ['id', 'name', 'email', 'role'],
-      order: { name: 'ASC' },
-    }) as Promise<{ id: string; name: string; email: string; role: string }[]>;
+    return this.userRepo
+      .createQueryBuilder('user')
+      .select(['user.id', 'user.name', 'user.email', 'user.role'])
+      .where('user.role != :freelancerRole', { freelancerRole: UserRole.FREELANCER })
+      .orderBy('user.name', 'ASC')
+      .getMany() as Promise<{ id: string; name: string; email: string; role: string }[]>;
   }
 
   // ── User management (admin) ──
@@ -258,6 +276,8 @@ export class AuthService implements OnModuleInit {
   }
 
   async createUser(dto: CreateUserDto) {
+    this.assertRoleCanUseGenericUserManagement(dto.role);
+
     const existing = await this.userRepo.findOne({ where: { email: dto.email } });
     if (existing) throw new BadRequestException('A user with this email already exists');
 
@@ -278,6 +298,16 @@ export class AuthService implements OnModuleInit {
   async updateUser(id: string, dto: UpdateUserDto) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new BadRequestException('User not found');
+
+    const hasFreelancerProfile =
+      user.role === UserRole.FREELANCER
+      || (await this.freelancerRepo.exist({ where: { userId: user.id } }));
+    if (hasFreelancerProfile) {
+      this.throwFreelancerManagedElsewhere();
+    }
+
+    this.assertRoleCanUseGenericUserManagement(user.role);
+    this.assertRoleCanUseGenericUserManagement(dto.role);
     if (dto.name !== undefined) user.name = dto.name;
     if (dto.role !== undefined) user.role = dto.role;
     const saved = await this.userRepo.save(user);
@@ -288,6 +318,12 @@ export class AuthService implements OnModuleInit {
   async deleteUser(id: string) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new BadRequestException('User not found');
+    const hasFreelancerProfile =
+      user.role === UserRole.FREELANCER
+      || (await this.freelancerRepo.exist({ where: { userId: user.id } }));
+    if (hasFreelancerProfile) {
+      this.throwFreelancerManagedElsewhere();
+    }
     await this.userRepo.remove(user);
     return { message: 'User deleted' };
   }
@@ -320,5 +356,36 @@ export class AuthService implements OnModuleInit {
     }
 
     throw new UnauthorizedException('No access. Ask your admin to create an account for you.');
+  }
+
+  private assertRoleCanUseGenericUserManagement(role?: UserRole) {
+    if (role === UserRole.FREELANCER) {
+      this.throwFreelancerManagedElsewhere();
+    }
+  }
+
+  private async assertUserCanAuthenticate(user: { id: string; role: UserRole }) {
+    if (user.role !== UserRole.FREELANCER) return;
+
+    const freelancer = await this.freelancerRepo.findOne({
+      where: {
+        userId: user.id,
+        isActive: true,
+      },
+    });
+
+    if (!freelancer) {
+      throw new UnauthorizedException({
+        code: 'FREELANCER_ACCOUNT_INACTIVE',
+        message: 'Freelancer account is inactive or unavailable.',
+      });
+    }
+  }
+
+  private throwFreelancerManagedElsewhere(): never {
+    throw new BadRequestException({
+      code: 'FREELANCER_MANAGED_ELSEWHERE',
+      message: 'Freelancer accounts must be created and managed via the freelancers service.',
+    });
   }
 }

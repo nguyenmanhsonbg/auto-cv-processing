@@ -281,7 +281,17 @@ export class ApplicationsController {
       applicationId: application.id,
       candidate: this.toCandidateSummary(application),
       jobPosting: this.toJobPostingSummary(application),
+      freelancer: this.toFreelancerSummary(application),
+      freelancerEvaluation: application.freelancerReferral?.freelancerId
+        && (!application.freelancerReferral.sourceType
+          || application.freelancerReferral.sourceType === 'FREELANCER')
+        ? application.freelancerReferral.evaluation
+        : null,
+      internal: this.toInternalSummary(application),
+      referralSource: this.getReferralSourceType(application),
+      referralEvaluation: application.freelancerReferral?.evaluation ?? null,
       status: application.status,
+      hrReceptionStatus: application.hrReviewStatus,
       sourceChannel: application.sourceChannel,
       mappingScore: null,
       aiScreeningScore: null,
@@ -304,6 +314,16 @@ export class ApplicationsController {
       externalApplicationId: application.externalApplicationId,
       candidate: this.toCandidateSummary(application),
       jobPosting: this.toJobPostingSummary(application),
+      freelancer: this.toFreelancerSummary(application),
+      freelancerEvaluation: application.freelancerReferral?.freelancerId
+        && (!application.freelancerReferral.sourceType
+          || application.freelancerReferral.sourceType === 'FREELANCER')
+        ? application.freelancerReferral.evaluation
+        : null,
+      internal: this.toInternalSummary(application),
+      referralSource: this.getReferralSourceType(application),
+      referralEvaluation: application.freelancerReferral?.evaluation ?? null,
+      hrReceptionStatus: application.hrReviewStatus,
       cv: currentCv
         ? {
           currentCvDocumentId: currentCv.id,
@@ -375,6 +395,38 @@ export class ApplicationsController {
         phone: candidate.phone ?? null,
       }
       : null;
+  }
+
+  private toFreelancerSummary(application: ApplicationEntity) {
+    const referral = application.freelancerReferral;
+    if (!referral || !referral.freelancerId || referral.sourceType === 'INTERNAL') return null;
+
+    return {
+      referralId: referral.id,
+      freelancerId: referral.freelancerId,
+      identifier: referral.freelancer?.identifier ?? null,
+      name: referral.freelancer?.user?.name ?? null,
+    };
+  }
+
+  private toInternalSummary(application: ApplicationEntity) {
+    const referral = application.freelancerReferral;
+    if (!referral || !referral.internalId || referral.sourceType === 'FREELANCER') return null;
+
+    return {
+      referralId: referral.id,
+      internalId: referral.internalId,
+      email: referral.internal?.email ?? null,
+    };
+  }
+
+  private getReferralSourceType(application: ApplicationEntity) {
+    const referral = application.freelancerReferral;
+    if (!referral) return null;
+    if (referral.sourceType) return referral.sourceType;
+    if (referral.internalId) return 'INTERNAL';
+    if (referral.freelancerId) return 'FREELANCER';
+    return null;
   }
 
   private toJobPostingSummary(application: ApplicationEntity) {
