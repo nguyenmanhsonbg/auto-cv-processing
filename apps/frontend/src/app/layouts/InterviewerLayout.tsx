@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { AuthProvider, useAuthContext } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -25,15 +25,15 @@ import {
 import type { User } from '@interview-assistant/shared';
 import { UserRole } from '@interview-assistant/shared';
 
-// Nav items visible to all authenticated users
-const navItems = [
+const defaultNavItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Candidates', href: '/candidates', icon: Users },
+  { label: 'Freelancers', href: '/candidates/freelancers', icon: Users },
+  { label: 'Internals', href: '/candidates/internals', icon: Users },
   { label: 'Sessions', href: '/sessions', icon: ClipboardList },
 ];
 
-// Nav items visible to admin only (rendered separately below)
-const adminNavItems = [
+const hrAdminNavItems = [
   { label: 'Questions', href: '/questions', icon: FileText },
 ];
 
@@ -43,10 +43,12 @@ const recruitmentNavItems = [
   { label: 'Applications', href: '/recruitment/applications', icon: Users },
 ];
 
+const freelancerWorkspacePath = '/candidates/freelancers';
+
 function SidebarContent() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, setUser } = useAuthContext();
+  const { user } = useAuthContext();
   const [collapsed, setCollapsed] = useState<boolean>(
     () => {
       // On mobile, start collapsed by default
@@ -60,24 +62,6 @@ function SidebarContent() {
   const [recruitmentExpanded, setRecruitmentExpanded] = useState<boolean>(
     () => localStorage.getItem('recruitment-expanded') === 'true',
   );
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!token && !refreshToken) {
-      navigate('/login');
-      return;
-    }
-    apiClient.setToken(token);
-    apiClient.setRefreshToken(refreshToken);
-    apiClient.get<User>('/auth/me').then((u) => setUser(u)).catch((err) => {
-      // Only logout on 401 — network errors (e.g. backend restarting) should not clear the session
-      if (err instanceof ApiError && err.status === 401) {
-        apiClient.clearTokens();
-        navigate('/login');
-      }
-    });
-  }, [navigate, setUser]);
 
   const handleLogout = () => {
     const refreshToken = apiClient.getRefreshToken();
@@ -96,7 +80,11 @@ function SidebarContent() {
   };
 
   const isAdmin = user?.role === UserRole.ADMIN;
+  const isFreelancerUser = user?.role === UserRole.FREELANCER;
   const isRecruitmentUser = user?.role === UserRole.ADMIN || user?.role === UserRole.HR;
+  const primaryNavItems = isFreelancerUser
+    ? [{ label: 'Freelancer', href: freelancerWorkspacePath, icon: Users }]
+    : defaultNavItems;
 
   return (
     <aside
@@ -122,7 +110,36 @@ function SidebarContent() {
 
       {/* Nav */}
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
+        {primaryNavItems.map((item) => {
+          const Icon = item.icon;
+          const isCandidatePage = location.pathname.startsWith('/candidates');
+          const isFreelancerPage = location.pathname.startsWith('/candidates/freelancers');
+          const isInternalPage = location.pathname.startsWith('/candidates/internals');
+          const isActive = item.href === '/candidates'
+            ? isCandidatePage && !isFreelancerPage && !isInternalPage
+            : location.pathname.startsWith(item.href);
+
+          return (
+            <Link
+              key={item.href}
+              to={item.href}
+              title={collapsed ? item.label : undefined}
+              className={cn(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                collapsed && 'justify-center px-2',
+                isActive
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {!collapsed && item.label}
+            </Link>
+          );
+        })}
+
+        {/* HR/Admin nav items (Questions, etc.) */}
+        {!isFreelancerUser && isRecruitmentUser && hrAdminNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname.startsWith(item.href);
           return (
@@ -144,30 +161,7 @@ function SidebarContent() {
           );
         })}
 
-        {/* Admin-only nav items (Questions, etc.) */}
-        {isAdmin && adminNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = location.pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              to={item.href}
-              title={collapsed ? item.label : undefined}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-                collapsed && 'justify-center px-2',
-                isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && item.label}
-            </Link>
-          );
-        })}
-
-        {isRecruitmentUser && (
+        {!isFreelancerUser && isRecruitmentUser && (
           <>
             <Separator className="my-1" />
             <button
@@ -219,7 +213,7 @@ function SidebarContent() {
         )}
 
         {/* Settings sub-menu — admin only */}
-        {isAdmin && (
+        {!isFreelancerUser && isAdmin && (
           <>
             <Separator className="my-1" />
             {/* Settings header row */}
@@ -263,7 +257,7 @@ function SidebarContent() {
                   <Link
                     key={href}
                     to={href}
-                          className={cn(
+                    className={cn(
                       'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
                       location.pathname.startsWith(href)
                         ? 'bg-primary text-primary-foreground'
@@ -325,6 +319,83 @@ function SidebarContent() {
 }
 
 function LayoutInner() {
+  const location = useLocation();
+  const { user, setUser } = useAuthContext();
+  const [authState, setAuthState] = useState<'loading' | 'ready' | 'unauthenticated' | 'error'>('loading');
+
+  useEffect(() => {
+    let isActive = true;
+    const token = localStorage.getItem('token');
+    const refreshToken = localStorage.getItem('refreshToken');
+
+    if (!token && !refreshToken) {
+      apiClient.clearTokens();
+      setUser(null);
+      setAuthState('unauthenticated');
+      return () => {
+        isActive = false;
+      };
+    }
+
+    apiClient.setToken(token);
+    apiClient.setRefreshToken(refreshToken);
+    apiClient.get<User>('/auth/me')
+      .then((resolvedUser) => {
+        if (!isActive) return;
+        setUser(resolvedUser);
+        setAuthState('ready');
+      })
+      .catch((err) => {
+        if (!isActive) return;
+
+        // Only logout on 401 — network errors (e.g. backend restarting) should not clear the session
+        if (err instanceof ApiError && err.status === 401) {
+          apiClient.clearTokens();
+          setUser(null);
+          setAuthState('unauthenticated');
+          return;
+        }
+
+        setAuthState('error');
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [setUser]);
+
+  if (authState === 'loading') {
+    return (
+      <div className="flex h-screen items-center justify-center p-6">
+        <div className="space-y-2 text-center">
+          <h1 className="text-2xl font-semibold">Loading workspace...</h1>
+          <p className="text-sm text-muted-foreground">Checking your account permissions.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authState === 'error') {
+    return (
+      <div className="flex h-screen items-center justify-center p-6">
+        <div className="space-y-2 text-center">
+          <h1 className="text-2xl font-semibold">Workspace unavailable</h1>
+          <p className="text-sm text-muted-foreground">
+            Unable to load your workspace right now. Please try again in a moment.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authState === 'unauthenticated' || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (user.role === UserRole.FREELANCER && location.pathname !== freelancerWorkspacePath) {
+    return <Navigate to={freelancerWorkspacePath} replace />;
+  }
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar — always visible and expanded on all screen sizes */}

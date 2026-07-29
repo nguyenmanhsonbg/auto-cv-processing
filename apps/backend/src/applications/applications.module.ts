@@ -9,6 +9,8 @@ import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
 import { ParsedProfileEntity } from '../cv-documents/entities/parsed-profile.entity';
 import { FormAnswerEntity } from '../form-sessions/entities/form-answer.entity';
 import { FormSessionEntity } from '../form-sessions/entities/form-session.entity';
+import { FreelancersModule } from '../freelancers/freelancers.module';
+import { InternalsModule } from '../internals/internals.module';
 import { HrReviewDecisionEntity } from '../hr-review/entities/hr-review-decision.entity';
 import { JobDescriptionEntity } from '../job-descriptions/entities/job-description.entity';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
@@ -30,6 +32,8 @@ import { ApplicationsService } from './applications.service';
 @Module({
   imports: [
     AiModule,
+    FreelancersModule,
+    InternalsModule,
     WorkflowStateModule,
     TypeOrmModule.forFeature([
       AiScreeningResultEntity,

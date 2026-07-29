@@ -80,6 +80,7 @@ function runCommand(command, args, options = {}) {
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let settled = false;
     const timeoutMs = options.timeoutMs || 0;
     const timer = timeoutMs > 0
       ? setTimeout(() => {
@@ -87,6 +88,12 @@ function runCommand(command, args, options = {}) {
           child.kill('SIGKILL');
         }, timeoutMs)
       : null;
+    const resolveOnce = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
 
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString('utf8');
@@ -94,16 +101,26 @@ function runCommand(command, args, options = {}) {
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString('utf8');
     });
+    child.stdout.on('error', (error) => {
+      stderr = stderr || error.message;
+      resolveOnce({ exitCode: 1, stdout, stderr, timedOut });
+    });
+    child.stderr.on('error', (error) => {
+      stderr = stderr || error.message;
+      resolveOnce({ exitCode: 1, stdout, stderr, timedOut });
+    });
     if (options.input) {
+      child.stdin.on('error', (error) => {
+        stderr = stderr || error.message;
+        resolveOnce({ exitCode: 1, stdout, stderr, timedOut });
+      });
       child.stdin.end(options.input);
     }
     child.on('error', (error) => {
-      if (timer) clearTimeout(timer);
-      resolve({ exitCode: 1, stdout, stderr: error.message, timedOut });
+      resolveOnce({ exitCode: 1, stdout, stderr: error.message, timedOut });
     });
     child.on('close', (code) => {
-      if (timer) clearTimeout(timer);
-      resolve({ exitCode: timedOut ? 124 : Number(code || 0), stdout, stderr, timedOut });
+      resolveOnce({ exitCode: timedOut ? 124 : Number(code || 0), stdout, stderr, timedOut });
     });
   });
 }

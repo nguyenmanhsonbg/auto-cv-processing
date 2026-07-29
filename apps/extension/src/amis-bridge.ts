@@ -13,6 +13,7 @@ const RECRUITMENT_CONTEXT_OBSERVER_INSTALLED_KEY = '__VCS_AMIS_RECRUITMENT_CONTE
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
 const FETCH_AMIS_CAREERS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_CAREERS';
 const FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
+const GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE = 'VCS_GET_AMIS_CANDIDATE_FORM_STATE';
 const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
 const SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE = 'VCS_SELECT_AMIS_CANDIDATE_SOURCE';
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
@@ -244,6 +245,14 @@ const runtimeMessageListener = (
           });
         });
       return true;
+    }
+
+    if (isGetAmisCandidateFormStateMessage(message)) {
+      sendResponse({
+        open: Boolean(findAmisCandidateFormRoot()),
+        unsavedChangesPromptOpen: isAmisUnsavedChangesPromptOpen(),
+      });
+      return;
     }
 
     if (isFetchAmisCareersMessage(message)) {
@@ -1958,38 +1967,25 @@ async function closeOpenAmisDropdown() {
 }
 
 function findAmisCandidateFormRoot() {
-  const heading = getVisibleElements<HTMLElement>('h1, h2, h3, h4, span, div')
-    .find((element) => normalizeAmisUiText(element.innerText || element.textContent) === 'themungvien');
-  if (!heading) {
-    return findVisibleModalRoots()
-      .find((root) => normalizeAmisUiText(root.innerText || root.textContent).includes('themungvien'))
-      ?? null;
-  }
+  return findVisibleModalRoots().find((root) => {
+    const text = normalizeAmisUiText(root.innerText || root.textContent);
+    if (!text.includes('themungvien')) return false;
 
-  let root: HTMLElement | null = heading;
-  for (let depth = 0; depth < 10 && root; depth += 1) {
-    const rect = root.getBoundingClientRect();
     const hasSaveButton = Array.from(root.querySelectorAll<HTMLElement>('button, [role="button"]'))
       .some((element) => normalizeAmisUiText(element.innerText || element.textContent) === 'luu');
     const hasSourceField = Array.from(root.querySelectorAll<HTMLElement>('label, span, div, p'))
       .some((element) => normalizeAmisUiText(element.innerText || element.textContent) === 'nguonungvien');
-    const hasCandidateFormMarkers = root.matches(
-      '.popup, .popup-container, .popup-content, .form, .infor-candidate, .right-content, '
-      + '[class*="popup"], [class*="candidate"]',
-    ) || Boolean(root.querySelector(
-      '.popup, .popup-container, .popup-content, .form, .infor-candidate, .right-content, '
-      + '.import-cv, input[type="file"]',
-    ));
-    if (rect.width >= 300 && rect.height >= 180 && (hasSaveButton || hasSourceField || hasCandidateFormMarkers)) {
-      return root;
-    }
-    root = root.parentElement;
-  }
+    const hasFileInput = Boolean(root.querySelector('input[type="file"]'));
+    return hasSaveButton || hasSourceField || hasFileInput;
+  }) ?? null;
+}
 
-  return heading.closest<HTMLElement>(
-    '.dx-popup-wrapper, .dx-overlay-wrapper, [role="dialog"], .modal, .ant-modal, .v-modal, '
-    + '.popup, .popup-container, .popup-content, .form, .infor-candidate, .right-content',
-  );
+function isAmisUnsavedChangesPromptOpen() {
+  return findVisibleModalRoots().some((root) => {
+    const text = normalizeAmisUiText(root.innerText || root.textContent);
+    return text.includes('luuthaydoi')
+      || (text.includes('dacolieuphatsinh') && text.includes('luulaikhong'));
+  });
 }
 
 function advanceAmisCandidateFormScroll() {
@@ -2743,6 +2739,14 @@ function isGetRecruitmentRoundsMessage(value: unknown): value is {
       && payload !== null
       && ((payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === undefined
         || typeof (payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string'));
+}
+
+function isGetAmisCandidateFormStateMessage(value: unknown): value is {
+  type: typeof GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE;
 }
 
 function isAmisExtractionResult(value: unknown): value is AmisExtractionResult {

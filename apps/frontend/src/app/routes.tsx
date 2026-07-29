@@ -25,6 +25,7 @@ import {
 } from '@/pages/interviewer/settings/ManagementPage';
 import { CandidateSessionPage } from '@/pages/candidate/CandidateSessionPage';
 import { RecruitmentRouteGuard } from '@/components/recruitment/RecruitmentRouteGuard';
+import { HrRouteGuard } from '@/components/recruitment/HrRouteGuard';
 import { PublicJobDetailPage } from '@/pages/public/PublicJobDetailPage';
 import { PublicJobApplyPage } from '@/pages/public/PublicJobApplyPage';
 import { PublicApplyResultPage } from '@/pages/public/PublicApplyResultPage';
@@ -35,6 +36,11 @@ import { JobPostingListPage } from '@/pages/recruitment/job-postings/JobPostingL
 import { JobPostingDetailPage } from '@/pages/recruitment/job-postings/JobPostingDetailPage';
 import { ApplicationListPage } from '@/pages/recruitment/applications/ApplicationListPage';
 import { ApplicationDetailPage } from '@/pages/recruitment/applications/ApplicationDetailPage';
+import { FreelancerDetailPage } from '@/pages/interviewer/candidates/FreelancerDetailPage';
+import { FreelancerLandingPage } from '@/pages/interviewer/candidates/FreelancerLandingPage';
+import { InternalDetailPage } from '@/pages/interviewer/candidates/InternalDetailPage';
+import { InternalListPage } from '@/pages/interviewer/candidates/InternalListPage';
+import { FreelancerRouteGuard } from '@/components/recruitment/FreelancerRouteGuard';
 import { Toaster } from '@/components/ui/toaster';
 
 export function AppRoutes() {
@@ -52,6 +58,16 @@ export function AppRoutes() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="candidates" element={<CandidateListPage />} />
+          <Route path="candidates/freelancers" element={<FreelancerRouteGuard />}>
+            <Route index element={<FreelancerLandingPage />} />
+            <Route path=":freelancerId" element={<HrRouteGuard />}>
+              <Route index element={<FreelancerDetailPage />} />
+            </Route>
+          </Route>
+          <Route path="candidates/internals" element={<HrRouteGuard />}>
+            <Route index element={<InternalListPage />} />
+            <Route path=":internalId" element={<InternalDetailPage />} />
+          </Route>
           <Route path="candidates/new" element={<CandidateCreatePage />} />
           <Route path="candidates/:slug" element={<CandidateDetailPage />} />
           <Route path="questions" element={<QuestionListPage />} />

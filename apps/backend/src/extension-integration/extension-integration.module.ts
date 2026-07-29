@@ -26,6 +26,8 @@ import { ExtensionVcsPortalController } from './extension-vcs-portal.controller'
 import { QuestionsModule } from '../questions/questions.module';
 import { CategoriesModule } from '../categories/categories.module';
 import { ApplicationsModule } from '../applications/applications.module';
+import { FreelancersModule } from '../freelancers/freelancers.module';
+import { InternalsModule } from '../internals/internals.module';
 import { VcsPortalClientService } from './vcs-portal-client.service';
 import { VcsPortalJdMapper } from './vcs-portal-jd.mapper';
 import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
@@ -50,6 +52,8 @@ import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
     QuestionsModule,
     CategoriesModule,
     ApplicationsModule,
+    FreelancersModule,
+    InternalsModule,
   ],
   controllers: [
     ExtensionIntegrationController,

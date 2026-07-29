@@ -6,6 +6,7 @@ import {
   JoinColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -30,6 +31,7 @@ import { JobDescriptionVersionEntity } from '../../job-descriptions/entities/job
 import { JobPostingEntity } from '../../job-postings/entities/job-posting.entity';
 import { MappingResultEntity } from '../../mapping/entities/mapping-result.entity';
 import { WorkflowEventEntity } from '../../workflow-state/entities/workflow-event.entity';
+import { ApplicationReferralEntity } from '../../freelancers/entities/application-referral.entity';
 import { ApplicationSourceEntity } from './application-source.entity';
 import { DuplicateCheckEntity } from './duplicate-check.entity';
 
@@ -124,6 +126,12 @@ export class ApplicationEntity {
 
   @OneToMany(() => ApplicationSourceEntity, (source) => source.application)
   sources: ApplicationSourceEntity[];
+
+  @OneToOne(
+    () => ApplicationReferralEntity,
+    (applicationReferral) => applicationReferral.application,
+  )
+  freelancerReferral: ApplicationReferralEntity | null;
 
   @OneToMany(() => DuplicateCheckEntity, (duplicateCheck) => duplicateCheck.application)
   duplicateChecks: DuplicateCheckEntity[];
