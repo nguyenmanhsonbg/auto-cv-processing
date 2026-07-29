@@ -81,6 +81,7 @@ function createController(): AmisSourceColumnController {
   let activeRecruitmentId: string | null = null;
   let sourceLookup: SourceLookup = createEmptyLookup();
   let requestSequence = 0;
+  let lastApplicationsSyncSignature: string | null = null;
   let reconcileTimeoutId: number | undefined;
   let routeIntervalId: number | undefined;
   let observedGrid: HTMLElement | null = null;
@@ -89,6 +90,16 @@ function createController(): AmisSourceColumnController {
   const runtimeMessageHandler = (message: unknown) => {
     if (!isAmisApplicationsSyncedMessage(message)) return;
     if (!activeRecruitmentId || message.payload.amisRecruitmentId !== activeRecruitmentId) return;
+
+    const syncSignature = message.payload.syncSignature
+      ?? [
+        message.payload.amisRecruitmentId,
+        message.payload.syncedCount ?? '',
+        message.payload.createdCount ?? '',
+        message.payload.updatedCount ?? '',
+      ].join(':');
+    if (lastApplicationsSyncSignature === syncSignature) return;
+    lastApplicationsSyncSignature = syncSignature;
 
     requestSequence += 1;
     void loadSourceLookup(activeRecruitmentId, requestSequence);
@@ -106,6 +117,7 @@ function createController(): AmisSourceColumnController {
     if (recruitmentId !== activeRecruitmentId) {
       activeRecruitmentId = recruitmentId;
       sourceLookup = createEmptyLookup();
+      lastApplicationsSyncSignature = null;
       requestSequence += 1;
 
       if (recruitmentId) {
@@ -619,7 +631,13 @@ function isOwnMutation(mutation: MutationRecord) {
 
 function isAmisApplicationsSyncedMessage(value: unknown): value is {
   type: typeof AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE;
-  payload: { amisRecruitmentId: string };
+  payload: {
+    amisRecruitmentId: string;
+    syncSignature?: string;
+    syncedCount?: number;
+    createdCount?: number;
+    updatedCount?: number;
+  };
 } {
   if (typeof value !== 'object' || value === null) return false;
   const payload = (value as { payload?: unknown }).payload;

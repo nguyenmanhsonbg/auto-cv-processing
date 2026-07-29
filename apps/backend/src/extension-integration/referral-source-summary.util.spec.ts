@@ -40,6 +40,46 @@ describe('referral-source-summary.util', () => {
     expect(metrics).toEqual({ total: 3, processing: 1, passed: 1, passRate: 33 });
   });
 
+  it('uses the current AMIS round instead of stale core application status', () => {
+    const metrics = buildReferralSourceMetrics([
+      {
+        processStatus: ApplicationStatus.HR_APPROVED,
+        hrReceptionStatus: HrReviewDecisionType.APPROVE,
+        currentAmisStage: {
+          recruitmentRoundId: 'offer-round',
+          recruitmentRoundName: 'Offer',
+          amisStatus: 1,
+          reasonRemoved: null,
+          updatedAt: new Date('2026-07-27T08:00:00.000Z'),
+        },
+      },
+      {
+        processStatus: ApplicationStatus.WAITING_HR_REVIEW,
+        hrReceptionStatus: null,
+        currentAmisStage: {
+          recruitmentRoundId: 'hired-round',
+          recruitmentRoundName: 'Đã tuyển',
+          amisStatus: 1,
+          reasonRemoved: null,
+          updatedAt: new Date('2026-07-27T08:01:00.000Z'),
+        },
+      },
+      {
+        processStatus: ApplicationStatus.HR_APPROVED,
+        hrReceptionStatus: HrReviewDecisionType.APPROVE,
+        currentAmisStage: {
+          recruitmentRoundId: 'rejected-round',
+          recruitmentRoundName: 'Phỏng vấn',
+          amisStatus: 0,
+          reasonRemoved: 'Không đạt',
+          updatedAt: new Date('2026-07-27T08:02:00.000Z'),
+        },
+      },
+    ]);
+
+    expect(metrics).toEqual({ total: 3, processing: 1, passed: 1, passRate: 33 });
+  });
+
   it('maps application details including applied time, evaluation, and assignees', () => {
     const createdAt = new Date('2026-07-20T08:30:00.000Z');
     const updatedAt = new Date('2026-07-21T08:30:00.000Z');
@@ -71,6 +111,34 @@ describe('referral-source-summary.util', () => {
       createdAt,
       updatedAt,
       assignees: [{ userId: 'user-1', name: 'TA A', email: 'ta.a@viettel.com.vn' }],
+      currentAmisStage: null,
+      statusCategory: 'PROCESSING',
     });
+  });
+
+  it('maps the current AMIS round and its status category for the referral list', () => {
+    const currentAmisStage = {
+      recruitmentRoundId: 'round-1',
+      recruitmentRoundName: 'Phỏng vấn',
+      amisStatus: 1,
+      reasonRemoved: null,
+      updatedAt: new Date('2026-07-27T08:00:00.000Z'),
+    };
+
+    const row = mapReferralApplicationRow({
+      referralId: 'referral-2',
+      applicationId: 'application-2',
+      candidate: { candidateId: 'candidate-2', fullName: 'Tran Thi B' },
+      jobPosting: { jobPostingId: 'job-2', title: 'Frontend Developer' },
+      processStatus: ApplicationStatus.HR_APPROVED,
+      hrReceptionStatus: HrReviewDecisionType.APPROVE,
+      evaluation: null,
+      createdAt: currentAmisStage.updatedAt,
+      updatedAt: currentAmisStage.updatedAt,
+      currentAmisStage,
+    });
+
+    expect(row.currentAmisStage).toEqual(currentAmisStage);
+    expect(row.statusCategory).toBe('PROCESSING');
   });
 });

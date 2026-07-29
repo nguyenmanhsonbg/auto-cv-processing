@@ -16,6 +16,16 @@ export interface ReferralManagementMetrics {
   passRate: number;
 }
 
+export type ReferralManagementStatusCategory = 'PROCESSING' | 'PASSED' | 'REJECTED';
+
+export interface ReferralManagementCurrentAmisStage {
+  recruitmentRoundId: string;
+  recruitmentRoundName: string | null;
+  amisStatus: number | null;
+  reasonRemoved: string | null;
+  updatedAt: string | null;
+}
+
 export interface ReferralManagementAssignee {
   userId: string;
   name: string;
@@ -40,6 +50,8 @@ export interface ReferralManagementApplication {
   createdAt: string;
   updatedAt: string;
   assignees: ReferralManagementAssignee[];
+  currentAmisStage: ReferralManagementCurrentAmisStage | null;
+  statusCategory: ReferralManagementStatusCategory;
 }
 
 export interface ReferralManagementPerson {

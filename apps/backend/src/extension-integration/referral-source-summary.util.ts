@@ -6,9 +6,20 @@ import {
 
 export const FREELANCER_PHONE_MAX_LENGTH = 50;
 
+export type ReferralApplicationStatusCategory = 'PROCESSING' | 'PASSED' | 'REJECTED';
+
+export interface ReferralCurrentAmisStage {
+  recruitmentRoundId: string;
+  recruitmentRoundName: string | null;
+  amisStatus: number | null;
+  reasonRemoved: string | null;
+  updatedAt: Date | null;
+}
+
 export interface ReferralApplicationMetricInput {
   processStatus: ApplicationStatus | string | null;
   hrReceptionStatus: HrReviewDecisionType | string | null;
+  currentAmisStage?: ReferralCurrentAmisStage | null;
 }
 
 export interface ReferralApplicationRowInput extends ReferralApplicationMetricInput {
@@ -46,6 +57,8 @@ export interface ReferralApplicationRow {
   createdAt: Date;
   updatedAt: Date;
   assignees: Array<{ userId: string; name: string; email: string }>;
+  currentAmisStage: ReferralCurrentAmisStage | null;
+  statusCategory: ReferralApplicationStatusCategory;
 }
 
 export interface ReferralSourceMetrics {
@@ -79,9 +92,9 @@ export function buildReferralSourceMetrics(
   applications: ReferralApplicationMetricInput[],
 ): ReferralSourceMetrics {
   const total = applications.length;
-  const passed = applications.filter(isPassedApplication).length;
-  const rejected = applications.filter(isRejectedApplication).length;
-  const processing = Math.max(0, total - passed - rejected);
+  const passed = applications.filter((application) => getReferralApplicationStatusCategory(application) === 'PASSED').length;
+  const rejected = applications.filter((application) => getReferralApplicationStatusCategory(application) === 'REJECTED').length;
+  const processing = total - passed - rejected;
 
   return {
     total,
@@ -112,17 +125,48 @@ export function mapReferralApplicationRow(
     createdAt: input.createdAt,
     updatedAt: input.updatedAt,
     assignees: input.candidate.assignees ?? [],
+    currentAmisStage: input.currentAmisStage ?? null,
+    statusCategory: getReferralApplicationStatusCategory(input),
   };
 }
 
-function isPassedApplication(application: ReferralApplicationMetricInput) {
-  return application.hrReceptionStatus === HrReviewDecisionType.APPROVE
+export function getReferralApplicationStatusCategory(
+  application: ReferralApplicationMetricInput,
+): ReferralApplicationStatusCategory {
+  if (application.currentAmisStage) {
+    if (application.currentAmisStage.amisStatus === 0 || application.currentAmisStage.reasonRemoved?.trim()) {
+      return 'REJECTED';
+    }
+
+    if (normalizeRoundName(application.currentAmisStage.recruitmentRoundName).includes('DA TUYEN')) {
+      return 'PASSED';
+    }
+
+    return 'PROCESSING';
+  }
+
+  if (application.hrReceptionStatus === HrReviewDecisionType.APPROVE
     || application.hrReceptionStatus === HrReviewDecisionType.TALENT_POOL
     || application.processStatus === ApplicationStatus.HR_APPROVED
-    || application.processStatus === ApplicationStatus.TALENT_POOL;
+    || application.processStatus === ApplicationStatus.TALENT_POOL) {
+    return 'PASSED';
+  }
+
+  if (application.hrReceptionStatus === HrReviewDecisionType.REJECT
+    || REJECTED_PROCESS_STATUSES.has(application.processStatus ?? '')
+  ) {
+    return 'REJECTED';
+  }
+
+  return 'PROCESSING';
 }
 
-function isRejectedApplication(application: ReferralApplicationMetricInput) {
-  return application.hrReceptionStatus === HrReviewDecisionType.REJECT
-    || REJECTED_PROCESS_STATUSES.has(application.processStatus ?? '');
+function normalizeRoundName(value: string | null | undefined) {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/Đ/g, 'D')
+    .replace(/đ/g, 'd')
+    .toUpperCase()
+    .trim();
 }

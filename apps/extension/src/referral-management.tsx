@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiClientError,
   createFreelancer,
@@ -15,7 +15,7 @@ import type {
 } from './types';
 import { buildFreelancerIdentifierCopyText } from './referral-management-utils';
 
-type CvStatusFilter = 'ALL' | 'SCREENING' | 'INTERVIEW_1' | 'INTERVIEW_2' | 'DISCUSSION' | 'HIRED' | 'REJECTED';
+type CvStatusFilter = 'ALL' | 'APPLICATION' | 'TEST' | 'INTERVIEW' | 'OFFER' | 'HIRED' | 'REJECTED';
 type JdFilter = 'ALL' | string;
 type ModalMode = 'CREATE' | 'CREDENTIALS' | 'STATUS' | null;
 type NotifyKind = 'SUCCESS' | 'ERROR';
@@ -23,21 +23,22 @@ type NotifyKind = 'SUCCESS' | 'ERROR';
 interface ReferralManagementProps {
   source: ReferralManagementSource;
   accessToken: string;
+  refreshVersion: number;
   onNotify?: (kind: NotifyKind, title: string, message: string) => void;
 }
 
 const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@viettel\.com\.vn$/i;
 const CV_STATUS_FILTER_OPTIONS: Array<{ value: CvStatusFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả các vòng' },
-  { value: 'SCREENING', label: 'Sàng lọc' },
-  { value: 'INTERVIEW_1', label: 'PV vòng 1' },
-  { value: 'INTERVIEW_2', label: 'PV vòng 2' },
-  { value: 'DISCUSSION', label: 'Trao đổi' },
-  { value: 'HIRED', label: 'Nhận việc' },
+  { value: 'APPLICATION', label: 'Ứng tuyển' },
+  { value: 'TEST', label: 'Thi tuyển' },
+  { value: 'INTERVIEW', label: 'Phỏng vấn' },
+  { value: 'OFFER', label: 'Offer' },
+  { value: 'HIRED', label: 'Đã tuyển' },
   { value: 'REJECTED', label: 'Loại' },
 ];
 
-export function ReferralManagementPanel({ source, accessToken, onNotify }: ReferralManagementProps) {
+export function ReferralManagementPanel({ source, accessToken, refreshVersion, onNotify }: ReferralManagementProps) {
   const [people, setPeople] = useState<ReferralManagementPerson[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
   const [page, setPage] = useState(1);
@@ -56,6 +57,11 @@ export function ReferralManagementPanel({ source, accessToken, onNotify }: Refer
   const [saving, setSaving] = useState(false);
   const [createdFreelancer, setCreatedFreelancer] = useState<CreatedFreelancerResult | null>(null);
   const [copiedIdentifier, setCopiedIdentifier] = useState<string | null>(null);
+  const onNotifyRef = useRef(onNotify);
+
+  useEffect(() => {
+    onNotifyRef.current = onNotify;
+  }, [onNotify]);
 
   const loadPeople = useCallback(async () => {
     setLoading(true);
@@ -71,11 +77,11 @@ export function ReferralManagementPanel({ source, accessToken, onNotify }: Refer
     } catch (loadError) {
       const message = getErrorMessage(loadError);
       setError(message);
-      onNotify?.('ERROR', 'Không tải được dữ liệu', message);
+      onNotifyRef.current?.('ERROR', 'Không tải được dữ liệu', message);
     } finally {
       setLoading(false);
     }
-  }, [accessToken, onNotify, page, search, source]);
+  }, [accessToken, page, refreshVersion, search, source]);
 
   useEffect(() => {
     void loadPeople();
@@ -255,7 +261,7 @@ export function ReferralManagementPanel({ source, accessToken, onNotify }: Refer
         <div className="referral-people-list">
           {filteredPeople.map(({ person, applications }) => {
             const isExpanded = Boolean(expandedIds[person.sourceId]);
-            const metrics = getFilteredMetrics(applications);
+            const metrics = person.metrics;
             return (
               <article className={`referral-person-card${person.isActive ? '' : ' is-inactive'}`} key={person.sourceId}>
                 <div className="referral-person-heading">
@@ -437,50 +443,48 @@ function StatusPill({ application }: { application: ReferralManagementApplicatio
 function matchesCvStatus(application: ReferralManagementApplication, filter: CvStatusFilter): boolean {
   if (filter === 'ALL') return true;
 
-  const processStatus = application.processStatus ?? '';
-  const hrStatus = application.hrReceptionStatus ?? '';
-  const combinedStatus = `${processStatus} ${hrStatus}`;
-
-  if (filter === 'REJECTED') return getApplicationStatus(application).className === 'is-rejected';
-  if (filter === 'HIRED') return getApplicationStatus(application).className === 'is-passed';
-  if (filter === 'INTERVIEW_1') return /INTERVIEW_1|ROUND_1/.test(combinedStatus);
-  if (filter === 'INTERVIEW_2') return /INTERVIEW_2|ROUND_2/.test(combinedStatus);
-  if (filter === 'DISCUSSION') {
-    return processStatus.includes('FORM')
-      || processStatus.includes('SCREENING')
-      || hrStatus === 'REQUEST_MORE_INFO';
-  }
-
-  return !matchesCvStatus(application, 'REJECTED')
-    && !matchesCvStatus(application, 'HIRED')
-    && !matchesCvStatus(application, 'INTERVIEW_1')
-    && !matchesCvStatus(application, 'INTERVIEW_2')
-    && !matchesCvStatus(application, 'DISCUSSION');
-}
-
-function getFilteredMetrics(applications: ReferralManagementApplication[]) {
-  const total = applications.length;
-  const passed = applications.filter((application) => getApplicationStatus(application).className === 'is-passed').length;
-  const rejected = applications.filter((application) => getApplicationStatus(application).className === 'is-rejected').length;
-  const processing = Math.max(0, total - passed - rejected);
-  return {
-    total,
-    processing,
-    passed,
-    passRate: total ? Math.round((passed / total) * 100) : 0,
-  };
+  const stageName = normalizeAmisStageName(application.currentAmisStage?.recruitmentRoundName);
+  if (filter === 'REJECTED') return application.statusCategory === 'REJECTED' || application.currentAmisStage?.amisStatus === 0;
+  if (filter === 'HIRED') return application.statusCategory === 'PASSED';
+  if (filter === 'APPLICATION') return stageName.includes('UNG TUYEN');
+  if (filter === 'TEST') return stageName.includes('THI TUYEN');
+  if (filter === 'INTERVIEW') return stageName.includes('PHONG VAN');
+  if (filter === 'OFFER') return stageName.includes('OFFER');
+  return false;
 }
 
 function getApplicationStatus(application: ReferralManagementApplication) {
+  const currentStageName = application.currentAmisStage?.recruitmentRoundName?.trim();
+  const normalizedStageName = normalizeAmisStageName(currentStageName);
+
+  if (application.statusCategory === 'REJECTED' || application.currentAmisStage?.amisStatus === 0) {
+    return { label: 'Loại', className: 'is-rejected' };
+  }
+  if (application.statusCategory === 'PASSED' || normalizedStageName.includes('DA TUYEN')) {
+    return { label: 'Đã tuyển', className: 'is-passed' };
+  }
+  if (currentStageName) {
+    return { label: currentStageName, className: 'is-processing' };
+  }
   if (application.hrReceptionStatus === 'REJECT' || application.processStatus === 'HR_REJECTED') {
     return { label: 'Loại', className: 'is-rejected' };
   }
   if (application.hrReceptionStatus === 'APPROVE' || application.hrReceptionStatus === 'TALENT_POOL' || application.processStatus === 'HR_APPROVED' || application.processStatus === 'TALENT_POOL') {
-    return { label: 'Đậu', className: 'is-passed' };
+    return { label: 'Đã tuyển', className: 'is-passed' };
   }
   if (application.processStatus === 'WAITING_HR_REVIEW') return { label: 'Chờ', className: 'is-waiting' };
   if (application.processStatus?.includes('FORM') || application.processStatus?.includes('SCREENING')) return { label: 'Trao đổi', className: 'is-discussion' };
-  return { label: 'Qua vòng 1', className: 'is-processing' };
+  return { label: 'Chưa cập nhật vòng', className: 'is-processing' };
+}
+
+function normalizeAmisStageName(value?: string | null) {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/Đ/g, 'D')
+    .replace(/đ/g, 'd')
+    .toUpperCase()
+    .trim();
 }
 
 function formatDate(value: string) {

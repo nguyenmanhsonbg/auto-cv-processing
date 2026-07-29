@@ -67,6 +67,7 @@ import {
   buildReferralSourceMetrics,
   mapReferralApplicationRow,
   type ReferralApplicationRow,
+  type ReferralCurrentAmisStage,
   type ReferralSourceMetrics,
 } from './referral-source-summary.util';
 
@@ -1745,6 +1746,9 @@ export class ExtensionIntegrationService {
         limit: 100,
         sortOrder: 'DESC',
       });
+      const currentAmisStages = await this.findCurrentAmisStages(
+        result.data.map((application) => application.applicationId),
+      );
       all.push(...result.data.map((application) => mapReferralApplicationRow({
         referralId: application.referralId,
         applicationId: application.applicationId,
@@ -1755,6 +1759,7 @@ export class ExtensionIntegrationService {
         evaluation: application.evaluation,
         createdAt: application.createdAt,
         updatedAt: application.updatedAt,
+        currentAmisStage: currentAmisStages.get(application.applicationId) ?? null,
       })));
       totalPages = result.totalPages;
       page += 1;
@@ -1772,6 +1777,9 @@ export class ExtensionIntegrationService {
         limit: 100,
         sortOrder: 'DESC',
       });
+      const currentAmisStages = await this.findCurrentAmisStages(
+        result.data.map((application) => application.applicationId),
+      );
       all.push(...result.data.map((application) => mapReferralApplicationRow({
         referralId: application.referralId,
         applicationId: application.applicationId,
@@ -1782,11 +1790,51 @@ export class ExtensionIntegrationService {
         evaluation: application.evaluation,
         createdAt: application.createdAt,
         updatedAt: application.updatedAt,
+        currentAmisStage: currentAmisStages.get(application.applicationId) ?? null,
       })));
       totalPages = result.totalPages;
       page += 1;
     } while (page <= totalPages);
     return all;
+  }
+
+  private async findCurrentAmisStages(applicationIds: string[]) {
+    const uniqueApplicationIds = [...new Set(applicationIds.filter(Boolean))];
+    const currentStages = new Map<string, ReferralCurrentAmisStage>();
+    if (uniqueApplicationIds.length === 0) return currentStages;
+
+    const sources = await this.dataSource.getRepository(ApplicationSourceEntity).find({
+      where: { applicationId: In(uniqueApplicationIds) },
+    });
+
+    for (const source of sources) {
+      if (!this.isRecord(source.rawPayload)) continue;
+      if (source.rawPayload.sourceSystem !== ExtensionSourceSystem.AMIS) continue;
+
+      const recruitmentRoundId = this.optionalText(source.rawPayload.recruitmentRoundId);
+      if (!recruitmentRoundId) continue;
+
+      const stageUpdatedAt = this.parseOptionalDate(source.rawPayload.stageUpdatedAt)
+        ?? this.parseOptionalDate(source.rawPayload.lastSyncedAt)
+        ?? source.receivedAt;
+      const previous = currentStages.get(source.applicationId);
+      if (previous && this.getDateTime(previous.updatedAt) >= this.getDateTime(stageUpdatedAt)) continue;
+
+      currentStages.set(source.applicationId, {
+        recruitmentRoundId,
+        recruitmentRoundName: this.optionalText(source.rawPayload.recruitmentRoundName),
+        amisStatus: this.toNullableNumber(source.rawPayload.status),
+        reasonRemoved: this.optionalText(
+          source.rawPayload.reasonRemoved
+            ?? source.rawPayload.ReasonRemoved
+            ?? source.rawPayload.reasonRemovedName
+            ?? source.rawPayload.ReasonRemovedName,
+        ),
+        updatedAt: stageUpdatedAt,
+      });
+    }
+
+    return currentStages;
   }
 
   async listAmisCareers(): Promise<AmisCareerCatalogItemDto[]> {
@@ -2331,6 +2379,17 @@ export class ExtensionIntegrationService {
       });
     }
     return normalized;
+  }
+
+  private parseOptionalDate(value: unknown) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private getDateTime(value: Date | null) {
+    return value?.getTime() ?? 0;
   }
 
   private optionalText(value: unknown) {

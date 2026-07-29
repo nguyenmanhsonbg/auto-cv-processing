@@ -387,6 +387,7 @@ function SidePanel() {
   const [state, setState] = useState<PanelState>('AUTH_LOADING');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('cv');
   const [pinnedWorkspaceTab, setPinnedWorkspaceTab] = useState<WorkspaceTab | null>(null);
+  const [referralRefreshVersion, setReferralRefreshVersion] = useState(0);
   const [cvWorkspaceView, setCvWorkspaceView] = useState<CvWorkspaceView>('list');
   const [user, setUser] = useState<ExtensionUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -1560,6 +1561,7 @@ function SidePanel() {
 
     try {
       await updateAmisApplicationStage(accessToken, payload);
+      setReferralRefreshVersion((current) => current + 1);
       await loadAmisApplications(accessToken, payload.amisRecruitmentId, { silent: true });
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -1807,6 +1809,7 @@ function SidePanel() {
     }
 
     setActiveAmisRecruitmentContext(message.payload.amisRecruitmentId, amisRecruitmentRoundId);
+    setReferralRefreshVersion((current) => current + 1);
     if (tokenRef.current) {
       void loadAmisApplications(tokenRef.current, message.payload.amisRecruitmentId, { silent: true });
     }
@@ -3806,10 +3809,10 @@ function SidePanel() {
         {tab === 'posting' ? renderPostingPanel() : null}
         {tab === 'cv' ? renderCvPanel() : null}
         {tab === 'freelancer' && token ? (
-          <ReferralManagementPanel source="FREELANCER" accessToken={token} onNotify={showExtensionToast} />
+          <ReferralManagementPanel source="FREELANCER" accessToken={token} refreshVersion={referralRefreshVersion} onNotify={showExtensionToast} />
         ) : null}
         {tab === 'internal' && token ? (
-          <ReferralManagementPanel source="INTERNAL" accessToken={token} onNotify={showExtensionToast} />
+          <ReferralManagementPanel source="INTERNAL" accessToken={token} refreshVersion={referralRefreshVersion} onNotify={showExtensionToast} />
         ) : null}
       </section>
     );

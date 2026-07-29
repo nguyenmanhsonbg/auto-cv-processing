@@ -859,6 +859,7 @@ async function handleAmisApplicationsCaptured(
         syncedCount: result.syncedCount,
         createdCount: result.createdCount,
         updatedCount: result.updatedCount,
+        syncSignature: signature,
       },
     };
 
