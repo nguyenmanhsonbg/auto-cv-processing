@@ -60,7 +60,16 @@ describe('AiService Recruitment Phase 1 screening flow', () => {
 
     const result = await service.runRecruitmentPhase1AiScreening({
       enrichedJobDescription: { jobInfo: { title: 'Backend Engineer' } },
-      enrichedProfile: { parsedProfile: { name: 'Nguyen Van A' }, evaluation: {} },
+      enrichedProfile: {
+        parsedProfile: {
+          name: 'Nguyen Van A',
+          email: 'candidate@example.com',
+          phone: '0900000000',
+          birthYear: 1990,
+          skills: ['TypeScript'],
+        },
+        evaluation: {},
+      },
       formAnswers: [{ question: 'Quy mo DB?', answer: 'Hang chuc trieu records' }],
       anomalyResult: { overallRiskScore: 0, riskLevel: 'minimal', anomalies: [], summary: 'Clean' },
       applicationMetadata: { applicationId: 'app-1', status: 'FORM_SUBMITTED' },
@@ -74,6 +83,11 @@ describe('AiService Recruitment Phase 1 screening flow', () => {
     );
     expect(callGemini.mock.calls[0][1]).toContain('"formAnswers"');
     expect(callGemini.mock.calls[0][1]).toContain('"anomalyResult"');
+    expect(callGemini.mock.calls[0][1]).toContain('TypeScript');
+    expect(callGemini.mock.calls[0][1]).not.toContain('Nguyen Van A');
+    expect(callGemini.mock.calls[0][1]).not.toContain('candidate@example.com');
+    expect(callGemini.mock.calls[0][1]).not.toContain('0900000000');
+    expect(callGemini.mock.calls[0][1]).not.toContain('1990');
     expect(result).toEqual(screeningResult);
   });
 
@@ -93,7 +107,16 @@ describe('AiService Recruitment Phase 1 screening flow', () => {
 
     const result = await service.runFinalScreeningRecommendation({
       enrichedJobDescription: { jobInfo: { title: 'Backend Engineer' } },
-      enrichedProfile: { parsedProfile: { name: 'Nguyen Van A' }, evaluation: {} },
+      enrichedProfile: {
+        parsedProfile: {
+          name: 'Nguyen Van A',
+          email: 'candidate@example.com',
+          phone: '0900000000',
+          birthYear: 1990,
+          skills: ['TypeScript'],
+        },
+        evaluation: {},
+      },
       formAnswers: [],
       anomalyResult: null,
       applicationMetadata: { applicationId: 'app-1', status: 'AI_SCREENING_DONE' },
@@ -107,7 +130,37 @@ describe('AiService Recruitment Phase 1 screening flow', () => {
       'gemini-3.1-flash-lite',
     );
     expect(callGemini.mock.calls[0][1]).toContain('"MATCH"');
+    expect(callGemini.mock.calls[0][1]).not.toContain('Nguyen Van A');
+    expect(callGemini.mock.calls[0][1]).not.toContain('candidate@example.com');
+    expect(callGemini.mock.calls[0][1]).not.toContain('0900000000');
+    expect(callGemini.mock.calls[0][1]).not.toContain('1990');
     expect(result).toEqual(recommendation);
+  });
+
+  it('does not send candidate identity fields to profile anomaly evaluation', async () => {
+    const service = createService();
+    jest.spyOn(service, 'callGeminiWithFallback').mockResolvedValue(JSON.stringify({
+      overallRiskScore: 0,
+      riskLevel: 'minimal',
+      anomalies: [],
+      summary: 'Clean',
+    }));
+
+    await service.detectProfileAnomalies({
+      name: 'Nguyen Van A',
+      email: 'candidate@example.com',
+      phone: '0900000000',
+      birthYear: 1990,
+      education: 'Computer Science',
+      skills: ['TypeScript'],
+    });
+
+    const prompt = (service.callGeminiWithFallback as any).mock.calls[0][1];
+    expect(prompt).toContain('TypeScript');
+    expect(prompt).not.toContain('Nguyen Van A');
+    expect(prompt).not.toContain('candidate@example.com');
+    expect(prompt).not.toContain('0900000000');
+    expect(prompt).not.toContain('1990');
   });
 
   it('falls back to the next Gemini model when the current model is overloaded', async () => {

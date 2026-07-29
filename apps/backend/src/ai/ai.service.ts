@@ -13,6 +13,7 @@ import { QuestionEntity } from '../questions/entities/question.entity';
 import { PROMPT_DEFAULTS } from './ai-prompts.defaults';
 import { AiPromptsService } from './ai-prompts.service';
 import { AiModelOverridesService } from './ai-model-overrides.service';
+import { sanitizeProfileForAi } from './ai-profile-sanitizer';
 import { normalizeVcsSignals } from './vcs-signals.mapper';
 
 /**
@@ -228,7 +229,7 @@ export class AiService {
     const userPrompt = this.buildRecruitmentPhase1PromptInput({
       flow: 'enrich_job_description -> enrich_profile -> detect_profile_anomalies? -> generate_survey_questions/form_answers? -> ai_screening',
       enrichedJobDescription: input.enrichedJobDescription,
-      enrichedProfile: input.enrichedProfile,
+      enrichedProfile: sanitizeProfileForAi(input.enrichedProfile),
       formAnswers: input.formAnswers ?? [],
       anomalyResult: input.anomalyResult ?? null,
       applicationMetadata: input.applicationMetadata ?? null,
@@ -256,7 +257,7 @@ export class AiService {
     const userPrompt = this.buildRecruitmentPhase1PromptInput({
       flow: 'ai_screening -> final_screening_recommendation -> HR review',
       enrichedJobDescription: input.enrichedJobDescription,
-      enrichedProfile: input.enrichedProfile,
+      enrichedProfile: sanitizeProfileForAi(input.enrichedProfile),
       formAnswers: input.formAnswers ?? [],
       anomalyResult: input.anomalyResult ?? null,
       applicationMetadata: input.applicationMetadata ?? null,
@@ -740,16 +741,15 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
   async detectProfileAnomalies(
     profile: ParsedProfile,
   ): Promise<ProfileAnomalyDetection | null> {
+    const sanitizedProfile = sanitizeProfileForAi(profile as unknown as Record<string, unknown>) as unknown as ParsedProfile;
     const profileSummary = {
-      name: profile.name,
-      birthYear: profile.birthYear,
-      education: profile.education,
-      level: profile.level,
-      totalYearsExperience: profile.totalYearsExperience,
-      experienceByLanguage: profile.experienceByLanguage,
-      skills: profile.skills?.slice(0, 50),
-      techstack: profile.techstack?.slice(0, 50),
-      workExperience: profile.workExperience?.map((w) => ({
+      education: sanitizedProfile.education,
+      level: sanitizedProfile.level,
+      totalYearsExperience: sanitizedProfile.totalYearsExperience,
+      experienceByLanguage: sanitizedProfile.experienceByLanguage,
+      skills: sanitizedProfile.skills?.slice(0, 50),
+      techstack: sanitizedProfile.techstack?.slice(0, 50),
+      workExperience: sanitizedProfile.workExperience?.map((w) => ({
         company: w.company,
         companyType: w.companyType,
         role: w.role,
@@ -765,7 +765,7 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
           scale: p.scale,
         })),
       })),
-      projects: profile.projects?.slice(0, 10).map((p) => ({
+      projects: sanitizedProfile.projects?.slice(0, 10).map((p) => ({
         name: p.name,
         role: p.role,
         startYear: p.startYear,

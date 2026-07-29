@@ -3551,8 +3551,14 @@ dd {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   min-height: 48px;
+  overflow-x: auto;
   border-bottom: 1px solid #e8edf3;
   padding: 0 18px;
+  scrollbar-width: none;
+}
+
+.extension-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .extension-tab {
@@ -3561,14 +3567,14 @@ dd {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-width: 0;
+  min-width: max-content;
   height: 48px;
   padding: 0 8px;
   color: #7b8596;
   background: transparent;
   font-size: 12px;
   font-weight: 850;
-  line-height: 1;
+  line-height: 1.25;
 }
 
 .extension-tab::after {
@@ -3588,10 +3594,12 @@ dd {
 }
 
 .extension-tab span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: inline-block;
+  min-width: max-content;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
+  line-height: 1.25;
 }
 
 .extension-tab.is-active {
@@ -5256,7 +5264,7 @@ dd {
 
 /* Global Freelancer/Internal management */
 .extension-tabs {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(max-content, 1fr));
 }
 
 .workspace-panel-freelancer.is-flat,

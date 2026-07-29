@@ -13,6 +13,7 @@ import slugify from 'slugify';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { AiService, RecruitmentPhase1AiScreeningResult } from '../ai/ai.service';
+import { sanitizeProfileForAi } from '../ai/ai-profile-sanitizer';
 import { AiScreeningResultEntity } from '../ai-screening/entities/ai-screening-result.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { CandidateEntity } from '../candidates/entities/candidate.entity';
@@ -484,8 +485,9 @@ export class ApplicationsService {
       const existingAnomaly =
         this.asRecord(screeningContext.parsedProfile.parsedData?.anomalyDetection) ??
         screeningContext.anomalyResult;
+      const sanitizedProfile = sanitizeProfileForAi(screeningContext.enrichedProfile);
       const anomalyDetection = await this.aiService.detectProfileAnomalies(
-        screeningContext.enrichedProfile as ParsedProfile,
+        sanitizedProfile as ParsedProfile,
       );
       if (anomalyDetection) {
         screeningContext.parsedProfile.parsedData = {
@@ -502,7 +504,7 @@ export class ApplicationsService {
 
       const aiResult = await this.aiService.runRecruitmentPhase1AiScreening({
         enrichedJobDescription: screeningContext.enrichedJobDescription,
-        enrichedProfile: screeningContext.enrichedProfile,
+        enrichedProfile: sanitizedProfile,
         formAnswers: screeningContext.formAnswers,
         anomalyResult: screeningContext.anomalyResult,
         applicationMetadata: screeningContext.applicationMetadata,
