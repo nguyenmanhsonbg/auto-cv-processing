@@ -1320,9 +1320,26 @@ dd {
   padding: 12px 16px;
 }
 
+.facebook-ineligible-modal-heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .facebook-ineligible-modal-header h2 {
   margin: 0;
   color: #262626;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.55px;
+  line-height: 16.5px;
+  text-transform: uppercase;
+}
+
+.facebook-ineligible-modal-heading span {
+  color: #64748b;
   font-family: Roboto, sans-serif;
   font-size: 11px;
   font-weight: 700;
@@ -1364,36 +1381,56 @@ dd {
 
 .facebook-ineligible-modal-pagination {
   display: flex;
+  min-width: 0;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 1px;
   padding: 10px 0;
+  overflow-x: auto;
   color: #2f2b3d;
   font-family: Roboto, sans-serif;
   font-size: 12px;
+  font-weight: 400;
   line-height: 16.8px;
+  scrollbar-width: none;
+}
+
+.facebook-ineligible-modal-pagination::-webkit-scrollbar {
+  display: none;
+}
+
+.facebook-ineligible-modal-pagination > span {
+  flex: 0 0 auto;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .facebook-ineligible-modal-pagination-actions {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 1px;
+  min-width: max-content;
+  white-space: nowrap;
 }
 
 .facebook-ineligible-modal-pagination-actions button,
 .facebook-ineligible-modal-pagination-ellipsis {
   display: inline-grid;
-  min-width: 30px;
-  height: 30px;
+  flex: 0 0 28px;
+  min-width: 28px;
+  height: 29px;
   place-items: center;
   border: 0;
-  border-radius: 6px;
-  padding: 6px;
+  border-radius: 5px;
+  padding: 4px;
   color: #2f2b3d;
   background: rgba(47, 43, 61, 0.08);
-  font: inherit;
+  font-family: Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.1px;
   line-height: 16.8px;
 }
 
@@ -1414,12 +1451,13 @@ dd {
 }
 
 .facebook-ineligible-modal-pagination-actions svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .facebook-ineligible-modal-pagination-ellipsis {
-  min-width: 24px;
+  flex-basis: 20px;
+  min-width: 20px;
   background: transparent;
 }
 
@@ -1427,9 +1465,9 @@ dd {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   border-bottom: 1px solid #f3f4f6;
-  padding: 9px 10px;
+  padding: 12px 10px;
 }
 
 .facebook-ineligible-modal-copy {
@@ -1439,23 +1477,70 @@ dd {
 }
 
 .facebook-ineligible-modal-copy strong {
-  color: #374151;
-  font-size: 11px;
-  line-height: 1.25;
+  color: #1e293b;
+  font-family: Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 19.5px;
   overflow-wrap: anywhere;
 }
 
 .facebook-ineligible-modal-copy span {
-  color: #9ca3af;
+  color: #64748b;
+  font-family: Roboto, sans-serif;
   font-size: 10px;
-  line-height: 1.25;
+  line-height: 15px;
 }
 
 .facebook-ineligible-modal-actions {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+}
+
+.facebook-ineligible-open-link {
+  border: 0;
+  padding: 0;
+  color: #059669;
+  background: transparent;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16.5px;
+  white-space: nowrap;
+}
+
+.facebook-ineligible-open-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.facebook-ineligible-open-link:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.facebook-ineligible-add-button {
+  min-height: 20px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0 8px;
+  color: #ffffff;
+  background: #059669;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.facebook-ineligible-add-button:hover:not(:disabled) {
+  background: #047857;
+}
+
+.facebook-ineligible-add-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .compact-icon-button {

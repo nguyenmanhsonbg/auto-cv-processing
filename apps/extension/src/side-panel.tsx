@@ -292,7 +292,7 @@ const JOB_DESCRIPTION_STATUS_OPTIONS = [
 const FACEBOOK_HISTORY_PAGE_SIZE = 5;
 const FACEBOOK_HISTORY_REFRESH_BATCH_SIZE = 50;
 const FACEBOOK_GROUP_PAGE_SIZE = 5;
-const FACEBOOK_INELIGIBLE_PAGE_SIZE = 10;
+const FACEBOOK_INELIGIBLE_PAGE_SIZE = 5;
 const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'POSTED', label: 'Đã đăng' },
@@ -782,11 +782,13 @@ function SidePanel() {
     const startIndex = (currentFacebookIneligiblePage - 1) * FACEBOOK_INELIGIBLE_PAGE_SIZE;
     return facebookIneligibleGroups.slice(startIndex, startIndex + FACEBOOK_INELIGIBLE_PAGE_SIZE);
   }, [currentFacebookIneligiblePage, facebookIneligibleGroups]);
-  const facebookIneligiblePaginationItems = buildPostHistoryPaginationItems(
+  const facebookIneligiblePaginationItems = buildFacebookIneligiblePaginationItems(
     currentFacebookIneligiblePage,
     facebookIneligiblePageCount,
   );
   const facebookIneligibleTotalItems = facebookIneligibleGroups.length;
+  const facebookIneligibleTotalGroupCount = facebookIneligibleTotalItems
+    + (facebookGroupSyncDetails?.accepted.length ?? 0);
   const facebookIneligibleVisibleStart = facebookIneligibleTotalItems === 0
     ? 0
     : ((currentFacebookIneligiblePage - 1) * FACEBOOK_INELIGIBLE_PAGE_SIZE) + 1;
@@ -6244,7 +6246,14 @@ function SidePanel() {
             aria-labelledby="facebook-group-sync-details-title"
           >
             <header className="modal-header facebook-ineligible-modal-header">
-              <h2 id="facebook-group-sync-details-title">DANH SÁCH NHÓM KHÔNG PHÙ HỢP</h2>
+              <div className="facebook-ineligible-modal-heading">
+                <div>
+                  <h2 id="facebook-group-sync-details-title">DANH SÁCH NHÓM KHÔNG PHÙ HỢP</h2>
+                  <span>
+                    {`${facebookIneligibleTotalItems} nhóm không phù hợp / ${facebookIneligibleTotalGroupCount} nhóm`}
+                  </span>
+                </div>
+              </div>
               <button
                 type="button"
                 className="icon-button"
@@ -6270,23 +6279,21 @@ function SidePanel() {
                         <div className="facebook-ineligible-modal-actions">
                           <button
                             type="button"
-                            className="text-button compact-button"
-                            disabled={isAdding || !group.url}
-                            onClick={() => void handleManuallyIncludeFacebookGroup(group)}
-                          >
-                            {isAdding ? 'Đang thêm...' : 'Thêm nhóm'}
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-button compact-icon-button"
-                            title="Mở trong tab mới"
-                            aria-label={`Mở ${group.name} trong tab mới`}
+                            className="facebook-ineligible-open-link"
                             disabled={!group.url}
                             onClick={() => {
                               if (group.url) window.open(group.url, '_blank', 'noopener,noreferrer');
                             }}
                           >
-                            <ExternalLinkIcon />
+                            Mở trong tab mới
+                          </button>
+                          <button
+                            type="button"
+                            className="facebook-ineligible-add-button"
+                            disabled={isAdding || !group.url}
+                            onClick={() => void handleManuallyIncludeFacebookGroup(group)}
+                          >
+                            {isAdding ? 'Đang thêm...' : 'Thêm nhóm'}
                           </button>
                         </div>
                       </div>
@@ -6338,15 +6345,6 @@ function SidePanel() {
                   </div>
                 </div>
               ) : null}
-              <div className="form-actions">
-                <button
-                  type="button"
-                  className="text-button compact-button"
-                  onClick={() => setIsFacebookGroupSyncDetailsOpen(false)}
-                >
-                  Đóng
-                </button>
-              </div>
             </div>
           </section>
         </div>
@@ -6404,6 +6402,52 @@ function buildPostHistoryPaginationItems(currentPage: number, pageCount: number)
   }
 
   items.push(pageCount);
+  return items;
+}
+
+function buildFacebookIneligiblePaginationItems(
+  currentPage: number,
+  pageCount: number,
+): PostHistoryPaginationItem[] {
+  if (pageCount <= 6) {
+    return Array.from({ length: pageCount }, (_, index) => index + 1);
+  }
+
+  const safeCurrentPage = Math.min(Math.max(currentPage, 1), pageCount);
+  const items: PostHistoryPaginationItem[] = [];
+  const appendPage = (page: number) => {
+    if (page >= 1 && page <= pageCount && !items.includes(page)) {
+      items.push(page);
+    }
+  };
+
+  if (safeCurrentPage <= 2) {
+    appendPage(1);
+    appendPage(2);
+    appendPage(3);
+  } else if (safeCurrentPage === 3) {
+    appendPage(1);
+    appendPage(2);
+    appendPage(3);
+    appendPage(4);
+  } else if (safeCurrentPage >= pageCount - 2) {
+    appendPage(1);
+    if (pageCount > 6) items.push('ellipsis-left');
+    for (let page = pageCount - 3; page <= pageCount; page += 1) {
+      appendPage(page);
+    }
+    return items;
+  } else {
+    for (let page = safeCurrentPage - 1; page <= safeCurrentPage + 2; page += 1) {
+      appendPage(page);
+    }
+  }
+
+  if (!items.includes(pageCount - 1) && !items.includes(pageCount)) {
+    items.push('ellipsis-right');
+  }
+  appendPage(pageCount - 1);
+  appendPage(pageCount);
   return items;
 }
 
