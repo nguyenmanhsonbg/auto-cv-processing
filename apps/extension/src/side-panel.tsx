@@ -612,7 +612,10 @@ function SidePanel() {
       }
 
       if (isAmisCandidateStageChangedMessage(message)) {
-        void applyAmisCandidateStageChangedMessage(message.payload, sender.tab?.id);
+        void applyAmisCandidateStageChangedMessage(
+          message.payload,
+          message.sourceTabId ?? sender.tab?.id,
+        );
         return;
       }
 
@@ -8102,6 +8105,7 @@ function isApplicationsSyncedMessage(value: unknown): value is {
 function isAmisCandidateStageChangedMessage(value: unknown): value is {
   type: typeof AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE;
   payload: AmisCandidateStageChangedPayload;
+  sourceTabId?: number;
 } {
   if (typeof value !== 'object' || value === null) return false;
   if ((value as { type?: unknown }).type !== AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE) return false;
@@ -8118,7 +8122,9 @@ function isAmisCandidateStageChangedMessage(value: unknown): value is {
     && (stage.reasonRemoved === undefined || stage.reasonRemoved === null || typeof stage.reasonRemoved === 'string')
     && typeof stage.sourceUrl === 'string'
     && typeof stage.pageUrl === 'string'
-    && typeof stage.changedAt === 'string';
+    && typeof stage.changedAt === 'string'
+    && (typeof (value as { sourceTabId?: unknown }).sourceTabId === 'undefined'
+      || typeof (value as { sourceTabId?: unknown }).sourceTabId === 'number');
 }
 
 function isAmisRecruitmentRoundsChangedMessage(value: unknown): value is {

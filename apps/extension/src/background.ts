@@ -1,5 +1,9 @@
 import { appendAmisDiagnostic } from './amis-diagnostics-store';
 import {
+  createAmisCandidateStageRelayMessage,
+  isAmisCandidateStageRuntimeMessage,
+} from './background-message-relay';
+import {
   ensureAmisDebuggerAttached,
   installAmisDebuggerCapture,
   type AmisApplicationsCapture,
@@ -129,6 +133,13 @@ chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
     if (message.payload.type === 'BRIDGE_READY') {
       void ensureAmisDebuggerAttached(sender.tab, message.payload.pageUrl);
     }
+    return;
+  }
+
+  if (isAmisCandidateStageRuntimeMessage(message) && !message.relayed) {
+    void chrome.runtime?.sendMessage?.(
+      createAmisCandidateStageRelayMessage(message.payload, sender.tab?.id),
+    ).catch(() => undefined);
     return;
   }
 
