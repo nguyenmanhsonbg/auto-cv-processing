@@ -1486,6 +1486,7 @@ dd {
 }
 
 .facebook-ineligible-modal-copy span {
+  display: none;
   color: #64748b;
   font-family: Roboto, sans-serif;
   font-size: 10px;
