@@ -6766,6 +6766,8 @@ dd {
 }
 
 .cv-list-toolbar {
+  flex-direction: column;
+  align-items: stretch;
   flex-wrap: wrap;
   margin-top: 12px;
   color: #3f463f;
@@ -7113,9 +7115,12 @@ dd {
   flex-wrap: wrap;
   gap: 14px;
   min-width: 0;
+  width: 100%;
+  justify-content: space-between;
 }
 
 .cv-select-all-control {
+  align-self: flex-start;
   display: inline-flex;
   align-items: center;
   gap: 7px;

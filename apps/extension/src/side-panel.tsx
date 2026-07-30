@@ -5604,29 +5604,29 @@ function SidePanel() {
         <div className="cv-list-toolbar">
           <div className="cv-list-toolbar-heading">
             <span>Danh sách ứng viên</span>
-            <label className="cv-select-all-control">
-              <input
-                type="checkbox"
-                checked={allFilteredApplicationsSelected}
-                ref={(input) => {
-                  if (input) input.indeterminate = someFilteredApplicationsSelected;
-                }}
-                disabled={filteredApplications.length === 0}
-                aria-label="Chọn tất cả ứng viên"
-                onChange={() => toggleAllCvCandidateSelection(filteredApplications.map((application) => application.applicationId))}
-              />
-              <span>Chọn tất cả</span>
-            </label>
+            <button
+              type="button"
+              className="cv-bulk-sync-button"
+              disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId) || !isAmisCandidateFormOpen}
+              onClick={() => void uploadApplicationCvsToAmisForm(selectedFilteredApplications)}
+            >
+              <RefreshIcon />
+              {cvUploadApplicationId === 'BATCH' ? 'Đang đồng bộ...' : 'Đồng bộ CV đã chọn'}
+            </button>
           </div>
-          <button
-            type="button"
-            className="cv-bulk-sync-button"
-            disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId) || !isAmisCandidateFormOpen}
-            onClick={() => void uploadApplicationCvsToAmisForm(selectedFilteredApplications)}
-          >
-            <RefreshIcon />
-            {cvUploadApplicationId === 'BATCH' ? 'Đang đồng bộ...' : 'Đồng bộ hàng loạt'}
-          </button>
+          <label className="cv-select-all-control">
+            <input
+              type="checkbox"
+              checked={allFilteredApplicationsSelected}
+              ref={(input) => {
+                if (input) input.indeterminate = someFilteredApplicationsSelected;
+              }}
+              disabled={filteredApplications.length === 0}
+              aria-label="Chọn tất cả ứng viên"
+              onChange={() => toggleAllCvCandidateSelection(filteredApplications.map((application) => application.applicationId))}
+            />
+            <span>Chọn tất cả ứng viên</span>
+          </label>
         </div>
 
         {applicationsMessage ? (
@@ -5791,7 +5791,7 @@ function SidePanel() {
           </ul>
         ) : (
           <div className="empty-panel-state">
-            <strong>Chưa có hồ sơ ứng viên</strong>
+            <strong>Chưa có ứng viên ứng tuyển vào công việc này</strong>
             <span>Mở AMIS recruitment có ứng viên hoặc refresh sau khi autosync chạy.</span>
           </div>
         )}
