@@ -1,9 +1,11 @@
+import { Transform } from 'class-transformer';
 import { IsEmail, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '@interview-assistant/shared';
 
 export class LoginDto {
   @ApiProperty({ example: 'admin@vcs.com' })
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsEmail()
   email: string;
 

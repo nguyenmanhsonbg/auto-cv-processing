@@ -31,7 +31,8 @@ export class AuthService implements OnModuleInit {
   }
 
   async validateUser(email: string, password: string) {
-    const user = await this.userRepo.findOne({ where: { email } });
+    const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+    const user = await this.userRepo.findOne({ where: { email: normalizedEmail } });
     if (user && (await bcrypt.compare(password, user.password))) {
       await this.assertUserCanAuthenticate(user);
       const { password: _, ...result } = user;
