@@ -2,7 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateFacebookGroupDto {
-  @ApiProperty({ example: 'Viec lam IT Da Nang' })
+  @ApiPropertyOptional({ example: 'Viec lam IT Da Nang' })
   @IsOptional()
   @IsString()
   @MaxLength(255)
