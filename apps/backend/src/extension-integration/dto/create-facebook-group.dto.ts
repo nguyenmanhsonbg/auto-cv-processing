@@ -3,8 +3,8 @@ import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-valid
 
 export class CreateFacebookGroupDto {
   @ApiProperty({ example: 'Viec lam IT Da Nang' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(255)
   targetName: string;
 
