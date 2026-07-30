@@ -1,14 +1,25 @@
+import type { AmisRecruitmentRound } from './types';
+
 const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
 const AMIS_SAVE_RECRUITMENT_PATH = '/RecruitmentAPI/api/recruitment/SaveRecruitment';
 const AMIS_CANDIDATE_ADDITIONAL_INFO_PATH = '/RecruitmentAPI/api/Candidate/candidate-additional-infor/';
+const AMIS_CANDIDATE_UPDATE_ROUND_PATH = '/RecruitmentAPI/api/RecruitmentDetail/updateRound';
+const AMIS_RECRUITMENT_ROUNDS_PATHS = [
+  '/RecruitmentAPI/api/recruitment/detail-round-info/',
+  '/RecruitmentAPI/api/recruitment/round-period/',
+  '/RecruitmentAPI/api/JobPositionRound/getAllByJobPositionID/',
+] as const;
 const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_CANDIDATE_STAGE_CHANGED';
+const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_RECRUITMENT_ROUNDS_CHANGED';
 const HOOK_INSTALLED_KEY = '__VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__';
 const CANDIDATE_STAGE_HOOK_INSTALLED_KEY = '__VCS_AMIS_CANDIDATE_STAGE_HOOK_INSTALLED__';
+const RECRUITMENT_ROUNDS_HOOK_INSTALLED_KEY = '__VCS_AMIS_RECRUITMENT_ROUNDS_HOOK_INSTALLED__';
 
 const hookWindow = window as Window & {
   __VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__?: boolean;
   __VCS_AMIS_CANDIDATE_STAGE_HOOK_INSTALLED__?: boolean;
+  __VCS_AMIS_RECRUITMENT_ROUNDS_HOOK_INSTALLED__?: boolean;
 };
 
 if (!hookWindow[HOOK_INSTALLED_KEY]) {
@@ -26,6 +37,12 @@ if (!hookWindow[CANDIDATE_STAGE_HOOK_INSTALLED_KEY]) {
   hookWindow[CANDIDATE_STAGE_HOOK_INSTALLED_KEY] = true;
   installCandidateStageXhrHook();
   installCandidateStageFetchHook();
+}
+
+if (!hookWindow[RECRUITMENT_ROUNDS_HOOK_INSTALLED_KEY]) {
+  hookWindow[RECRUITMENT_ROUNDS_HOOK_INSTALLED_KEY] = true;
+  installRecruitmentRoundsXhrHook();
+  installRecruitmentRoundsFetchHook();
 }
 
 function installXhrHook() {
@@ -120,6 +137,7 @@ function installCandidateStageXhrHook() {
 
   xhrPrototype.send = function sendWithCandidateStageCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
     const requestUrl = this.__vcsAmisCandidateStageRequestUrl;
+    const requestBody = parseRequestJson(args[0]);
     if (requestUrl && isAmisCandidateAdditionalInfoUrl(requestUrl)) {
       this.addEventListener('loadend', () => {
         if (this.status < 200 || this.status >= 300) return;
@@ -129,6 +147,13 @@ function installCandidateStageXhrHook() {
         } catch {
           // AMIS may return a non-JSON response for an expired session.
         }
+      }, { once: true });
+    }
+
+    if (requestUrl && isAmisCandidateUpdateRoundUrl(requestUrl)) {
+      this.addEventListener('loadend', () => {
+        if (this.status < 200 || this.status >= 300) return;
+        publishCandidateStagesFromUpdateRoundRequest(requestBody, requestUrl);
       }, { once: true });
     }
 
@@ -142,11 +167,70 @@ function installCandidateStageFetchHook() {
 
   window.fetch = async (...args: Parameters<typeof fetch>) => {
     const requestUrl = getRequestUrl(args[0] instanceof Request ? args[0].url : args[0]);
+    const requestBodyPromise = readFetchRequestBody(args);
     const response = await originalFetch(...args);
 
     if (requestUrl && isAmisCandidateAdditionalInfoUrl(requestUrl) && response.ok) {
       void response.clone().text()
         .then((text) => publishCandidateStage(parseJsonText(text), requestUrl))
+        .catch(() => undefined);
+    }
+
+    if (requestUrl && isAmisCandidateUpdateRoundUrl(requestUrl) && response.ok) {
+      void requestBodyPromise.then((requestBody) => {
+        publishCandidateStagesFromUpdateRoundRequest(requestBody, requestUrl);
+      });
+    }
+
+    return response;
+  };
+}
+
+function installRecruitmentRoundsXhrHook() {
+  const xhrPrototype = window.XMLHttpRequest?.prototype as XMLHttpRequest & {
+    open: (...args: unknown[]) => void;
+    send: (...args: unknown[]) => void;
+  } | undefined;
+  if (!xhrPrototype) return;
+
+  const originalOpen = xhrPrototype.open;
+  const originalSend = xhrPrototype.send;
+
+  xhrPrototype.open = function openWithRecruitmentRoundsCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
+    const [, url] = args;
+    this.__vcsAmisRecruitmentRoundsRequestUrl = getRequestUrl(url);
+    return Reflect.apply(originalOpen, this, args);
+  };
+
+  xhrPrototype.send = function sendWithRecruitmentRoundsCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
+    const requestUrl = this.__vcsAmisRecruitmentRoundsRequestUrl;
+    if (requestUrl && isAmisRecruitmentRoundsUrl(requestUrl)) {
+      this.addEventListener('loadend', () => {
+        if (this.status < 200 || this.status >= 300) return;
+
+        try {
+          publishRecruitmentRounds(readXhrJson(this), requestUrl);
+        } catch {
+          // AMIS may return a non-JSON response while the session is renewing.
+        }
+      }, { once: true });
+    }
+
+    return Reflect.apply(originalSend, this, args);
+  };
+}
+
+function installRecruitmentRoundsFetchHook() {
+  const originalFetch = window.fetch?.bind(window);
+  if (!originalFetch) return;
+
+  window.fetch = async (...args: Parameters<typeof fetch>) => {
+    const requestUrl = getRequestUrl(args[0] instanceof Request ? args[0].url : args[0]);
+    const response = await originalFetch(...args);
+
+    if (requestUrl && isAmisRecruitmentRoundsUrl(requestUrl) && response.ok) {
+      void response.clone().text()
+        .then((text) => publishRecruitmentRounds(parseJsonText(text), requestUrl))
         .catch(() => undefined);
     }
 
@@ -198,6 +282,33 @@ function publishCandidateStage(responseJson: unknown, requestUrl: string) {
     source: 'vcs-recruitment-extension',
     type: AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE,
     payload: stage,
+  }, window.location.origin);
+}
+
+function publishCandidateStagesFromUpdateRoundRequest(requestJson: unknown, requestUrl: string) {
+  const stages = mapAmisCandidateStageRequest(
+    requestJson,
+    new URL(requestUrl, window.location.origin).toString(),
+    window.location.href,
+  );
+
+  for (const stage of stages) {
+    window.postMessage({
+      source: 'vcs-recruitment-extension',
+      type: AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE,
+      payload: stage,
+    }, window.location.origin);
+  }
+}
+
+function publishRecruitmentRounds(responseJson: unknown, requestUrl: string) {
+  const capture = mapAmisRecruitmentRoundsResponse(responseJson, requestUrl, window.location.href);
+  if (!capture) return;
+
+  window.postMessage({
+    source: 'vcs-recruitment-extension',
+    type: AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE,
+    payload: capture,
   }, window.location.origin);
 }
 
@@ -265,6 +376,80 @@ function isAmisCandidateAdditionalInfoUrl(url: string) {
   return url.toLowerCase().includes(AMIS_CANDIDATE_ADDITIONAL_INFO_PATH.toLowerCase());
 }
 
+function isAmisCandidateUpdateRoundUrl(url: string) {
+  return url.toLowerCase().includes(AMIS_CANDIDATE_UPDATE_ROUND_PATH.toLowerCase());
+}
+
+function isAmisRecruitmentRoundsUrl(url: string) {
+  const normalizedUrl = url.toLowerCase();
+  return AMIS_RECRUITMENT_ROUNDS_PATHS.some((path) => normalizedUrl.includes(path.toLowerCase()));
+}
+
+function mapAmisRecruitmentRoundsResponse(
+  response: unknown,
+  sourceUrl: string,
+  pageUrl: string,
+) {
+  if (!isObject(response)) return null;
+  if ((response.Success ?? response.success) === false) return null;
+
+  const responseData = response.Data ?? response.data;
+  const rows = Array.isArray(responseData)
+    ? responseData
+    : isObject(responseData)
+      ? responseData.RecruitmentRounds ?? responseData.recruitmentRounds
+      : null;
+  if (!Array.isArray(rows)) return null;
+
+  const rounds = rows
+    .filter(isObject)
+    .map((row, index) => {
+      const id = cleanText(readFirst(row, [
+        'RecruitmentRoundID',
+        'RecruitmentRoundId',
+        'recruitmentRoundId',
+      ]));
+      const name = cleanText(readFirst(row, [
+        'RecruitmentRoundName',
+        'recruitmentRoundName',
+        'RoundName',
+        'roundName',
+      ]));
+      if (!id || !name) return null;
+
+      return {
+        id,
+        name,
+        sortOrder: readNumber(row, ['SortOrder', 'sortOrder']) ?? index + 1,
+        roundType: readNumber(row, ['RoundType', 'roundType']) ?? null,
+        roundTypeId: cleanText(readFirst(row, ['RoundTypeID', 'roundTypeId'])) || null,
+        color: cleanText(readFirst(row, ['RoundTypeColor', 'roundTypeColor'])) || null,
+      } satisfies AmisRecruitmentRound;
+    })
+    .filter((round): round is AmisRecruitmentRound => Boolean(round))
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+  if (rounds.length === 0) return null;
+
+  const pathRecruitmentId = sourceUrl.match(/\/(?:detail-round-info|round-period)\/(\d+)/i)?.[1]
+    ?? new URL(sourceUrl, window.location.origin).searchParams.get('recruitmentID')
+    ?? pageUrl.match(/\/recruit\/job\/detail\/(\d+)/i)?.[1];
+  const responseRecruitmentId = rounds
+    .map((round) => round.id)
+    .length > 0
+    ? cleanText(readFirst(rows.find(isObject) ?? {}, ['RecruitmentID', 'RecruitmentId', 'recruitmentId']))
+    : '';
+  const amisRecruitmentId = responseRecruitmentId || pathRecruitmentId || null;
+  if (!amisRecruitmentId) return null;
+
+  return {
+    amisRecruitmentId,
+    rounds,
+    sourceUrl,
+    pageUrl,
+    capturedAt: new Date().toISOString(),
+  };
+}
+
 function mapAmisCandidateStageResponse(
   response: unknown,
   sourceUrl: string,
@@ -323,6 +508,117 @@ function mapAmisCandidateStageResponse(
     pageUrl,
     changedAt: new Date().toISOString(),
   };
+}
+
+function mapAmisCandidateStageRequest(
+  request: unknown,
+  sourceUrl: string,
+  pageUrl: string,
+) {
+  if (!isObject(request)) return [];
+
+  const amisRecruitmentId = cleanText(readFirst(request, [
+    'RecruitmentID',
+    'RecruitmentId',
+    'recruitmentId',
+    'recruitmentID',
+  ]));
+  const defaultRoundId = cleanText(readFirst(request, [
+    'RecruitmentRoundID',
+    'RecruitmentRoundId',
+    'recruitmentRoundId',
+  ]));
+  const candidateIds = new Set<string>();
+  const rawCandidateIds = readFirstValue(request, [
+    'CandidateIDs',
+    'CandidateIds',
+    'candidateIds',
+  ]);
+  if (typeof rawCandidateIds === 'string' || typeof rawCandidateIds === 'number') {
+    for (const candidateId of String(rawCandidateIds).split(/[;,]/)) {
+      const normalizedCandidateId = cleanText(candidateId);
+      if (normalizedCandidateId) candidateIds.add(normalizedCandidateId);
+    }
+  } else if (Array.isArray(rawCandidateIds)) {
+    for (const candidateId of rawCandidateIds) {
+      const normalizedCandidateId = cleanText(candidateId);
+      if (normalizedCandidateId) candidateIds.add(normalizedCandidateId);
+    }
+  }
+
+  const roundTimes = readFirstValue(request, [
+    'RecruitmentRoundTimes',
+    'recruitmentRoundTimes',
+  ]);
+  const roundTimeByCandidateId = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(roundTimes)) {
+    for (const value of roundTimes) {
+      if (!isObject(value)) continue;
+      const candidateId = cleanText(readFirst(value, [
+        'CandidateID',
+        'CandidateId',
+        'candidateId',
+      ]));
+      if (!candidateId) continue;
+      candidateIds.add(candidateId);
+      roundTimeByCandidateId.set(candidateId, value);
+    }
+  }
+
+  if (!amisRecruitmentId || candidateIds.size === 0) return [];
+
+  return [...candidateIds].map((amisCandidateId) => {
+    const roundTime = roundTimeByCandidateId.get(amisCandidateId);
+    const amisRecruitmentRoundId = cleanText(readFirst(roundTime ?? {}, [
+      'RecruitmentRoundID',
+      'RecruitmentRoundId',
+      'recruitmentRoundId',
+    ])) || defaultRoundId;
+    const amisRecruitmentRoundName = cleanText(readFirst(roundTime ?? {}, [
+      'RecruitmentRoundName',
+      'recruitmentRoundName',
+    ]));
+
+    return {
+      amisRecruitmentId,
+      amisCandidateId,
+      amisRecruitmentRoundId: amisRecruitmentRoundId || null,
+      amisRecruitmentRoundName: amisRecruitmentRoundName || null,
+      reasonRemoved: null,
+      amisStatus: null,
+      sourceUrl,
+      pageUrl,
+      changedAt: new Date().toISOString(),
+    };
+  });
+}
+
+function parseRequestJson(value: unknown) {
+  if (typeof value === 'string') {
+    try {
+      return parseJsonText(value);
+    } catch {
+      return null;
+    }
+  }
+
+  if (value instanceof URLSearchParams) {
+    return Object.fromEntries(value.entries());
+  }
+
+  return isObject(value) ? value : null;
+}
+
+function readFetchRequestBody(args: Parameters<typeof fetch>) {
+  const body = args[1]?.body;
+  if (body !== undefined) return Promise.resolve(parseRequestJson(body));
+
+  const input = args[0];
+  if (!(input instanceof Request)) return Promise.resolve(null);
+
+  return input.clone().text()
+    .then((text) => parseJsonText(text))
+    .catch(() => null);
 }
 
 function mapAmisSaveRecruitmentResponse(
@@ -577,4 +873,5 @@ interface HookedXMLHttpRequest extends XMLHttpRequest {
   __vcsAmisRequestMethod?: string;
   __vcsAmisRequestUrl?: string;
   __vcsAmisCandidateStageRequestUrl?: string;
+  __vcsAmisRecruitmentRoundsRequestUrl?: string;
 }

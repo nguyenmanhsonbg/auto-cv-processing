@@ -1,4 +1,4 @@
-import type { AmisApplicationItem, AmisCandidateStageChangedPayload, AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisSelectedCareerResult } from './types';
+import type { AmisApplicationItem, AmisCandidateStageChangedPayload, AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisRecruitmentRound, AmisSelectedCareerResult } from './types';
 
 (() => {
 
@@ -18,9 +18,12 @@ const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
 const SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE = 'VCS_SELECT_AMIS_CANDIDATE_SOURCE';
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
+const GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_ROUNDS';
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
 const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
+const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_ROUNDS_CHANGED';
 const AMIS_CAREER_DATA_PAGING_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/Career/data_paging';
+const AMIS_RECRUITMENT_ROUNDS_DETAIL_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-round-info/';
 const AMIS_CAREER_SORT = 'W3sic2VsZWN0b3IiOiAiVXNhZ2VTdGF0dXMiLCAiZGVzYyI6ICJmYWxzZSJ9LHsic2VsZWN0b3IiOiAiQ2FyZWVyTmFtZSIsICJkZXNjIjogImZhbHNlIn1d';
 const RECRUITMENT_CONTEXT_CACHE_TTL_MS = 10 * 60 * 1000;
 const BRIDGE_WINDOW_MESSAGE_LISTENER_KEY = '__VCS_AMIS_BRIDGE_WINDOW_MESSAGE_LISTENER__';
@@ -28,6 +31,12 @@ const BRIDGE_RUNTIME_MESSAGE_LISTENER_KEY = '__VCS_AMIS_BRIDGE_RUNTIME_MESSAGE_L
 let lastRecruitmentContextCache: {
   amisRecruitmentId: string;
   amisRecruitmentRoundId: string | null;
+  sourceUrl: string;
+  capturedAt: number;
+} | null = null;
+let lastRecruitmentRoundsCache: {
+  amisRecruitmentId: string;
+  rounds: AmisRecruitmentRound[];
   sourceUrl: string;
   capturedAt: number;
 } | null = null;
@@ -191,6 +200,20 @@ const windowMessageListener = (event: MessageEvent) => {
         type: AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE,
         payload: event.data.payload,
       }).catch(() => undefined);
+      return;
+    }
+
+    if (isAmisRecruitmentRoundsChangedMessage(event.data)) {
+      lastRecruitmentRoundsCache = {
+        amisRecruitmentId: event.data.payload.amisRecruitmentId,
+        rounds: event.data.payload.rounds,
+        sourceUrl: event.data.payload.sourceUrl,
+        capturedAt: Date.now(),
+      };
+      void chrome.runtime?.sendMessage?.({
+        type: AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE,
+        payload: event.data.payload,
+      }).catch(() => undefined);
     }
 };
 
@@ -207,6 +230,21 @@ const runtimeMessageListener = (
     if (isGetRecruitmentContextMessage(message)) {
       sendResponse(getRecruitmentContextFromPage());
       return;
+    }
+
+    if (isGetRecruitmentRoundsMessage(message)) {
+      void getRecruitmentRounds(message.payload?.amisRecruitmentId)
+        .then((response) => sendResponse(response))
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            amisRecruitmentId: message.payload?.amisRecruitmentId ?? null,
+            rounds: [],
+            sourceUrl: window.location.href,
+            error: error instanceof Error ? error.message : 'Could not read AMIS recruitment rounds.',
+          });
+        });
+      return true;
     }
 
     if (isGetAmisCandidateFormStateMessage(message)) {
@@ -397,6 +435,102 @@ function getRecruitmentContextFromPage() {
     pageKind: 'UNKNOWN',
     error: 'No AMIS recruitment id was found in URL or resource timing.',
   };
+}
+
+async function getRecruitmentRounds(recruitmentId?: string) {
+  const normalizedRecruitmentId = cleanText(recruitmentId);
+  if (!normalizedRecruitmentId) {
+    return {
+      ok: false,
+      amisRecruitmentId: null,
+      rounds: [],
+      sourceUrl: window.location.href,
+      error: 'No AMIS recruitment id was provided.',
+    };
+  }
+
+  if (
+    lastRecruitmentRoundsCache
+    && lastRecruitmentRoundsCache.amisRecruitmentId === normalizedRecruitmentId
+    && Date.now() - lastRecruitmentRoundsCache.capturedAt <= RECRUITMENT_CONTEXT_CACHE_TTL_MS
+  ) {
+    return {
+      ok: true,
+      amisRecruitmentId: normalizedRecruitmentId,
+      rounds: lastRecruitmentRoundsCache.rounds,
+      sourceUrl: lastRecruitmentRoundsCache.sourceUrl,
+    };
+  }
+
+  const sourceUrl = `${AMIS_RECRUITMENT_ROUNDS_DETAIL_URL}${encodeURIComponent(normalizedRecruitmentId)}`;
+  const response = await window.fetch(sourceUrl, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`AMIS recruitment rounds request failed with HTTP ${response.status}.`);
+  }
+
+  const responseJson = await response.json() as unknown;
+  const rounds = mapAmisRecruitmentRoundsResponse(responseJson);
+  if (rounds.length === 0) {
+    throw new Error('AMIS did not return any recruitment rounds for this JD.');
+  }
+
+  lastRecruitmentRoundsCache = {
+    amisRecruitmentId: normalizedRecruitmentId,
+    rounds,
+    sourceUrl,
+    capturedAt: Date.now(),
+  };
+
+  return {
+    ok: true,
+    amisRecruitmentId: normalizedRecruitmentId,
+    rounds,
+    sourceUrl,
+  };
+}
+
+function mapAmisRecruitmentRoundsResponse(response: unknown): AmisRecruitmentRound[] {
+  if (!isObject(response)) return [];
+  if ((response.Success ?? response.success) === false) return [];
+
+  const responseData = response.Data ?? response.data;
+  const rows = Array.isArray(responseData)
+    ? responseData
+    : isObject(responseData)
+      ? responseData.RecruitmentRounds ?? responseData.recruitmentRounds
+      : null;
+  if (!Array.isArray(rows)) return [];
+
+  return rows
+    .filter(isObject)
+    .map((row, index) => {
+      const id = cleanText(readFirst(row, [
+        'RecruitmentRoundID',
+        'RecruitmentRoundId',
+        'recruitmentRoundId',
+      ]));
+      const name = cleanText(readFirst(row, [
+        'RecruitmentRoundName',
+        'recruitmentRoundName',
+        'RoundName',
+        'roundName',
+      ]));
+      if (!id || !name) return null;
+
+      return {
+        id,
+        name,
+        sortOrder: readNumber(row, ['SortOrder', 'sortOrder']) ?? index + 1,
+        roundType: readNumber(row, ['RoundType', 'roundType']) ?? null,
+        roundTypeId: cleanText(readFirst(row, ['RoundTypeID', 'roundTypeId'])) || null,
+        color: cleanText(readFirst(row, ['RoundTypeColor', 'roundTypeColor'])) || null,
+      } satisfies AmisRecruitmentRound;
+    })
+    .filter((round): round is AmisRecruitmentRound => Boolean(round))
+    .sort((left, right) => left.sortOrder - right.sortOrder);
 }
 
 function isLikelyRecruitmentListPage() {
@@ -2481,6 +2615,48 @@ function isAmisCandidateStageChangedMessage(value: unknown): value is {
     && typeof candidateStage.changedAt === 'string';
 }
 
+function isAmisRecruitmentRoundsChangedMessage(value: unknown): value is {
+  source: 'vcs-recruitment-extension';
+  type: 'VCS_AMIS_RECRUITMENT_ROUNDS_CHANGED';
+  payload: {
+    amisRecruitmentId: string;
+    rounds: AmisRecruitmentRound[];
+    sourceUrl: string;
+    pageUrl: string;
+    capturedAt: string;
+  };
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { source?: unknown }).source !== 'vcs-recruitment-extension') return false;
+  if ((value as { type?: unknown }).type !== 'VCS_AMIS_RECRUITMENT_ROUNDS_CHANGED') return false;
+
+  const payload = (value as { payload?: unknown }).payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+  const roundsPayload = payload as {
+    amisRecruitmentId?: unknown;
+    rounds?: unknown;
+    sourceUrl?: unknown;
+    pageUrl?: unknown;
+    capturedAt?: unknown;
+  };
+
+  return typeof roundsPayload.amisRecruitmentId === 'string'
+    && typeof roundsPayload.sourceUrl === 'string'
+    && typeof roundsPayload.pageUrl === 'string'
+    && typeof roundsPayload.capturedAt === 'string'
+    && Array.isArray(roundsPayload.rounds)
+    && roundsPayload.rounds.every((round) => (
+      typeof round === 'object'
+      && round !== null
+      && typeof (round as { id?: unknown }).id === 'string'
+      && typeof (round as { name?: unknown }).name === 'string'
+      && typeof (round as { sortOrder?: unknown }).sortOrder === 'number'
+      && ((round as { roundType?: unknown }).roundType === null || typeof (round as { roundType?: unknown }).roundType === 'number')
+      && ((round as { roundTypeId?: unknown }).roundTypeId === null || typeof (round as { roundTypeId?: unknown }).roundTypeId === 'string')
+      && ((round as { color?: unknown }).color === null || typeof (round as { color?: unknown }).color === 'string')
+    ));
+}
+
 function isFillAmisRecruitmentFormMessage(value: unknown): value is {
   type: typeof FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE;
   payload: AmisRecruitmentFormFillPayload;
@@ -2549,6 +2725,20 @@ function isGetRecruitmentContextMessage(value: unknown): value is {
   return typeof value === 'object'
     && value !== null
     && (value as { type?: unknown }).type === GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE;
+}
+
+function isGetRecruitmentRoundsMessage(value: unknown): value is {
+  type: typeof GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE;
+  payload?: { amisRecruitmentId?: string };
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { type?: unknown }).type !== GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE) return false;
+  const payload = (value as { payload?: unknown }).payload;
+  return payload === undefined
+    || (typeof payload === 'object'
+      && payload !== null
+      && ((payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === undefined
+        || typeof (payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string'));
 }
 
 function isGetAmisCandidateFormStateMessage(value: unknown): value is {
