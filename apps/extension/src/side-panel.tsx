@@ -5507,7 +5507,6 @@ function SidePanel() {
 
   function renderCvCandidateListPanel() {
     const applications = applicationsContext?.applications ?? [];
-    const stats = getCvOverviewStats(applications);
     const applicationsForCurrentAmisCandidate = activeAmisCandidateId
       ? applications.filter((application) => application.amisCandidateId === activeAmisCandidateId)
       : applications;
@@ -5538,46 +5537,6 @@ function SidePanel() {
 
     return (
       <section className="cv-list-screen">
-        <div className="cv-total-card">
-          <span>Tổng</span>
-          <strong>{stats.totalApplied}</strong>
-        </div>
-
-        <div className="cv-filter-grid">
-          <article className="is-success"><span>Đạt yêu cầu</span><strong>{stats.readyCount}</strong></article>
-          <article className="is-warning"><span>Cần xem xét</span><strong>{stats.reviewCount}</strong></article>
-          <article className="is-danger"><span>Không đạt</span><strong>{stats.failedCount}</strong></article>
-          <article className="is-muted"><span>Chưa trả lời</span><strong>{stats.noAnswerCount}</strong></article>
-        </div>
-
-        <div className="cv-list-toolbar">
-          <div className="cv-list-toolbar-heading">
-            <span>Danh sách ứng viên</span>
-            <label className="cv-select-all-control">
-              <input
-                type="checkbox"
-                checked={allFilteredApplicationsSelected}
-                ref={(input) => {
-                  if (input) input.indeterminate = someFilteredApplicationsSelected;
-                }}
-                disabled={filteredApplications.length === 0}
-                aria-label="Chọn tất cả ứng viên"
-                onChange={() => toggleAllCvCandidateSelection(filteredApplications.map((application) => application.applicationId))}
-              />
-              <span>Chọn tất cả</span>
-            </label>
-          </div>
-          <button
-            type="button"
-            className="cv-bulk-sync-button"
-            disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId) || !isAmisCandidateFormOpen}
-            onClick={() => void uploadApplicationCvsToAmisForm(selectedFilteredApplications)}
-          >
-            <RefreshIcon />
-            {cvUploadApplicationId === 'BATCH' ? 'Đang đồng bộ...' : 'Đồng bộ hàng loạt'}
-          </button>
-        </div>
-
         <div className="cv-filter-control-grid">
           <CvFilterDropdown
             label="Trạng thái trả lời câu hỏi"
@@ -5641,6 +5600,33 @@ function SidePanel() {
               setOpenCvFilter(null);
             }}
           />
+        </div>
+        <div className="cv-list-toolbar">
+          <div className="cv-list-toolbar-heading">
+            <span>Danh sách ứng viên</span>
+            <label className="cv-select-all-control">
+              <input
+                type="checkbox"
+                checked={allFilteredApplicationsSelected}
+                ref={(input) => {
+                  if (input) input.indeterminate = someFilteredApplicationsSelected;
+                }}
+                disabled={filteredApplications.length === 0}
+                aria-label="Chọn tất cả ứng viên"
+                onChange={() => toggleAllCvCandidateSelection(filteredApplications.map((application) => application.applicationId))}
+              />
+              <span>Chọn tất cả</span>
+            </label>
+          </div>
+          <button
+            type="button"
+            className="cv-bulk-sync-button"
+            disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId) || !isAmisCandidateFormOpen}
+            onClick={() => void uploadApplicationCvsToAmisForm(selectedFilteredApplications)}
+          >
+            <RefreshIcon />
+            {cvUploadApplicationId === 'BATCH' ? 'Đang đồng bộ...' : 'Đồng bộ hàng loạt'}
+          </button>
         </div>
 
         {applicationsMessage ? (
