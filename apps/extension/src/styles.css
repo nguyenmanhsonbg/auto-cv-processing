@@ -2795,9 +2795,9 @@ dd {
 }
 
 .facebook-group-create-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 2;
+  z-index: 50;
   display: grid;
   place-items: center;
   padding: 12px;

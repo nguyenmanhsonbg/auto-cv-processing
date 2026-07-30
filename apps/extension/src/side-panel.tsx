@@ -6022,7 +6022,7 @@ function SidePanel() {
 
       {facebookPreviewModalMode ? renderFacebookPreviewModal() : null}
 
-      {isFacebookSettingsOpen ? (
+      {isFacebookSettingsOpen && !isFacebookGroupFormOpen ? (
         <div className="modal-backdrop" role="presentation">
           {facebookGroupModalMode === 'SETTINGS' ? (
             <section
@@ -6232,7 +6232,6 @@ function SidePanel() {
             </div>
             </section>
           ) : null}
-          {isFacebookGroupFormOpen ? renderFacebookGroupCreateModal() : null}
           {facebookGroupModalMode === 'EDIT' && selectedFacebookGroup ? (
             <section
               className="facebook-group-modal"
@@ -6374,6 +6373,7 @@ function SidePanel() {
           ) : null}
         </div>
       ) : null}
+      {isFacebookSettingsOpen && isFacebookGroupFormOpen ? renderFacebookGroupCreateModal() : null}
               {facebookImageAttachPrompt ? renderFacebookImageAttachPromptModal() : null}
       {isFacebookGroupSyncDetailsOpen && facebookGroupSyncDetails ? (
         <div className="modal-backdrop" role="presentation">
