@@ -1,8 +1,11 @@
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateFacebookGroupDto {
   @ApiPropertyOptional({ example: 'Viec lam IT Da Nang' })
+  // Keep the original JSON type so implicit conversion cannot bypass @IsString.
+  @Type(() => Object)
   @IsOptional()
   @IsString()
   @MaxLength(255)
