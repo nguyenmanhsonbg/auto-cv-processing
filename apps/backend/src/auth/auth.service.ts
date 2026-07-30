@@ -107,7 +107,7 @@ export class AuthService implements OnModuleInit {
     return {
       accessToken: this.signAccessToken(user),
       refreshToken,
-      user: { id: user.id, email: user.email, role: user.role, name: user.name },
+      user: { id: user.id, email: user.email, role: user.role },
     };
   }
 
@@ -159,7 +159,6 @@ export class AuthService implements OnModuleInit {
         id: existingToken.user.id,
         email: existingToken.user.email,
         role: existingToken.user.role,
-        name: existingToken.user.name,
       },
     };
   }

@@ -4983,14 +4983,6 @@ function SidePanel() {
                       <div className="channel-subselection-title">
                         <div className="channel-subselection-heading">
                           <span>Nhóm Facebook</span>
-                          {facebookAccount ? (
-                            <span
-                              className="channel-subselection-account"
-                              title={facebookAccount.facebookExternalId}
-                            >
-                              {facebookAccount.displayName || 'Facebook account'}
-                            </span>
-                          ) : null}
                         </div>
                         <button
                           type="button"

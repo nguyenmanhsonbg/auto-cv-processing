@@ -3,7 +3,7 @@ export type UserRole = 'ADMIN' | 'HR' | 'INTERVIEWER';
 export interface ExtensionUser {
   id: string;
   email: string;
-  name: string;
+  name?: string;
   role: UserRole;
 }
 
