@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateFacebookGroupDto {
   @ApiPropertyOptional({ example: 'Viec lam IT Da Nang' })
@@ -11,9 +11,9 @@ export class CreateFacebookGroupDto {
   @MaxLength(255)
   targetName: string;
 
-  @ApiProperty({ example: 'https://www.facebook.com/groups/1975445239752352' })
+  @ApiPropertyOptional({ example: 'https://www.facebook.com/groups/1975445239752352' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(2048)
   targetUrl: string;
 

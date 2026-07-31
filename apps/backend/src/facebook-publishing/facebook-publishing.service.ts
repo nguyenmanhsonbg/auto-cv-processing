@@ -262,7 +262,10 @@ export class FacebookPublishingService {
   async createExtensionGroup(input: CreateFacebookGroupInput): Promise<ResolvedFacebookPublishTarget> {
     await this.assertFacebookAccountOwner(input.ownerUserId, input.facebookAccountId);
     const name = this.requireText(input.targetName, 'targetName');
-    const groupUrl = this.normalizeFacebookGroupUrl(input.targetUrl);
+    const groupUrl = this.normalizeFacebookGroupUrl(
+      this.requireText(input.targetUrl, 'targetURL'),
+    );
+    this.assertValidFacebookGroupId(groupUrl.externalId);
     const discoveryTime = new Date();
     const matches = await this.targetsRepo.find({
       where: {
@@ -1384,6 +1387,15 @@ export class FacebookPublishingService {
       externalId,
       url: `https://www.facebook.com/groups/${encodeURIComponent(externalId)}`,
     };
+  }
+
+  private assertValidFacebookGroupId(groupId: string) {
+    if (/^[a-z0-9][a-z0-9._-]*$/i.test(groupId)) return;
+
+    throw new BadRequestException({
+      code: 'FACEBOOK_GROUP_URL_INVALID',
+      message: 'Facebook group URL contains an invalid group id.',
+    });
   }
 
   private parseFacebookGroupPostUrl(value: string | null | undefined) {
