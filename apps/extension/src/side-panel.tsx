@@ -385,8 +385,32 @@ function getJobDescriptionQuestionSelectionStorageKey(jobDescriptionId: string) 
   return `${JOB_DESCRIPTION_QUESTION_SELECTION_PREFIX}${jobDescriptionId}`;
 }
 
+const EXTENSION_UI_ZOOM_STORAGE_KEY = 'vcs-extension-ui-zoom';
+const EXTENSION_UI_ZOOM_LEVELS = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
+type ExtensionUiZoomLevel = (typeof EXTENSION_UI_ZOOM_LEVELS)[number];
+
+function readExtensionUiZoom(): ExtensionUiZoomLevel {
+  try {
+    const storedZoom = Number(window.localStorage.getItem(EXTENSION_UI_ZOOM_STORAGE_KEY));
+    const matchingZoom = EXTENSION_UI_ZOOM_LEVELS.find((zoom) => zoom === storedZoom);
+    return matchingZoom ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
+function getExtensionUiZoomIndex(zoom: number) {
+  const exactIndex = EXTENSION_UI_ZOOM_LEVELS.findIndex((level) => level === zoom);
+  if (exactIndex >= 0) return exactIndex;
+
+  return EXTENSION_UI_ZOOM_LEVELS.reduce((nearestIndex, level, index, levels) => (
+    Math.abs(level - zoom) < Math.abs(levels[nearestIndex] - zoom) ? index : nearestIndex
+  ), 0);
+}
+
 function SidePanel() {
   const [state, setState] = useState<PanelState>('AUTH_LOADING');
+  const [extensionUiZoom, setExtensionUiZoom] = useState<ExtensionUiZoomLevel>(readExtensionUiZoom);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('cv');
   const [pinnedWorkspaceTab, setPinnedWorkspaceTab] = useState<WorkspaceTab | null>(null);
   const [referralRefreshVersion, setReferralRefreshVersion] = useState(0);
@@ -541,6 +565,66 @@ function SidePanel() {
   const facebookContentJobIdentityRef = useRef<string | null>(null);
   const facebookContentDraftScopeRef = useRef<FacebookContentDraftScope>({});
   const startedFacebookPlanKeys = useRef(new Set<string>());
+  const lastCtrlWheelZoomAtRef = useRef(0);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(EXTENSION_UI_ZOOM_STORAGE_KEY, String(extensionUiZoom));
+    } catch {
+      // Some extension contexts can deny storage access; zoom still works for this session.
+    }
+  }, [extensionUiZoom]);
+
+  useEffect(() => {
+    const changeZoom = (direction: 1 | -1) => {
+      setExtensionUiZoom((currentZoom) => {
+        const currentIndex = getExtensionUiZoomIndex(currentZoom);
+        const nextIndex = Math.max(0, Math.min(
+          EXTENSION_UI_ZOOM_LEVELS.length - 1,
+          currentIndex + direction,
+        ));
+        return EXTENSION_UI_ZOOM_LEVELS[nextIndex];
+      });
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) return;
+
+      if (event.key === '0') {
+        event.preventDefault();
+        setExtensionUiZoom(1);
+        return;
+      }
+
+      if (event.key === '+' || event.key === '=') {
+        event.preventDefault();
+        changeZoom(1);
+        return;
+      }
+
+      if (event.key === '-' || event.key === '_') {
+        event.preventDefault();
+        changeZoom(-1);
+      }
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.deltaY === 0) return;
+
+      event.preventDefault();
+      const now = Date.now();
+      if (now - lastCtrlWheelZoomAtRef.current < 80) return;
+      lastCtrlWheelZoomAtRef.current = now;
+      changeZoom(event.deltaY < 0 ? 1 : -1);
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('wheel', handleWheel, { capture: true, passive: false });
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('wheel', handleWheel, true);
+    };
+  }, []);
 
   useEffect(() => {
     tokenRef.current = token;
@@ -5984,8 +6068,8 @@ function SidePanel() {
     );
   }
 
-  return (
-    <main className="extension-shell">
+return (
+  <main className="extension-shell" style={{ '--extension-ui-zoom': extensionUiZoom } as React.CSSProperties}>
       <section className="extension-window">
         <header className="extension-header">
           <div>

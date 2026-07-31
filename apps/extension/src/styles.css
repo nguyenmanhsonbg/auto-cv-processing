@@ -6865,6 +6865,7 @@ dd {
 .extension-shell {
   padding: 0;
   background: #ffffff;
+  zoom: var(--extension-ui-zoom, 1);
 }
 
 .extension-window {
