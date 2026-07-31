@@ -1308,7 +1308,29 @@ dd {
   background: #ecfdf5;
 }
 
+.channel-group-info-button,
+.channel-group-info-button:hover {
+  display: grid;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 5px;
+  color: #94a3b8;
+  background: transparent;
+}
+
+.channel-group-info-button:hover {
+  color: #047857;
+  background: #ecfdf5;
+}
+
 .channel-group-history-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.channel-group-info-button svg {
   width: 15px;
   height: 15px;
 }
@@ -1352,10 +1374,9 @@ dd {
 }
 
 .facebook-ineligible-trigger {
-  display: flex;
+  display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
   border: 0;
   padding: 7px 0 7px 4px;
   color: #047857;
@@ -1371,11 +1392,54 @@ dd {
   color: #065f46;
 }
 
-.facebook-ineligible-trigger svg {
+.facebook-group-info-modal {
+  grid-template-rows: auto auto;
+}
+
+.facebook-group-info-modal-body {
+  overflow: auto;
+}
+
+.facebook-group-info-details {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.facebook-group-info-details > div {
+  display: grid;
+  gap: 3px;
+  border-bottom: 1px solid #edf1f7;
+  padding-bottom: 9px;
+}
+
+.facebook-group-info-details dt {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.facebook-group-info-details dd {
+  margin: 0;
+  color: #172033;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.facebook-group-info-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.facebook-group-info-link svg {
   width: 14px;
   height: 14px;
-  flex: 0 0 auto;
-  color: #9ca3af;
 }
 
 .facebook-ineligible-modal-header {
@@ -4803,12 +4867,17 @@ dd {
 }
 
 .facebook-post-preview-image strong {
+  display: block;
+  max-width: 100%;
   color: #14532d;
   font-size: 22px;
   font-weight: 950;
   line-height: 1.2;
   text-transform: uppercase;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .facebook-post-preview-image span {

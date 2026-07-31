@@ -237,7 +237,7 @@ async function handleFrontendFacebookAuthCheck(
   const emit = toFrontendFacebookEmitter(requestId, emitOrSender);
   try {
     await emit('AUTH_CHECKING', {
-      message: 'Checking Facebook login in this browser.',
+      message: 'Đang kiểm tra đăng nhập Facebook ở trình duyệt này.',
     });
     const result = await ensureFacebookSession({
       onStatus: (event) => {

@@ -449,6 +449,7 @@ function SidePanel() {
   const [facebookHistoryMessage, setFacebookHistoryMessage] = useState<string | null>(null);
   const [refreshingFacebookHistoryIds, setRefreshingFacebookHistoryIds] = useState<string[]>([]);
   const [isRefreshingFacebookHistoryGroup, setIsRefreshingFacebookHistoryGroup] = useState(false);
+  const [selectedFacebookGroupInfo, setSelectedFacebookGroupInfo] = useState<FacebookGroupUiItem | null>(null);
 
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
   const [facebookGroupName, setFacebookGroupName] = useState('');
@@ -2613,7 +2614,7 @@ function SidePanel() {
     setFacebookGroupSyncDetails(null);
     setFacebookIneligiblePage(1);
     setFacebookGroupLoadState('CHECKING_LOGIN');
-    setFacebookGroupMessage('Checking Facebook login in this browser.');
+    setFacebookGroupMessage('Đang kiểm tra đăng nhập Facebook ở trình duyệt này.');
 
     const session = await ensureFacebookSession({
       onStatus: (event) => {
@@ -2683,7 +2684,7 @@ function SidePanel() {
     let activeAccount = facebookAccount;
     if (!options.sessionReady) {
       setFacebookGroupLoadState('CHECKING_LOGIN');
-      setFacebookGroupMessage('Checking Facebook login in this browser.');
+      setFacebookGroupMessage('Đang kiểm tra đăng nhập Facebook ở trình duyệt này.');
 
       const session = await ensureFacebookSession({
         onStatus: (event) => {
@@ -2722,7 +2723,7 @@ function SidePanel() {
       discoverySummary = 'Quét chưa hoàn tất nên chưa thay đổi dữ liệu nhóm.';
       setFacebookGroupMessage(discoverySummary);
     } else {
-      setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm, đang đồng bộ lên VCS...`);
+      setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm.`);
       const discoverResult = await syncFacebookGroups(accessToken, {
         scanComplete: true,
         facebookAccountId: activeAccount.id,
@@ -2963,6 +2964,14 @@ function SidePanel() {
     setFacebookHistoryMessage(null);
     setRefreshingFacebookHistoryIds([]);
     setIsRefreshingFacebookHistoryGroup(false);
+  }
+
+  function openFacebookGroupInfo(group: FacebookGroupUiItem) {
+    setSelectedFacebookGroupInfo(group);
+  }
+
+  function closeFacebookGroupInfo() {
+    setSelectedFacebookGroupInfo(null);
   }
 
   async function loadFacebookPostHistory(
@@ -3311,7 +3320,7 @@ function SidePanel() {
           if (!savedGroup.selectable) issueCount += 1;
           setFacebookSettingsMessage(
             savedGroup.selectable
-              ? `"${savedGroup.targetName}" can be used for publishing (${savedGroup.quotaLabel} today).`
+              ? `"${savedGroup.targetName}" có thể đăng bài (${savedGroup.quotaLabel} hôm nay).`
               : getFacebookGroupVerificationMessage(savedGroup),
           );
 
@@ -4667,7 +4676,7 @@ function SidePanel() {
             <span className="facebook-preview-thumb" aria-hidden="true">VCS</span>
           )}
           <div className="facebook-preview-copy">
-            <strong>{previewTitle}</strong>
+              <strong title={previewTitle}>{previewTitle}</strong>
             <span>{previewCopy || 'Chưa có nội dung preview.'}</span>
           </div>
           <div className="facebook-preview-actions">
@@ -4890,7 +4899,7 @@ function SidePanel() {
                   </div>
                 ) : (
                   <div>
-                    <strong>{previewTitle}</strong>
+                    <strong title={previewTitle}>{previewTitle}</strong>
                     <span>VCS Recruitment</span>
                   </div>
                 )}
@@ -5009,12 +5018,12 @@ function SidePanel() {
                         </button>
                       </div>
                       <div className="channel-subselection-list">
-                        {visibleFacebookGroups.length > 0 ? (
+                        {facebookGroupLoadState === 'READY' && visibleFacebookGroups.length > 0 ? (
                           <div className="channel-subselection-summary-row">
                             <p className="channel-subselection-summary">
-                              {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook hợp lệ đã được chọn
+                              {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook đã được chọn
                             </p>
-                            {facebookGroupSyncDetails?.filtered.length ? (
+                            {facebookGroupLoadState === 'READY' ? (
                               <button
                                 type="button"
                                 className="facebook-ineligible-trigger"
@@ -5025,7 +5034,6 @@ function SidePanel() {
                                 }}
                               >
                                 <span>Xem nhóm không phù hợp</span>
-                                <ChevronDownIcon />
                               </button>
                             ) : null}
                          </div>
@@ -5069,7 +5077,7 @@ function SidePanel() {
                         <div className="channel-subselection-items">
                         {facebookGroupMessage
                           && !facebookGroupSearchQuery
-                          && !(facebookGroupLoadState === 'READY' && visibleFacebookGroups.length === 0) ? (
+                          && facebookGroupLoadState !== 'READY' ? (
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
                             <span>{facebookGroupMessage}</span>
                           </p>
@@ -5094,14 +5102,23 @@ function SidePanel() {
                                   disabled={!group.id || !group.selectable}
                                   onChange={() => toggleFacebookGroupSelection(group.id)}
                                 />
-                                <span className="channel-group-copy">
-                                  <span>{group.name}</span>
-                                  <span className="channel-group-meta">
+                                  <span className="channel-group-copy">
+                                    <span>{group.name}</span>
+                                    <span className="channel-group-meta">
                                     {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                                    {group.quotaLabel ? ` · ${group.quotaLabel} today` : ''}
+                                    {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
+                                    </span>
                                   </span>
-                                </span>
-                              </label>
+                                </label>
+                              <button
+                                type="button"
+                                className="channel-group-info-button"
+                                title="Xem thông tin nhóm"
+                                aria-label={`Xem thông tin nhóm ${group.name}`}
+                                onClick={() => openFacebookGroupInfo(group)}
+                              >
+                                <InfoIcon />
+                              </button>
                               <button
                                 type="button"
                                 className="channel-group-history-button"
@@ -6145,7 +6162,7 @@ function SidePanel() {
                               {getFacebookEligibilityLabel(group.eligibilityStatus)}
                             </span>
                             <span className={`facebook-group-badge${group.quotaExceeded ? ' is-danger' : ' is-neutral'}`}>
-                              {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`} today
+                              Hôm nay đã đăng {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`} bài
                             </span>
                           </div>
                           <span>{group.targetExternalId ?? 'GROUP'}</span>
@@ -6427,7 +6444,7 @@ function SidePanel() {
       ) : null}
       {isFacebookSettingsOpen && isFacebookGroupFormOpen ? renderFacebookGroupCreateModal() : null}
               {facebookImageAttachPrompt ? renderFacebookImageAttachPromptModal() : null}
-      {isFacebookGroupSyncDetailsOpen && facebookGroupSyncDetails ? (
+      {isFacebookGroupSyncDetailsOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section
             className="facebook-group-modal facebook-ineligible-modal"
@@ -6535,6 +6552,74 @@ function SidePanel() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {selectedFacebookGroupInfo ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="facebook-group-modal facebook-group-info-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="facebook-group-info-title"
+          >
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Facebook</p>
+                <h2 id="facebook-group-info-title">Thông tin nhóm Facebook</h2>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                title="Đóng"
+                aria-label="Đóng thông tin nhóm Facebook"
+                onClick={closeFacebookGroupInfo}
+              >
+                <CloseIcon />
+              </button>
+            </header>
+            <div className="modal-body facebook-group-info-modal-body">
+              <dl className="facebook-group-info-details">
+                <div>
+                  <dt>Tên nhóm</dt>
+                  <dd>{selectedFacebookGroupInfo.name}</dd>
+                </div>
+                <div>
+                  <dt>Trạng thái</dt>
+                  <dd>{getFacebookEligibilityLabel(selectedFacebookGroupInfo.eligibilityStatus)}</dd>
+                </div>
+                <div>
+                  <dt>Số bài hôm nay</dt>
+                  <dd>Hôm nay đã đăng {selectedFacebookGroupInfo.quotaLabel ?? '0/10'} bài</dd>
+                </div>
+                <div>
+                  <dt>Được phép chọn</dt>
+                  <dd>{selectedFacebookGroupInfo.selectable ? 'Có' : 'Không'}</dd>
+                </div>
+                {selectedFacebookGroupInfo.eligibilityReason || selectedFacebookGroupInfo.disabledReason ? (
+                  <div>
+                    <dt>Lý do</dt>
+                    <dd>{selectedFacebookGroupInfo.eligibilityReason ?? selectedFacebookGroupInfo.disabledReason}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              {selectedFacebookGroupInfo.url ? (
+                <a
+                  className="facebook-group-info-link"
+                  href={selectedFacebookGroupInfo.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Mở nhóm Facebook
+                  <ExternalLinkIcon />
+                </a>
+              ) : null}
+              <div className="form-actions">
+                <button type="button" className="primary-button compact-button" onClick={closeFacebookGroupInfo}>
+                  Đóng
+                </button>
+              </div>
             </div>
           </section>
         </div>
@@ -6813,16 +6898,14 @@ function buildFacebookGroupSelectionMessage(
   const validGroupIds = new Set(groups.map((group) => group.targetId).filter(isString));
   const selectedValidCount = uniqueStrings(selectedIds).filter((targetId) => validGroupIds.has(targetId)).length;
   const message = validCount > 0
-    ? `${selectedValidCount}/${validCount} Facebook group(s) selected.`
-    : 'No Facebook groups are available.';
+    ? `${selectedValidCount}/${validCount} nhóm Facebook đã được chọn`
+    : 'Không có nhóm Facebook nào.';
 
   return prefix ? `${prefix}. ${message}` : message;
 }
 
 function getFacebookEligibilityLabel(status?: FacebookPublishTargetEligibilityStatus | null) {
-  if (status === 'CAN_POST') return 'Can post';
-  if (status === 'CANNOT_POST') return 'Cannot post';
-  return 'Needs check';
+  return status === 'CAN_POST' ? 'Có thể đăng' : 'Không thể đăng';
 }
 
 function getFacebookGroupBadgeClass(status?: FacebookPublishTargetEligibilityStatus | null) {
@@ -6880,6 +6963,15 @@ function HistoryIcon({ className }: IconProps) {
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="M3.2 4.3A5.4 5.4 0 1 1 2.7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M2.8 2.5v2.3h2.3M8 4.8v3.3l2.2 1.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function InfoIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5.8" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 7.2v3.4M8 5.1h.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }

@@ -872,10 +872,8 @@ function normalizeGroupUrl(value: string | null, externalId: string | null) {
   return null;
 }
 
-function formatProgress(collected: number, expected: number | null, page: number) {
-  return expected
-    ? `Đã lấy ${collected}/${expected} nhóm Facebook qua GraphQL (trang ${page})...`
-    : `Đã lấy ${collected} nhóm Facebook qua GraphQL (trang ${page})...`;
+function formatProgress(collected: number, _expected: number | null, _page: number) {
+  return `Đã quét được ${collected} nhóm.`;
 }
 
 async function waitForFacebookTabComplete(tabId: number, timeoutMs = 45_000) {
