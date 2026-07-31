@@ -117,12 +117,16 @@ export class JobDescriptionsService {
     const search = params.search?.trim();
     if (search) {
       qb.andWhere('jd.title ILIKE :search', { search: `%${search}%` });
-      qb.orderBy(
+      qb.addSelect(
         `CASE
           WHEN LOWER(jd.title) = LOWER(:searchExact) THEN 0
           WHEN LOWER(jd.title) LIKE LOWER(:searchPrefix) THEN 1
           ELSE 2
         END`,
+        'search_rank',
+      );
+      qb.orderBy(
+        'search_rank',
         'ASC',
       )
         .addOrderBy(sortCol, sortOrder)

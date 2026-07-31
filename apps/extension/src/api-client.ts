@@ -554,7 +554,6 @@ export async function generateFacebookPreviewContent(
   payload: {
     snapshot: AmisJobSnapshot;
     mode: 'TEMPLATE' | 'AI';
-    facebookContent?: string;
   },
 ) {
   return request<{ content: string; mode?: 'TEMPLATE' | 'AI' }>('/extension/facebook/generate-preview-content', {

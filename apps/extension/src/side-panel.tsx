@@ -532,11 +532,18 @@ function SidePanel() {
   const facebookContentSnapshotFingerprintRef = useRef<string | null>(null);
   const facebookContentJobIdentityRef = useRef<string | null>(null);
   const facebookContentDraftScopeRef = useRef<FacebookContentDraftScope>({});
+  const jobDescriptionSearchDebounceRef = useRef<number | null>(null);
   const startedFacebookPlanKeys = useRef(new Set<string>());
 
   useEffect(() => {
     tokenRef.current = token;
   }, [token]);
+
+  useEffect(() => () => {
+    if (jobDescriptionSearchDebounceRef.current !== null) {
+      window.clearTimeout(jobDescriptionSearchDebounceRef.current);
+    }
+  }, []);
 
   useEffect(() => () => {
     if (extensionToastTimerRef.current !== null) {
@@ -2309,6 +2316,10 @@ function SidePanel() {
 
   function submitJobDescriptionSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (jobDescriptionSearchDebounceRef.current !== null) {
+      window.clearTimeout(jobDescriptionSearchDebounceRef.current);
+      jobDescriptionSearchDebounceRef.current = null;
+    }
     void loadJobDescriptions(token, 1);
   }
 
@@ -2565,7 +2576,7 @@ function SidePanel() {
           buildFacebookGroupSelectionMessage(selectedIds, groups, discoverySummary),
         );
       } else {
-        setFacebookGroupMessage('Không có group nào');
+        setFacebookGroupMessage('Đã quét được 0 nhóm');
       }
       await setSelectedChannels(next);
     } catch (err) {
@@ -2617,7 +2628,7 @@ function SidePanel() {
     setFacebookGroupMessage(
       groups.length > 0
         ? buildFacebookGroupSelectionMessage(selectedIds, groups)
-        : 'Không có group nào',
+        : 'Đã quét được 0 nhóm',
     );
     return {
       groups,
@@ -2634,7 +2645,7 @@ function SidePanel() {
     try {
       const result = await syncFacebookGroupsFromBrowser(token);
       if (result.groups.length === 0) {
-        setFacebookGroupMessage('Không có group nào');
+        setFacebookGroupMessage('Đã quét được 0 nhóm');
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -2726,7 +2737,7 @@ function SidePanel() {
     setFacebookGroupMessage(
       groups.length > 0
         ? buildFacebookGroupSelectionMessage(selectedIds, groups, discoverySummary)
-        : 'Không có group nào',
+        : 'Đã quét được 0 nhóm',
     );
 
     return { groups, selectedIds, discoverySummary, details, scanComplete: scanResult.scanComplete };
@@ -3502,7 +3513,7 @@ function SidePanel() {
         setFacebookGroupMessage(
           groups.length > 0
             ? buildFacebookGroupSelectionMessage(nextSelectedIds, groups)
-            : 'Không có group nào',
+            : 'Đã quét được 0 nhóm',
         );
       }
     } catch (err) {
@@ -5056,7 +5067,7 @@ function SidePanel() {
                           ))
                         ) : (
                           facebookGroupLoadState === 'READY'
-                            ? <p className="channel-subselection-empty">Không có group nào</p>
+                            ? <p className="channel-subselection-empty">Đã quét được 0 nhóm</p>
                             : null
                         )}
                       </div>
@@ -5140,11 +5151,25 @@ function SidePanel() {
               onChange={(event) => {
                 const value = event.target.value;
                 setJobDescriptionSearch(value);
-                if (!value) void loadJobDescriptions(token, 1, { search: '' });
+                if (jobDescriptionSearchDebounceRef.current !== null) {
+                  window.clearTimeout(jobDescriptionSearchDebounceRef.current);
+                  jobDescriptionSearchDebounceRef.current = null;
+                }
+
+                if (!value.trim()) {
+                  void loadJobDescriptions(token, 1, { search: '' });
+                  return;
+                }
+
+                jobDescriptionSearchDebounceRef.current = window.setTimeout(() => {
+                  jobDescriptionSearchDebounceRef.current = null;
+                  void loadJobDescriptions(token, 1, { search: value.trim() });
+                }, 300);
               }}
               placeholder="Tìm kiếm JD"
               aria-label="Tìm kiếm JD"
               type="search"
+              maxLength={255}
             />
             {jobDescriptionSearch ? (
               <button
@@ -5177,11 +5202,11 @@ function SidePanel() {
           </button>
         </form>
 
-        {vcsPortalSyncMessage ? (
+        {/* {vcsPortalSyncMessage ? (
           <p className={vcsPortalSyncState === 'ERROR' ? 'error-text' : 'muted-text'}>
             {vcsPortalSyncMessage}
           </p>
-        ) : null}
+        ) : null} */}
 
         {vcsPortalSyncResult ? (
           <section className="portal-sync-result" aria-label="VCS Portal sync result">
