@@ -410,6 +410,8 @@ function SidePanel() {
   const [expandedPublishResultChannels, setExpandedPublishResultChannels] = useState<Record<string, boolean>>({});
   const [facebookRunning, setFacebookRunning] = useState(false);
   const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
+  const [facebookGroupSearchInput, setFacebookGroupSearchInput] = useState('');
+  const [facebookGroupSearchQuery, setFacebookGroupSearchQuery] = useState('');
   const [facebookAccount, setFacebookAccount] = useState<FacebookAccount | null>(null);
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
   const [facebookContent, setFacebookContent] = useState('');
@@ -516,6 +518,7 @@ function SidePanel() {
   const tokenRef = useRef<string | null>(null);
   const channelsRef = useRef<ExtensionChannel[]>(channels);
   const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
+  const facebookGroupSearchInputRef = useRef<HTMLInputElement | null>(null);
   const extensionToastSequenceRef = useRef(0);
   const extensionToastTimerRef = useRef<number | null>(null);
   const selectedFacebookGroupIdsRef = useRef<string[]>(selectedFacebookGroupIds);
@@ -926,6 +929,14 @@ function SidePanel() {
       disabledReason: target.targetId ? null : 'Facebook group id is missing.',
     })) ?? [];
   }, [facebookGroups.length, facebookProgress, result, validFacebookGroups]);
+  const filteredFacebookGroups = useMemo(() => {
+    const query = facebookGroupSearchQuery.trim().toLocaleLowerCase('vi-VN');
+    if (!query) return visibleFacebookGroups;
+
+    return visibleFacebookGroups.filter((group) => (
+      group.name.toLocaleLowerCase('vi-VN').includes(query)
+    ));
+  }, [facebookGroupSearchQuery, visibleFacebookGroups]);
   const visibleSelectedFacebookGroupCount = useMemo(() => {
     const visibleGroupIds = new Set(visibleFacebookGroups.map((group) => group.id).filter(isString));
     return selectedFacebookGroupIds.filter((targetId) => visibleGroupIds.has(targetId)).length;
@@ -5017,9 +5028,47 @@ function SidePanel() {
                                 <ChevronDownIcon />
                               </button>
                             ) : null}
+                         </div>
+                        ) : null}
+                        {visibleFacebookGroups.length > 0 ? (
+                          <div className="channel-subselection-search">
+                            <input
+                              ref={facebookGroupSearchInputRef}
+                              type="text"
+                              value={facebookGroupSearchInput}
+                              maxLength={255}
+                              placeholder="Tìm kiếm nhóm Facebook"
+                              aria-label="Tìm kiếm nhóm Facebook"
+                              onChange={(event) => setFacebookGroupSearchInput(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key !== 'Enter') return;
+
+                                event.preventDefault();
+                                const trimmedSearch = facebookGroupSearchInput.trim();
+                                setFacebookGroupSearchInput(trimmedSearch);
+                                setFacebookGroupSearchQuery(trimmedSearch);
+                              }}
+                            />
+                            {facebookGroupSearchInput.length > 0 ? (
+                              <button
+                                type="button"
+                                className="channel-subselection-search-clear"
+                                aria-label="Xóa tìm kiếm nhóm Facebook"
+                                title="Xóa tìm kiếm nhóm Facebook"
+                                onClick={() => {
+                                  setFacebookGroupSearchInput('');
+                                  setFacebookGroupSearchQuery('');
+                                  facebookGroupSearchInputRef.current?.focus();
+                                }}
+                              >
+                                <CloseIcon />
+                              </button>
+                            ) : null}
                           </div>
                         ) : null}
+                        <div className="channel-subselection-items">
                         {facebookGroupMessage
+                          && !facebookGroupSearchQuery
                           && !(facebookGroupLoadState === 'READY' && visibleFacebookGroups.length === 0) ? (
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
                             <span>{facebookGroupMessage}</span>
@@ -5031,8 +5080,8 @@ function SidePanel() {
                             <code>{facebookGroupDiagnostic}</code>
                           </details>
                         ) : null}
-                        {visibleFacebookGroups.length > 0 ? (
-                          visibleFacebookGroups.map((group, index) => (
+                        {filteredFacebookGroups.length > 0 ? (
+                          filteredFacebookGroups.map((group, index) => (
                             <div
                               key={`${group.key}-${index}`}
                               className={`channel-subselection-item${!group.selectable ? ' is-disabled' : ''}`}
@@ -5068,11 +5117,14 @@ function SidePanel() {
                               </button>
                             </div>
                           ))
+                        ) : facebookGroupSearchQuery ? (
+                          <p className="channel-subselection-empty">Không tìm thấy nhóm Facebook phù hợp.</p>
                         ) : (
                           facebookGroupLoadState === 'READY'
                             ? <p className="channel-subselection-empty">Không có group nào</p>
                             : null
                         )}
+                        </div>
                       </div>
                       {isSelected ? (
                         <>
