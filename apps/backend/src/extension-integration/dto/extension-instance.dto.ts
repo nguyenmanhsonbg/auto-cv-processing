@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayUnique,
@@ -15,10 +16,13 @@ import {
 } from '../enums/extension-integration.enum';
 
 export class RegisterExtensionInstanceDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  // Let the service return the field-specific required message for missing/null values.
+  @Type(() => Object)
+  @IsOptional()
   @IsString()
   @MaxLength(128)
-  installId: string;
+  installId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
