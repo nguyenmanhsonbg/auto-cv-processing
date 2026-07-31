@@ -219,7 +219,6 @@ export async function collectFacebookGroupsFromGraphql(
       'LAZY_LOAD_TRIGGERED',
       `Đã scroll tuần tự một container để kích hoạt lazy-load danh sách nhóm (target=${scrollResult.target}, steps=${scrollResult.steps}).`,
     );
-    onMessage?.('Đang bắt response GraphQL danh sách nhóm Facebook...');
 
     let initialCapture: Awaited<ReturnType<typeof waitForInitialGroupResponse>>;
     try {
@@ -872,10 +871,8 @@ function normalizeGroupUrl(value: string | null, externalId: string | null) {
   return null;
 }
 
-function formatProgress(collected: number, expected: number | null, page: number) {
-  return expected
-    ? `Đã lấy ${collected}/${expected} nhóm Facebook qua GraphQL (trang ${page})...`
-    : `Đã lấy ${collected} nhóm Facebook qua GraphQL (trang ${page})...`;
+function formatProgress(collected: number, _expected: number | null, _page: number) {
+  return `Đã quét được ${collected} nhóm.`;
 }
 
 async function waitForFacebookTabComplete(tabId: number, timeoutMs = 45_000) {

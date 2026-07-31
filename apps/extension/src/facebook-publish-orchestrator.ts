@@ -301,7 +301,7 @@ export async function publishFacebookPlan(
     status: 'LOGIN_REQUIRED',
     currentIndex: 0,
     total,
-    message: 'Checking Facebook login in this browser.',
+    message: 'Đang kiểm tra đăng nhập Facebook ở trình duyệt này.',
     results,
   });
   try {
@@ -525,7 +525,7 @@ async function waitBetweenFacebookTargets(
 export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks = {}) {
   callbacks.onStatus?.({
     status: 'CHECKING_LOGIN',
-    message: 'Checking Facebook login in this browser.',
+      message: 'Đang kiểm tra đăng nhập Facebook ở trình duyệt này.',
   });
 
   const tab = await openTab('https://www.facebook.com/', false);

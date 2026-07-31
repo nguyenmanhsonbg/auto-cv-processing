@@ -409,6 +409,10 @@ function SidePanel() {
   const [expandedPublishResultChannels, setExpandedPublishResultChannels] = useState<Record<string, boolean>>({});
   const [facebookRunning, setFacebookRunning] = useState(false);
   const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
+  const [facebookGroupSearchInput, setFacebookGroupSearchInput] = useState('');
+  const [facebookGroupSearchQuery, setFacebookGroupSearchQuery] = useState('');
+  const [facebookSettingsGroupSearchInput, setFacebookSettingsGroupSearchInput] = useState('');
+  const [facebookSettingsGroupSearchQuery, setFacebookSettingsGroupSearchQuery] = useState('');
   const [facebookAccount, setFacebookAccount] = useState<FacebookAccount | null>(null);
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
   const [facebookContent, setFacebookContent] = useState('');
@@ -446,6 +450,7 @@ function SidePanel() {
   const [facebookHistoryMessage, setFacebookHistoryMessage] = useState<string | null>(null);
   const [refreshingFacebookHistoryIds, setRefreshingFacebookHistoryIds] = useState<string[]>([]);
   const [isRefreshingFacebookHistoryGroup, setIsRefreshingFacebookHistoryGroup] = useState(false);
+  const [selectedFacebookGroupInfo, setSelectedFacebookGroupInfo] = useState<FacebookGroupUiItem | null>(null);
 
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
   const [facebookGroupName, setFacebookGroupName] = useState('');
@@ -515,6 +520,8 @@ function SidePanel() {
   const tokenRef = useRef<string | null>(null);
   const channelsRef = useRef<ExtensionChannel[]>(channels);
   const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
+  const facebookGroupSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const facebookSettingsGroupSearchInputRef = useRef<HTMLInputElement | null>(null);
   const extensionToastSequenceRef = useRef(0);
   const extensionToastTimerRef = useRef<number | null>(null);
   const selectedFacebookGroupIdsRef = useRef<string[]>(selectedFacebookGroupIds);
@@ -867,17 +874,28 @@ function SidePanel() {
     || hasFacebookImageAttachmentError
     || missingFields.length > 0;
   const validFacebookGroups = useMemo(() => facebookGroups, [facebookGroups]);
-  const facebookGroupPageCount = Math.max(1, Math.ceil(validFacebookGroups.length / FACEBOOK_GROUP_PAGE_SIZE));
+  const filteredFacebookSettingsGroups = useMemo(() => {
+    const query = facebookSettingsGroupSearchQuery.trim().toLocaleLowerCase('vi-VN');
+    if (!query) return validFacebookGroups;
+
+    return validFacebookGroups.filter((group) => (
+      group.targetName.toLocaleLowerCase('vi-VN').includes(query)
+    ));
+  }, [facebookSettingsGroupSearchQuery, validFacebookGroups]);
+  const facebookGroupPageCount = Math.max(
+    1,
+    Math.ceil(filteredFacebookSettingsGroups.length / FACEBOOK_GROUP_PAGE_SIZE),
+  );
   const currentFacebookGroupPage = Math.min(facebookGroupPage, facebookGroupPageCount);
   const facebookGroupPageItems = useMemo(() => {
     const startIndex = (currentFacebookGroupPage - 1) * FACEBOOK_GROUP_PAGE_SIZE;
-    return validFacebookGroups.slice(startIndex, startIndex + FACEBOOK_GROUP_PAGE_SIZE);
-  }, [currentFacebookGroupPage, validFacebookGroups]);
+    return filteredFacebookSettingsGroups.slice(startIndex, startIndex + FACEBOOK_GROUP_PAGE_SIZE);
+  }, [currentFacebookGroupPage, filteredFacebookSettingsGroups]);
   const facebookGroupPaginationItems = buildCompactPaginationPages(
     currentFacebookGroupPage,
     facebookGroupPageCount,
   );
-  const facebookGroupTotalItems = validFacebookGroups.length;
+  const facebookGroupTotalItems = filteredFacebookSettingsGroups.length;
   const facebookGroupVisibleStart = facebookGroupTotalItems === 0
     ? 0
     : ((currentFacebookGroupPage - 1) * FACEBOOK_GROUP_PAGE_SIZE) + 1;
@@ -932,6 +950,14 @@ function SidePanel() {
       disabledReason: target.targetId ? null : 'Facebook group id is missing.',
     })) ?? [];
   }, [facebookGroups.length, facebookProgress, result, validFacebookGroups]);
+  const filteredFacebookGroups = useMemo(() => {
+    const query = facebookGroupSearchQuery.trim().toLocaleLowerCase('vi-VN');
+    if (!query) return visibleFacebookGroups;
+
+    return visibleFacebookGroups.filter((group) => (
+      group.name.toLocaleLowerCase('vi-VN').includes(query)
+    ));
+  }, [facebookGroupSearchQuery, visibleFacebookGroups]);
   const visibleSelectedFacebookGroupCount = useMemo(() => {
     const visibleGroupIds = new Set(visibleFacebookGroups.map((group) => group.id).filter(isString));
     return selectedFacebookGroupIds.filter((targetId) => visibleGroupIds.has(targetId)).length;
@@ -2599,7 +2625,7 @@ function SidePanel() {
     setFacebookGroupSyncDetails(null);
     setFacebookIneligiblePage(1);
     setFacebookGroupLoadState('CHECKING_LOGIN');
-    setFacebookGroupMessage('Checking Facebook login in this browser.');
+    setFacebookGroupMessage('Đang kiểm tra đăng nhập Facebook ở trình duyệt này.');
 
     const session = await ensureFacebookSession({
       onStatus: (event) => {
@@ -2669,7 +2695,7 @@ function SidePanel() {
     let activeAccount = facebookAccount;
     if (!options.sessionReady) {
       setFacebookGroupLoadState('CHECKING_LOGIN');
-      setFacebookGroupMessage('Checking Facebook login in this browser.');
+      setFacebookGroupMessage('Đang kiểm tra đăng nhập Facebook ở trình duyệt này.');
 
       const session = await ensureFacebookSession({
         onStatus: (event) => {
@@ -2708,7 +2734,7 @@ function SidePanel() {
       discoverySummary = 'Quét chưa hoàn tất nên chưa thay đổi dữ liệu nhóm.';
       setFacebookGroupMessage(discoverySummary);
     } else {
-      setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm, đang đồng bộ lên VCS...`);
+      setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm.`);
       const discoverResult = await syncFacebookGroups(accessToken, {
         scanComplete: true,
         facebookAccountId: activeAccount.id,
@@ -2829,6 +2855,8 @@ function SidePanel() {
     setIsFacebookSettingsOpen(true);
     setFacebookGroupModalMode('SETTINGS');
     setFacebookGroupPage(1);
+    setFacebookSettingsGroupSearchInput('');
+    setFacebookSettingsGroupSearchQuery('');
     setSelectedFacebookGroup(null);
     setIsFacebookGroupFormOpen(false);
     setFacebookSettingsMessage(null);
@@ -2898,6 +2926,8 @@ function SidePanel() {
     setIsFacebookSettingsOpen(false);
     setFacebookGroupModalMode('SETTINGS');
     setFacebookGroupPage(1);
+    setFacebookSettingsGroupSearchInput('');
+    setFacebookSettingsGroupSearchQuery('');
     setSelectedFacebookGroup(null);
     setIsFacebookGroupFormOpen(false);
     setFacebookSettingsState('IDLE');
@@ -2949,6 +2979,14 @@ function SidePanel() {
     setFacebookHistoryMessage(null);
     setRefreshingFacebookHistoryIds([]);
     setIsRefreshingFacebookHistoryGroup(false);
+  }
+
+  function openFacebookGroupInfo(group: FacebookGroupUiItem) {
+    setSelectedFacebookGroupInfo(group);
+  }
+
+  function closeFacebookGroupInfo() {
+    setSelectedFacebookGroupInfo(null);
   }
 
   async function loadFacebookPostHistory(
@@ -3241,24 +3279,20 @@ function SidePanel() {
       || facebookGroupVerificationQueueRef.current.some((item) => item.targetId === group.targetId)
     ) {
       setFacebookSettingsState('READY');
-      setFacebookSettingsMessage(`"${group.targetName}" is already queued for checking.`);
+      setFacebookSettingsMessage(null);
       return;
     }
 
     facebookGroupVerificationQueueRef.current = [...facebookGroupVerificationQueueRef.current, group];
     setQueuedFacebookGroupIds(facebookGroupVerificationQueueRef.current.map((item) => item.targetId).filter(isString));
     setFacebookSettingsState('READY');
-    setFacebookSettingsMessage(`Queued "${group.targetName}" for checking.`);
+    setFacebookSettingsMessage(null);
     void processFacebookGroupVerificationQueue();
   }
 
   async function processFacebookGroupVerificationQueue() {
     if (facebookGroupVerificationRunningRef.current) return;
     facebookGroupVerificationRunningRef.current = true;
-
-    let checkedCount = 0;
-    let issueCount = 0;
-    const queuedAtStart = facebookGroupVerificationQueueRef.current.length;
 
     try {
       while (facebookGroupVerificationQueueRef.current.length > 0) {
@@ -3279,8 +3313,6 @@ function SidePanel() {
         activeFacebookGroupVerificationIdRef.current = group.targetId;
         setVerifyingFacebookGroupIds([group.targetId]);
         setFacebookSettingsState('READY');
-        setFacebookSettingsMessage(`Checking "${group.targetName}" (${checkedCount + 1}/${Math.max(queuedAtStart, checkedCount + 1)}) with the current Facebook browser session.`);
-
         try {
           const eligibility = await verifyFacebookGroupPostingEligibility(group);
           const savedGroup = await verifyFacebookGroup(accessToken, group.targetId, {
@@ -3293,13 +3325,6 @@ function SidePanel() {
           facebookGroupsRef.current = groups;
           setFacebookGroups(groups);
           const nextSelectedIds = await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIdsRef.current);
-          checkedCount += 1;
-          if (!savedGroup.selectable) issueCount += 1;
-          setFacebookSettingsMessage(
-            savedGroup.selectable
-              ? `"${savedGroup.targetName}" can be used for publishing (${savedGroup.quotaLabel} today).`
-              : getFacebookGroupVerificationMessage(savedGroup),
-          );
 
           if (channelsRef.current.includes('FACEBOOK')) {
             setFacebookGroupLoadState('READY');
@@ -3318,8 +3343,6 @@ function SidePanel() {
             return;
           }
 
-          checkedCount += 1;
-          issueCount += 1;
           setFacebookSettingsState('READY');
           setFacebookSettingsMessage(`Could not check "${group.targetName}": ${toErrorMessage(err)}`);
         } finally {
@@ -3328,14 +3351,6 @@ function SidePanel() {
         }
       }
 
-      if (checkedCount > 0) {
-        setFacebookSettingsState('READY');
-        setFacebookSettingsMessage(
-          issueCount > 0
-            ? `Checked ${checkedCount} Facebook group(s). ${issueCount} group(s) need attention.`
-            : `Checked ${checkedCount} Facebook group(s). All checked groups can be used if quota allows.`,
-        );
-      }
     } finally {
       facebookGroupVerificationRunningRef.current = false;
       activeFacebookGroupVerificationIdRef.current = null;
@@ -4653,7 +4668,7 @@ function SidePanel() {
             <span className="facebook-preview-thumb" aria-hidden="true">VCS</span>
           )}
           <div className="facebook-preview-copy">
-            <strong>{previewTitle}</strong>
+              <strong title={previewTitle}>{previewTitle}</strong>
             <span>{previewCopy || 'Chưa có nội dung preview.'}</span>
           </div>
           <div className="facebook-preview-actions">
@@ -4876,7 +4891,7 @@ function SidePanel() {
                   </div>
                 ) : (
                   <div>
-                    <strong>{previewTitle}</strong>
+                    <strong title={previewTitle}>{previewTitle}</strong>
                     <span>VCS Recruitment</span>
                   </div>
                 )}
@@ -4995,12 +5010,12 @@ function SidePanel() {
                         </button>
                       </div>
                       <div className="channel-subselection-list">
-                        {visibleFacebookGroups.length > 0 ? (
+                        {facebookGroupLoadState === 'READY' && visibleFacebookGroups.length > 0 ? (
                           <div className="channel-subselection-summary-row">
                             <p className="channel-subselection-summary">
-                              {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook hợp lệ đã được chọn
+                              {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook đã được chọn
                             </p>
-                            {facebookGroupSyncDetails?.filtered.length ? (
+                            {facebookGroupLoadState === 'READY' ? (
                               <button
                                 type="button"
                                 className="facebook-ineligible-trigger"
@@ -5011,13 +5026,50 @@ function SidePanel() {
                                 }}
                               >
                                 <span>Xem nhóm không phù hợp</span>
-                                <ChevronDownIcon />
+                              </button>
+                            ) : null}
+                         </div>
+                        ) : null}
+                        {visibleFacebookGroups.length > 0 ? (
+                          <div className="channel-subselection-search">
+                            <input
+                              ref={facebookGroupSearchInputRef}
+                              type="text"
+                              value={facebookGroupSearchInput}
+                              maxLength={255}
+                              placeholder="Tìm kiếm nhóm Facebook"
+                              aria-label="Tìm kiếm nhóm Facebook"
+                              onChange={(event) => setFacebookGroupSearchInput(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key !== 'Enter') return;
+
+                                event.preventDefault();
+                                const trimmedSearch = facebookGroupSearchInput.trim();
+                                setFacebookGroupSearchInput(trimmedSearch);
+                                setFacebookGroupSearchQuery(trimmedSearch);
+                              }}
+                            />
+                            {facebookGroupSearchInput.length > 0 ? (
+                              <button
+                                type="button"
+                                className="channel-subselection-search-clear"
+                                aria-label="Xóa tìm kiếm nhóm Facebook"
+                                title="Xóa tìm kiếm nhóm Facebook"
+                                onClick={() => {
+                                  setFacebookGroupSearchInput('');
+                                  setFacebookGroupSearchQuery('');
+                                  facebookGroupSearchInputRef.current?.focus();
+                                }}
+                              >
+                                <CloseIcon />
                               </button>
                             ) : null}
                           </div>
                         ) : null}
+                        <div className="channel-subselection-items">
                         {facebookGroupMessage
-                          && !(facebookGroupLoadState === 'READY' && visibleFacebookGroups.length === 0) ? (
+                          && !facebookGroupSearchQuery
+                          && facebookGroupLoadState !== 'READY' ? (
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
                             <span>{facebookGroupMessage}</span>
                           </p>
@@ -5028,8 +5080,8 @@ function SidePanel() {
                             <code>{facebookGroupDiagnostic}</code>
                           </details>
                         ) : null}
-                        {visibleFacebookGroups.length > 0 ? (
-                          visibleFacebookGroups.map((group, index) => (
+                        {filteredFacebookGroups.length > 0 ? (
+                          filteredFacebookGroups.map((group, index) => (
                             <div
                               key={`${group.key}-${index}`}
                               className={`channel-subselection-item${!group.selectable ? ' is-disabled' : ''}`}
@@ -5042,14 +5094,23 @@ function SidePanel() {
                                   disabled={!group.id || !group.selectable}
                                   onChange={() => toggleFacebookGroupSelection(group.id)}
                                 />
-                                <span className="channel-group-copy">
-                                  <span>{group.name}</span>
-                                  <span className="channel-group-meta">
+                                  <span className="channel-group-copy">
+                                    <span>{group.name}</span>
+                                    <span className="channel-group-meta">
                                     {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                                    {group.quotaLabel ? ` · ${group.quotaLabel} today` : ''}
+                                    {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
+                                    </span>
                                   </span>
-                                </span>
-                              </label>
+                                </label>
+                              <button
+                                type="button"
+                                className="channel-group-info-button"
+                                title="Xem thông tin nhóm"
+                                aria-label={`Xem thông tin nhóm ${group.name}`}
+                                onClick={() => openFacebookGroupInfo(group)}
+                              >
+                                <InfoIcon />
+                              </button>
                               <button
                                 type="button"
                                 className="channel-group-history-button"
@@ -5065,11 +5126,14 @@ function SidePanel() {
                               </button>
                             </div>
                           ))
+                        ) : facebookGroupSearchQuery ? (
+                          <p className="channel-subselection-empty">Không tìm thấy nhóm Facebook phù hợp.</p>
                         ) : (
                           facebookGroupLoadState === 'READY'
                             ? <p className="channel-subselection-empty">Đã quét được 0 nhóm</p>
                             : null
                         )}
+                        </div>
                       </div>
                       {isSelected ? (
                         <>
@@ -6089,6 +6153,43 @@ function SidePanel() {
                 ) : null}
               </div>
 
+              <div className="facebook-settings-search">
+                <input
+                  ref={facebookSettingsGroupSearchInputRef}
+                  type="text"
+                  value={facebookSettingsGroupSearchInput}
+                  maxLength={255}
+                  placeholder="Tìm kiếm nhóm Facebook"
+                  aria-label="Tìm kiếm nhóm Facebook"
+                  onChange={(event) => setFacebookSettingsGroupSearchInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return;
+
+                    event.preventDefault();
+                    const trimmedSearch = facebookSettingsGroupSearchInput.trim();
+                    setFacebookSettingsGroupSearchInput(trimmedSearch);
+                    setFacebookSettingsGroupSearchQuery(trimmedSearch);
+                    setFacebookGroupPage(1);
+                  }}
+                />
+                {facebookSettingsGroupSearchInput.length > 0 ? (
+                  <button
+                    type="button"
+                    className="facebook-settings-search-clear"
+                    title="Xóa tìm kiếm nhóm Facebook"
+                    aria-label="Xóa tìm kiếm nhóm Facebook"
+                    onClick={() => {
+                      setFacebookSettingsGroupSearchInput('');
+                      setFacebookSettingsGroupSearchQuery('');
+                      setFacebookGroupPage(1);
+                      facebookSettingsGroupSearchInputRef.current?.focus();
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                ) : null}
+              </div>
+
               {facebookSettingsMessage ? (
                 <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
                   {facebookSettingsMessage}
@@ -6103,11 +6204,7 @@ function SidePanel() {
                     facebookGroupPageItems.map((group) => {
                       const isGroupChecking = Boolean(group.targetId && verifyingFacebookGroupIds.includes(group.targetId));
                       const isGroupQueued = Boolean(group.targetId && queuedFacebookGroupIds.includes(group.targetId));
-                      const groupStatusMessage = isGroupChecking
-                        ? 'Checking with the current Facebook browser session...'
-                        : isGroupQueued
-                          ? 'Queued for checking.'
-                          : getFacebookGroupDisabledReason(group);
+                      const groupStatusMessage = isGroupChecking ? 'Đang kiểm tra...' : null;
 
                       return (
                       <article
@@ -6117,40 +6214,25 @@ function SidePanel() {
                         <div className="facebook-group-info">
                           <div className="facebook-group-title-row">
                             <strong>{group.targetName}</strong>
-                            <span className={`facebook-group-badge ${getFacebookGroupBadgeClass(group.eligibilityStatus)}`}>
-                              {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                            </span>
-                            <span className={`facebook-group-badge${group.quotaExceeded ? ' is-danger' : ' is-neutral'}`}>
-                              {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`} today
-                            </span>
                           </div>
-                          <span>{group.targetExternalId ?? 'GROUP'}</span>
                         </div>
                         <div className="facebook-group-item-actions">
                           {group.targetUrl ? (
-                            <a href={group.targetUrl} target="_blank" rel="noreferrer">
-                              Open
+                            <a
+                              className="facebook-group-open-link"
+                              href={group.targetUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Mở trong tab mới
+                              <ExternalLinkIcon />
                             </a>
                           ) : null}
                           <button
                             type="button"
-                            className="group-icon-button"
-                            title="Lịch sử đăng bài"
-                            aria-label={`Lịch sử đăng bài ${group.targetName}`}
-                            onClick={() => openFacebookPostHistory({
-                              id: group.targetId ?? null,
-                              name: group.targetName,
-                              url: group.targetUrl,
-                              externalId: group.targetExternalId,
-                            })}
-                          >
-                            <HistoryIcon />
-                          </button>
-                          <button
-                            type="button"
                             className={`group-icon-button${isGroupChecking ? ' is-loading' : ''}`}
-                            title={isGroupQueued ? 'Queued for posting eligibility check' : 'Check posting eligibility'}
-                            aria-label={`Check posting eligibility for ${group.targetName}`}
+                            title={isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'}
+                            aria-label={`${isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'} ${group.targetName}`}
                             disabled={facebookSettingsState === 'SAVING' || isGroupChecking || isGroupQueued || !group.targetId}
                             onClick={() => void checkFacebookGroupEligibility(group)}
                           >
@@ -6175,12 +6257,24 @@ function SidePanel() {
                             <TrashIcon />
                           </button>
                         </div>
+                        <div className="facebook-group-status-row">
+                          <span className={`facebook-group-badge ${getFacebookGroupBadgeClass(group.eligibilityStatus)}`}>
+                            {getFacebookEligibilityLabel(group.eligibilityStatus)}
+                          </span>
+                          <span className={`facebook-group-badge${group.quotaExceeded ? ' is-danger' : ' is-neutral'}`}>
+                            Hôm nay đã đăng {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`}
+                          </span>
+                        </div>
                         {groupStatusMessage ? (
                           <p className="facebook-group-reason">{groupStatusMessage}</p>
                         ) : null}
                       </article>
                       );
                     })
+                  ) : facebookSettingsGroupSearchQuery ? (
+                    <div className="facebook-group-empty">
+                      <strong>Không tìm thấy nhóm Facebook phù hợp</strong>
+                    </div>
                   ) : (
                     <div className="facebook-group-empty">
                       <strong>Chưa có nhóm Facebook</strong>
@@ -6403,7 +6497,7 @@ function SidePanel() {
       ) : null}
       {isFacebookSettingsOpen && isFacebookGroupFormOpen ? renderFacebookGroupCreateModal() : null}
               {facebookImageAttachPrompt ? renderFacebookImageAttachPromptModal() : null}
-      {isFacebookGroupSyncDetailsOpen && facebookGroupSyncDetails ? (
+      {isFacebookGroupSyncDetailsOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section
             className="facebook-group-modal facebook-ineligible-modal"
@@ -6511,6 +6605,74 @@ function SidePanel() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {selectedFacebookGroupInfo ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="facebook-group-modal facebook-group-info-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="facebook-group-info-title"
+          >
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Facebook</p>
+                <h2 id="facebook-group-info-title">Thông tin nhóm Facebook</h2>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                title="Đóng"
+                aria-label="Đóng thông tin nhóm Facebook"
+                onClick={closeFacebookGroupInfo}
+              >
+                <CloseIcon />
+              </button>
+            </header>
+            <div className="modal-body facebook-group-info-modal-body">
+              <dl className="facebook-group-info-details">
+                <div>
+                  <dt>Tên nhóm</dt>
+                  <dd>{selectedFacebookGroupInfo.name}</dd>
+                </div>
+                <div>
+                  <dt>Trạng thái</dt>
+                  <dd>{getFacebookEligibilityLabel(selectedFacebookGroupInfo.eligibilityStatus)}</dd>
+                </div>
+                <div>
+                  <dt>Số bài hôm nay</dt>
+                  <dd>Hôm nay đã đăng {selectedFacebookGroupInfo.quotaLabel ?? '0/10'} bài</dd>
+                </div>
+                <div>
+                  <dt>Được phép chọn</dt>
+                  <dd>{selectedFacebookGroupInfo.selectable ? 'Có' : 'Không'}</dd>
+                </div>
+                {selectedFacebookGroupInfo.eligibilityReason || selectedFacebookGroupInfo.disabledReason ? (
+                  <div>
+                    <dt>Lý do</dt>
+                    <dd>{selectedFacebookGroupInfo.eligibilityReason ?? selectedFacebookGroupInfo.disabledReason}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              {selectedFacebookGroupInfo.url ? (
+                <a
+                  className="facebook-group-info-link"
+                  href={selectedFacebookGroupInfo.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Mở nhóm Facebook
+                  <ExternalLinkIcon />
+                </a>
+              ) : null}
+              <div className="form-actions">
+                <button type="button" className="primary-button compact-button" onClick={closeFacebookGroupInfo}>
+                  Đóng
+                </button>
+              </div>
             </div>
           </section>
         </div>
@@ -6789,22 +6951,19 @@ function buildFacebookGroupSelectionMessage(
   const validGroupIds = new Set(groups.map((group) => group.targetId).filter(isString));
   const selectedValidCount = uniqueStrings(selectedIds).filter((targetId) => validGroupIds.has(targetId)).length;
   const message = validCount > 0
-    ? `${selectedValidCount}/${validCount} Facebook group(s) selected.`
-    : 'No Facebook groups are available.';
+    ? `${selectedValidCount}/${validCount} nhóm Facebook đã được chọn`
+    : 'Không có nhóm Facebook nào.';
 
   return prefix ? `${prefix}. ${message}` : message;
 }
 
 function getFacebookEligibilityLabel(status?: FacebookPublishTargetEligibilityStatus | null) {
-  if (status === 'CAN_POST') return 'Can post';
-  if (status === 'CANNOT_POST') return 'Cannot post';
-  return 'Needs check';
+  return status === 'CAN_POST' ? 'Có thể đăng' : 'Không thể đăng';
 }
 
 function getFacebookGroupBadgeClass(status?: FacebookPublishTargetEligibilityStatus | null) {
   if (status === 'CAN_POST') return 'is-success';
-  if (status === 'CANNOT_POST') return 'is-danger';
-  return 'is-warning';
+  return 'is-danger';
 }
 
 function getFacebookGroupDisabledReason(group: FacebookPublishTarget) {
@@ -6822,15 +6981,6 @@ function getFacebookGroupDisabledReason(group: FacebookPublishTarget) {
     return group.disabledReason || group.eligibilityReason || 'Current Facebook account cannot post to this group.';
   }
   return group.disabledReason ?? null;
-}
-
-function getFacebookGroupVerificationMessage(group: FacebookPublishTarget) {
-  const reason = getFacebookGroupDisabledReason(group);
-  if (group.eligibilityStatus === 'UNKNOWN') {
-    return `"${group.targetName}" needs another check before publishing: ${reason}`;
-  }
-
-  return `"${group.targetName}" cannot be used: ${reason}`;
 }
 
 function isAmbiguousFacebookComposerVerificationReason(reason: string) {
@@ -6856,6 +7006,15 @@ function HistoryIcon({ className }: IconProps) {
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="M3.2 4.3A5.4 5.4 0 1 1 2.7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M2.8 2.5v2.3h2.3M8 4.8v3.3l2.2 1.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function InfoIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5.8" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 7.2v3.4M8 5.1h.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
