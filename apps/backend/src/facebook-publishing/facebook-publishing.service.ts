@@ -266,6 +266,14 @@ export class FacebookPublishingService {
       this.requireText(input.targetUrl, 'targetURL'),
     );
     this.assertValidFacebookGroupId(groupUrl.externalId);
+    if (input.targetExternalId !== undefined
+      && input.targetExternalId !== null
+      && input.targetExternalId.trim() !== groupUrl.externalId) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Request payload is invalid.',
+      });
+    }
     const discoveryTime = new Date();
     const matches = await this.targetsRepo.find({
       where: {

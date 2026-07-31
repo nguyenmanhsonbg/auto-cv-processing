@@ -116,6 +116,7 @@ export class ExtensionFacebookController {
       ownerUserId: req.user.id,
       targetName: dto.targetName,
       targetUrl: dto.targetUrl,
+      targetExternalId: dto.targetExternalId ?? null,
       ownerExtensionInstanceId: extensionInstance?.id ?? null,
       facebookAccountId: dto.facebookAccountId ?? null,
     });

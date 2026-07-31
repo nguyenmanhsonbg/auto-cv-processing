@@ -72,6 +72,7 @@ export interface CreateFacebookGroupInput {
   ownerUserId: string;
   targetName: string;
   targetUrl: string;
+  targetExternalId?: string | null;
   ownerExtensionInstanceId?: string | null;
   facebookAccountId?: string | null;
 }
