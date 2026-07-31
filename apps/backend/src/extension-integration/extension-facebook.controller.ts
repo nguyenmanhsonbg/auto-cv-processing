@@ -1,5 +1,19 @@
 import { UserRole } from '@interview-assistant/shared';
-import { Body, Controller, Delete, Get, Headers, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Put,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
+import { isUUID } from 'class-validator';
 import { ApiBearerAuth, ApiBody, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -311,7 +325,7 @@ export class ExtensionFacebookController {
     const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const group = await this.facebookPublishingService.deleteExtensionGroup(
       req.user.id,
-      targetId,
+      this.requireDeleteTargetId(targetId),
       extensionInstance?.id ?? null,
       facebookAccountId?.trim() || null,
     );
@@ -462,6 +476,17 @@ export class ExtensionFacebookController {
   private normalizeReviewStatusQuery(status: FacebookReviewStatus | undefined) {
     if (!status) return null;
     return Object.values(FacebookReviewStatus).includes(status) ? status : null;
+  }
+
+  private requireDeleteTargetId(targetId: string) {
+    if (!isUUID(targetId)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Request payload is invalid.',
+      });
+    }
+
+    return targetId;
   }
 
   private async resolveOptionalExtensionInstance(
