@@ -219,7 +219,6 @@ export async function collectFacebookGroupsFromGraphql(
       'LAZY_LOAD_TRIGGERED',
       `Đã scroll tuần tự một container để kích hoạt lazy-load danh sách nhóm (target=${scrollResult.target}, steps=${scrollResult.steps}).`,
     );
-    onMessage?.('Đang bắt response GraphQL danh sách nhóm Facebook...');
 
     let initialCapture: Awaited<ReturnType<typeof waitForInitialGroupResponse>>;
     try {
