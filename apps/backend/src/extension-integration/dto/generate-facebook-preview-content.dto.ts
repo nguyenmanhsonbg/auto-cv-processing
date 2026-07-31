@@ -17,14 +17,13 @@ export class GenerateFacebookPreviewContentDto {
   @Type(() => AmisJobSnapshotDto)
   snapshot: AmisJobSnapshotDto;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     enum: ['TEMPLATE', 'AI'],
-    default: 'AI',
-    description: 'Requests AI generation; template is used only when Gemini is unavailable.',
+    description: 'Required generation mode: TEMPLATE or AI.',
   })
-  @IsOptional()
+  @IsDefined()
   @IsIn(['TEMPLATE', 'AI'])
-  mode?: 'TEMPLATE' | 'AI';
+  mode: 'TEMPLATE' | 'AI';
 
   @ApiPropertyOptional({
     maxLength: 10000,

@@ -41,6 +41,7 @@ export class FacebookPostContentService {
       description: snapshot.description ?? snapshot.summary,
       requirements: snapshot.requirements,
       benefits: snapshot.benefits,
+      location: snapshot.location,
       applyUrl: '{{APPLY_URL}}',
     });
   }
@@ -50,26 +51,26 @@ export class FacebookPostContentService {
     applyUrl: string;
   }) {
     const level = input.level;
-    const rawTitle = this.stripRecruitmentPrefix(this.asText(input.title) || 'Vi tri tuyen dung');
+    const rawTitle = this.stripRecruitmentPrefix(this.asText(input.title) || 'Vị trí tuyển dụng');
     const title = rawTitle.toUpperCase();
     const fanpageName = this.configService.get<string>('FACEBOOK_DEFAULT_FANPAGE_NAME') || 'VCS Careers';
-    const defaultLocation = 'Toa Keangnam Landmark 72, Pham Hung, Nam Tu Liem, Ha Noi';
+    const defaultLocation = 'Tòa Keangnam Landmark 72, Phạm Hùng, Nam Từ Liêm, Hà Nội';
     const location = this.asText(input.location) || defaultLocation;
 
     const lines = [
-      `[HN] VIETTEL CYBER SECURITY (VCS) TUYEN DUNG ${title}`,
-      'Ban co kinh nghiem va mong muon tham gia cac du an quy mo lon, moi truong cong nghe chuyen sau?',
-      'Co hoi danh cho ban tai Viettel Cyber Security (VCS)!',
+      `[HN] VIETTEL CYBER SECURITY (VCS) TUYỂN DỤNG ${title}`,
+      'Bạn có kinh nghiệm và mong muốn tham gia các dự án quy mô lớn, môi trường công nghệ chuyên sâu?',
+      'Cơ hội dành cho bạn tại Viettel Cyber Security (VCS)!',
       '',
-      'Vi tri tuyen dung:',
+      'Vị trí tuyển dụng:',
       `- ${rawTitle}${level?.displayName || level?.name ? ` - ${this.asText(level.displayName ?? level.name)}` : ''}`,
       '',
-      this.section('Mo ta cong viec', this.asText(input.description)),
-      this.section('Yeu cau', this.formatStructured(input.requirements)),
-      this.section('Quyen loi', this.formatStructured(input.benefits)),
-      `Dia diem lam viec: ${location}`,
+      this.section(' Mô tả công việc', this.asText(input.description)),
+      this.section('Yêu cầu', this.formatStructured(input.requirements)),
+      this.section('Quyền lợi', this.formatStructured(input.benefits)),
+      `Địa điểm làm việc: ${location}`,
       '',
-      `Ung vien quan tam vui long nhan tin Fanpage ${fanpageName} hoac truy cap link ung tuyen: ${input.applyUrl}`,
+      `Ứng viên quan tâm vui lòng nhắn tin Fanpage ${fanpageName} hoặc truy cập link ứng tuyển: ${input.applyUrl}`,
     ];
 
     return lines
@@ -94,7 +95,7 @@ export class FacebookPostContentService {
     const applyUrl = this.buildApplyUrl(publicSlug);
     return content
       .replace(/\{\{\s*APPLY_URL\s*\}\}/gi, applyUrl)
-      .replace(/\[\s*APPLY_URL\s*\]/gi, applyUrl)
+      .replace(/\[\s*(?:APPLY_URL|Inbox\/Zalo\/Email\s+ứng\s+tuyển)\s*\]/giu, applyUrl)
       .trim();
   }
 

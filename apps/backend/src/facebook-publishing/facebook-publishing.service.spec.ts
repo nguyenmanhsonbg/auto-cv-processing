@@ -6,7 +6,7 @@ declare const it: any;
 declare const jest: any;
 
 describe('FacebookPublishingService preview generation', () => {
-  it('uses AI content for a preview when Gemini succeeds', async () => {
+  it('uses the template by default without calling AI', async () => {
     const contentService = {
       buildFromSnapshot: jest.fn().mockReturnValue('Facebook post'),
     };
@@ -32,7 +32,32 @@ describe('FacebookPublishingService preview generation', () => {
 
     const content = await service.generateExtensionPreviewContent({
       snapshot,
+      mode: 'TEMPLATE',
     });
+
+    expect(content).toEqual({ content: 'Facebook post', mode: 'TEMPLATE' });
+    expect(aiService.generateFacebookRecruitmentContent).not.toHaveBeenCalled();
+    expect(contentService.buildFromSnapshot).toHaveBeenCalledWith(snapshot);
+  });
+
+  it('uses AI content only when explicitly requested', async () => {
+    const contentService = {
+      buildFromSnapshot: jest.fn().mockReturnValue('Facebook post'),
+    };
+    const aiService = {
+      generateFacebookRecruitmentContent: jest.fn().mockResolvedValue('AI Facebook post'),
+    };
+    const service = new FacebookPublishingService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      contentService as any,
+      aiService as any,
+    );
+
+    const snapshot = { title: 'Backend Engineer' } as any;
+    const content = await service.generateExtensionPreviewContent({ snapshot, mode: 'AI' });
 
     expect(content).toEqual({ content: 'AI Facebook post', mode: 'AI' });
     expect(aiService.generateFacebookRecruitmentContent).toHaveBeenCalledWith(snapshot);
@@ -57,6 +82,7 @@ describe('FacebookPublishingService preview generation', () => {
 
     const content = await service.generateExtensionPreviewContent({
       snapshot: { title: 'Backend Engineer' } as any,
+      mode: 'AI',
     });
 
     expect(content).toEqual({ content: 'Facebook post', mode: 'TEMPLATE' });

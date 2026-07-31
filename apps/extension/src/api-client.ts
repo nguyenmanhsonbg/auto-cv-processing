@@ -553,7 +553,7 @@ export async function generateFacebookPreviewContent(
   accessToken: string,
   payload: {
     snapshot: AmisJobSnapshot;
-    mode?: 'TEMPLATE' | 'AI';
+    mode: 'TEMPLATE' | 'AI';
     facebookContent?: string;
   },
 ) {

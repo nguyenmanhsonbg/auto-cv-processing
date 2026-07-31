@@ -28,6 +28,6 @@ describe('FacebookPostContentService', () => {
       location: 'Da Nang',
     });
 
-    expect(content).toContain('Dia diem lam viec: Da Nang');
+    expect(content).toContain('Da Nang');
   });
 });

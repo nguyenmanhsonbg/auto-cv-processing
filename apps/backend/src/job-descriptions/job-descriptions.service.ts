@@ -112,25 +112,26 @@ export class JobDescriptionsService {
       .leftJoinAndSelect('jd.position', 'position')
       .leftJoinAndSelect('jd.level', 'level')
       .leftJoinAndSelect('jd.createdBy', 'createdBy')
-      .leftJoinAndSelect('jd.sourceCategories', 'sourceCategories')
-      .orderBy(sortCol, sortOrder);
+      .leftJoinAndSelect('jd.sourceCategories', 'sourceCategories');
 
     const search = params.search?.trim();
     if (search) {
-      qb.andWhere(
-        `(
-          jd.title ILIKE :search
-          OR jd.summary ILIKE :search
-          OR jd.description ILIKE :search
-          OR jd.overview ILIKE :search
-          OR jd.responsibilities ILIKE :search
-          OR jd.requirements ILIKE :search
-          OR jd.salary ILIKE :search
-          OR jd.annual_leave_days ILIKE :search
-          OR jd.department ILIKE :search
-        )`,
-        { search: `%${search}%` },
-      );
+      qb.andWhere('jd.title ILIKE :search', { search: `%${search}%` });
+      qb.orderBy(
+        `CASE
+          WHEN LOWER(jd.title) = LOWER(:searchExact) THEN 0
+          WHEN LOWER(jd.title) LIKE LOWER(:searchPrefix) THEN 1
+          ELSE 2
+        END`,
+        'ASC',
+      )
+        .addOrderBy(sortCol, sortOrder)
+        .setParameters({
+          searchExact: search,
+          searchPrefix: `${search}%`,
+        });
+    } else {
+      qb.orderBy(sortCol, sortOrder);
     }
 
     if (params.status !== undefined) {

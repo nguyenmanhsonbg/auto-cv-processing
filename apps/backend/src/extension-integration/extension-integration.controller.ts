@@ -24,6 +24,7 @@ import {
   UpdateAmisCareerQuestionCategoriesDto,
   UpdateJobDescriptionQuestionSetItemDto,
   ListExtensionReferralSourcesQueryDto,
+  GetJobDescriptionQuestionSetQueryDto,
 } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { ExtensionInstancesService } from './extension-instances.service';
@@ -419,7 +420,10 @@ export class ExtensionIntegrationController {
 
   @Get('job-descriptions/:jobDescriptionId/question-set')
   @ApiOperation({ summary: 'List active question set items for a selected job description' })
-  async getJobDescriptionQuestionSet(@Param('jobDescriptionId') jobDescriptionId: string) {
+  async getJobDescriptionQuestionSet(
+    @Param('jobDescriptionId') jobDescriptionId: string,
+    @Query() _query: GetJobDescriptionQuestionSetQueryDto,
+  ) {
     return this.extensionIntegrationService.getJobDescriptionQuestionSetContext(jobDescriptionId);
   }
 

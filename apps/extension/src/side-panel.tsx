@@ -24,7 +24,6 @@ import {
   login,
   refreshAccessToken,
   resolveFacebookAccount,
-  previewAmisJobPublishPlan,
   runApplicationAiScreening,
   syncAmisApplications,
   syncAndPublishAmisJob,
@@ -387,7 +386,7 @@ function getJobDescriptionQuestionSelectionStorageKey(jobDescriptionId: string) 
 
 function SidePanel() {
   const [state, setState] = useState<PanelState>('AUTH_LOADING');
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('cv');
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('posting');
   const [pinnedWorkspaceTab, setPinnedWorkspaceTab] = useState<WorkspaceTab | null>(null);
   const [referralRefreshVersion, setReferralRefreshVersion] = useState(0);
   const [cvWorkspaceView, setCvWorkspaceView] = useState<CvWorkspaceView>('list');
@@ -459,7 +458,7 @@ function SidePanel() {
   const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [jobDescriptionPagination, setJobDescriptionPagination] = useState<ApiPagination | null>(null);
   const [jobDescriptionSearch, setJobDescriptionSearch] = useState('');
-  const [jobDescriptionStatusFilter, setJobDescriptionStatusFilter] = useState('ACTIVE');
+  const [jobDescriptionStatusFilter, setJobDescriptionStatusFilter] = useState('ALL');
   const [jobDescriptionStatus, setJobDescriptionStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
   const [jobDescriptionError, setJobDescriptionError] = useState<string | null>(null);
   const [jobDescriptionFillState, setJobDescriptionFillState] = useState<JobDescriptionFillState>('IDLE');
@@ -966,6 +965,7 @@ function SidePanel() {
       await ensureRegisteredExtensionInstance(latestToken);
       setToken(latestToken);
       setUser(currentUser);
+      setActiveWorkspaceTab('posting');
       setState('READY');
       await loadJobDescriptions(latestToken);
       await loadLatestAutoSyncState({ silent: true });
@@ -1190,6 +1190,7 @@ function SidePanel() {
     snapshotOverride?: AmisJobSnapshot;
     selectedJobDescriptionOverride?: JobDescriptionSummary | null;
     forceFacebookChannel?: boolean;
+    mode?: 'TEMPLATE' | 'AI';
   } = {}) {
     if (!token) {
       setError('Sign in to VCS Recruitment before generating Facebook content.');
@@ -1212,37 +1213,16 @@ function SidePanel() {
 
     try {
       let content = '';
-      let generatedFromPublishPlan = false;
-      let contentMode: 'AI' | 'TEMPLATE' = 'AI';
+      const requestedMode = options.mode ?? 'TEMPLATE';
+      let contentMode: 'AI' | 'TEMPLATE' = requestedMode;
 
-      if (amisRecruitmentId) {
-        const payload = buildAmisJobPostingPayload({
-          includeFacebookContent: false,
-          snapshotOverride: sourceSnapshot,
-          selectedJobDescriptionOverride: options.selectedJobDescriptionOverride,
-          forceFacebookChannel: options.forceFacebookChannel ?? true,
-        });
-        if (payload) {
-          try {
-            const response = await previewAmisJobPublishPlan(token, payload);
-            if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
-            content = response.facebookPublishPlan?.content?.trim() ?? '';
-            generatedFromPublishPlan = Boolean(content);
-          } catch (err) {
-            if (err instanceof ApiClientError && err.status === 401) throw err;
-          }
-        }
-      }
-
-      if (!content) {
-        const response = await generateFacebookPreviewContent(token, {
-          snapshot: sourceSnapshot,
-          mode: 'AI',
-        });
-        if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
-        content = response.content.trim();
-        contentMode = response.mode === 'AI' ? 'AI' : 'TEMPLATE';
-      }
+      const response = await generateFacebookPreviewContent(token, {
+        snapshot: sourceSnapshot,
+        mode: requestedMode,
+      });
+      if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
+      content = response.content.trim();
+      contentMode = response.mode === 'AI' ? 'AI' : 'TEMPLATE';
 
       if (!content) {
         throw new Error('Backend did not return Facebook preview content.');
@@ -1255,8 +1235,8 @@ function SidePanel() {
       facebookContentJobIdentityRef.current = buildFacebookJobIdentity(sourceSnapshot);
       setFacebookContentState('READY');
       setFacebookContentMessage(
-        generatedFromPublishPlan
-          ? 'Facebook content generated from the same publish plan used for posting.'
+        contentMode === 'AI'
+          ? 'Facebook content replaced with an AI-generated version.'
           : 'Đã sinh nội dung Facebook từ JD hiện tại.',
       );
       const draftScope = await getFacebookContentDraftScope(
@@ -1317,7 +1297,7 @@ function SidePanel() {
   }
 
   async function generateFacebookDraftContent() {
-    const content = await generateFacebookPostContent();
+    const content = await generateFacebookPostContent({ mode: 'AI' });
     if (content !== null) {
       setFacebookContentDraft(content);
     }
@@ -1393,6 +1373,7 @@ function SidePanel() {
       await ensureRegisteredExtensionInstance(auth.accessToken);
       setToken(auth.accessToken);
       setUser(auth.user);
+      setActiveWorkspaceTab('posting');
       setState('READY');
       await loadJobDescriptions(auth.accessToken);
       await loadLatestAutoSyncState({ silent: true });
@@ -2329,6 +2310,11 @@ function SidePanel() {
   function submitJobDescriptionSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void loadJobDescriptions(token, 1);
+  }
+
+  function clearJobDescriptionSearch() {
+    setJobDescriptionSearch('');
+    void loadJobDescriptions(token, 1, { search: '' });
   }
 
   function changeJobDescriptionStatusFilter(status: string) {
@@ -4664,7 +4650,7 @@ function SidePanel() {
               type="button"
               className="secondary-button compact-button facebook-generate-button"
               disabled={!canGenerate}
-              onClick={() => void generateFacebookPostContent()}
+              onClick={() => void generateFacebookPostContent({ mode: 'AI' })}
             >
               {facebookContentBusy ? 'Đang sinh...' : 'Sinh bài'}
             </button>
@@ -4907,7 +4893,7 @@ function SidePanel() {
               type="button"
               className="primary-button facebook-modal-secondary-button"
               disabled={!canGenerate}
-              onClick={() => void generateFacebookPostContent()}
+              onClick={() => void generateFacebookPostContent({ mode: 'AI' })}
             >
               <SparklesIcon />
               <span>{facebookContentBusy ? 'Đang sinh...' : 'Sinh bài'}</span>
@@ -5148,12 +5134,29 @@ function SidePanel() {
         <h2>Mô tả công việc</h2>
 
         <form className="jd-toolbar" onSubmit={submitJobDescriptionSearch}>
-          <input
-            value={jobDescriptionSearch}
-            onChange={(event) => setJobDescriptionSearch(event.target.value)}
-            placeholder="Tìm kiếm JD"
-            aria-label="Tìm kiếm JD"
-          />
+          <div className="jd-search-field">
+            <input
+              value={jobDescriptionSearch}
+              onChange={(event) => {
+                const value = event.target.value;
+                setJobDescriptionSearch(value);
+                if (!value) void loadJobDescriptions(token, 1, { search: '' });
+              }}
+              placeholder="Tìm kiếm JD"
+              aria-label="Tìm kiếm JD"
+              type="search"
+            />
+            {jobDescriptionSearch ? (
+              <button
+                type="button"
+                className="jd-search-clear"
+                aria-label="Xóa tìm kiếm JD"
+                onClick={clearJobDescriptionSearch}
+              >
+                <CloseIcon />
+              </button>
+            ) : null}
+          </div>
           <select
             value={jobDescriptionStatusFilter}
             aria-label="Lọc trạng thái JD"
@@ -5229,7 +5232,7 @@ function SidePanel() {
         ) : null}
 
         {jobDescriptionStatus !== 'LOADING' && jobDescriptions.length === 0 ? (
-          <p className="muted-text">Không tìm thấy JD phù hợp.</p>
+          <p className="question-select-alert">Không tìm thấy JD phù hợp.</p>
         ) : null}
 
         {jobDescriptions.length > 0 ? (
@@ -5925,7 +5928,7 @@ function SidePanel() {
       <section className="extension-window">
         <header className="extension-header">
           <div>
-            <h1>Tuyển dụng VCS</h1>
+            <div className='extension-header-logo'>Tuyển dụng VCS</div>
           </div>
           <div className="extension-header-actions">
             {user ? (
