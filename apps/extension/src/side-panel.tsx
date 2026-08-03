@@ -5142,7 +5142,7 @@ function SidePanel() {
 
     return (
       <section className="jd-panel compact-workspace-section post-card-section">
-        <h2>Mô tả công việc</h2>
+        <h2 className="job-description-panel-title">Mô tả công việc</h2>
 
         <form className="jd-toolbar" onSubmit={submitJobDescriptionSearch}>
           <div className="jd-search-field">
@@ -5297,7 +5297,7 @@ function SidePanel() {
         {jobDescriptionPagination && jobDescriptionPagination.totalPages > 1 ? (
           <div className="pagination-row jd-pagination-row">
             <span>
-              Hiển thị {visibleStart} - {visibleEnd} của {totalItems} kết quả
+              Hiển thị từ {visibleStart} - {visibleEnd} của {totalItems} kết quả
             </span>
             <div className="jd-pagination-actions">
             <button
@@ -5309,16 +5309,21 @@ function SidePanel() {
             >
               <BackIcon />
             </button>
-            {paginationPages.map((page) => (
-              <button
-                key={page}
-                type="button"
-                className={`jd-page-button${page === currentPage ? ' is-active' : ''}`}
-                disabled={jobDescriptionStatus === 'LOADING'}
-                onClick={() => void loadJobDescriptions(token, page)}
-              >
-                {page}
-              </button>
+            {paginationPages.map((page, index) => (
+              page === 'ellipsis' ? (
+                <span key={`ellipsis-${index}`} className="jd-pagination-ellipsis" aria-hidden="true">…</span>
+              ) : (
+                <button
+                  key={page}
+                  type="button"
+                  className={`jd-page-button${page === currentPage ? ' is-active' : ''}`}
+                  aria-current={page === currentPage ? 'page' : undefined}
+                  disabled={jobDescriptionStatus === 'LOADING'}
+                  onClick={() => void loadJobDescriptions(token, page)}
+                >
+                  {page}
+                </button>
+              )
             ))}
             <button
               type="button"
@@ -5361,11 +5366,11 @@ function SidePanel() {
             <p className="question-select-alert">Chọn 1 JD để xem bộ câu hỏi tương ứng</p>
           ) : null}
 
-          {careerQuestionMessage ? (
+          {/* {careerQuestionMessage ? (
             <p className={careerQuestionState === 'ERROR' ? 'error-text' : 'muted-text'}>
               {careerQuestionMessage}
             </p>
-          ) : null}
+          ) : null} */}
 
           {jobDescriptionQuestionContext ? (
             <>
@@ -5385,7 +5390,7 @@ function SidePanel() {
                   ))}
                 </ul>
               ) : (
-                <p className="career-question-empty">JD này chưa có bộ câu hỏi đang hoạt động.</p>
+                <p className="career-question-empty">Chưa có dữ liệu bộ câu hỏi</p>
               )}
             </>
           ) : null}
@@ -6672,12 +6677,37 @@ function formatChannelLabel(channel: ExtensionChannel) {
   }
 }
 
-function buildCompactPaginationPages(currentPage: number, totalPages: number) {
+function buildCompactPaginationPages(currentPage: number, totalPages: number): Array<number | 'ellipsis'> {
   const safeTotal = Math.max(1, totalPages);
   const safeCurrent = Math.min(Math.max(1, currentPage), safeTotal);
-  const start = Math.max(1, Math.min(safeCurrent - 1, safeTotal - 2));
-  const end = Math.min(safeTotal, start + 2);
-  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+
+  if (safeTotal <= 7) {
+    return Array.from({ length: safeTotal }, (_, index) => index + 1);
+  }
+
+  if (safeCurrent <= 2) {
+    return [1, 2, 3, 'ellipsis', safeTotal - 1, safeTotal];
+  }
+
+  if (safeCurrent === 3) {
+    return [2, 3, 4, 'ellipsis', safeTotal - 1, safeTotal];
+  }
+
+  if (safeCurrent >= safeTotal - 2) {
+    return [1, 2, 'ellipsis', safeTotal - 2, safeTotal - 1, safeTotal];
+  }
+
+  return [
+    1,
+    2,
+    'ellipsis',
+    safeCurrent - 1,
+    safeCurrent,
+    safeCurrent + 1,
+    'ellipsis',
+    safeTotal - 1,
+    safeTotal,
+  ];
 }
 
 function getJobDescriptionStatusBadge(jobDescription: JobDescriptionSummary) {
@@ -8479,7 +8509,11 @@ function summarizeText(value: string | undefined) {
 function formatDate(value: string | undefined) {
   if (!value) return null;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString();
+  if (Number.isNaN(date.getTime())) return null;
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${day}/${month}/${date.getFullYear()}`;
 }
 
 function formatDateTime(value: string | undefined) {
