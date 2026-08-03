@@ -1292,22 +1292,6 @@ dd {
   line-height: 1.2;
 }
 
-.channel-group-history-button {
-  display: grid;
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 5px;
-  color: #94a3b8;
-  background: transparent;
-}
-
-.channel-group-history-button:hover {
-  color: #047857;
-  background: #ecfdf5;
-}
-
 .channel-group-info-button,
 .channel-group-info-button:hover {
   display: grid;
@@ -1323,11 +1307,6 @@ dd {
 .channel-group-info-button:hover {
   color: #047857;
   background: #ecfdf5;
-}
-
-.channel-group-history-button svg {
-  width: 15px;
-  height: 15px;
 }
 
 .channel-group-info-button svg {

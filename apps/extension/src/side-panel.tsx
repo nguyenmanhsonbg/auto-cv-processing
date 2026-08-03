@@ -482,7 +482,6 @@ function SidePanel() {
   const [facebookHistoryMessage, setFacebookHistoryMessage] = useState<string | null>(null);
   const [refreshingFacebookHistoryIds, setRefreshingFacebookHistoryIds] = useState<string[]>([]);
   const [isRefreshingFacebookHistoryGroup, setIsRefreshingFacebookHistoryGroup] = useState(false);
-  const [selectedFacebookGroupInfo, setSelectedFacebookGroupInfo] = useState<FacebookGroupUiItem | null>(null);
 
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
   const [facebookGroupName, setFacebookGroupName] = useState('');
@@ -3212,14 +3211,6 @@ function SidePanel() {
     setIsRefreshingFacebookHistoryGroup(false);
   }
 
-  function openFacebookGroupInfo(group: FacebookGroupUiItem) {
-    setSelectedFacebookGroupInfo(group);
-  }
-
-  function closeFacebookGroupInfo() {
-    setSelectedFacebookGroupInfo(null);
-  }
-
   async function loadFacebookPostHistory(
     group = selectedFacebookHistoryGroup,
     filter = facebookHistoryFilter,
@@ -5336,15 +5327,6 @@ function SidePanel() {
                               <button
                                 type="button"
                                 className="channel-group-info-button"
-                                title="Xem thông tin nhóm"
-                                aria-label={`Xem thông tin nhóm ${group.name}`}
-                                onClick={() => openFacebookGroupInfo(group)}
-                              >
-                                <InfoIcon />
-                              </button>
-                              <button
-                                type="button"
-                                className="channel-group-history-button"
                                 title="Lịch sử đăng bài"
                                 aria-label={`Lịch sử đăng bài ${group.name}`}
                                 onClick={() => openFacebookPostHistory({
@@ -5353,7 +5335,7 @@ function SidePanel() {
                                   url: group.url,
                                 })}
                               >
-                                <HistoryIcon />
+                                <InfoIcon />
                               </button>
                             </div>
                           ))
@@ -6805,74 +6787,6 @@ return (
                   </div>
                 </div>
               ) : null}
-            </div>
-          </section>
-        </div>
-      ) : null}
-      {selectedFacebookGroupInfo ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="facebook-group-modal facebook-group-info-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="facebook-group-info-title"
-          >
-            <header className="modal-header">
-              <div>
-                <p className="eyebrow">Facebook</p>
-                <h2 id="facebook-group-info-title">Thông tin nhóm Facebook</h2>
-              </div>
-              <button
-                type="button"
-                className="icon-button"
-                title="Đóng"
-                aria-label="Đóng thông tin nhóm Facebook"
-                onClick={closeFacebookGroupInfo}
-              >
-                <CloseIcon />
-              </button>
-            </header>
-            <div className="modal-body facebook-group-info-modal-body">
-              <dl className="facebook-group-info-details">
-                <div>
-                  <dt>Tên nhóm</dt>
-                  <dd>{selectedFacebookGroupInfo.name}</dd>
-                </div>
-                <div>
-                  <dt>Trạng thái</dt>
-                  <dd>{getFacebookEligibilityLabel(selectedFacebookGroupInfo.eligibilityStatus)}</dd>
-                </div>
-                <div>
-                  <dt>Số bài hôm nay</dt>
-                  <dd>Hôm nay đã đăng {selectedFacebookGroupInfo.quotaLabel ?? '0/10'} bài</dd>
-                </div>
-                <div>
-                  <dt>Được phép chọn</dt>
-                  <dd>{selectedFacebookGroupInfo.selectable ? 'Có' : 'Không'}</dd>
-                </div>
-                {selectedFacebookGroupInfo.eligibilityReason || selectedFacebookGroupInfo.disabledReason ? (
-                  <div>
-                    <dt>Lý do</dt>
-                    <dd>{selectedFacebookGroupInfo.eligibilityReason ?? selectedFacebookGroupInfo.disabledReason}</dd>
-                  </div>
-                ) : null}
-              </dl>
-              {selectedFacebookGroupInfo.url ? (
-                <a
-                  className="facebook-group-info-link"
-                  href={selectedFacebookGroupInfo.url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Mở nhóm Facebook
-                  <ExternalLinkIcon />
-                </a>
-              ) : null}
-              <div className="form-actions">
-                <button type="button" className="primary-button compact-button" onClick={closeFacebookGroupInfo}>
-                  Đóng
-                </button>
-              </div>
             </div>
           </section>
         </div>
