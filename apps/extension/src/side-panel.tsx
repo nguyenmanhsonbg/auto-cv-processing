@@ -448,7 +448,7 @@ function SidePanel() {
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
   const [facebookContent, setFacebookContent] = useState('');
   const [facebookContentState, setFacebookContentState] = useState<FacebookContentState>('IDLE');
-  const [facebookContentMessage, setFacebookContentMessage] = useState<string | null>(null);
+  const [, setFacebookContentMessage] = useState<string | null>(null);
   const [facebookPreviewModalMode, setFacebookPreviewModalMode] = useState<FacebookPreviewModalMode | null>(null);
   const [facebookContentDraft, setFacebookContentDraft] = useState('');
   const [facebookImageAttachments, setFacebookImageAttachments] = useState<FacebookPublishAttachment[]>([]);
@@ -4474,9 +4474,10 @@ function SidePanel() {
                   >
                     <DoubleChevronRightIcon />
                   </button>
-                </div>
-              </div>
-            </div>
+          </div>
+        </div>
+
+      </div>
           </div>
 
           <footer className="post-history-footer">
@@ -4870,10 +4871,6 @@ function SidePanel() {
     const previewCopy = effectiveContent
       ? summarizeText(effectiveContent)
       : summarizeText(snapshot?.summary ?? snapshot?.description ?? selectedJobDescription?.summary ?? selectedJobDescription?.description);
-    const helperText = effectiveContent
-      ? '{{APPLY_URL}} sẽ được thay bằng link tuyển dụng thật sau khi đồng bộ.'
-      : 'Sinh bài từ JD/AMIS snapshot hiện tại trước khi đăng.';
-
     return (
       <div className="facebook-content-panel">
         <p className="channel-subselection-title facebook-preview-title">Xem trước bài đăng</p>
@@ -4914,14 +4911,8 @@ function SidePanel() {
 
         <div className="facebook-content-meta is-preview">
           <span>{effectiveContent.length} ký tự</span>
-          <span>{helperText}</span>
         </div>
 
-        {facebookContentMessage ? (
-          <p className={facebookContentState === 'ERROR' ? 'error-text' : 'muted-text'}>
-            {facebookContentMessage}
-          </p>
-        ) : null}
       </div>
     );
   }
