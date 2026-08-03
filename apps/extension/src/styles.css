@@ -1154,6 +1154,11 @@ dd {
   background: transparent;
 }
 
+.channel-action-button.channel-groups-toggle {
+  border: 0;
+  padding: 0;
+}
+
 .channel-option:hover .channel-action-icon,
 .channel-option:hover .channel-action-button,
 .channel-option.is-selected .channel-action-icon,
@@ -1462,15 +1467,18 @@ dd {
 .facebook-ineligible-modal-header .icon-button {
   width: 20px;
   height: 20px;
+  border: 0;
   border-radius: 0;
+  outline: 0;
   padding: 0;
   color: #9ca3af;
   background: transparent;
+  box-shadow: none;
 }
 
 .facebook-ineligible-modal-header .icon-button:hover {
   color: #4b5563;
-  background: #f3f4f6;
+  background: transparent;
 }
 
 .facebook-ineligible-modal-header .icon-button svg {
@@ -2587,6 +2595,28 @@ dd {
 .icon-button:hover {
   color: #0f172a;
   background: #e2e8f0;
+}
+
+.facebook-group-settings-modal .modal-header .icon-button {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  padding: 0;
+  color: #9ca3af;
+  background: transparent;
+  box-shadow: none;
+}
+
+.facebook-group-settings-modal .modal-header .icon-button:hover {
+  color: #4b5563;
+  background: transparent;
+}
+
+.facebook-group-settings-modal .modal-header .icon-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .facebook-group-modal.facebook-ineligible-modal .facebook-ineligible-modal-header {
@@ -4768,8 +4798,10 @@ dd {
 }
 
 .extension-window .channel-option-label span {
-  font-size: 15px;
-  font-weight: 900;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .extension-window .channel-option.is-facebook.is-selected {

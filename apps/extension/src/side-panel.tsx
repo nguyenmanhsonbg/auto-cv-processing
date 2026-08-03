@@ -460,6 +460,7 @@ function SidePanel() {
   const [facebookGroupDiagnostic, setFacebookGroupDiagnostic] = useState<string | null>(null);
   const [facebookGroupSyncDetails, setFacebookGroupSyncDetails] = useState<FacebookGroupSyncDetails | null>(null);
   const [isFacebookGroupSyncDetailsOpen, setIsFacebookGroupSyncDetailsOpen] = useState(false);
+  const [isFacebookGroupListExpanded, setIsFacebookGroupListExpanded] = useState(true);
   const [facebookIneligiblePage, setFacebookIneligiblePage] = useState(1);
   const [manualIncludingFacebookGroupKeys, setManualIncludingFacebookGroupKeys] = useState<string[]>([]);
   const [extensionToast, setExtensionToast] = useState<ExtensionToastState | null>(null);
@@ -5170,6 +5171,7 @@ function SidePanel() {
               const isFacebookLoading = isFacebookChannel && isFacebookGroupLoading(facebookGroupLoadState);
               const showFacebookGroups = isFacebookChannel
                 && (isSelected || facebookGroupLoadState !== 'IDLE' || Boolean(facebookGroupMessage));
+              const showFacebookGroupList = showFacebookGroups && isFacebookGroupListExpanded;
 
               return (
                 <div
@@ -5188,9 +5190,16 @@ function SidePanel() {
                     </label>
                     <span className="channel-actions">
                       {showFacebookGroups ? (
-                        <span className="channel-action-icon" title="Select groups">
-                          <ChevronUpIcon />
-                        </span>
+                        <button
+                          type="button"
+                          className="channel-action-button channel-groups-toggle"
+                          title={isFacebookGroupListExpanded ? 'Ẩn danh sách nhóm Facebook' : 'Hiện danh sách nhóm Facebook'}
+                          aria-label={isFacebookGroupListExpanded ? 'Ẩn danh sách nhóm Facebook' : 'Hiện danh sách nhóm Facebook'}
+                          aria-expanded={isFacebookGroupListExpanded}
+                          onClick={() => setIsFacebookGroupListExpanded((expanded) => !expanded)}
+                        >
+                          {isFacebookGroupListExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                        </button>
                       ) : null}
                       {isFacebookChannel ? (
                         <button
@@ -5209,7 +5218,7 @@ function SidePanel() {
                       )}
                     </span>
                   </div>
-                  {showFacebookGroups ? (
+                  {showFacebookGroupList ? (
                     <div className="channel-subselection">
                       <div className="channel-subselection-title">
                         <div className="channel-subselection-heading">
@@ -6327,7 +6336,7 @@ return (
         <div className="modal-backdrop" role="presentation">
           {facebookGroupModalMode === 'SETTINGS' ? (
             <section
-              className="facebook-group-modal"
+              className="facebook-group-modal facebook-group-settings-modal"
               role="dialog"
               aria-modal="true"
               aria-labelledby="facebook-group-settings-title"
