@@ -1479,26 +1479,52 @@ dd {
 }
 
 .facebook-ineligible-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   grid-template-rows: minmax(0, 1fr) auto;
-  padding: 0 16px 12px;
+  padding: 16px;
+}
+
+.facebook-ineligible-modal-total {
+  display: flex;
+  min-height: 16.5px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.facebook-ineligible-modal-total span {
+  color: #64748b;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.55px;
+  line-height: 16.5px;
+  text-transform: uppercase;
 }
 
 .facebook-ineligible-modal-list {
   display: grid;
-  gap: 8px;
+  gap: 12px;
+  flex: 1 1 auto;
+  width: 100%;
   min-height: 0;
   max-height: min(60vh, 460px);
+  padding-top: 4px;
   overflow-y: auto;
 }
 
 .facebook-ineligible-modal-pagination {
   display: flex;
+  width: 100%;
+  min-height: 46px;
   min-width: 0;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
-  padding: 10px 0;
-  overflow-x: auto;
+  padding: 0 16px;
+  overflow: visible;
   color: #2f2b3d;
   font-family: Roboto, sans-serif;
   font-size: 12px;
@@ -1511,38 +1537,69 @@ dd {
   display: none;
 }
 
-.facebook-ineligible-modal-pagination > span {
-  flex: 1 1 auto;
-  min-width: 0;
+.facebook-ineligible-modal-pagination-summary {
+  display: flex;
+  flex: 1 1 0;
+  min-width: max-content;
+  align-items: center;
+  gap: 8px;
+}
+
+.facebook-ineligible-modal-pagination-summary span {
+  color: rgba(47, 43, 61, 0.9);
+  font-family: Roboto, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 16.8px;
   white-space: nowrap;
 }
 
 .facebook-ineligible-modal-pagination-actions {
-  display: inline-flex;
-  flex: 0 0 auto;
+  display: flex;
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
   align-items: center;
   justify-content: flex-end;
-  gap: 1px;
-  min-width: max-content;
-  white-space: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  align-content: center;
+  scrollbar-width: none;
+}
+
+.facebook-ineligible-modal-pagination-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.facebook-ineligible-modal-pagination-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  align-content: center;
 }
 
 .facebook-ineligible-modal-pagination-actions button,
 .facebook-ineligible-modal-pagination-ellipsis {
   display: inline-grid;
-  flex: 0 0 28px;
-  min-width: 28px;
-  height: 29px;
+  flex: 0 0 30px;
+  min-width: 30px;
+  height: 30px;
   place-items: center;
   border: 0;
-  border-radius: 5px;
-  padding: 4px;
+  border-radius: 6px;
+  padding: 6px;
   color: #2f2b3d;
   background: rgba(47, 43, 61, 0.08);
   font-family: Roboto, sans-serif;
   font-size: 12px;
   font-weight: 400;
-  letter-spacing: 0.1px;
+  letter-spacing: 0.4px;
   line-height: 16.8px;
 }
 
@@ -1568,8 +1625,8 @@ dd {
 }
 
 .facebook-ineligible-modal-pagination-ellipsis {
-  flex-basis: 20px;
-  min-width: 20px;
+  flex-basis: 30px;
+  min-width: 30px;
   background: transparent;
 }
 
@@ -1578,14 +1635,19 @@ dd {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid #d8dee9;
-  border-radius: 6px;
-  padding: 12px 10px;
-  background: #f8fafc;
+  border: 0;
+  border-radius: 8px;
+  outline: 1px solid #f3f4f6;
+  outline-offset: -1px;
+  padding: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .facebook-ineligible-modal-copy {
   display: grid;
+  flex: 0 1 170px;
+  width: 170px;
   min-width: 0;
   gap: 3px;
 }
@@ -1611,9 +1673,11 @@ dd {
 
 .facebook-ineligible-modal-actions {
   display: inline-flex;
-  flex: 0 0 auto;
+  flex: 0 0 186px;
+  width: 186px;
+  min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 3px;
 }
 
 .facebook-ineligible-open-link {
@@ -1638,16 +1702,17 @@ dd {
 }
 
 .facebook-ineligible-add-button {
-  min-height: 20px;
+  min-height: 28px;
   border: 0;
-  border-radius: 4px;
-  padding: 0 8px;
+  border-radius: 8px;
+  padding: 4px 14px;
   color: #ffffff;
   background: #059669;
   font-family: Inter, sans-serif;
   font-size: 10px;
   font-weight: 600;
   line-height: 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   white-space: nowrap;
 }
 
@@ -2496,6 +2561,10 @@ dd {
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.24);
 }
 
+.facebook-group-modal.facebook-ineligible-modal {
+  width: min(100%, 560px);
+}
+
 .modal-header {
   display: flex;
   align-items: flex-start;
@@ -2521,7 +2590,7 @@ dd {
 }
 
 .facebook-group-modal.facebook-ineligible-modal .facebook-ineligible-modal-header {
-  border-bottom: 0;
+  border-bottom: 1px solid #f3f4f6;
 }
 
 .modal-body {
@@ -2530,6 +2599,13 @@ dd {
   min-height: 0;
   overflow: hidden;
   padding: 14px 16px 16px;
+}
+
+.facebook-group-modal.facebook-ineligible-modal .facebook-ineligible-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
 }
 
 .facebook-group-sync-details-body {

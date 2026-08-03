@@ -6718,9 +6718,6 @@ return (
               <div className="facebook-ineligible-modal-heading">
                 <div>
                   <h2 id="facebook-group-sync-details-title">DANH SÁCH NHÓM KHÔNG PHÙ HỢP</h2>
-                  <span>
-                    {`${facebookIneligibleTotalItems} nhóm không phù hợp / ${facebookIneligibleTotalGroupCount} nhóm`}
-                  </span>
                 </div>
               </div>
               <button
@@ -6734,6 +6731,11 @@ return (
               </button>
             </header>
             <div className="modal-body facebook-ineligible-modal-body">
+              <div className="facebook-ineligible-modal-total">
+                <span>
+                  {`${facebookIneligibleTotalItems} nhóm không phù hợp / ${facebookIneligibleTotalGroupCount} nhóm`}
+                </span>
+              </div>
               <div className="facebook-ineligible-modal-list">
                 {facebookIneligiblePageItems.length > 0 ? (
                   facebookIneligiblePageItems.map((group) => {
@@ -6771,49 +6773,53 @@ return (
                 ) : (
                   <p className="channel-subselection-empty">Không có nhóm không phù hợp.</p>
                 )}
-              </div>
               {facebookIneligibleTotalItems > 0 ? (
                 <div className="facebook-ineligible-modal-pagination">
-                  <span>
-                    {`Hi\u1ec3n th\u1ecb t\u1eeb ${facebookIneligibleVisibleStart} - ${facebookIneligibleVisibleEnd} c\u1ee7a ${facebookIneligibleTotalItems} k\u1ebft qu\u1ea3`}
-                  </span>
+                  <div className="facebook-ineligible-modal-pagination-summary">
+                    <span>
+                      {`Hi\u1ec3n th\u1ecb t\u1eeb ${facebookIneligibleVisibleStart} - ${facebookIneligibleVisibleEnd} c\u1ee7a ${facebookIneligibleTotalItems} k\u1ebft qu\u1ea3`}
+                    </span>
+                  </div>
                   <div className="facebook-ineligible-modal-pagination-actions">
-                    <button
-                      type="button"
-                      title="Trang truoc"
-                      aria-label="Trang truoc danh sach nhom khong phu hop"
-                      disabled={currentFacebookIneligiblePage <= 1}
-                      onClick={() => setFacebookIneligiblePage((page) => Math.max(1, page - 1))}
-                    >
-                      <BackIcon />
-                    </button>
-                    {facebookIneligiblePaginationItems.map((page) => (
-                      typeof page === 'number' ? (
-                        <button
-                          key={page}
-                          type="button"
-                          className={page === currentFacebookIneligiblePage ? 'is-active' : undefined}
-                          aria-current={page === currentFacebookIneligiblePage ? 'page' : undefined}
-                          onClick={() => setFacebookIneligiblePage(page)}
-                        >
-                          {page}
-                        </button>
-                      ) : (
-                        <span key={page} className="facebook-ineligible-modal-pagination-ellipsis">...</span>
-                      )
-                    ))}
-                    <button
-                      type="button"
-                      title="Trang sau"
-                      aria-label="Trang sau danh sach nhom khong phu hop"
-                      disabled={currentFacebookIneligiblePage >= facebookIneligiblePageCount}
-                      onClick={() => setFacebookIneligiblePage((page) => Math.min(facebookIneligiblePageCount, page + 1))}
-                    >
-                      <ChevronRightIcon />
-                    </button>
+                    <div className="facebook-ineligible-modal-pagination-buttons">
+                      <button
+                        type="button"
+                        title="Trang truoc"
+                        aria-label="Trang truoc danh sach nhom khong phu hop"
+                        disabled={currentFacebookIneligiblePage <= 1}
+                        onClick={() => setFacebookIneligiblePage((page) => Math.max(1, page - 1))}
+                      >
+                        <BackIcon />
+                      </button>
+                      {facebookIneligiblePaginationItems.map((page) => (
+                        typeof page === 'number' ? (
+                          <button
+                            key={page}
+                            type="button"
+                            className={page === currentFacebookIneligiblePage ? 'is-active' : undefined}
+                            aria-current={page === currentFacebookIneligiblePage ? 'page' : undefined}
+                            onClick={() => setFacebookIneligiblePage(page)}
+                          >
+                            {page}
+                          </button>
+                        ) : (
+                          <span key={page} className="facebook-ineligible-modal-pagination-ellipsis">...</span>
+                        )
+                      ))}
+                      <button
+                        type="button"
+                        title="Trang sau"
+                        aria-label="Trang sau danh sach nhom khong phu hop"
+                        disabled={currentFacebookIneligiblePage >= facebookIneligiblePageCount}
+                        onClick={() => setFacebookIneligiblePage((page) => Math.min(facebookIneligiblePageCount, page + 1))}
+                      >
+                        <ChevronRightIcon />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}
+              </div>
             </div>
           </section>
         </div>
