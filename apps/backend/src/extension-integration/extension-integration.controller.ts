@@ -20,6 +20,8 @@ import {
   SyncAmisCareersDto,
   SyncAmisCareersResponseDto,
   SyncAmisJobPostingDto,
+  SyncAmisJobStatusDto,
+  SyncAmisJobStatusResponseDto,
   UpdateAmisApplicationStageDto,
   UpdateAmisCareerQuestionCategoriesDto,
   UpdateJobDescriptionQuestionSetItemDto,
@@ -425,6 +427,38 @@ export class ExtensionIntegrationController {
     @Query() _query: GetJobDescriptionQuestionSetQueryDto,
   ) {
     return this.extensionIntegrationService.getJobDescriptionQuestionSetContext(jobDescriptionId);
+  }
+
+  @Post('job-postings/status-sync')
+  @ApiOperation({ summary: 'Sync an AMIS recruitment status to its mapped job posting' })
+  @ApiBody({ type: SyncAmisJobStatusDto })
+  @ApiResponse({ status: 201, type: SyncAmisJobStatusResponseDto })
+  async syncJobStatus(
+    @Body() dto: SyncAmisJobStatusDto,
+    @Request() req: ExtensionAuthenticatedRequest,
+    @Headers('x-request-id') requestId: HeaderValue,
+    @Headers('x-extension-version') extensionVersion: HeaderValue,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const data = await this.extensionIntegrationService.syncAmisJobStatus(dto, {
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      requestId: this.optionalHeader(requestId),
+      extensionVersion: this.optionalHeader(extensionVersion),
+      extensionInstanceId: extensionInstance?.id ?? null,
+    });
+
+    return {
+      success: true,
+      data,
+      meta: {
+        timestamp: new Date().toISOString(),
+        requestId: this.optionalHeader(requestId) ?? null,
+        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+        extensionInstanceId: extensionInstance?.id ?? null,
+      },
+    };
   }
 
   @Patch('job-descriptions/:jobDescriptionId/question-set/items/:questionSetItemId')

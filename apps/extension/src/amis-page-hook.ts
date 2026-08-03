@@ -1,8 +1,10 @@
 import type { AmisRecruitmentRound } from './types';
+import { extractAmisJobStatusUpdate } from './amis-job-status';
 
 const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
 const AMIS_SAVE_RECRUITMENT_PATH = '/RecruitmentAPI/api/recruitment/SaveRecruitment';
+const AMIS_UPDATE_RECRUITMENT_FIELD_PATH = '/recruitmentapi/api/recruitment/update-field';
 const AMIS_CANDIDATE_ADDITIONAL_INFO_PATH = '/RecruitmentAPI/api/Candidate/candidate-additional-infor/';
 const AMIS_CANDIDATE_UPDATE_ROUND_PATH = '/RecruitmentAPI/api/RecruitmentDetail/updateRound';
 const AMIS_RECRUITMENT_ROUNDS_PATHS = [
@@ -15,11 +17,13 @@ const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_RECRUITMENT_ROUND
 const HOOK_INSTALLED_KEY = '__VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__';
 const CANDIDATE_STAGE_HOOK_INSTALLED_KEY = '__VCS_AMIS_CANDIDATE_STAGE_HOOK_INSTALLED__';
 const RECRUITMENT_ROUNDS_HOOK_INSTALLED_KEY = '__VCS_AMIS_RECRUITMENT_ROUNDS_HOOK_INSTALLED__';
+const JOB_STATUS_HOOK_INSTALLED_KEY = '__VCS_AMIS_JOB_STATUS_HOOK_INSTALLED__';
 
 const hookWindow = window as Window & {
   __VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__?: boolean;
   __VCS_AMIS_CANDIDATE_STAGE_HOOK_INSTALLED__?: boolean;
   __VCS_AMIS_RECRUITMENT_ROUNDS_HOOK_INSTALLED__?: boolean;
+  __VCS_AMIS_JOB_STATUS_HOOK_INSTALLED__?: boolean;
 };
 
 if (!hookWindow[HOOK_INSTALLED_KEY]) {
@@ -43,6 +47,12 @@ if (!hookWindow[RECRUITMENT_ROUNDS_HOOK_INSTALLED_KEY]) {
   hookWindow[RECRUITMENT_ROUNDS_HOOK_INSTALLED_KEY] = true;
   installRecruitmentRoundsXhrHook();
   installRecruitmentRoundsFetchHook();
+}
+
+if (!hookWindow[JOB_STATUS_HOOK_INSTALLED_KEY]) {
+  hookWindow[JOB_STATUS_HOOK_INSTALLED_KEY] = true;
+  installJobStatusXhrHook();
+  installJobStatusFetchHook();
 }
 
 function installXhrHook() {
@@ -238,6 +248,68 @@ function installRecruitmentRoundsFetchHook() {
   };
 }
 
+function installJobStatusXhrHook() {
+  const xhrPrototype = window.XMLHttpRequest?.prototype as XMLHttpRequest & {
+    open: (...args: unknown[]) => void;
+    send: (...args: unknown[]) => void;
+  } | undefined;
+  if (!xhrPrototype) return;
+
+  const originalOpen = xhrPrototype.open;
+  const originalSend = xhrPrototype.send;
+  xhrPrototype.open = function openWithAmisJobStatus(this: HookedXMLHttpRequest, ...args: unknown[]) {
+    const [, url] = args;
+    this.__vcsAmisJobStatusRequestUrl = getRequestUrl(url);
+    return Reflect.apply(originalOpen, this, args);
+  };
+  xhrPrototype.send = function sendWithAmisJobStatus(this: HookedXMLHttpRequest, ...args: unknown[]) {
+    const requestUrl = this.__vcsAmisJobStatusRequestUrl;
+    if (requestUrl && isAmisUpdateRecruitmentFieldUrl(requestUrl)) {
+      this.addEventListener('loadend', () => {
+        if (this.status < 200 || this.status >= 300) return;
+        publishJobStatusUpdate(readXhrJson(this), requestUrl);
+      }, { once: true });
+    }
+    return Reflect.apply(originalSend, this, args);
+  };
+}
+
+function installJobStatusFetchHook() {
+  const originalFetch = window.fetch?.bind(window);
+  if (!originalFetch) return;
+  window.fetch = async (...args: Parameters<typeof fetch>) => {
+    const requestUrl = getRequestUrl(args[0] instanceof Request ? args[0].url : args[0]);
+    const response = await originalFetch(...args);
+    if (requestUrl && isAmisUpdateRecruitmentFieldUrl(requestUrl) && response.ok) {
+      void response.clone().text()
+        .then((text) => publishJobStatusUpdate(parseJsonText(text), requestUrl))
+        .catch(() => undefined);
+    }
+    return response;
+  };
+}
+
+function isAmisUpdateRecruitmentFieldUrl(url: string) {
+  try {
+    return new URL(url, window.location.origin).pathname.toLowerCase().endsWith(AMIS_UPDATE_RECRUITMENT_FIELD_PATH);
+  } catch {
+    return url.toLowerCase().includes(AMIS_UPDATE_RECRUITMENT_FIELD_PATH);
+  }
+}
+
+function publishJobStatusUpdate(responseJson: unknown, requestUrl: string) {
+  const update = extractAmisJobStatusUpdate(responseJson);
+  if (!update) return;
+  window.postMessage({
+    source: 'vcs-recruitment-extension',
+    type: 'VCS_AMIS_JOB_STATUS_UPDATED',
+    payload: {
+      ...update,
+      sourceUrl: new URL(requestUrl, window.location.origin).toString(),
+    },
+  }, window.location.origin);
+}
+
 function publishCapture(responseJson: unknown, requestUrl: string) {
   const capture = mapAmisSaveRecruitmentResponse(
     responseJson,
@@ -253,10 +325,17 @@ function publishCapture(responseJson: unknown, requestUrl: string) {
     return;
   }
 
+  const statusUpdate = extractAmisJobStatusUpdate(responseJson);
+
   window.postMessage({
     source: 'vcs-recruitment-extension',
     type: AMIS_CAPTURE_MESSAGE_TYPE,
-    payload: capture,
+    payload: {
+      ...capture,
+      ...(statusUpdate?.amisStatus !== undefined
+        ? { amisStatus: statusUpdate.amisStatus }
+        : {}),
+    },
   }, window.location.origin);
 
   publishDiagnostic('CAPTURE_PUBLISHED', {
@@ -874,4 +953,5 @@ interface HookedXMLHttpRequest extends XMLHttpRequest {
   __vcsAmisRequestUrl?: string;
   __vcsAmisCandidateStageRequestUrl?: string;
   __vcsAmisRecruitmentRoundsRequestUrl?: string;
+  __vcsAmisJobStatusRequestUrl?: string;
 }
