@@ -5224,7 +5224,6 @@ function SidePanel() {
                           disabled={!token || isFacebookLoading}
                           onClick={() => void handleSyncFacebookGroups()}
                         >
-                          <RefreshIcon />
                           <span>{isFacebookLoading ? 'Đang tải lại...' : 'Tải lại'}</span>
                         </button>
                       </div>

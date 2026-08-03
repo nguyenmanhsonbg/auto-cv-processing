@@ -1433,11 +1433,12 @@ dd {
   gap: 2px;
 }
 
-.facebook-ineligible-modal-header h2 {
+.facebook-group-modal .facebook-ineligible-modal-header h2 {
   margin: 0;
   color: #262626;
   font-family: Roboto, sans-serif;
   font-size: 11px;
+  font-style: normal;
   font-weight: 700;
   letter-spacing: 0.55px;
   line-height: 16.5px;
@@ -1445,9 +1446,13 @@ dd {
 }
 
 .facebook-ineligible-modal-heading span {
+  display: block;
+  border-top: 1px solid #edf1f7;
+  padding-top: 4px;
   color: #64748b;
   font-family: Roboto, sans-serif;
   font-size: 11px;
+  font-style: normal;
   font-weight: 700;
   letter-spacing: 0.55px;
   line-height: 16.5px;
@@ -1457,7 +1462,7 @@ dd {
 .facebook-ineligible-modal-header .icon-button {
   width: 20px;
   height: 20px;
-  border-radius: 4px;
+  border-radius: 0;
   padding: 0;
   color: #9ca3af;
   background: transparent;
@@ -1480,6 +1485,7 @@ dd {
 
 .facebook-ineligible-modal-list {
   display: grid;
+  gap: 8px;
   min-height: 0;
   max-height: min(60vh, 460px);
   overflow-y: auto;
@@ -1489,8 +1495,8 @@ dd {
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: flex-start;
-  gap: 1px;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 0;
   overflow-x: auto;
   color: #2f2b3d;
@@ -1506,7 +1512,7 @@ dd {
 }
 
 .facebook-ineligible-modal-pagination > span {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-width: 0;
   white-space: nowrap;
 }
@@ -1572,8 +1578,10 @@ dd {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid #f3f4f6;
+  border: 1px solid #d8dee9;
+  border-radius: 6px;
   padding: 12px 10px;
+  background: #f8fafc;
 }
 
 .facebook-ineligible-modal-copy {
@@ -1586,6 +1594,7 @@ dd {
   color: #1e293b;
   font-family: Roboto, sans-serif;
   font-size: 13px;
+  font-style: normal;
   font-weight: 700;
   line-height: 19.5px;
   overflow-wrap: anywhere;
@@ -1596,6 +1605,7 @@ dd {
   color: #64748b;
   font-family: Roboto, sans-serif;
   font-size: 10px;
+  font-style: normal;
   line-height: 15px;
 }
 
@@ -2508,6 +2518,10 @@ dd {
 .icon-button:hover {
   color: #0f172a;
   background: #e2e8f0;
+}
+
+.facebook-group-modal.facebook-ineligible-modal .facebook-ineligible-modal-header {
+  border-bottom: 0;
 }
 
 .modal-body {
@@ -4656,7 +4670,10 @@ dd {
 
 .extension-window .channel-section .section-title {
   color: #6b7280;
-  font-size: 13px;
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .extension-window .channel-option {
@@ -4684,8 +4701,60 @@ dd {
   background: #e9fff5;
 }
 
+.extension-window .channel-option.is-facebook .channel-option-label span {
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .extension-window .channel-subselection {
   padding: 0 10px 10px;
+}
+
+.extension-window .channel-option.is-facebook .channel-group-copy > span:first-child {
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.extension-window .channel-option.is-facebook .channel-subselection-title {
+  font-family: Arial, sans-serif;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.extension-window .channel-option.is-facebook .channel-subselection-summary {
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.extension-window .channel-option.is-facebook .facebook-ineligible-trigger {
+  color: #4B5563;
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.extension-window .channel-subselection-reload-button {
+  border: 1px solid #6ee7b7;
+  border-radius: 4px;
+  color: #047857;
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 13px;
+}
+
+.extension-window .channel-subselection-reload-button svg {
+  display: none;
 }
 
 .channel-subselection-summary {
