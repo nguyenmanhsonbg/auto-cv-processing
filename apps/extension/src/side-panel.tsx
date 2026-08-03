@@ -1,9 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { extractAmisJobFromDetailApi } from './amis-detail-api-extractor';
 import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
 import { getLastAmisCapture } from './amis-capture-store';
 import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
+import {
+  clearAmisTemplateContextForTab,
+  getAmisTemplateContextForTab,
+  saveAmisTemplateContext,
+} from './amis-template-context-store';
 import {
   ApiClientError,
   createFacebookGroup,
@@ -27,6 +33,7 @@ import {
   previewAmisJobPublishPlan,
   runApplicationAiScreening,
   syncAmisApplications,
+  syncAmisJobDescription,
   syncAndPublishAmisJob,
   syncFacebookGroups,
   syncVcsPortalJobDescriptions,
@@ -539,6 +546,7 @@ function SidePanel() {
   const pendingAmisUploadApplicationIdsRef = useRef(new Set<string>());
   const pendingAmisUploadTimeoutsRef = useRef(new Map<string, number>());
   const postingSnapshotRefreshSeqRef = useRef(0);
+  const amisJobSelectionSeqRef = useRef(0);
   const postingSnapshotRefreshAttemptsRef = useRef(new Map<string, number>());
   const missedRecruitmentContextCountRef = useRef(0);
   const lastAmisJobInitiationResetKeyRef = useRef<string | null>(null);
@@ -793,6 +801,11 @@ function SidePanel() {
 
   useEffect(() => {
     chrome.runtime?.onMessage.addListener((message, sender) => {
+      if (isAmisCaptureUpdatedMessage(message)) {
+        void applyAmisCaptureUpdatedMessage(message.payload, message.sourceTabId ?? sender.tab?.id);
+        return;
+      }
+
       if (isAutoSyncUpdateMessage(message)) {
         void applyAutoSyncUpdateMessage(message.payload);
         return;
@@ -1078,7 +1091,7 @@ function SidePanel() {
       setUser(currentUser);
       setState('READY');
       await loadJobDescriptions(latestToken);
-      await loadLatestAutoSyncState({ silent: true });
+      await loadLatestAmisCapture({ silent: true }, latestToken);
     } catch {
       await clearAccessToken();
       setState('AUTH_REQUIRED');
@@ -1505,7 +1518,7 @@ function SidePanel() {
       setUser(auth.user);
       setState('READY');
       await loadJobDescriptions(auth.accessToken);
-      await loadLatestAutoSyncState({ silent: true });
+      await loadLatestAmisCapture({ silent: true }, auth.accessToken);
     } catch (err) {
       setError(toErrorMessage(err));
       setState('AUTH_REQUIRED');
@@ -1959,6 +1972,24 @@ function SidePanel() {
     }
   }
 
+  async function applyAmisCaptureUpdatedMessage(
+    capture: AmisExtractionResult,
+    sourceTabId?: number,
+  ) {
+    try {
+      const activeTab = await getActiveTab();
+      if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return;
+      if (!capture.detected || !capture.snapshot || !capture.amisRecruitmentId) return;
+
+      applyExtractionResult(capture);
+      await syncAndSelectAmisJobDescription(capture, tokenRef.current, sourceTabId);
+    } catch (err) {
+      if (!(err instanceof ApiClientError && err.status === 401)) {
+        setJobDescriptionError(toErrorMessage(err));
+      }
+    }
+  }
+
   async function applyAutoSyncUpdateMessage(latestState: AmisAutoSyncState) {
     const stateRecruitmentId = getAutoSyncStateRecruitmentId(latestState);
     if (
@@ -2188,6 +2219,11 @@ function SidePanel() {
       setApplicationsContext(null);
       setApplicationsMessage(null);
       setApplicationsState(normalizedRecruitmentId ? 'LOADING' : 'IDLE');
+      setSelectedJobDescription(null);
+      setJobDescriptionQuestionContext(null);
+      setSelectedJobQuestionIds(new Set());
+      setCareerQuestionState('IDLE');
+      setCareerQuestionMessage('Select a JD to view its synced question set.');
       const shouldClearFacebookContent = shouldClearFacebookContentForRecruitmentChange(
         previousRecruitmentId,
         normalizedRecruitmentId,
@@ -2262,11 +2298,13 @@ function SidePanel() {
     postingSnapshotRefreshAttemptsRef.current.set(attemptKey, attempts + 1);
 
     try {
-      const injectionResults = await chrome.scripting.executeScript<[], AmisExtractionResult>({
-        target: { tabId: activeTab.id },
-        func: extractAmisJobFromPage,
-      });
-      const extraction = injectionResults[0]?.result;
+      const apiExtraction = await extractAmisJobFromDetailApiInActiveTab(
+        activeTab.id,
+        normalizedRecruitmentId,
+      );
+      const extraction = apiExtraction?.detected && apiExtraction.missingFields.length === 0
+        ? apiExtraction
+        : await extractAmisJobFromDomInActiveTab(activeTab.id);
       if (
         !extraction ||
         refreshSeq !== postingSnapshotRefreshSeqRef.current ||
@@ -2275,9 +2313,13 @@ function SidePanel() {
         return;
       }
 
-      if (isExtractionForRecruitment(extraction, normalizedRecruitmentId)) {
+      if (
+        isExtractionForRecruitment(extraction, normalizedRecruitmentId)
+        && extraction.missingFields.length === 0
+      ) {
         postingSnapshotRefreshAttemptsRef.current.delete(attemptKey);
         applyExtractionResult(extraction);
+        await syncAndSelectAmisJobDescription(extraction, tokenRef.current, activeTab.id);
         setState('READY');
         return;
       }
@@ -2288,6 +2330,93 @@ function SidePanel() {
       }
     } catch (err) {
       if (!options.silent) setError(toErrorMessage(err));
+    }
+  }
+
+  async function extractAmisJobFromDetailApiInActiveTab(tabId: number, recruitmentId: string) {
+    if (!chrome.scripting) return undefined;
+
+    const injectionResults = await chrome.scripting.executeScript<[string], AmisExtractionResult>({
+      target: { tabId },
+      func: extractAmisJobFromDetailApi,
+      args: [recruitmentId],
+      world: 'MAIN',
+    });
+    return injectionResults[0]?.result;
+  }
+
+  async function extractAmisJobFromDomInActiveTab(tabId: number) {
+    if (!chrome.scripting) return undefined;
+
+    const injectionResults = await chrome.scripting.executeScript<[], AmisExtractionResult>({
+      target: { tabId },
+      func: extractAmisJobFromPage,
+    });
+    return injectionResults[0]?.result;
+  }
+
+  async function syncAndSelectAmisJobDescription(
+    capture: AmisExtractionResult,
+    accessToken = tokenRef.current,
+    sourceTabId?: number,
+  ) {
+    const recruitmentId = normalizeOptionalText(capture.amisRecruitmentId);
+    if (!accessToken || !recruitmentId || !capture.snapshot || capture.missingFields.length > 0) return null;
+
+    const selectionSeq = amisJobSelectionSeqRef.current + 1;
+    amisJobSelectionSeqRef.current = selectionSeq;
+
+    try {
+      const activeTab = await getActiveTab();
+      if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return null;
+      const templateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+
+      const response = await syncAmisJobDescription(accessToken, {
+        amisRecruitmentId: recruitmentId,
+        amisUrl: capture.url,
+        snapshot: capture.snapshot,
+        ...(templateContext?.templateJobDescriptionId
+          ? { templateJobDescriptionId: templateContext.templateJobDescriptionId }
+          : {}),
+      });
+
+      if (
+        selectionSeq !== amisJobSelectionSeqRef.current
+        || activeAmisRecruitmentIdRef.current !== recruitmentId
+      ) {
+        return null;
+      }
+
+      const jobDescription = response.jobDescription;
+      setJobDescriptions((current) => {
+        const existingIndex = current.findIndex((item) => item.id === jobDescription.id);
+        if (existingIndex < 0) return [jobDescription, ...current];
+
+        return current.map((item, index) => index === existingIndex ? jobDescription : item);
+      });
+      setJobDescriptionStatus('READY');
+      setSelectedJobDescription(jobDescription);
+      setSnapshot(capture.snapshot);
+      setExtractionResult(capture);
+      setAmisUrl(capture.url);
+      setJobDescriptionError(null);
+      await loadSelectedJobDescriptionQuestionSet(jobDescription, accessToken, {
+        silent: true,
+        force: true,
+      });
+      await clearAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+      return response;
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return null;
+      }
+
+      setJobDescriptionError(toErrorMessage(err));
+      return null;
     }
   }
 
@@ -2307,6 +2436,9 @@ function SidePanel() {
       }
 
       applyAutoSyncState(latestState, { force: true });
+      if (latestState.capture) {
+        await syncAndSelectAmisJobDescription(latestState.capture, tokenRef.current);
+      }
       return true;
     }
 
@@ -2320,6 +2452,7 @@ function SidePanel() {
       }
 
       applyExtractionResult(capture);
+      await syncAndSelectAmisJobDescription(capture, tokenRef.current);
       setState('READY');
       return true;
     }
@@ -2481,6 +2614,13 @@ function SidePanel() {
         throw new Error(isFillResponse(response) ? response.error : 'AMIS page did not confirm the form fill.');
       }
 
+      await saveAmisTemplateContext({
+        tabId: activeTab.id,
+        templateJobDescriptionId: jobDescription.id,
+        templateJobDescriptionTitle: jobDescription.title,
+        formPageUrl: activeTab.url,
+      });
+
       setJobDescriptionFillState('SUCCESS');
       setJobDescriptionFillMessage(`Filled ${response.filledFields.length} field(s): ${response.filledFields.join(', ')}.`);
     } catch (err) {
@@ -2503,7 +2643,10 @@ function SidePanel() {
     setState('READY');
   }
 
-  async function loadLatestAmisCapture(options: { silent?: boolean } = {}) {
+  async function loadLatestAmisCapture(
+    options: { silent?: boolean } = {},
+    accessToken = tokenRef.current,
+  ) {
     try {
       const capture = await getLastAmisCapture();
       if (!capture) {
@@ -2512,6 +2655,7 @@ function SidePanel() {
       }
 
       applyExtractionResult(capture);
+      await syncAndSelectAmisJobDescription(capture, accessToken);
       setState('READY');
     } catch (err) {
       if (!options.silent) {
@@ -8465,6 +8609,25 @@ function isAutoSyncUpdateMessage(value: unknown): value is {
     && value !== null
     && (value as { type?: unknown }).type === 'AMIS_AUTO_SYNC_STATE_UPDATED'
     && typeof (value as { payload?: { status?: unknown } }).payload?.status === 'string';
+}
+
+function isAmisCaptureUpdatedMessage(value: unknown): value is {
+  type: 'AMIS_RECRUITMENT_CAPTURE_UPDATED';
+  payload: AmisExtractionResult;
+  sourceTabId?: number;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { type?: unknown }).type !== 'AMIS_RECRUITMENT_CAPTURE_UPDATED') return false;
+
+  const payload = (value as { payload?: unknown }).payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  return typeof (payload as { status?: unknown }).status === 'string'
+    && typeof (payload as { detected?: unknown }).detected === 'boolean'
+    && typeof (payload as { url?: unknown }).url === 'string'
+    && Array.isArray((payload as { missingFields?: unknown }).missingFields)
+    && ((value as { sourceTabId?: unknown }).sourceTabId === undefined
+      || typeof (value as { sourceTabId?: unknown }).sourceTabId === 'number');
 }
 
 function isRecruitmentContextChangedMessage(value: unknown): value is {
