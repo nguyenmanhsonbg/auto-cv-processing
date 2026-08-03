@@ -4817,7 +4817,51 @@ dd {
 }
 
 .extension-window .channel-subselection {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
   padding: 0 10px 10px;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    grid-template-rows 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding-bottom 900ms ease,
+    opacity 760ms ease,
+    transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: grid-template-rows, padding-bottom, opacity, transform;
+}
+
+.extension-window .channel-subselection-content {
+  min-height: 0;
+  overflow: hidden;
+  clip-path: inset(0 0 0 0);
+  transform: translateY(0);
+  transition:
+    clip-path 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 760ms ease,
+    transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: clip-path, opacity, transform;
+}
+
+.extension-window .channel-subselection.is-collapsed {
+  grid-template-rows: 0fr;
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+}
+
+.extension-window .channel-subselection.is-collapsed .channel-subselection-content {
+  clip-path: inset(0 0 100% 0);
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .extension-window .channel-subselection,
+  .extension-window .channel-subselection-content {
+    transition: none;
+  }
 }
 
 .extension-window .channel-option.is-facebook .channel-group-copy > span:first-child {

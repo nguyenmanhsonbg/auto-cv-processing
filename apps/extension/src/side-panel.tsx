@@ -5171,7 +5171,6 @@ function SidePanel() {
               const isFacebookLoading = isFacebookChannel && isFacebookGroupLoading(facebookGroupLoadState);
               const showFacebookGroups = isFacebookChannel
                 && (isSelected || facebookGroupLoadState !== 'IDLE' || Boolean(facebookGroupMessage));
-              const showFacebookGroupList = showFacebookGroups && isFacebookGroupListExpanded;
 
               return (
                 <div
@@ -5218,8 +5217,12 @@ function SidePanel() {
                       )}
                     </span>
                   </div>
-                  {showFacebookGroupList ? (
-                    <div className="channel-subselection">
+                  {showFacebookGroups ? (
+                    <div
+                      className={`channel-subselection${isFacebookGroupListExpanded ? ' is-expanded' : ' is-collapsed'}`}
+                      aria-hidden={!isFacebookGroupListExpanded}
+                    >
+                      <div className="channel-subselection-content">
                       <div className="channel-subselection-title">
                         <div className="channel-subselection-heading">
                           <span>Nhóm Facebook</span>
@@ -5403,6 +5406,7 @@ function SidePanel() {
                         </>
                       ) : null}
                       {isSelected ? renderFacebookContentPanel() : null}
+                      </div>
                     </div>
                   ) : null}
                 </div>
