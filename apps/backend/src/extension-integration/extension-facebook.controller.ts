@@ -385,6 +385,7 @@ export class ExtensionFacebookController {
     await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const result = await this.facebookPublishingService.generateExtensionPreviewContent({
       snapshot: dto.snapshot,
+      mode: dto.mode,
     });
 
     return {

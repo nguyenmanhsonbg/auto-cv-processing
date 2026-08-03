@@ -1,6 +1,7 @@
 export * from './sync-amis-job-posting.dto';
 export * from './sync-amis-job-description.dto';
 export * from './extension-sync-response.dto';
+export * from './get-job-description-question-set-query.dto';
 export * from './extension-instance.dto';
 export * from './extension-task.dto';
 export * from './sync-amis-careers.dto';

@@ -2185,6 +2185,13 @@ export class ExtensionIntegrationService {
 
   async getJobDescriptionQuestionSetContext(jobDescriptionId: string) {
     const normalizedJobDescriptionId = this.requireText(jobDescriptionId, 'jobDescriptionId');
+    if (!this.isUuid(normalizedJobDescriptionId)) {
+      throw new BadRequestException({
+        code: 'JOB_DESCRIPTION_NOT_FOUND',
+        message: 'Job description was not found.',
+      });
+    }
+
     const jobDescription = await this.dataSource.getRepository(JobDescriptionEntity).findOne({
       where: { id: normalizedJobDescriptionId },
       relations: ['position', 'level'],

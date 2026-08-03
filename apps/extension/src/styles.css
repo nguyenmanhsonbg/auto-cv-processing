@@ -3792,6 +3792,17 @@ dd {
   line-height: 1.2;
 }
 
+.extension-header-logo {
+  color: #172033;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  font-style: normal;
+  line-height: 20px;
+  letter-spacing: 0;
+  vertical-align: middle;
+}
+
 .extension-header p {
   margin: 3px 0 0;
   color: #8a94a6;
@@ -3862,9 +3873,12 @@ dd {
   padding: 0 8px;
   color: #7b8596;
   background: transparent;
+  font-family: Inter, sans-serif;
   font-size: 12px;
-  font-weight: 850;
-  line-height: 1.25;
+  font-weight: 600;
+  font-style: normal;
+  line-height: 20px;
+  letter-spacing: 0;
 }
 
 .extension-tab::after {
@@ -3879,8 +3893,8 @@ dd {
 }
 
 .extension-tab svg {
-  width: 15px;
-  height: 15px;
+  width: 9.6px;
+  height: 12.8px;
 }
 
 .extension-tab span {
@@ -4363,6 +4377,48 @@ dd {
   outline: none;
 }
 
+.jd-search-field {
+  position: relative;
+  min-width: 0;
+}
+
+.jd-search-field input {
+  padding-right: 42px;
+}
+
+.jd-search-field input::-webkit-search-cancel-button {
+  display: none;
+  appearance: none;
+}
+
+.jd-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.jd-search-clear:hover {
+  color: #334155;
+  background: #f1f5f9;
+}
+
+.jd-search-clear svg {
+  width: 14px;
+  height: 14px;
+}
+
 .jd-toolbar input::placeholder {
   color: #a8b2c1;
 }
@@ -4549,7 +4605,7 @@ dd {
   color: #ff4d4f;
   background: #ffe0e3;
   font-size: 14px;
-  font-weight: 750;
+  font-weight: 600;
   line-height: 1.35;
 }
 
@@ -5495,7 +5551,7 @@ dd {
 
   .extension-tab {
     gap: 6px;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .workspace-grid {
@@ -6127,7 +6183,7 @@ dd {
   .extension-tab {
     gap: 4px;
     padding: 0 3px;
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .referral-filter-row {
@@ -6871,8 +6927,13 @@ dd {
 
 .extension-header .text-button {
   color: #dc2626;
+  font-family: Inter, sans-serif;
   font-size: 14px;
-  font-weight: 900;
+  font-weight: 700;
+  font-style: normal;
+  line-height: 20px;
+  letter-spacing: 0;
+  vertical-align: middle;
 }
 
 .extension-tabs {
@@ -6883,7 +6944,12 @@ dd {
 .extension-tab {
   height: 36px;
   color: #6b7280;
-  font-size: 13px;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  font-style: normal;
+  line-height: 20px;
+  letter-spacing: 0;
 }
 
 .extension-tab::after {

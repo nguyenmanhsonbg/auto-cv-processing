@@ -46,6 +46,7 @@ interface DiscoverFacebookGroupsInput {
 
 interface GenerateFacebookPreviewContentInput {
   snapshot: AmisJobSnapshotDto;
+  mode?: 'TEMPLATE' | 'AI';
 }
 
 @Injectable()
@@ -99,6 +100,13 @@ export class FacebookPublishingService {
   }
 
   async generateExtensionPreviewContent(input: GenerateFacebookPreviewContentInput) {
+    if (input.mode !== 'AI') {
+      return {
+        content: this.contentService.buildFromSnapshot(input.snapshot),
+        mode: 'TEMPLATE' as const,
+      };
+    }
+
     try {
       const content = await this.aiService.generateFacebookRecruitmentContent(input.snapshot as unknown as Record<string, unknown>);
       if (content) return { content, mode: 'AI' as const };
@@ -114,19 +122,6 @@ export class FacebookPublishingService {
 
   private async generateContent(posting: JobPostingEntity, customContent?: string | null) {
     if (customContent?.trim()) return this.contentService.build(posting, customContent);
-
-    const snapshot = this.asRecord(posting.jobDescriptionVersion?.snapshot);
-    const jobDescription = this.asRecord(snapshot?.jobDescription) ?? {};
-    try {
-      const content = await this.aiService.generateFacebookRecruitmentContent({
-        title: posting.title || jobDescription.title,
-        ...jobDescription,
-      });
-      if (content) return content;
-    } catch (error) {
-      this.logger.warn(`Facebook AI content generation failed; using template fallback: ${error instanceof Error ? error.message : error}`);
-    }
-
     return this.contentService.build(posting);
   }
 

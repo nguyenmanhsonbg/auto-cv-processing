@@ -1,11 +1,8 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsDefined,
   IsIn,
-  IsOptional,
-  IsString,
-  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { AmisJobSnapshotDto } from './sync-amis-job-posting.dto';
@@ -17,21 +14,11 @@ export class GenerateFacebookPreviewContentDto {
   @Type(() => AmisJobSnapshotDto)
   snapshot: AmisJobSnapshotDto;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     enum: ['TEMPLATE', 'AI'],
-    default: 'AI',
-    description: 'Requests AI generation; template is used only when Gemini is unavailable.',
+    description: 'Required generation mode: TEMPLATE or AI.',
   })
-  @IsOptional()
+  @IsDefined()
   @IsIn(['TEMPLATE', 'AI'])
-  mode?: 'TEMPLATE' | 'AI';
-
-  @ApiPropertyOptional({
-    maxLength: 10000,
-    description: 'Current edited content. Reserved for future rewrite flows.',
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(10000)
-  facebookContent?: string;
+  mode: 'TEMPLATE' | 'AI';
 }

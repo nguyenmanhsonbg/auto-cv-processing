@@ -572,8 +572,7 @@ export async function generateFacebookPreviewContent(
   accessToken: string,
   payload: {
     snapshot: AmisJobSnapshot;
-    mode?: 'TEMPLATE' | 'AI';
-    facebookContent?: string;
+    mode: 'TEMPLATE' | 'AI';
   },
 ) {
   return request<{ content: string; mode?: 'TEMPLATE' | 'AI' }>('/extension/facebook/generate-preview-content', {
