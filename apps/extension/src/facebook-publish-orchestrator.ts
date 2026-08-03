@@ -21,6 +21,7 @@ import type {
 } from './types';
 
 const FACEBOOK_TARGET_TIMEOUT_MS = 90_000;
+const FACEBOOK_LOGIN_REQUIRED_MESSAGE = 'Vui lòng đăng nhập facebook trước khi thực hiện thao tác này.';
 
 class FacebookTargetTimeoutError extends Error {
   readonly code = 'FB_TARGET_TIMEOUT';
@@ -301,7 +302,7 @@ export async function publishFacebookPlan(
     status: 'LOGIN_REQUIRED',
     currentIndex: 0,
     total,
-    message: 'Checking Facebook login in this browser.',
+    message: 'Đang kiểm tra đăng nhập Facebook ở trình duyệt này.',
     results,
   });
   try {
@@ -525,7 +526,7 @@ async function waitBetweenFacebookTargets(
 export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks = {}) {
   callbacks.onStatus?.({
     status: 'CHECKING_LOGIN',
-    message: 'Checking Facebook login in this browser.',
+      message: 'Đang kiểm tra đăng nhập Facebook ở trình duyệt này.',
   });
 
   const tab = await openTab('https://www.facebook.com/', false);
@@ -552,12 +553,12 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
     }
 
     if (callbacks.allowInteractiveLogin === false) {
-      throw new Error('Facebook login is not ready in the background tab.');
+      throw new Error(FACEBOOK_LOGIN_REQUIRED_MESSAGE);
     }
 
     callbacks.onStatus?.({
       status: 'WAITING_LOGIN',
-      message: 'Facebook login is required. Please complete login in the opened tab.',
+      message: FACEBOOK_LOGIN_REQUIRED_MESSAGE,
       url: status.url,
     });
 
@@ -583,7 +584,12 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
       }
     }
 
-    throw new Error(status.message || 'Facebook login timed out.');
+    throw new Error(status.message || FACEBOOK_LOGIN_REQUIRED_MESSAGE);
+  } catch (error) {
+    if (isFacebookAuthTabUnavailableError(error)) {
+      throw new Error(FACEBOOK_LOGIN_REQUIRED_MESSAGE);
+    }
+    throw error;
   } finally {
     if (closeAfterCheck) {
       await closeTabSafely(tab.id);
@@ -1597,7 +1603,7 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
       ...status,
       ready: false,
       account: null,
-      message: 'Facebook login is required. Please complete login in the opened tab.',
+      message: FACEBOOK_LOGIN_REQUIRED_MESSAGE,
     };
   }
 
@@ -1779,6 +1785,11 @@ function shouldRetryPrepareFailure(message: string) {
 
 function isRecoverableTabAutomationFailure(message: string) {
   return /no tab with given id|tab.*closed|target closed|target page|frame was removed|cannot access.*closed|extension context invalidated/i.test(message);
+}
+
+function isFacebookAuthTabUnavailableError(error: unknown) {
+  const message = toAutomationErrorMessage(error);
+  return /no tab with(?: given)? id|tab.*closed|target closed|cannot access.*closed/i.test(message);
 }
 
 function toAutomationErrorMessage(error: unknown) {

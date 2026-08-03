@@ -58,6 +58,7 @@ import { getSelectedJobQuestionContextForTab, getSelectedJobQuestionIdsForTab } 
 import type {
   AmisDiagnosticEvent,
   AmisExtractionResult,
+  AmisJobSnapshot,
   AmisAutoSyncState,
   ExtensionChannel,
   FacebookImageAttachFailureContext,
@@ -70,6 +71,7 @@ import type {
 } from './types';
 
 const AMIS_SAVED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
+const AMIS_CAPTURE_UPDATED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CAPTURE_UPDATED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 const AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE = 'AMIS_JOB_STATUS_UPDATED';
@@ -245,7 +247,7 @@ async function handleFrontendFacebookAuthCheck(
   const emit = toFrontendFacebookEmitter(requestId, emitOrSender);
   try {
     await emit('AUTH_CHECKING', {
-      message: 'Checking Facebook login in this browser.',
+      message: 'Đang kiểm tra đăng nhập Facebook ở trình duyệt này.',
     });
     const result = await ensureFacebookSession({
       onStatus: (event) => {
@@ -504,6 +506,16 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     return;
   }
 
+  await chrome.runtime?.sendMessage?.({
+    type: AMIS_CAPTURE_UPDATED_MESSAGE_TYPE,
+    payload: enrichedCapture,
+    ...(sender.tab?.id === undefined ? {} : { sourceTabId: sender.tab.id }),
+  }).catch(() => undefined);
+
+  // AMIS save is only a capture/selection trigger. Publishing starts exclusively
+  // from the Extension's explicit "Đồng bộ và đăng" action.
+  return;
+
   const channels = await getSelectedChannels();
   const facebookAccountId = channels.includes('FACEBOOK')
     ? await getActiveFacebookAccountId()
@@ -518,12 +530,12 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
       recruitmentId: amisRecruitmentId,
       tabId: sender.tab?.id,
       jobDescriptionId: selectedJobDescriptionId,
-      snapshot,
+      snapshot: snapshot as AmisJobSnapshot,
     })
     : null;
   const facebookContentForPublish = facebookContentDraft?.content.trim() ?? '';
   const autoSyncKey = buildAutoSyncKey(
-    amisRecruitmentId,
+    amisRecruitmentId as string,
     channels,
     facebookTargetIds,
     facebookContentForPublish,
@@ -568,12 +580,12 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     }
 
     try {
-      await heartbeatExtensionInstance(accessToken);
-      const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(sender.tab?.id);
+      await heartbeatExtensionInstance(accessToken as string);
+      const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(sender.tab?.id ?? 0);
       const result = await syncAndPublishAmisJob(
-        accessToken,
+        accessToken as string,
         await buildSyncPayload(
-          { ...enrichedCapture, amisRecruitmentId, snapshot },
+          { ...enrichedCapture, amisRecruitmentId: amisRecruitmentId as string, snapshot: snapshot as AmisJobSnapshot },
           channels,
           facebookTargetIds,
           selectedQuestionIds,
@@ -585,14 +597,14 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
 
       if (channels.includes('FACEBOOK') && result.facebookPublishPlan) {
         const resolvedFacebookPublishPlan = await resolveFacebookPublishPlanContent(
-          result.facebookPublishPlan,
-          { ...enrichedCapture, amisRecruitmentId, snapshot },
+          result.facebookPublishPlan!,
+          { ...enrichedCapture, amisRecruitmentId: amisRecruitmentId as string, snapshot: snapshot as AmisJobSnapshot },
           facebookContentForPublish,
         );
         const facebookImageScope = {
           recruitmentId: amisRecruitmentId,
           jobDescriptionId: selectedJobQuestionContext?.jobDescriptionId ?? null,
-          snapshotFingerprint: buildFacebookDraftSnapshotFingerprint(snapshot),
+          snapshotFingerprint: buildFacebookDraftSnapshotFingerprint(snapshot as AmisJobSnapshot),
         };
         let facebookPublishPlan = resolvedFacebookPublishPlan;
         try {
@@ -645,7 +657,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
           result: resultForFacebookPublish,
         }));
 
-        const facebookResults = await publishFacebookPlan(accessToken, facebookPublishPlan, {
+        const facebookResults = await publishFacebookPlan(accessToken as string, facebookPublishPlan!, {
           onProgress: (progress) => {
             void saveLastFacebookPublishProgress(progress);
           },
@@ -678,7 +690,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
             recruitmentId: amisRecruitmentId,
             tabId: sender.tab?.id,
             jobDescriptionId: selectedJobQuestionContext?.jobDescriptionId,
-            snapshot,
+            snapshot: snapshot as AmisJobSnapshot,
           });
         }
 
@@ -704,16 +716,17 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
         result,
       }));
     } catch (error) {
-      if (error instanceof ApiClientError && error.status === 401) {
+      const apiError = error as ApiClientError;
+      if (apiError.status === 401) {
         await clearAccessToken();
         await saveLastAutoSyncState(buildAutoSyncState({
           status: 'AUTH_REQUIRED',
           capture: enrichedCapture,
           channels,
           error: {
-            code: error.code,
-            message: error.message,
-            status: error.status,
+            code: apiError.code,
+            message: apiError.message,
+            status: apiError.status,
           },
         }));
         return;

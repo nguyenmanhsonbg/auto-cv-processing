@@ -29,6 +29,8 @@ import {
   SyncAmisApplicationsDto,
   SyncAmisApplicationsResponseDto,
   SyncAmisJobPostingDto,
+  SyncAmisJobDescriptionDto,
+  SyncAmisJobDescriptionResponseDto,
   SyncAmisJobStatusDto,
   SyncAmisJobStatusResponseDto,
   UpdateAmisApplicationStageDto,
@@ -181,6 +183,217 @@ export class ExtensionIntegrationService {
     }
   }
 
+  async syncAmisJobDescription(
+    dto: SyncAmisJobDescriptionDto,
+    context: ExtensionCatalogSyncContext,
+  ): Promise<SyncAmisJobDescriptionResponseDto> {
+    const amisRecruitmentId = this.requireText(dto.amisRecruitmentId, 'amisRecruitmentId');
+    const snapshot = this.normalizeAmisJobDescriptionSnapshot(dto.snapshot);
+    const snapshotHash = createAmisSnapshotHash(snapshot);
+    const sourceUrl = this.optionalText(dto.amisUrl) ?? null;
+
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `amis-jd:${amisRecruitmentId}`,
+      ]);
+
+      const actor = await this.findActor(manager, context.actorUserId);
+      const repo = manager.getRepository(JobDescriptionEntity);
+      const existing = await repo.findOne({
+        where: {
+          sourceSystem: ExtensionSourceSystem.AMIS,
+          sourceJobId: amisRecruitmentId,
+        },
+      });
+      const contentChanged = existing?.sourceContentHash !== snapshotHash;
+      const jobDescription = existing ?? repo.create({ createdById: actor.id });
+      const now = new Date();
+
+      if (contentChanged || !existing) {
+        jobDescription.title = snapshot.title;
+        jobDescription.description = snapshot.description;
+        jobDescription.summary = snapshot.summary;
+        jobDescription.requirements = snapshot.requirements.rawText;
+        jobDescription.benefits = snapshot.benefits;
+        jobDescription.applicationDeadline = snapshot.deadline ?? null;
+        jobDescription.status = JobDescriptionStatus.ACTIVE;
+        jobDescription.sourceSystem = ExtensionSourceSystem.AMIS;
+        jobDescription.sourceJobId = amisRecruitmentId;
+        jobDescription.sourceUrl = sourceUrl;
+        jobDescription.sourceModifiedAt = now;
+        jobDescription.sourceContentHash = snapshotHash;
+        jobDescription.sourceSnapshotHash = snapshotHash;
+        jobDescription.sourceSnapshot = snapshot as unknown as Record<string, unknown>;
+        jobDescription.sourcePayload = {
+          amisRecruitmentId,
+          snapshot,
+        };
+      } else {
+        jobDescription.status = JobDescriptionStatus.ACTIVE;
+        jobDescription.sourceUrl = sourceUrl ?? jobDescription.sourceUrl;
+      }
+
+      jobDescription.sourceLastSyncedAt = now;
+      jobDescription.lastSyncedAt = now;
+      const saved = await repo.save(jobDescription);
+      await this.cloneAmisTemplateQuestionSet(
+        manager,
+        saved,
+        dto.templateJobDescriptionId,
+        amisRecruitmentId,
+        actor.id,
+      );
+      const selectedJobDescription = await this.resolveAmisQuestionSetJobDescription(
+        manager,
+        saved,
+        amisRecruitmentId,
+      );
+      const loaded = await repo.findOne({
+        where: { id: selectedJobDescription.id },
+        relations: ['position', 'level', 'createdBy', 'sourceCategories'],
+      });
+      if (!loaded) throw new BadRequestException('Synced AMIS job description was not found.');
+
+      return {
+        resultCode: existing ? (contentChanged ? 'UPDATED' : 'UNCHANGED') : 'CREATED',
+        amisRecruitmentId,
+        jobDescription: this.toSyncedAmisJobDescriptionResponse(loaded),
+      };
+    });
+  }
+
+  private async resolveAmisQuestionSetJobDescription(
+    manager: EntityManager,
+    syncedJobDescription: JobDescriptionEntity,
+    amisRecruitmentId: string,
+  ) {
+    if (await this.hasActiveQuestionSet(manager, syncedJobDescription.id)) {
+      return syncedJobDescription;
+    }
+
+    const existingReference = await manager.getRepository(RecruitmentExternalReferenceEntity).findOne({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+        externalId: amisRecruitmentId,
+        internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
+      },
+      relations: ['jobPosting'],
+    });
+    const linkedJobDescriptionId = existingReference?.jobPosting?.jobDescriptionId;
+    if (linkedJobDescriptionId && linkedJobDescriptionId !== syncedJobDescription.id) {
+      const linkedJobDescription = await manager.getRepository(JobDescriptionEntity).findOne({
+        where: { id: linkedJobDescriptionId },
+      });
+      if (linkedJobDescription && await this.hasActiveQuestionSet(manager, linkedJobDescription.id)) {
+        return linkedJobDescription;
+      }
+    }
+
+    return syncedJobDescription;
+  }
+
+  private async cloneAmisTemplateQuestionSet(
+    manager: EntityManager,
+    targetJobDescription: JobDescriptionEntity,
+    templateJobDescriptionId: string | undefined,
+    amisRecruitmentId: string,
+    createdById: string,
+  ) {
+    const normalizedTemplateId = this.optionalText(templateJobDescriptionId);
+    if (!normalizedTemplateId || normalizedTemplateId === targetJobDescription.id) return;
+
+    const jobDescriptionRepo = manager.getRepository(JobDescriptionEntity);
+    const templateJobDescription = await jobDescriptionRepo.findOne({
+      where: { id: normalizedTemplateId },
+    });
+    if (!templateJobDescription || templateJobDescription.status === JobDescriptionStatus.ARCHIVED) {
+      throw new BadRequestException({
+        code: 'AMIS_TEMPLATE_JOB_DESCRIPTION_NOT_FOUND',
+        message: 'The selected AMIS job description template was not found.',
+      });
+    }
+
+    const templateQuestionSet = await manager.getRepository(QuestionSetEntity)
+      .createQueryBuilder('questionSet')
+      .leftJoinAndSelect('questionSet.items', 'item')
+      .where('questionSet.jobDescriptionId = :jobDescriptionId', {
+        jobDescriptionId: templateJobDescription.id,
+      })
+      .andWhere('questionSet.status = :status', { status: QuestionSetStatus.ACTIVE })
+      .orderBy(
+        `CASE WHEN "questionSet"."source_system" = :sourceSystem THEN 0 ELSE 1 END`,
+        'ASC',
+      )
+      .addOrderBy('questionSet.sourceLastSyncedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('questionSet.updatedAt', 'DESC')
+      .addOrderBy('item.orderIndex', 'ASC')
+      .setParameter('sourceSystem', ExtensionSourceSystem.VCS_PORTAL)
+      .getOne();
+
+    if (!templateQuestionSet?.items?.length) {
+      throw new BadRequestException({
+        code: 'AMIS_TEMPLATE_QUESTION_SET_NOT_FOUND',
+        message: 'The selected job description template has no active question set.',
+      });
+    }
+
+    if (await this.hasActiveQuestionSet(manager, targetJobDescription.id)) return;
+
+    const questionSetRepo = manager.getRepository(QuestionSetEntity);
+    const questionSetItemRepo = manager.getRepository(QuestionSetItemEntity);
+    const clonedQuestionSet = await questionSetRepo.save(questionSetRepo.create({
+      name: `AMIS Questions - ${targetJobDescription.title}`,
+      jobDescriptionId: targetJobDescription.id,
+      jobDescriptionVersionId: null,
+      positionId: targetJobDescription.positionId ?? null,
+      levelId: targetJobDescription.levelId ?? null,
+      status: QuestionSetStatus.ACTIVE,
+      createdById,
+      sourceSystem: ExtensionSourceSystem.AMIS,
+      sourceJobId: amisRecruitmentId,
+      sourceSnapshotHash: null,
+      sourceSnapshot: {
+        templateJobDescriptionId: templateJobDescription.id,
+        templateJobDescriptionTitle: templateJobDescription.title,
+        templateQuestionSetId: templateQuestionSet.id,
+        questionCount: templateQuestionSet.items.length,
+      },
+      sourceLastSyncedAt: new Date(),
+    }));
+
+    await questionSetItemRepo.save(templateQuestionSet.items.map((item, index) => questionSetItemRepo.create({
+      questionSetId: clonedQuestionSet.id,
+      questionId: item.questionId,
+      questionTextSnapshot: item.questionTextSnapshot,
+      questionType: item.questionType,
+      orderIndex: index,
+      required: item.required,
+      metadata: {
+        ...(this.isRecord(item.metadata) ? item.metadata : {}),
+        copiedFromJobDescriptionId: templateJobDescription.id,
+        copiedFromQuestionSetId: templateQuestionSet.id,
+        copiedFromQuestionSetItemId: item.id,
+      },
+    })));
+  }
+
+  private async hasActiveQuestionSet(manager: EntityManager, jobDescriptionId: string) {
+    const questionSet = await manager.getRepository(QuestionSetEntity)
+      .createQueryBuilder('questionSet')
+      .innerJoin(
+        QuestionSetItemEntity,
+        'questionSetItem',
+        'questionSetItem.questionSetId = questionSet.id',
+      )
+      .where('questionSet.jobDescriptionId = :jobDescriptionId', { jobDescriptionId })
+      .andWhere('questionSet.status = :status', { status: QuestionSetStatus.ACTIVE })
+      .select('questionSet.id')
+      .getOne();
+
+    return Boolean(questionSet);
+  }
+
   async previewPublishPlanFromAmis(
     dto: SyncAmisJobPostingDto,
     context: ExtensionCatalogSyncContext,
@@ -330,6 +543,62 @@ export class ExtensionIntegrationService {
     }
 
     return this.createNewPosting(manager, dto, context, snapshotHash);
+  }
+
+  private normalizeAmisJobDescriptionSnapshot(
+    snapshot: SyncAmisJobDescriptionDto['snapshot'],
+  ) {
+    const description = this.requireText(snapshot.description, 'snapshot.description');
+    const summary = this.toSummary(snapshot.summary ?? description);
+    const benefits = typeof snapshot.benefits === 'string'
+      ? (this.optionalText(snapshot.benefits) ? { text: snapshot.benefits.trim() } : null)
+      : this.isRecord(snapshot.benefits)
+        ? snapshot.benefits
+        : null;
+
+    return {
+      title: this.requireText(snapshot.title, 'snapshot.title'),
+      summary,
+      description,
+      requirements: {
+        ...snapshot.requirements,
+        rawText: this.requireText(snapshot.requirements?.rawText, 'snapshot.requirements.rawText'),
+      },
+      benefits,
+      location: this.optionalText(snapshot.location) ?? undefined,
+      deadline: this.normalizeDateOnly(snapshot.deadline),
+    };
+  }
+
+  private normalizeDateOnly(value?: string) {
+    const normalized = this.optionalText(value);
+    if (!normalized) return undefined;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
+
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException('snapshot.deadline must be a valid date.');
+    }
+    return date.toISOString().slice(0, 10);
+  }
+
+  private toSyncedAmisJobDescriptionResponse(jobDescription: JobDescriptionEntity) {
+    return {
+      id: jobDescription.id,
+      jobDescriptionId: jobDescription.id,
+      title: jobDescription.title,
+      summary: jobDescription.summary,
+      description: jobDescription.description,
+      requirements: jobDescription.requirements,
+      benefits: jobDescription.benefits,
+      applicationDeadline: jobDescription.applicationDeadline,
+      status: jobDescription.status,
+      sourceSystem: jobDescription.sourceSystem,
+      sourceJobId: jobDescription.sourceJobId,
+      sourceUrl: jobDescription.sourceUrl,
+      sourceContentHash: jobDescription.sourceContentHash,
+      lastSyncedAt: jobDescription.lastSyncedAt?.toISOString() ?? null,
+    };
   }
 
   private async createNewPosting(
@@ -1996,12 +2265,12 @@ export class ExtensionIntegrationService {
       });
     }
 
-    const questionSet = await this.dataSource.getRepository(QuestionSetEntity)
+    const loadQuestionSet = (id: string) => this.dataSource.getRepository(QuestionSetEntity)
       .createQueryBuilder('questionSet')
       .leftJoinAndSelect('questionSet.items', 'item')
       .leftJoinAndSelect('item.question', 'question')
       .where('questionSet.jobDescriptionId = :jobDescriptionId', {
-        jobDescriptionId: normalizedJobDescriptionId,
+        jobDescriptionId: id,
       })
       .andWhere('questionSet.status = :status', { status: QuestionSetStatus.ACTIVE })
       .orderBy(
@@ -2014,34 +2283,37 @@ export class ExtensionIntegrationService {
       .setParameter('sourceSystem', ExtensionSourceSystem.VCS_PORTAL)
       .getOne();
 
+    const responseJobDescription = jobDescription;
+    const questionSet = await loadQuestionSet(jobDescription.id);
+
     const sortedItems = (questionSet?.items ?? []).sort((left, right) =>
       left.orderIndex - right.orderIndex,
     );
 
     return {
       jobDescription: {
-        id: jobDescription.id,
-        jobDescriptionId: jobDescription.id,
-        title: jobDescription.title,
-        summary: jobDescription.summary,
-        description: jobDescription.description,
-        status: jobDescription.status,
-        sourceSystem: jobDescription.sourceSystem,
-        sourceJobId: jobDescription.sourceJobId,
-        sourceSlug: jobDescription.sourceSlug,
-        position: jobDescription.position
+        id: responseJobDescription.id,
+        jobDescriptionId: responseJobDescription.id,
+        title: responseJobDescription.title,
+        summary: responseJobDescription.summary,
+        description: responseJobDescription.description,
+        status: responseJobDescription.status,
+        sourceSystem: responseJobDescription.sourceSystem,
+        sourceJobId: responseJobDescription.sourceJobId,
+        sourceSlug: responseJobDescription.sourceSlug,
+        position: responseJobDescription.position
           ? {
-              id: jobDescription.position.id,
-              name: jobDescription.position.name,
-              description: jobDescription.position.description,
+              id: responseJobDescription.position.id,
+              name: responseJobDescription.position.name,
+              description: responseJobDescription.position.description,
             }
           : null,
-        level: jobDescription.level
+        level: responseJobDescription.level
           ? {
-              id: jobDescription.level.id,
-              name: jobDescription.level.name,
-              displayName: jobDescription.level.displayName,
-              orderIndex: jobDescription.level.orderIndex,
+              id: responseJobDescription.level.id,
+              name: responseJobDescription.level.name,
+              displayName: responseJobDescription.level.displayName,
+              orderIndex: responseJobDescription.level.orderIndex,
             }
           : null,
       },

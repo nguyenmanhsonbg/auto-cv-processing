@@ -1,9 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { extractAmisJobFromDetailApi } from './amis-detail-api-extractor';
 import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
 import { getLastAmisCapture } from './amis-capture-store';
 import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
+import {
+  clearAmisTemplateContextForTab,
+  getAmisTemplateContextForTab,
+  saveAmisTemplateContext,
+} from './amis-template-context-store';
 import {
   ApiClientError,
   createFacebookGroup,
@@ -26,6 +32,7 @@ import {
   resolveFacebookAccount,
   runApplicationAiScreening,
   syncAmisApplications,
+  syncAmisJobDescription,
   syncAndPublishAmisJob,
   syncFacebookGroups,
   syncVcsPortalJobDescriptions,
@@ -384,8 +391,32 @@ function getJobDescriptionQuestionSelectionStorageKey(jobDescriptionId: string) 
   return `${JOB_DESCRIPTION_QUESTION_SELECTION_PREFIX}${jobDescriptionId}`;
 }
 
+const EXTENSION_UI_ZOOM_STORAGE_KEY = 'vcs-extension-ui-zoom';
+const EXTENSION_UI_ZOOM_LEVELS = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
+type ExtensionUiZoomLevel = (typeof EXTENSION_UI_ZOOM_LEVELS)[number];
+
+function readExtensionUiZoom(): ExtensionUiZoomLevel {
+  try {
+    const storedZoom = Number(window.localStorage.getItem(EXTENSION_UI_ZOOM_STORAGE_KEY));
+    const matchingZoom = EXTENSION_UI_ZOOM_LEVELS.find((zoom) => zoom === storedZoom);
+    return matchingZoom ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
+function getExtensionUiZoomIndex(zoom: number) {
+  const exactIndex = EXTENSION_UI_ZOOM_LEVELS.findIndex((level) => level === zoom);
+  if (exactIndex >= 0) return exactIndex;
+
+  return EXTENSION_UI_ZOOM_LEVELS.reduce((nearestIndex, level, index, levels) => (
+    Math.abs(level - zoom) < Math.abs(levels[nearestIndex] - zoom) ? index : nearestIndex
+  ), 0);
+}
+
 function SidePanel() {
   const [state, setState] = useState<PanelState>('AUTH_LOADING');
+  const [extensionUiZoom, setExtensionUiZoom] = useState<ExtensionUiZoomLevel>(readExtensionUiZoom);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('posting');
   const [pinnedWorkspaceTab, setPinnedWorkspaceTab] = useState<WorkspaceTab | null>(null);
   const [referralRefreshVersion, setReferralRefreshVersion] = useState(0);
@@ -409,6 +440,10 @@ function SidePanel() {
   const [expandedPublishResultChannels, setExpandedPublishResultChannels] = useState<Record<string, boolean>>({});
   const [facebookRunning, setFacebookRunning] = useState(false);
   const [facebookGroups, setFacebookGroups] = useState<FacebookPublishTarget[]>([]);
+  const [facebookGroupSearchInput, setFacebookGroupSearchInput] = useState('');
+  const [facebookGroupSearchQuery, setFacebookGroupSearchQuery] = useState('');
+  const [facebookSettingsGroupSearchInput, setFacebookSettingsGroupSearchInput] = useState('');
+  const [facebookSettingsGroupSearchQuery, setFacebookSettingsGroupSearchQuery] = useState('');
   const [facebookAccount, setFacebookAccount] = useState<FacebookAccount | null>(null);
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
   const [facebookContent, setFacebookContent] = useState('');
@@ -509,12 +544,15 @@ function SidePanel() {
   const pendingAmisUploadApplicationIdsRef = useRef(new Set<string>());
   const pendingAmisUploadTimeoutsRef = useRef(new Map<string, number>());
   const postingSnapshotRefreshSeqRef = useRef(0);
+  const amisJobSelectionSeqRef = useRef(0);
   const postingSnapshotRefreshAttemptsRef = useRef(new Map<string, number>());
   const missedRecruitmentContextCountRef = useRef(0);
   const lastAmisJobInitiationResetKeyRef = useRef<string | null>(null);
   const tokenRef = useRef<string | null>(null);
   const channelsRef = useRef<ExtensionChannel[]>(channels);
   const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
+  const facebookGroupSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const facebookSettingsGroupSearchInputRef = useRef<HTMLInputElement | null>(null);
   const extensionToastSequenceRef = useRef(0);
   const extensionToastTimerRef = useRef<number | null>(null);
   const selectedFacebookGroupIdsRef = useRef<string[]>(selectedFacebookGroupIds);
@@ -534,6 +572,66 @@ function SidePanel() {
   const facebookContentDraftScopeRef = useRef<FacebookContentDraftScope>({});
   const jobDescriptionSearchDebounceRef = useRef<number | null>(null);
   const startedFacebookPlanKeys = useRef(new Set<string>());
+  const lastCtrlWheelZoomAtRef = useRef(0);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(EXTENSION_UI_ZOOM_STORAGE_KEY, String(extensionUiZoom));
+    } catch {
+      // Some extension contexts can deny storage access; zoom still works for this session.
+    }
+  }, [extensionUiZoom]);
+
+  useEffect(() => {
+    const changeZoom = (direction: 1 | -1) => {
+      setExtensionUiZoom((currentZoom) => {
+        const currentIndex = getExtensionUiZoomIndex(currentZoom);
+        const nextIndex = Math.max(0, Math.min(
+          EXTENSION_UI_ZOOM_LEVELS.length - 1,
+          currentIndex + direction,
+        ));
+        return EXTENSION_UI_ZOOM_LEVELS[nextIndex];
+      });
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) return;
+
+      if (event.key === '0') {
+        event.preventDefault();
+        setExtensionUiZoom(1);
+        return;
+      }
+
+      if (event.key === '+' || event.key === '=') {
+        event.preventDefault();
+        changeZoom(1);
+        return;
+      }
+
+      if (event.key === '-' || event.key === '_') {
+        event.preventDefault();
+        changeZoom(-1);
+      }
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.deltaY === 0) return;
+
+      event.preventDefault();
+      const now = Date.now();
+      if (now - lastCtrlWheelZoomAtRef.current < 80) return;
+      lastCtrlWheelZoomAtRef.current = now;
+      changeZoom(event.deltaY < 0 ? 1 : -1);
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('wheel', handleWheel, { capture: true, passive: false });
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('wheel', handleWheel, true);
+    };
+  }, []);
 
   useEffect(() => {
     tokenRef.current = token;
@@ -708,6 +806,11 @@ function SidePanel() {
 
   useEffect(() => {
     chrome.runtime?.onMessage.addListener((message, sender) => {
+      if (isAmisCaptureUpdatedMessage(message)) {
+        void applyAmisCaptureUpdatedMessage(message.payload, message.sourceTabId ?? sender.tab?.id);
+        return;
+      }
+
       if (isAutoSyncUpdateMessage(message)) {
         void applyAutoSyncUpdateMessage(message.payload);
         return;
@@ -867,17 +970,28 @@ function SidePanel() {
     || hasFacebookImageAttachmentError
     || missingFields.length > 0;
   const validFacebookGroups = useMemo(() => facebookGroups, [facebookGroups]);
-  const facebookGroupPageCount = Math.max(1, Math.ceil(validFacebookGroups.length / FACEBOOK_GROUP_PAGE_SIZE));
+  const filteredFacebookSettingsGroups = useMemo(() => {
+    const query = facebookSettingsGroupSearchQuery.trim().toLocaleLowerCase('vi-VN');
+    if (!query) return validFacebookGroups;
+
+    return validFacebookGroups.filter((group) => (
+      group.targetName.toLocaleLowerCase('vi-VN').includes(query)
+    ));
+  }, [facebookSettingsGroupSearchQuery, validFacebookGroups]);
+  const facebookGroupPageCount = Math.max(
+    1,
+    Math.ceil(filteredFacebookSettingsGroups.length / FACEBOOK_GROUP_PAGE_SIZE),
+  );
   const currentFacebookGroupPage = Math.min(facebookGroupPage, facebookGroupPageCount);
   const facebookGroupPageItems = useMemo(() => {
     const startIndex = (currentFacebookGroupPage - 1) * FACEBOOK_GROUP_PAGE_SIZE;
-    return validFacebookGroups.slice(startIndex, startIndex + FACEBOOK_GROUP_PAGE_SIZE);
-  }, [currentFacebookGroupPage, validFacebookGroups]);
+    return filteredFacebookSettingsGroups.slice(startIndex, startIndex + FACEBOOK_GROUP_PAGE_SIZE);
+  }, [currentFacebookGroupPage, filteredFacebookSettingsGroups]);
   const facebookGroupPaginationItems = buildCompactPaginationPages(
     currentFacebookGroupPage,
     facebookGroupPageCount,
   );
-  const facebookGroupTotalItems = validFacebookGroups.length;
+  const facebookGroupTotalItems = filteredFacebookSettingsGroups.length;
   const facebookGroupVisibleStart = facebookGroupTotalItems === 0
     ? 0
     : ((currentFacebookGroupPage - 1) * FACEBOOK_GROUP_PAGE_SIZE) + 1;
@@ -932,6 +1046,14 @@ function SidePanel() {
       disabledReason: target.targetId ? null : 'Facebook group id is missing.',
     })) ?? [];
   }, [facebookGroups.length, facebookProgress, result, validFacebookGroups]);
+  const filteredFacebookGroups = useMemo(() => {
+    const query = facebookGroupSearchQuery.trim().toLocaleLowerCase('vi-VN');
+    if (!query) return visibleFacebookGroups;
+
+    return visibleFacebookGroups.filter((group) => (
+      group.name.toLocaleLowerCase('vi-VN').includes(query)
+    ));
+  }, [facebookGroupSearchQuery, visibleFacebookGroups]);
   const visibleSelectedFacebookGroupCount = useMemo(() => {
     const visibleGroupIds = new Set(visibleFacebookGroups.map((group) => group.id).filter(isString));
     return selectedFacebookGroupIds.filter((targetId) => visibleGroupIds.has(targetId)).length;
@@ -975,7 +1097,7 @@ function SidePanel() {
       setActiveWorkspaceTab('posting');
       setState('READY');
       await loadJobDescriptions(latestToken);
-      await loadLatestAutoSyncState({ silent: true });
+      await loadLatestAmisCapture({ silent: true }, latestToken);
     } catch {
       await clearAccessToken();
       setState('AUTH_REQUIRED');
@@ -1383,7 +1505,7 @@ function SidePanel() {
       setActiveWorkspaceTab('posting');
       setState('READY');
       await loadJobDescriptions(auth.accessToken);
-      await loadLatestAutoSyncState({ silent: true });
+      await loadLatestAmisCapture({ silent: true }, auth.accessToken);
     } catch (err) {
       setError(toErrorMessage(err));
       setState('AUTH_REQUIRED');
@@ -1837,6 +1959,24 @@ function SidePanel() {
     }
   }
 
+  async function applyAmisCaptureUpdatedMessage(
+    capture: AmisExtractionResult,
+    sourceTabId?: number,
+  ) {
+    try {
+      const activeTab = await getActiveTab();
+      if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return;
+      if (!capture.detected || !capture.snapshot || !capture.amisRecruitmentId) return;
+
+      applyExtractionResult(capture);
+      await syncAndSelectAmisJobDescription(capture, tokenRef.current, sourceTabId);
+    } catch (err) {
+      if (!(err instanceof ApiClientError && err.status === 401)) {
+        setJobDescriptionError(toErrorMessage(err));
+      }
+    }
+  }
+
   async function applyAutoSyncUpdateMessage(latestState: AmisAutoSyncState) {
     const stateRecruitmentId = getAutoSyncStateRecruitmentId(latestState);
     if (
@@ -2066,6 +2206,11 @@ function SidePanel() {
       setApplicationsContext(null);
       setApplicationsMessage(null);
       setApplicationsState(normalizedRecruitmentId ? 'LOADING' : 'IDLE');
+      setSelectedJobDescription(null);
+      setJobDescriptionQuestionContext(null);
+      setSelectedJobQuestionIds(new Set());
+      setCareerQuestionState('IDLE');
+      setCareerQuestionMessage('Select a JD to view its synced question set.');
       const shouldClearFacebookContent = shouldClearFacebookContentForRecruitmentChange(
         previousRecruitmentId,
         normalizedRecruitmentId,
@@ -2140,11 +2285,13 @@ function SidePanel() {
     postingSnapshotRefreshAttemptsRef.current.set(attemptKey, attempts + 1);
 
     try {
-      const injectionResults = await chrome.scripting.executeScript<[], AmisExtractionResult>({
-        target: { tabId: activeTab.id },
-        func: extractAmisJobFromPage,
-      });
-      const extraction = injectionResults[0]?.result;
+      const apiExtraction = await extractAmisJobFromDetailApiInActiveTab(
+        activeTab.id,
+        normalizedRecruitmentId,
+      );
+      const extraction = apiExtraction?.detected && apiExtraction.missingFields.length === 0
+        ? apiExtraction
+        : await extractAmisJobFromDomInActiveTab(activeTab.id);
       if (
         !extraction ||
         refreshSeq !== postingSnapshotRefreshSeqRef.current ||
@@ -2153,9 +2300,13 @@ function SidePanel() {
         return;
       }
 
-      if (isExtractionForRecruitment(extraction, normalizedRecruitmentId)) {
+      if (
+        isExtractionForRecruitment(extraction, normalizedRecruitmentId)
+        && extraction.missingFields.length === 0
+      ) {
         postingSnapshotRefreshAttemptsRef.current.delete(attemptKey);
         applyExtractionResult(extraction);
+        await syncAndSelectAmisJobDescription(extraction, tokenRef.current, activeTab.id);
         setState('READY');
         return;
       }
@@ -2166,6 +2317,93 @@ function SidePanel() {
       }
     } catch (err) {
       if (!options.silent) setError(toErrorMessage(err));
+    }
+  }
+
+  async function extractAmisJobFromDetailApiInActiveTab(tabId: number, recruitmentId: string) {
+    if (!chrome.scripting) return undefined;
+
+    const injectionResults = await chrome.scripting.executeScript<[string], AmisExtractionResult>({
+      target: { tabId },
+      func: extractAmisJobFromDetailApi,
+      args: [recruitmentId],
+      world: 'MAIN',
+    });
+    return injectionResults[0]?.result;
+  }
+
+  async function extractAmisJobFromDomInActiveTab(tabId: number) {
+    if (!chrome.scripting) return undefined;
+
+    const injectionResults = await chrome.scripting.executeScript<[], AmisExtractionResult>({
+      target: { tabId },
+      func: extractAmisJobFromPage,
+    });
+    return injectionResults[0]?.result;
+  }
+
+  async function syncAndSelectAmisJobDescription(
+    capture: AmisExtractionResult,
+    accessToken = tokenRef.current,
+    sourceTabId?: number,
+  ) {
+    const recruitmentId = normalizeOptionalText(capture.amisRecruitmentId);
+    if (!accessToken || !recruitmentId || !capture.snapshot || capture.missingFields.length > 0) return null;
+
+    const selectionSeq = amisJobSelectionSeqRef.current + 1;
+    amisJobSelectionSeqRef.current = selectionSeq;
+
+    try {
+      const activeTab = await getActiveTab();
+      if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return null;
+      const templateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+
+      const response = await syncAmisJobDescription(accessToken, {
+        amisRecruitmentId: recruitmentId,
+        amisUrl: capture.url,
+        snapshot: capture.snapshot,
+        ...(templateContext?.templateJobDescriptionId
+          ? { templateJobDescriptionId: templateContext.templateJobDescriptionId }
+          : {}),
+      });
+
+      if (
+        selectionSeq !== amisJobSelectionSeqRef.current
+        || activeAmisRecruitmentIdRef.current !== recruitmentId
+      ) {
+        return null;
+      }
+
+      const jobDescription = response.jobDescription;
+      setJobDescriptions((current) => {
+        const existingIndex = current.findIndex((item) => item.id === jobDescription.id);
+        if (existingIndex < 0) return [jobDescription, ...current];
+
+        return current.map((item, index) => index === existingIndex ? jobDescription : item);
+      });
+      setJobDescriptionStatus('READY');
+      setSelectedJobDescription(jobDescription);
+      setSnapshot(capture.snapshot);
+      setExtractionResult(capture);
+      setAmisUrl(capture.url);
+      setJobDescriptionError(null);
+      await loadSelectedJobDescriptionQuestionSet(jobDescription, accessToken, {
+        silent: true,
+        force: true,
+      });
+      await clearAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+      return response;
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return null;
+      }
+
+      setJobDescriptionError(toErrorMessage(err));
+      return null;
     }
   }
 
@@ -2185,6 +2423,9 @@ function SidePanel() {
       }
 
       applyAutoSyncState(latestState, { force: true });
+      if (latestState.capture) {
+        await syncAndSelectAmisJobDescription(latestState.capture, tokenRef.current);
+      }
       return true;
     }
 
@@ -2198,6 +2439,7 @@ function SidePanel() {
       }
 
       applyExtractionResult(capture);
+      await syncAndSelectAmisJobDescription(capture, tokenRef.current);
       setState('READY');
       return true;
     }
@@ -2368,6 +2610,13 @@ function SidePanel() {
         throw new Error(isFillResponse(response) ? response.error : 'AMIS page did not confirm the form fill.');
       }
 
+      await saveAmisTemplateContext({
+        tabId: activeTab.id,
+        templateJobDescriptionId: jobDescription.id,
+        templateJobDescriptionTitle: jobDescription.title,
+        formPageUrl: activeTab.url,
+      });
+
       setJobDescriptionFillState('SUCCESS');
       setJobDescriptionFillMessage(`Filled ${response.filledFields.length} field(s): ${response.filledFields.join(', ')}.`);
     } catch (err) {
@@ -2390,7 +2639,10 @@ function SidePanel() {
     setState('READY');
   }
 
-  async function loadLatestAmisCapture(options: { silent?: boolean } = {}) {
+  async function loadLatestAmisCapture(
+    options: { silent?: boolean } = {},
+    accessToken = tokenRef.current,
+  ) {
     try {
       const capture = await getLastAmisCapture();
       if (!capture) {
@@ -2399,6 +2651,7 @@ function SidePanel() {
       }
 
       applyExtractionResult(capture);
+      await syncAndSelectAmisJobDescription(capture, accessToken);
       setState('READY');
     } catch (err) {
       if (!options.silent) {
@@ -2599,7 +2852,7 @@ function SidePanel() {
     setFacebookGroupSyncDetails(null);
     setFacebookIneligiblePage(1);
     setFacebookGroupLoadState('CHECKING_LOGIN');
-    setFacebookGroupMessage('Checking Facebook login in this browser.');
+    setFacebookGroupMessage('Đang kiểm tra đăng nhập Facebook ở trình duyệt này.');
 
     const session = await ensureFacebookSession({
       onStatus: (event) => {
@@ -2669,7 +2922,7 @@ function SidePanel() {
     let activeAccount = facebookAccount;
     if (!options.sessionReady) {
       setFacebookGroupLoadState('CHECKING_LOGIN');
-      setFacebookGroupMessage('Checking Facebook login in this browser.');
+      setFacebookGroupMessage('Đang kiểm tra đăng nhập Facebook ở trình duyệt này.');
 
       const session = await ensureFacebookSession({
         onStatus: (event) => {
@@ -2708,7 +2961,7 @@ function SidePanel() {
       discoverySummary = 'Quét chưa hoàn tất nên chưa thay đổi dữ liệu nhóm.';
       setFacebookGroupMessage(discoverySummary);
     } else {
-      setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm, đang đồng bộ lên VCS...`);
+      setFacebookGroupMessage(`Đã quét được ${discoveredGroups.length} nhóm.`);
       const discoverResult = await syncFacebookGroups(accessToken, {
         scanComplete: true,
         facebookAccountId: activeAccount.id,
@@ -2829,6 +3082,8 @@ function SidePanel() {
     setIsFacebookSettingsOpen(true);
     setFacebookGroupModalMode('SETTINGS');
     setFacebookGroupPage(1);
+    setFacebookSettingsGroupSearchInput('');
+    setFacebookSettingsGroupSearchQuery('');
     setSelectedFacebookGroup(null);
     setIsFacebookGroupFormOpen(false);
     setFacebookSettingsMessage(null);
@@ -2898,6 +3153,8 @@ function SidePanel() {
     setIsFacebookSettingsOpen(false);
     setFacebookGroupModalMode('SETTINGS');
     setFacebookGroupPage(1);
+    setFacebookSettingsGroupSearchInput('');
+    setFacebookSettingsGroupSearchQuery('');
     setSelectedFacebookGroup(null);
     setIsFacebookGroupFormOpen(false);
     setFacebookSettingsState('IDLE');
@@ -3241,24 +3498,20 @@ function SidePanel() {
       || facebookGroupVerificationQueueRef.current.some((item) => item.targetId === group.targetId)
     ) {
       setFacebookSettingsState('READY');
-      setFacebookSettingsMessage(`"${group.targetName}" is already queued for checking.`);
+      setFacebookSettingsMessage(null);
       return;
     }
 
     facebookGroupVerificationQueueRef.current = [...facebookGroupVerificationQueueRef.current, group];
     setQueuedFacebookGroupIds(facebookGroupVerificationQueueRef.current.map((item) => item.targetId).filter(isString));
     setFacebookSettingsState('READY');
-    setFacebookSettingsMessage(`Queued "${group.targetName}" for checking.`);
+    setFacebookSettingsMessage(null);
     void processFacebookGroupVerificationQueue();
   }
 
   async function processFacebookGroupVerificationQueue() {
     if (facebookGroupVerificationRunningRef.current) return;
     facebookGroupVerificationRunningRef.current = true;
-
-    let checkedCount = 0;
-    let issueCount = 0;
-    const queuedAtStart = facebookGroupVerificationQueueRef.current.length;
 
     try {
       while (facebookGroupVerificationQueueRef.current.length > 0) {
@@ -3279,8 +3532,6 @@ function SidePanel() {
         activeFacebookGroupVerificationIdRef.current = group.targetId;
         setVerifyingFacebookGroupIds([group.targetId]);
         setFacebookSettingsState('READY');
-        setFacebookSettingsMessage(`Checking "${group.targetName}" (${checkedCount + 1}/${Math.max(queuedAtStart, checkedCount + 1)}) with the current Facebook browser session.`);
-
         try {
           const eligibility = await verifyFacebookGroupPostingEligibility(group);
           const savedGroup = await verifyFacebookGroup(accessToken, group.targetId, {
@@ -3293,13 +3544,6 @@ function SidePanel() {
           facebookGroupsRef.current = groups;
           setFacebookGroups(groups);
           const nextSelectedIds = await reconcileSelectedFacebookGroups(groups, selectedFacebookGroupIdsRef.current);
-          checkedCount += 1;
-          if (!savedGroup.selectable) issueCount += 1;
-          setFacebookSettingsMessage(
-            savedGroup.selectable
-              ? `"${savedGroup.targetName}" can be used for publishing (${savedGroup.quotaLabel} today).`
-              : getFacebookGroupVerificationMessage(savedGroup),
-          );
 
           if (channelsRef.current.includes('FACEBOOK')) {
             setFacebookGroupLoadState('READY');
@@ -3318,8 +3562,6 @@ function SidePanel() {
             return;
           }
 
-          checkedCount += 1;
-          issueCount += 1;
           setFacebookSettingsState('READY');
           setFacebookSettingsMessage(`Could not check "${group.targetName}": ${toErrorMessage(err)}`);
         } finally {
@@ -3328,14 +3570,6 @@ function SidePanel() {
         }
       }
 
-      if (checkedCount > 0) {
-        setFacebookSettingsState('READY');
-        setFacebookSettingsMessage(
-          issueCount > 0
-            ? `Checked ${checkedCount} Facebook group(s). ${issueCount} group(s) need attention.`
-            : `Checked ${checkedCount} Facebook group(s). All checked groups can be used if quota allows.`,
-        );
-      }
     } finally {
       facebookGroupVerificationRunningRef.current = false;
       activeFacebookGroupVerificationIdRef.current = null;
@@ -4653,7 +4887,7 @@ function SidePanel() {
             <span className="facebook-preview-thumb" aria-hidden="true">VCS</span>
           )}
           <div className="facebook-preview-copy">
-            <strong>{previewTitle}</strong>
+              <strong title={previewTitle}>{previewTitle}</strong>
             <span>{previewCopy || 'Chưa có nội dung preview.'}</span>
           </div>
           <div className="facebook-preview-actions">
@@ -4876,7 +5110,7 @@ function SidePanel() {
                   </div>
                 ) : (
                   <div>
-                    <strong>{previewTitle}</strong>
+                    <strong title={previewTitle}>{previewTitle}</strong>
                     <span>VCS Recruitment</span>
                   </div>
                 )}
@@ -4995,12 +5229,12 @@ function SidePanel() {
                         </button>
                       </div>
                       <div className="channel-subselection-list">
-                        {visibleFacebookGroups.length > 0 ? (
+                        {facebookGroupLoadState === 'READY' && visibleFacebookGroups.length > 0 ? (
                           <div className="channel-subselection-summary-row">
                             <p className="channel-subselection-summary">
-                              {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook hợp lệ đã được chọn
+                              {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook đã được chọn
                             </p>
-                            {facebookGroupSyncDetails?.filtered.length ? (
+                            {facebookGroupLoadState === 'READY' ? (
                               <button
                                 type="button"
                                 className="facebook-ineligible-trigger"
@@ -5011,13 +5245,50 @@ function SidePanel() {
                                 }}
                               >
                                 <span>Xem nhóm không phù hợp</span>
-                                <ChevronDownIcon />
+                              </button>
+                            ) : null}
+                         </div>
+                        ) : null}
+                        {visibleFacebookGroups.length > 0 ? (
+                          <div className="channel-subselection-search">
+                            <input
+                              ref={facebookGroupSearchInputRef}
+                              type="text"
+                              value={facebookGroupSearchInput}
+                              maxLength={255}
+                              placeholder="Tìm kiếm nhóm Facebook"
+                              aria-label="Tìm kiếm nhóm Facebook"
+                              onChange={(event) => setFacebookGroupSearchInput(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key !== 'Enter') return;
+
+                                event.preventDefault();
+                                const trimmedSearch = facebookGroupSearchInput.trim();
+                                setFacebookGroupSearchInput(trimmedSearch);
+                                setFacebookGroupSearchQuery(trimmedSearch);
+                              }}
+                            />
+                            {facebookGroupSearchInput.length > 0 ? (
+                              <button
+                                type="button"
+                                className="channel-subselection-search-clear"
+                                aria-label="Xóa tìm kiếm nhóm Facebook"
+                                title="Xóa tìm kiếm nhóm Facebook"
+                                onClick={() => {
+                                  setFacebookGroupSearchInput('');
+                                  setFacebookGroupSearchQuery('');
+                                  facebookGroupSearchInputRef.current?.focus();
+                                }}
+                              >
+                                <CloseIcon />
                               </button>
                             ) : null}
                           </div>
                         ) : null}
+                        <div className="channel-subselection-items">
                         {facebookGroupMessage
-                          && !(facebookGroupLoadState === 'READY' && visibleFacebookGroups.length === 0) ? (
+                          && !facebookGroupSearchQuery
+                          && facebookGroupLoadState !== 'READY' ? (
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
                             <span>{facebookGroupMessage}</span>
                           </p>
@@ -5028,8 +5299,8 @@ function SidePanel() {
                             <code>{facebookGroupDiagnostic}</code>
                           </details>
                         ) : null}
-                        {visibleFacebookGroups.length > 0 ? (
-                          visibleFacebookGroups.map((group, index) => (
+                        {filteredFacebookGroups.length > 0 ? (
+                          filteredFacebookGroups.map((group, index) => (
                             <div
                               key={`${group.key}-${index}`}
                               className={`channel-subselection-item${!group.selectable ? ' is-disabled' : ''}`}
@@ -5042,17 +5313,17 @@ function SidePanel() {
                                   disabled={!group.id || !group.selectable}
                                   onChange={() => toggleFacebookGroupSelection(group.id)}
                                 />
-                                <span className="channel-group-copy">
-                                  <span>{group.name}</span>
-                                  <span className="channel-group-meta">
+                                  <span className="channel-group-copy">
+                                    <span>{group.name}</span>
+                                    <span className="channel-group-meta">
                                     {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                                    {group.quotaLabel ? ` · ${group.quotaLabel} today` : ''}
+                                    {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
+                                    </span>
                                   </span>
-                                </span>
-                              </label>
+                                </label>
                               <button
                                 type="button"
-                                className="channel-group-history-button"
+                                className="channel-group-info-button"
                                 title="Lịch sử đăng bài"
                                 aria-label={`Lịch sử đăng bài ${group.name}`}
                                 onClick={() => openFacebookPostHistory({
@@ -5061,15 +5332,18 @@ function SidePanel() {
                                   url: group.url,
                                 })}
                               >
-                                <HistoryIcon />
+                                <InfoIcon />
                               </button>
                             </div>
                           ))
+                        ) : facebookGroupSearchQuery ? (
+                          <p className="channel-subselection-empty">Không tìm thấy nhóm Facebook phù hợp.</p>
                         ) : (
                           facebookGroupLoadState === 'READY'
                             ? <p className="channel-subselection-empty">Đã quét được 0 nhóm</p>
                             : null
                         )}
+                        </div>
                       </div>
                       {isSelected ? (
                         <>
@@ -5953,8 +6227,8 @@ function SidePanel() {
     );
   }
 
-  return (
-    <main className="extension-shell">
+return (
+  <main className="extension-shell" style={{ '--extension-ui-zoom': extensionUiZoom } as React.CSSProperties}>
       <section className="extension-window">
         <header className="extension-header">
           <div>
@@ -6094,6 +6368,43 @@ function SidePanel() {
                 ) : null}
               </div>
 
+              <div className="facebook-settings-search">
+                <input
+                  ref={facebookSettingsGroupSearchInputRef}
+                  type="text"
+                  value={facebookSettingsGroupSearchInput}
+                  maxLength={255}
+                  placeholder="Tìm kiếm nhóm Facebook"
+                  aria-label="Tìm kiếm nhóm Facebook"
+                  onChange={(event) => setFacebookSettingsGroupSearchInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return;
+
+                    event.preventDefault();
+                    const trimmedSearch = facebookSettingsGroupSearchInput.trim();
+                    setFacebookSettingsGroupSearchInput(trimmedSearch);
+                    setFacebookSettingsGroupSearchQuery(trimmedSearch);
+                    setFacebookGroupPage(1);
+                  }}
+                />
+                {facebookSettingsGroupSearchInput.length > 0 ? (
+                  <button
+                    type="button"
+                    className="facebook-settings-search-clear"
+                    title="Xóa tìm kiếm nhóm Facebook"
+                    aria-label="Xóa tìm kiếm nhóm Facebook"
+                    onClick={() => {
+                      setFacebookSettingsGroupSearchInput('');
+                      setFacebookSettingsGroupSearchQuery('');
+                      setFacebookGroupPage(1);
+                      facebookSettingsGroupSearchInputRef.current?.focus();
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                ) : null}
+              </div>
+
               {facebookSettingsMessage ? (
                 <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
                   {facebookSettingsMessage}
@@ -6108,11 +6419,7 @@ function SidePanel() {
                     facebookGroupPageItems.map((group) => {
                       const isGroupChecking = Boolean(group.targetId && verifyingFacebookGroupIds.includes(group.targetId));
                       const isGroupQueued = Boolean(group.targetId && queuedFacebookGroupIds.includes(group.targetId));
-                      const groupStatusMessage = isGroupChecking
-                        ? 'Checking with the current Facebook browser session...'
-                        : isGroupQueued
-                          ? 'Queued for checking.'
-                          : getFacebookGroupDisabledReason(group);
+                      const groupStatusMessage = isGroupChecking ? 'Đang kiểm tra...' : null;
 
                       return (
                       <article
@@ -6122,40 +6429,25 @@ function SidePanel() {
                         <div className="facebook-group-info">
                           <div className="facebook-group-title-row">
                             <strong>{group.targetName}</strong>
-                            <span className={`facebook-group-badge ${getFacebookGroupBadgeClass(group.eligibilityStatus)}`}>
-                              {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                            </span>
-                            <span className={`facebook-group-badge${group.quotaExceeded ? ' is-danger' : ' is-neutral'}`}>
-                              {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`} today
-                            </span>
                           </div>
-                          <span>{group.targetExternalId ?? 'GROUP'}</span>
                         </div>
                         <div className="facebook-group-item-actions">
                           {group.targetUrl ? (
-                            <a href={group.targetUrl} target="_blank" rel="noreferrer">
-                              Open
+                            <a
+                              className="facebook-group-open-link"
+                              href={group.targetUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Mở trong tab mới
+                              <ExternalLinkIcon />
                             </a>
                           ) : null}
                           <button
                             type="button"
-                            className="group-icon-button"
-                            title="Lịch sử đăng bài"
-                            aria-label={`Lịch sử đăng bài ${group.targetName}`}
-                            onClick={() => openFacebookPostHistory({
-                              id: group.targetId ?? null,
-                              name: group.targetName,
-                              url: group.targetUrl,
-                              externalId: group.targetExternalId,
-                            })}
-                          >
-                            <HistoryIcon />
-                          </button>
-                          <button
-                            type="button"
                             className={`group-icon-button${isGroupChecking ? ' is-loading' : ''}`}
-                            title={isGroupQueued ? 'Queued for posting eligibility check' : 'Check posting eligibility'}
-                            aria-label={`Check posting eligibility for ${group.targetName}`}
+                            title={isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'}
+                            aria-label={`${isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'} ${group.targetName}`}
                             disabled={facebookSettingsState === 'SAVING' || isGroupChecking || isGroupQueued || !group.targetId}
                             onClick={() => void checkFacebookGroupEligibility(group)}
                           >
@@ -6180,12 +6472,24 @@ function SidePanel() {
                             <TrashIcon />
                           </button>
                         </div>
+                        <div className="facebook-group-status-row">
+                          <span className={`facebook-group-badge ${getFacebookGroupBadgeClass(group.eligibilityStatus)}`}>
+                            {getFacebookEligibilityLabel(group.eligibilityStatus)}
+                          </span>
+                          <span className={`facebook-group-badge${group.quotaExceeded ? ' is-danger' : ' is-neutral'}`}>
+                            Hôm nay đã đăng {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`}
+                          </span>
+                        </div>
                         {groupStatusMessage ? (
                           <p className="facebook-group-reason">{groupStatusMessage}</p>
                         ) : null}
                       </article>
                       );
                     })
+                  ) : facebookSettingsGroupSearchQuery ? (
+                    <div className="facebook-group-empty">
+                      <strong>Không tìm thấy nhóm Facebook phù hợp</strong>
+                    </div>
                   ) : (
                     <div className="facebook-group-empty">
                       <strong>Chưa có nhóm Facebook</strong>
@@ -6408,7 +6712,7 @@ function SidePanel() {
       ) : null}
       {isFacebookSettingsOpen && isFacebookGroupFormOpen ? renderFacebookGroupCreateModal() : null}
               {facebookImageAttachPrompt ? renderFacebookImageAttachPromptModal() : null}
-      {isFacebookGroupSyncDetailsOpen && facebookGroupSyncDetails ? (
+      {isFacebookGroupSyncDetailsOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section
             className="facebook-group-modal facebook-ineligible-modal"
@@ -6819,22 +7123,19 @@ function buildFacebookGroupSelectionMessage(
   const validGroupIds = new Set(groups.map((group) => group.targetId).filter(isString));
   const selectedValidCount = uniqueStrings(selectedIds).filter((targetId) => validGroupIds.has(targetId)).length;
   const message = validCount > 0
-    ? `${selectedValidCount}/${validCount} Facebook group(s) selected.`
-    : 'No Facebook groups are available.';
+    ? `${selectedValidCount}/${validCount} nhóm Facebook đã được chọn`
+    : 'Không có nhóm Facebook nào.';
 
   return prefix ? `${prefix}. ${message}` : message;
 }
 
 function getFacebookEligibilityLabel(status?: FacebookPublishTargetEligibilityStatus | null) {
-  if (status === 'CAN_POST') return 'Can post';
-  if (status === 'CANNOT_POST') return 'Cannot post';
-  return 'Needs check';
+  return status === 'CAN_POST' ? 'Có thể đăng' : 'Không thể đăng';
 }
 
 function getFacebookGroupBadgeClass(status?: FacebookPublishTargetEligibilityStatus | null) {
   if (status === 'CAN_POST') return 'is-success';
-  if (status === 'CANNOT_POST') return 'is-danger';
-  return 'is-warning';
+  return 'is-danger';
 }
 
 function getFacebookGroupDisabledReason(group: FacebookPublishTarget) {
@@ -6852,15 +7153,6 @@ function getFacebookGroupDisabledReason(group: FacebookPublishTarget) {
     return group.disabledReason || group.eligibilityReason || 'Current Facebook account cannot post to this group.';
   }
   return group.disabledReason ?? null;
-}
-
-function getFacebookGroupVerificationMessage(group: FacebookPublishTarget) {
-  const reason = getFacebookGroupDisabledReason(group);
-  if (group.eligibilityStatus === 'UNKNOWN') {
-    return `"${group.targetName}" needs another check before publishing: ${reason}`;
-  }
-
-  return `"${group.targetName}" cannot be used: ${reason}`;
 }
 
 function isAmbiguousFacebookComposerVerificationReason(reason: string) {
@@ -6886,6 +7178,15 @@ function HistoryIcon({ className }: IconProps) {
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="M3.2 4.3A5.4 5.4 0 1 1 2.7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M2.8 2.5v2.3h2.3M8 4.8v3.3l2.2 1.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function InfoIcon({ className }: IconProps) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5.8" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 7.2v3.4M8 5.1h.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -8280,6 +8581,25 @@ function isAutoSyncUpdateMessage(value: unknown): value is {
     && value !== null
     && (value as { type?: unknown }).type === 'AMIS_AUTO_SYNC_STATE_UPDATED'
     && typeof (value as { payload?: { status?: unknown } }).payload?.status === 'string';
+}
+
+function isAmisCaptureUpdatedMessage(value: unknown): value is {
+  type: 'AMIS_RECRUITMENT_CAPTURE_UPDATED';
+  payload: AmisExtractionResult;
+  sourceTabId?: number;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { type?: unknown }).type !== 'AMIS_RECRUITMENT_CAPTURE_UPDATED') return false;
+
+  const payload = (value as { payload?: unknown }).payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  return typeof (payload as { status?: unknown }).status === 'string'
+    && typeof (payload as { detected?: unknown }).detected === 'boolean'
+    && typeof (payload as { url?: unknown }).url === 'string'
+    && Array.isArray((payload as { missingFields?: unknown }).missingFields)
+    && ((value as { sourceTabId?: unknown }).sourceTabId === undefined
+      || typeof (value as { sourceTabId?: unknown }).sourceTabId === 'number');
 }
 
 function isRecruitmentContextChangedMessage(value: unknown): value is {
