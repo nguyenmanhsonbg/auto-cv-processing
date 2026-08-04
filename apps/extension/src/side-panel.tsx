@@ -502,7 +502,7 @@ function SidePanel() {
   const [fillingJobDescriptionId, setFillingJobDescriptionId] = useState<string | null>(null);
   const [vcsPortalSyncState, setVcsPortalSyncState] = useState<VcsPortalSyncState>('IDLE');
   const [vcsPortalSyncResult, setVcsPortalSyncResult] = useState<SyncVcsPortalJdsResponse | null>(null);
-  const [vcsPortalSyncMessage, setVcsPortalSyncMessage] = useState<string | null>(null);
+  const [, setVcsPortalSyncMessage] = useState<string | null>(null);
   const [selectedJobDescription, setSelectedJobDescription] = useState<JobDescriptionSummary | null>(null);
   const [careerQuestionState, setCareerQuestionState] = useState<CareerQuestionState>('IDLE');
   const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
@@ -911,7 +911,11 @@ function SidePanel() {
       await restoreFacebookImageAttachments(nextRecruitmentId, nextSnapshot, selectedJobDescription);
       if (!token || !nextRecruitmentId || !nextSnapshot) return;
 
-      const restored = await applyStoredFacebookContentDraft(nextRecruitmentId, nextSnapshot);
+      const restored = await applyStoredFacebookContentDraft(
+        nextRecruitmentId,
+        nextSnapshot,
+        selectedJobDescription,
+      );
       if (cancelled || restored) return;
 
       await generateFacebookPostContent({
@@ -1221,6 +1225,7 @@ function SidePanel() {
   }
 
   function clearFacebookContent() {
+    facebookContentGenerationSeqRef.current += 1;
     facebookContentRef.current = '';
     facebookContentSourceRef.current = 'EMPTY';
     facebookContentSnapshotKeyRef.current = null;
@@ -1372,6 +1377,7 @@ function SidePanel() {
       const draftScope = await getFacebookContentDraftScope(
         options.selectedJobDescriptionOverride ?? selectedJobDescription,
       );
+      if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
       await persistFacebookContentDraft({
         content,
         source: contentMode,
@@ -1416,6 +1422,11 @@ function SidePanel() {
     const publishPlanContent = getCurrentFacebookPublishPlanContent();
     if (publishPlanContent) {
       facebookContentRef.current = publishPlanContent;
+      if (snapshot) {
+        facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, snapshot);
+        facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(snapshot);
+        facebookContentJobIdentityRef.current = buildFacebookJobIdentity(snapshot);
+      }
       setFacebookContent(publishPlanContent);
       setFacebookContentState('READY');
       setFacebookContentMessage('Đang dùng nội dung Facebook mặc định từ kế hoạch đăng hiện tại.');
@@ -1464,8 +1475,16 @@ function SidePanel() {
   }
 
   function getEffectiveFacebookContent(options: { includeDraft?: boolean } = {}) {
+    if (!isFacebookContentScopedToCurrentSnapshot()) return '';
     const draftContent = options.includeDraft ? facebookContentDraft.trim() : '';
     return draftContent || facebookContentRef.current.trim() || facebookContent.trim();
+  }
+
+  function isFacebookContentScopedToCurrentSnapshot() {
+    if (!snapshot) return false;
+
+    return facebookContentSnapshotFingerprintRef.current === buildFacebookDraftSnapshotFingerprint(snapshot)
+      && facebookContentJobIdentityRef.current === buildFacebookJobIdentity(snapshot);
   }
 
   function requestFacebookImageAttachDecision(
@@ -2253,6 +2272,7 @@ function SidePanel() {
   }
 
   function clearFacebookPostContentState() {
+    facebookContentGenerationSeqRef.current += 1;
     facebookContentSnapshotKeyRef.current = null;
     facebookContentSnapshotFingerprintRef.current = null;
     facebookContentJobIdentityRef.current = null;
@@ -3000,14 +3020,20 @@ function SidePanel() {
   async function applyStoredFacebookContentDraft(
     recruitmentId: string | null,
     nextSnapshot: AmisJobSnapshot,
+    jobDescription: JobDescriptionSummary | null = selectedJobDescription,
   ) {
-    const draftScope = await getFacebookContentDraftScope();
+    const generationSeq = facebookContentGenerationSeqRef.current;
+    const draftScope = await getFacebookContentDraftScope(jobDescription);
+    if (facebookContentGenerationSeqRef.current !== generationSeq) return false;
+
     const draft = await getFacebookContentDraft({
       recruitmentId,
       tabId: draftScope.tabId,
       jobDescriptionId: draftScope.jobDescriptionId,
       snapshot: nextSnapshot,
     });
+    if (facebookContentGenerationSeqRef.current !== generationSeq) return false;
+
     const content = draft?.content.trim();
     if (!content) return false;
 
@@ -3867,6 +3893,11 @@ function SidePanel() {
         ?? response.facebookPublishPlan?.content;
       if (confirmedFacebookContent && shouldPublishFacebook) {
         facebookContentRef.current = confirmedFacebookContent;
+        if (snapshot) {
+          facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, snapshot);
+          facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(snapshot);
+          facebookContentJobIdentityRef.current = buildFacebookJobIdentity(snapshot);
+        }
         setFacebookContent(confirmedFacebookContent);
         setFacebookContentState('READY');
         setFacebookContentMessage('Đã cập nhật nội dung Facebook theo kế hoạch đăng thật.');
