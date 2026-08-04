@@ -2379,13 +2379,37 @@ function SidePanel() {
       if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return null;
       const templateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
 
+      if (templateContext?.templateJobDescriptionId) {
+        const sourceJobDescription = await resolveAmisTemplateJobDescription(
+          accessToken,
+          templateContext.templateJobDescriptionId,
+        );
+        if (
+          !sourceJobDescription
+          || selectionSeq !== amisJobSelectionSeqRef.current
+          || activeAmisRecruitmentIdRef.current !== recruitmentId
+        ) {
+          return null;
+        }
+
+        setJobDescriptionStatus('READY');
+        setSelectedJobDescription(sourceJobDescription);
+        setSnapshot(buildAmisJobSnapshotFromJobDescription(sourceJobDescription));
+        setExtractionResult(capture);
+        setAmisUrl(capture.url);
+        setJobDescriptionError(null);
+        await loadSelectedJobDescriptionQuestionSet(sourceJobDescription, accessToken, {
+          silent: true,
+          force: true,
+        });
+        await clearAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+        return null;
+      }
+
       const response = await syncAmisJobDescription(accessToken, {
         amisRecruitmentId: recruitmentId,
         amisUrl: capture.url,
         snapshot: capture.snapshot,
-        ...(templateContext?.templateJobDescriptionId
-          ? { templateJobDescriptionId: templateContext.templateJobDescriptionId }
-          : {}),
       });
 
       if (
@@ -2424,6 +2448,21 @@ function SidePanel() {
       }
 
       setJobDescriptionError(toErrorMessage(err));
+      return null;
+    }
+  }
+
+  async function resolveAmisTemplateJobDescription(
+    accessToken: string,
+    templateJobDescriptionId: string,
+  ) {
+    const loadedJobDescription = jobDescriptions.find((item) => item.id === templateJobDescriptionId);
+    if (loadedJobDescription) return loadedJobDescription;
+
+    try {
+      const context = await getJobDescriptionQuestionSet(accessToken, templateJobDescriptionId);
+      return context.jobDescription;
+    } catch {
       return null;
     }
   }
@@ -6217,41 +6256,6 @@ function SidePanel() {
           </section>
         ) : null}
 
-        {facebookProgress ? (
-          <section className="capture-panel">
-            <div className="status-row">
-              <span>Facebook publish</span>
-              <strong>{facebookProgress.status}</strong>
-            </div>
-            <dl>
-              <div>
-                <dt>Progress</dt>
-                <dd>{facebookProgress.currentIndex}/{facebookProgress.total}</dd>
-              </div>
-              {facebookProgress.target ? (
-                <div>
-                  <dt>Target</dt>
-                  <dd>{facebookProgress.target.targetName}</dd>
-                </div>
-              ) : null}
-              <div>
-                <dt>Status</dt>
-                <dd>{facebookProgress.message}</dd>
-              </div>
-            </dl>
-            {facebookProgress.results.length > 0 ? (
-              <ul className="diagnostic-list">
-                {facebookProgress.results.map((item) => (
-                  <li key={`${item.targetName}-${item.status}`}>
-                    <strong>{item.targetName}</strong>
-                    <span>{item.status}</span>
-                    <small>{item.message}</small>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
-        ) : null}
       </>
     );
   }
