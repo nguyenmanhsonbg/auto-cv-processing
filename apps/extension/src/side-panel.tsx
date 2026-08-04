@@ -7,8 +7,10 @@ import { getLastAmisCapture } from './amis-capture-store';
 import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
 import {
   clearAmisTemplateContextForTab,
+  getAmisTemplateContextForRecruitment,
   getAmisTemplateContextForTab,
   saveAmisTemplateContext,
+  saveAmisTemplateContextForRecruitment,
 } from './amis-template-context-store';
 import {
   ApiClientError,
@@ -2375,7 +2377,9 @@ function SidePanel() {
     try {
       const activeTab = await getActiveTab();
       if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return null;
-      const templateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+      const tabTemplateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+      const templateContext = tabTemplateContext
+        ?? await getAmisTemplateContextForRecruitment(recruitmentId);
 
       if (templateContext?.templateJobDescriptionId) {
         const sourceJobDescription = await resolveAmisTemplateJobDescription(
@@ -2390,6 +2394,7 @@ function SidePanel() {
           return null;
         }
 
+        await saveAmisTemplateContextForRecruitment(recruitmentId, templateContext);
         setJobDescriptionStatus('READY');
         setSelectedJobDescription(sourceJobDescription);
         setSnapshot(buildAmisJobSnapshotFromJobDescription(sourceJobDescription));

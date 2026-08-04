@@ -1,4 +1,5 @@
 const AMIS_TEMPLATE_CONTEXTS_STORAGE_KEY = 'vcs:amis-template-contexts';
+const AMIS_TEMPLATE_RECRUITMENT_CONTEXTS_STORAGE_KEY = 'vcs:amis-template-recruitment-contexts';
 
 export interface AmisTemplateContext {
   tabId: number;
@@ -9,6 +10,7 @@ export interface AmisTemplateContext {
 }
 
 type StoredAmisTemplateContexts = Record<string, AmisTemplateContext>;
+type StoredAmisTemplateRecruitmentContexts = Record<string, AmisTemplateContext>;
 
 export async function saveAmisTemplateContext(
   context: Omit<AmisTemplateContext, 'updatedAt'>,
@@ -40,11 +42,47 @@ export async function clearAmisTemplateContextForTab(tabId?: number | null) {
   });
 }
 
+export async function saveAmisTemplateContextForRecruitment(
+  recruitmentId: string,
+  context: Omit<AmisTemplateContext, 'updatedAt'>,
+) {
+  const normalizedRecruitmentId = recruitmentId.trim();
+  if (!normalizedRecruitmentId) return;
+
+  const contexts = await readAmisTemplateRecruitmentContexts();
+  contexts[normalizedRecruitmentId] = {
+    ...context,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await chrome.storage?.local?.set({
+    [AMIS_TEMPLATE_RECRUITMENT_CONTEXTS_STORAGE_KEY]: contexts,
+  });
+}
+
+export async function getAmisTemplateContextForRecruitment(recruitmentId?: string | null) {
+  const normalizedRecruitmentId = recruitmentId?.trim();
+  if (!normalizedRecruitmentId) return null;
+
+  const contexts = await readAmisTemplateRecruitmentContexts();
+  return contexts[normalizedRecruitmentId] ?? null;
+}
+
 async function readAmisTemplateContexts(): Promise<StoredAmisTemplateContexts> {
   try {
     const stored = await chrome.storage?.session?.get(AMIS_TEMPLATE_CONTEXTS_STORAGE_KEY);
     const value = stored?.[AMIS_TEMPLATE_CONTEXTS_STORAGE_KEY];
     return isRecord(value) ? (value as StoredAmisTemplateContexts) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function readAmisTemplateRecruitmentContexts(): Promise<StoredAmisTemplateRecruitmentContexts> {
+  try {
+    const stored = await chrome.storage?.local?.get(AMIS_TEMPLATE_RECRUITMENT_CONTEXTS_STORAGE_KEY);
+    const value = stored?.[AMIS_TEMPLATE_RECRUITMENT_CONTEXTS_STORAGE_KEY];
+    return isRecord(value) ? (value as StoredAmisTemplateRecruitmentContexts) : {};
   } catch {
     return {};
   }
