@@ -1363,11 +1363,11 @@ function SidePanel() {
       facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(sourceSnapshot);
       facebookContentJobIdentityRef.current = buildFacebookJobIdentity(sourceSnapshot);
       setFacebookContentState('READY');
-      setFacebookContentMessage(
-        contentMode === 'AI'
-          ? 'Facebook content replaced with an AI-generated version.'
-          : 'Đã sinh nội dung Facebook từ JD hiện tại.',
-      );
+      // setFacebookContentMessage(
+      //   contentMode === 'AI'
+      //     ? 'Facebook content replaced with an AI-generated version.'
+      //     : 'Đã sinh nội dung Facebook từ JD hiện tại.',
+      // );
       const draftScope = await getFacebookContentDraftScope(
         options.selectedJobDescriptionOverride ?? selectedJobDescription,
       );
@@ -3906,7 +3906,12 @@ function SidePanel() {
       ? { ...contentResolvedPlan, attachments: publishAttachments }
       : contentResolvedPlan;
     const planKey = getFacebookPlanKey(planForPublish);
-    if (startedFacebookPlanKeys.current.has(planKey)) return planForPublish;
+    if (startedFacebookPlanKeys.current.has(planKey)) {
+      // The plan was already completed; keep repeated AMIS syncs from leaving the button stuck in SYNCING.
+      setState('SUCCESS');
+      setError(null);
+      return planForPublish;
+    }
 
     if (planForPublish.targets.length === 0) {
       const progress: FacebookPublishProgress = {
@@ -4897,6 +4902,7 @@ function SidePanel() {
               disabled={!canGenerate}
               onClick={() => void generateFacebookPostContent({ mode: 'AI' })}
             >
+              <FacebookGenerateIcon />
               {facebookContentBusy ? 'Đang sinh...' : 'Sinh bài'}
             </button>
             <button
@@ -7259,6 +7265,14 @@ function SparklesIcon({ className }: IconProps) {
   );
 }
 
+function FacebookGenerateIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M10.5 4.66667L9.77083 3.0625L8.16667 2.33333L9.77083 1.60417L10.5 0L11.2292 1.60417L12.8333 2.33333L11.2292 3.0625L10.5 4.66667ZM10.5 12.8333L9.77083 11.2292L8.16667 10.5L9.77083 9.77083L10.5 8.16667L11.2292 9.77083L12.8333 10.5L11.2292 11.2292L10.5 12.8333ZM4.66667 11.0833L3.20833 7.875L0 6.41667L3.20833 4.95833L4.66667 1.75L6.125 4.95833L9.33333 6.41667L6.125 7.875L4.66667 11.0833ZM4.66667 8.25417L5.25 7L6.50417 6.41667L5.25 5.83333L4.66667 4.57917L4.08333 5.83333L2.82917 6.41667L4.08333 7L4.66667 8.25417Z" fill="#059669" />
+    </svg>
+  );
+}
+
 function WarningIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 24 24" fill="none">
@@ -9132,7 +9146,7 @@ async function injectAmisBridge(tabId: number) {
   }
 
   await chrome.scripting.executeScript({
-    target: { tabId, allFrames: true },
+    target: { tabId },
     files: ['assets/amis-bridge.js'],
   });
 }

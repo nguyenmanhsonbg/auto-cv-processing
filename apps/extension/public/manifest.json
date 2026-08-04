@@ -29,32 +29,6 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://amisapp.misa.vn/*"],
-      "js": ["assets/amis-page-hook.js"],
-      "run_at": "document_start",
-      "all_frames": true,
-      "world": "MAIN"
-    },
-    {
-      "matches": ["https://amisapp.misa.vn/*"],
-      "js": ["assets/amis-source-column.js"],
-      "run_at": "document_start",
-      "all_frames": true
-    },
-    {
-      "matches": ["https://amisapp.misa.vn/*"],
-      "js": ["assets/amis-bridge.js"],
-      "run_at": "document_start",
-      "all_frames": true
-    },
-    {
-      "matches": ["https://amisapp.misa.vn/*"],
-      "js": ["assets/amis-page-hook.js"],
-      "run_at": "document_start",
-      "all_frames": true,
-      "world": "MAIN"
-    },
-    {
       "matches": ["http://localhost:4000/*", "http://localhost:4001/*"],
       "js": ["assets/frontend-bridge.js"],
       "run_at": "document_start"

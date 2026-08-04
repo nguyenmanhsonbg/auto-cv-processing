@@ -2501,6 +2501,7 @@ dd {
   height: 30px;
   place-items: center;
   border-radius: 6px;
+  border: 1px solid currentColor;
   color: #64748b;
   background: #f1f5f9;
 }
@@ -2520,6 +2521,16 @@ dd {
 
 .facebook-group-sync-details-body {
   grid-template-rows: minmax(0, 1fr) auto;
+}
+
+#facebook-group-sync-details-title {
+  margin: 0;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 16.5px;
+  letter-spacing: 0.55px;
 }
 
 .facebook-group-sync-details-list {
@@ -4901,6 +4912,12 @@ dd {
   width: 13px;
   height: 13px;
   margin-left: 4px;
+}
+
+.facebook-generate-button svg {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
 }
 
 .facebook-content-editor {

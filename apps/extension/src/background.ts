@@ -24,6 +24,7 @@ import {
   syncAmisApplications,
   syncAmisJobStatus,
   syncAmisCareers,
+  syncAmisJobDescription,
   syncAndPublishAmisJob,
   verifyFacebookGroup,
 } from './api-client';
@@ -55,6 +56,7 @@ import {
 } from './facebook-publish-orchestrator';
 import { saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { getSelectedJobQuestionContextForTab, getSelectedJobQuestionIdsForTab } from './selected-job-question-store';
+import { resolveAutoSyncJobDescriptionId } from './amis-auto-sync-payload';
 import type {
   AmisDiagnosticEvent,
   AmisExtractionResult,
@@ -117,6 +119,16 @@ chrome.alarms?.onAlarm.addListener((alarm) => {
 
 scheduleExtensionTaskPolling();
 void runExtensionTaskPoll();
+void attachToOpenAmisTabs();
+
+chrome.tabs?.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete' || !isAmisPageUrl(tab.url)) return;
+  void ensureAmisDebuggerAttached({ id: tabId, url: tab.url }, tab.url);
+});
+
+chrome.tabs?.onActivated.addListener(({ tabId }) => {
+  void attachAmisDebuggerToTab(tabId);
+});
 
 chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
   if (isAmisSourceColumnDataMessage(message)) {
@@ -212,6 +224,29 @@ chrome.runtime?.onConnect?.addListener((port) => {
     });
   });
 });
+
+async function attachToOpenAmisTabs() {
+  const tabs = await chrome.tabs?.query({}) ?? [];
+  await Promise.all(tabs
+    .filter((tab) => tab.id !== undefined && isAmisPageUrl(tab.url))
+    .map((tab) => ensureAmisDebuggerAttached({ id: tab.id, url: tab.url }, tab.url)));
+}
+
+async function attachAmisDebuggerToTab(tabId: number) {
+  const tab = await chrome.tabs?.get(tabId);
+  if (!tab || !isAmisPageUrl(tab.url)) return;
+  await ensureAmisDebuggerAttached({ id: tabId, url: tab.url }, tab.url);
+}
+
+function isAmisPageUrl(value: string | undefined) {
+  if (!value) return false;
+
+  try {
+    return new URL(value).hostname === 'amisapp.misa.vn';
+  } catch {
+    return false;
+  }
+}
 
 async function runFrontendFacebookPortTask(
   port: ChromePort,
@@ -512,10 +547,6 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     ...(sender.tab?.id === undefined ? {} : { sourceTabId: sender.tab.id }),
   }).catch(() => undefined);
 
-  // AMIS save is only a capture/selection trigger. Publishing starts exclusively
-  // from the Extension's explicit "Đồng bộ và đăng" action.
-  return;
-
   const channels = await getSelectedChannels();
   const facebookAccountId = channels.includes('FACEBOOK')
     ? await getActiveFacebookAccountId()
@@ -581,6 +612,22 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
 
     try {
       await heartbeatExtensionInstance(accessToken as string);
+      const syncedJobDescription = await syncAmisJobDescription(accessToken as string, {
+        amisRecruitmentId: amisRecruitmentId as string,
+        amisUrl: enrichedCapture.url,
+        snapshot: snapshot as AmisJobSnapshot,
+      });
+      const autoSyncJobDescriptionId = resolveAutoSyncJobDescriptionId(
+        selectedJobDescriptionId,
+        syncedJobDescription.jobDescription?.id,
+      );
+      if (!autoSyncJobDescriptionId) {
+        throw new Error('AUTO_SYNC_JOB_DESCRIPTION_REQUIRED: AMIS Job Description was not created.');
+      }
+      const selectedJobQuestionContextForSync: SelectedJobQuestionContextForSync = {
+        ...selectedJobQuestionContext,
+        jobDescriptionId: autoSyncJobDescriptionId,
+      };
       const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(sender.tab?.id ?? 0);
       const result = await syncAndPublishAmisJob(
         accessToken as string,
@@ -591,7 +638,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
           selectedQuestionIds,
           facebookContentForPublish,
           facebookAccountId,
-          selectedJobQuestionContext,
+          selectedJobQuestionContextForSync,
         ),
       );
 
