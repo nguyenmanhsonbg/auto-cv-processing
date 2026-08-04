@@ -2573,6 +2573,167 @@ dd {
   width: min(100%, 560px);
 }
 
+.facebook-group-edit-modal {
+  grid-template-rows: auto auto;
+  width: min(100%, 420px);
+}
+
+.facebook-group-edit-modal .modal-header {
+  align-items: center;
+  border-bottom-color: #f3f4f6;
+  padding: 12px 16px;
+}
+
+.facebook-group-edit-modal .modal-header h2 {
+  margin: 0;
+  color: #1e293b;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.facebook-group-edit-form {
+  display: grid;
+  grid-template-rows: auto auto;
+  min-height: 0;
+}
+
+.facebook-group-edit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.facebook-group-edit-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+  padding-top: 5px;
+}
+
+.facebook-group-edit-field > label,
+.facebook-group-edit-label {
+  color: #334155;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.facebook-group-edit-field > label span {
+  display: block;
+}
+
+.facebook-group-edit-field > label em {
+  color: #ff0004;
+  font-style: normal;
+}
+
+.facebook-group-edit-field > input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 8px 12px 9px;
+  color: #6b7280;
+  background: #ffffff;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.facebook-group-edit-field > input:focus {
+  border-color: #047857;
+  outline: 2px solid rgba(4, 120, 87, 0.14);
+  outline-offset: 0;
+}
+
+.facebook-group-edit-url-field {
+  gap: 5px;
+}
+
+.facebook-group-edit-url {
+  display: block;
+  color: #3578ff;
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 16.5px;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+}
+
+.facebook-group-edit-url:hover {
+  color: #1d4ed8;
+}
+
+.facebook-group-edit-url.is-empty {
+  color: #6b7280;
+  text-decoration: none;
+}
+
+.facebook-group-edit-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 12px;
+  border-top: 1px solid #f3f4f6;
+  padding: 16px;
+  background: #f9fafb;
+}
+
+.facebook-group-edit-footer .text-button {
+  min-height: 32px;
+  padding: 8px 16px;
+  color: #475569;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.facebook-group-edit-save-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  border-radius: 4px;
+  padding: 8px 16px;
+  color: #ffffff;
+  background: #047857;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.facebook-group-edit-save-button:hover:not(:disabled) {
+  background: #065f46;
+}
+
+.facebook-group-edit-save-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.facebook-group-edit-save-button svg {
+  width: 14px;
+  height: 14px;
+}
+
 .modal-header {
   display: flex;
   align-items: flex-start;
