@@ -87,7 +87,7 @@ export async function getFacebookContentDraft(input: {
   const values = await chrome.storage?.session?.get(keys);
   for (const key of keys) {
     const draft = values?.[key];
-    if (isFacebookContentDraft(draft)) return draft;
+    if (isFacebookContentDraft(draft) && isDraftCompatibleWithInput(draft, input)) return draft;
   }
 
   const lastValues = await chrome.storage?.session?.get(LAST_FACEBOOK_DRAFT_KEY);
@@ -95,9 +95,7 @@ export async function getFacebookContentDraft(input: {
   if (
     isFacebookContentDraft(lastDraft)
     && isRecentDraft(lastDraft)
-    && (!input.recruitmentId || !lastDraft.recruitmentId || lastDraft.recruitmentId === input.recruitmentId)
-    && (!input.jobDescriptionId || !lastDraft.jobDescriptionId || lastDraft.jobDescriptionId === input.jobDescriptionId)
-    && normalizeDraftText(lastDraft.snapshotTitle) === normalizeDraftText(input.snapshot.title)
+    && isDraftCompatibleWithInput(lastDraft, input)
   ) {
     return lastDraft;
   }
@@ -167,6 +165,33 @@ function isFacebookContentDraft(value: unknown): value is FacebookContentDraft {
 function isRecentDraft(draft: FacebookContentDraft) {
   const updatedAt = Date.parse(draft.updatedAt);
   return Number.isFinite(updatedAt) && Date.now() - updatedAt <= LAST_DRAFT_MAX_AGE_MS;
+}
+
+function isDraftCompatibleWithInput(
+  draft: FacebookContentDraft,
+  input: {
+    recruitmentId?: string | null;
+    jobDescriptionId?: string | null;
+    snapshot: AmisJobSnapshot;
+  },
+) {
+  const snapshotMatches = draft.snapshotFingerprint === buildFacebookDraftSnapshotFingerprint(input.snapshot);
+  const recruitmentId = input.recruitmentId?.trim() || null;
+  const jobDescriptionId = input.jobDescriptionId?.trim() || null;
+
+  if (jobDescriptionId) {
+    if (draft.jobDescriptionId && draft.jobDescriptionId !== jobDescriptionId) return false;
+    if (draft.recruitmentId && recruitmentId && draft.recruitmentId !== recruitmentId) return false;
+    return snapshotMatches;
+  }
+
+  if (recruitmentId) {
+    if (draft.recruitmentId && draft.recruitmentId !== recruitmentId) return false;
+    return snapshotMatches;
+  }
+
+  return snapshotMatches
+    && normalizeDraftText(draft.snapshotTitle) === normalizeDraftText(input.snapshot.title);
 }
 
 function isProtectedCustomDraft(value: unknown, nextDraft: FacebookContentDraft) {

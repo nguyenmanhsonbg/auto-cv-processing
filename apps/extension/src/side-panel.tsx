@@ -448,7 +448,7 @@ function SidePanel() {
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
   const [facebookContent, setFacebookContent] = useState('');
   const [facebookContentState, setFacebookContentState] = useState<FacebookContentState>('IDLE');
-  const [facebookContentMessage, setFacebookContentMessage] = useState<string | null>(null);
+  const [, setFacebookContentMessage] = useState<string | null>(null);
   const [facebookPreviewModalMode, setFacebookPreviewModalMode] = useState<FacebookPreviewModalMode | null>(null);
   const [facebookContentDraft, setFacebookContentDraft] = useState('');
   const [facebookImageAttachments, setFacebookImageAttachments] = useState<FacebookPublishAttachment[]>([]);
@@ -460,6 +460,7 @@ function SidePanel() {
   const [facebookGroupDiagnostic, setFacebookGroupDiagnostic] = useState<string | null>(null);
   const [facebookGroupSyncDetails, setFacebookGroupSyncDetails] = useState<FacebookGroupSyncDetails | null>(null);
   const [isFacebookGroupSyncDetailsOpen, setIsFacebookGroupSyncDetailsOpen] = useState(false);
+  const [isFacebookGroupListExpanded, setIsFacebookGroupListExpanded] = useState(true);
   const [facebookIneligiblePage, setFacebookIneligiblePage] = useState(1);
   const [manualIncludingFacebookGroupKeys, setManualIncludingFacebookGroupKeys] = useState<string[]>([]);
   const [extensionToast, setExtensionToast] = useState<ExtensionToastState | null>(null);
@@ -501,7 +502,7 @@ function SidePanel() {
   const [fillingJobDescriptionId, setFillingJobDescriptionId] = useState<string | null>(null);
   const [vcsPortalSyncState, setVcsPortalSyncState] = useState<VcsPortalSyncState>('IDLE');
   const [vcsPortalSyncResult, setVcsPortalSyncResult] = useState<SyncVcsPortalJdsResponse | null>(null);
-  const [vcsPortalSyncMessage, setVcsPortalSyncMessage] = useState<string | null>(null);
+  const [, setVcsPortalSyncMessage] = useState<string | null>(null);
   const [selectedJobDescription, setSelectedJobDescription] = useState<JobDescriptionSummary | null>(null);
   const [careerQuestionState, setCareerQuestionState] = useState<CareerQuestionState>('IDLE');
   const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
@@ -910,7 +911,11 @@ function SidePanel() {
       await restoreFacebookImageAttachments(nextRecruitmentId, nextSnapshot, selectedJobDescription);
       if (!token || !nextRecruitmentId || !nextSnapshot) return;
 
-      const restored = await applyStoredFacebookContentDraft(nextRecruitmentId, nextSnapshot);
+      const restored = await applyStoredFacebookContentDraft(
+        nextRecruitmentId,
+        nextSnapshot,
+        selectedJobDescription,
+      );
       if (cancelled || restored) return;
 
       await generateFacebookPostContent({
@@ -1220,6 +1225,7 @@ function SidePanel() {
   }
 
   function clearFacebookContent() {
+    facebookContentGenerationSeqRef.current += 1;
     facebookContentRef.current = '';
     facebookContentSourceRef.current = 'EMPTY';
     facebookContentSnapshotKeyRef.current = null;
@@ -1371,6 +1377,7 @@ function SidePanel() {
       const draftScope = await getFacebookContentDraftScope(
         options.selectedJobDescriptionOverride ?? selectedJobDescription,
       );
+      if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
       await persistFacebookContentDraft({
         content,
         source: contentMode,
@@ -1415,6 +1422,11 @@ function SidePanel() {
     const publishPlanContent = getCurrentFacebookPublishPlanContent();
     if (publishPlanContent) {
       facebookContentRef.current = publishPlanContent;
+      if (snapshot) {
+        facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, snapshot);
+        facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(snapshot);
+        facebookContentJobIdentityRef.current = buildFacebookJobIdentity(snapshot);
+      }
       setFacebookContent(publishPlanContent);
       setFacebookContentState('READY');
       setFacebookContentMessage('Đang dùng nội dung Facebook mặc định từ kế hoạch đăng hiện tại.');
@@ -1463,8 +1475,16 @@ function SidePanel() {
   }
 
   function getEffectiveFacebookContent(options: { includeDraft?: boolean } = {}) {
+    if (!isFacebookContentScopedToCurrentSnapshot()) return '';
     const draftContent = options.includeDraft ? facebookContentDraft.trim() : '';
     return draftContent || facebookContentRef.current.trim() || facebookContent.trim();
+  }
+
+  function isFacebookContentScopedToCurrentSnapshot() {
+    if (!snapshot) return false;
+
+    return facebookContentSnapshotFingerprintRef.current === buildFacebookDraftSnapshotFingerprint(snapshot)
+      && facebookContentJobIdentityRef.current === buildFacebookJobIdentity(snapshot);
   }
 
   function requestFacebookImageAttachDecision(
@@ -2252,6 +2272,7 @@ function SidePanel() {
   }
 
   function clearFacebookPostContentState() {
+    facebookContentGenerationSeqRef.current += 1;
     facebookContentSnapshotKeyRef.current = null;
     facebookContentSnapshotFingerprintRef.current = null;
     facebookContentJobIdentityRef.current = null;
@@ -2358,13 +2379,37 @@ function SidePanel() {
       if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return null;
       const templateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
 
+      if (templateContext?.templateJobDescriptionId) {
+        const sourceJobDescription = await resolveAmisTemplateJobDescription(
+          accessToken,
+          templateContext.templateJobDescriptionId,
+        );
+        if (
+          !sourceJobDescription
+          || selectionSeq !== amisJobSelectionSeqRef.current
+          || activeAmisRecruitmentIdRef.current !== recruitmentId
+        ) {
+          return null;
+        }
+
+        setJobDescriptionStatus('READY');
+        setSelectedJobDescription(sourceJobDescription);
+        setSnapshot(buildAmisJobSnapshotFromJobDescription(sourceJobDescription));
+        setExtractionResult(capture);
+        setAmisUrl(capture.url);
+        setJobDescriptionError(null);
+        await loadSelectedJobDescriptionQuestionSet(sourceJobDescription, accessToken, {
+          silent: true,
+          force: true,
+        });
+        await clearAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+        return null;
+      }
+
       const response = await syncAmisJobDescription(accessToken, {
         amisRecruitmentId: recruitmentId,
         amisUrl: capture.url,
         snapshot: capture.snapshot,
-        ...(templateContext?.templateJobDescriptionId
-          ? { templateJobDescriptionId: templateContext.templateJobDescriptionId }
-          : {}),
       });
 
       if (
@@ -2403,6 +2448,21 @@ function SidePanel() {
       }
 
       setJobDescriptionError(toErrorMessage(err));
+      return null;
+    }
+  }
+
+  async function resolveAmisTemplateJobDescription(
+    accessToken: string,
+    templateJobDescriptionId: string,
+  ) {
+    const loadedJobDescription = jobDescriptions.find((item) => item.id === templateJobDescriptionId);
+    if (loadedJobDescription) return loadedJobDescription;
+
+    try {
+      const context = await getJobDescriptionQuestionSet(accessToken, templateJobDescriptionId);
+      return context.jobDescription;
+    } catch {
       return null;
     }
   }
@@ -2999,14 +3059,20 @@ function SidePanel() {
   async function applyStoredFacebookContentDraft(
     recruitmentId: string | null,
     nextSnapshot: AmisJobSnapshot,
+    jobDescription: JobDescriptionSummary | null = selectedJobDescription,
   ) {
-    const draftScope = await getFacebookContentDraftScope();
+    const generationSeq = facebookContentGenerationSeqRef.current;
+    const draftScope = await getFacebookContentDraftScope(jobDescription);
+    if (facebookContentGenerationSeqRef.current !== generationSeq) return false;
+
     const draft = await getFacebookContentDraft({
       recruitmentId,
       tabId: draftScope.tabId,
       jobDescriptionId: draftScope.jobDescriptionId,
       snapshot: nextSnapshot,
     });
+    if (facebookContentGenerationSeqRef.current !== generationSeq) return false;
+
     const content = draft?.content.trim();
     if (!content) return false;
 
@@ -3866,6 +3932,11 @@ function SidePanel() {
         ?? response.facebookPublishPlan?.content;
       if (confirmedFacebookContent && shouldPublishFacebook) {
         facebookContentRef.current = confirmedFacebookContent;
+        if (snapshot) {
+          facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, snapshot);
+          facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(snapshot);
+          facebookContentJobIdentityRef.current = buildFacebookJobIdentity(snapshot);
+        }
         setFacebookContent(confirmedFacebookContent);
         setFacebookContentState('READY');
         setFacebookContentMessage('Đã cập nhật nội dung Facebook theo kế hoạch đăng thật.');
@@ -4478,9 +4549,10 @@ function SidePanel() {
                   >
                     <DoubleChevronRightIcon />
                   </button>
-                </div>
-              </div>
-            </div>
+          </div>
+        </div>
+
+      </div>
           </div>
 
           <footer className="post-history-footer">
@@ -4874,10 +4946,6 @@ function SidePanel() {
     const previewCopy = effectiveContent
       ? summarizeText(effectiveContent)
       : summarizeText(snapshot?.summary ?? snapshot?.description ?? selectedJobDescription?.summary ?? selectedJobDescription?.description);
-    const helperText = effectiveContent
-      ? '{{APPLY_URL}} sẽ được thay bằng link tuyển dụng thật sau khi đồng bộ.'
-      : 'Sinh bài từ JD/AMIS snapshot hiện tại trước khi đăng.';
-
     return (
       <div className="facebook-content-panel">
         <p className="channel-subselection-title facebook-preview-title">Xem trước bài đăng</p>
@@ -4919,14 +4987,8 @@ function SidePanel() {
 
         <div className="facebook-content-meta is-preview">
           <span>{effectiveContent.length} ký tự</span>
-          <span>{helperText}</span>
         </div>
 
-        {facebookContentMessage ? (
-          <p className={facebookContentState === 'ERROR' ? 'error-text' : 'muted-text'}>
-            {facebookContentMessage}
-          </p>
-        ) : null}
       </div>
     );
   }
@@ -5194,9 +5256,16 @@ function SidePanel() {
                     </label>
                     <span className="channel-actions">
                       {showFacebookGroups ? (
-                        <span className="channel-action-icon" title="Select groups">
-                          <ChevronUpIcon />
-                        </span>
+                        <button
+                          type="button"
+                          className="channel-action-button channel-groups-toggle"
+                          title={isFacebookGroupListExpanded ? 'Ẩn danh sách nhóm Facebook' : 'Hiện danh sách nhóm Facebook'}
+                          aria-label={isFacebookGroupListExpanded ? 'Ẩn danh sách nhóm Facebook' : 'Hiện danh sách nhóm Facebook'}
+                          aria-expanded={isFacebookGroupListExpanded}
+                          onClick={() => setIsFacebookGroupListExpanded((expanded) => !expanded)}
+                        >
+                          {isFacebookGroupListExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                        </button>
                       ) : null}
                       {isFacebookChannel ? (
                         <button
@@ -5216,7 +5285,11 @@ function SidePanel() {
                     </span>
                   </div>
                   {showFacebookGroups ? (
-                    <div className="channel-subselection">
+                    <div
+                      className={`channel-subselection${isFacebookGroupListExpanded ? ' is-expanded' : ' is-collapsed'}`}
+                      aria-hidden={!isFacebookGroupListExpanded}
+                    >
+                      <div className="channel-subselection-content">
                       <div className="channel-subselection-title">
                         <div className="channel-subselection-heading">
                           <span>Nhóm Facebook</span>
@@ -5230,7 +5303,6 @@ function SidePanel() {
                           disabled={!token || isFacebookLoading}
                           onClick={() => void handleSyncFacebookGroups()}
                         >
-                          <RefreshIcon />
                           <span>{isFacebookLoading ? 'Đang tải lại...' : 'Tải lại'}</span>
                         </button>
                       </div>
@@ -5401,6 +5473,7 @@ function SidePanel() {
                         </>
                       ) : null}
                       {isSelected ? renderFacebookContentPanel() : null}
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -6194,41 +6267,6 @@ function SidePanel() {
           </section>
         ) : null}
 
-        {facebookProgress ? (
-          <section className="capture-panel">
-            <div className="status-row">
-              <span>Facebook publish</span>
-              <strong>{facebookProgress.status}</strong>
-            </div>
-            <dl>
-              <div>
-                <dt>Progress</dt>
-                <dd>{facebookProgress.currentIndex}/{facebookProgress.total}</dd>
-              </div>
-              {facebookProgress.target ? (
-                <div>
-                  <dt>Target</dt>
-                  <dd>{facebookProgress.target.targetName}</dd>
-                </div>
-              ) : null}
-              <div>
-                <dt>Status</dt>
-                <dd>{facebookProgress.message}</dd>
-              </div>
-            </dl>
-            {facebookProgress.results.length > 0 ? (
-              <ul className="diagnostic-list">
-                {facebookProgress.results.map((item) => (
-                  <li key={`${item.targetName}-${item.status}`}>
-                    <strong>{item.targetName}</strong>
-                    <span>{item.status}</span>
-                    <small>{item.message}</small>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
-        ) : null}
       </>
     );
   }
@@ -6339,7 +6377,7 @@ return (
         <div className="modal-backdrop" role="presentation">
           {facebookGroupModalMode === 'SETTINGS' ? (
             <section
-              className="facebook-group-modal"
+              className="facebook-group-modal facebook-group-settings-modal"
               role="dialog"
               aria-modal="true"
               aria-labelledby="facebook-group-settings-title"
@@ -6730,9 +6768,6 @@ return (
               <div className="facebook-ineligible-modal-heading">
                 <div>
                   <h2 id="facebook-group-sync-details-title">DANH SÁCH NHÓM KHÔNG PHÙ HỢP</h2>
-                  <span>
-                    {`${facebookIneligibleTotalItems} nhóm không phù hợp / ${facebookIneligibleTotalGroupCount} nhóm`}
-                  </span>
                 </div>
               </div>
               <button
@@ -6746,6 +6781,11 @@ return (
               </button>
             </header>
             <div className="modal-body facebook-ineligible-modal-body">
+              <div className="facebook-ineligible-modal-total">
+                <span>
+                  {`${facebookIneligibleTotalItems} nhóm không phù hợp / ${facebookIneligibleTotalGroupCount} nhóm`}
+                </span>
+              </div>
               <div className="facebook-ineligible-modal-list">
                 {facebookIneligiblePageItems.length > 0 ? (
                   facebookIneligiblePageItems.map((group) => {
@@ -6783,49 +6823,53 @@ return (
                 ) : (
                   <p className="channel-subselection-empty">Không có nhóm không phù hợp.</p>
                 )}
-              </div>
               {facebookIneligibleTotalItems > 0 ? (
                 <div className="facebook-ineligible-modal-pagination">
-                  <span>
-                    {`Hi\u1ec3n th\u1ecb t\u1eeb ${facebookIneligibleVisibleStart} - ${facebookIneligibleVisibleEnd} c\u1ee7a ${facebookIneligibleTotalItems} k\u1ebft qu\u1ea3`}
-                  </span>
+                  <div className="facebook-ineligible-modal-pagination-summary">
+                    <span>
+                      {`Hi\u1ec3n th\u1ecb t\u1eeb ${facebookIneligibleVisibleStart} - ${facebookIneligibleVisibleEnd} c\u1ee7a ${facebookIneligibleTotalItems} k\u1ebft qu\u1ea3`}
+                    </span>
+                  </div>
                   <div className="facebook-ineligible-modal-pagination-actions">
-                    <button
-                      type="button"
-                      title="Trang truoc"
-                      aria-label="Trang truoc danh sach nhom khong phu hop"
-                      disabled={currentFacebookIneligiblePage <= 1}
-                      onClick={() => setFacebookIneligiblePage((page) => Math.max(1, page - 1))}
-                    >
-                      <BackIcon />
-                    </button>
-                    {facebookIneligiblePaginationItems.map((page) => (
-                      typeof page === 'number' ? (
-                        <button
-                          key={page}
-                          type="button"
-                          className={page === currentFacebookIneligiblePage ? 'is-active' : undefined}
-                          aria-current={page === currentFacebookIneligiblePage ? 'page' : undefined}
-                          onClick={() => setFacebookIneligiblePage(page)}
-                        >
-                          {page}
-                        </button>
-                      ) : (
-                        <span key={page} className="facebook-ineligible-modal-pagination-ellipsis">...</span>
-                      )
-                    ))}
-                    <button
-                      type="button"
-                      title="Trang sau"
-                      aria-label="Trang sau danh sach nhom khong phu hop"
-                      disabled={currentFacebookIneligiblePage >= facebookIneligiblePageCount}
-                      onClick={() => setFacebookIneligiblePage((page) => Math.min(facebookIneligiblePageCount, page + 1))}
-                    >
-                      <ChevronRightIcon />
-                    </button>
+                    <div className="facebook-ineligible-modal-pagination-buttons">
+                      <button
+                        type="button"
+                        title="Trang truoc"
+                        aria-label="Trang truoc danh sach nhom khong phu hop"
+                        disabled={currentFacebookIneligiblePage <= 1}
+                        onClick={() => setFacebookIneligiblePage((page) => Math.max(1, page - 1))}
+                      >
+                        <BackIcon />
+                      </button>
+                      {facebookIneligiblePaginationItems.map((page) => (
+                        typeof page === 'number' ? (
+                          <button
+                            key={page}
+                            type="button"
+                            className={page === currentFacebookIneligiblePage ? 'is-active' : undefined}
+                            aria-current={page === currentFacebookIneligiblePage ? 'page' : undefined}
+                            onClick={() => setFacebookIneligiblePage(page)}
+                          >
+                            {page}
+                          </button>
+                        ) : (
+                          <span key={page} className="facebook-ineligible-modal-pagination-ellipsis">...</span>
+                        )
+                      ))}
+                      <button
+                        type="button"
+                        title="Trang sau"
+                        aria-label="Trang sau danh sach nhom khong phu hop"
+                        disabled={currentFacebookIneligiblePage >= facebookIneligiblePageCount}
+                        onClick={() => setFacebookIneligiblePage((page) => Math.min(facebookIneligiblePageCount, page + 1))}
+                      >
+                        <ChevronRightIcon />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}
+              </div>
             </div>
           </section>
         </div>

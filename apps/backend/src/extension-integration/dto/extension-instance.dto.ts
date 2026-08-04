@@ -25,12 +25,16 @@ export class RegisterExtensionInstanceDto {
   installId?: string;
 
   @ApiPropertyOptional()
+  // Preserve primitive input so the global implicit conversion cannot turn numbers into strings.
+  @Type(() => Object)
   @IsOptional()
   @IsString()
   @MaxLength(160)
   displayName?: string;
 
   @ApiPropertyOptional()
+  // Preserve primitive input so the global implicit conversion cannot turn numbers into strings.
+  @Type(() => Object)
   @IsOptional()
   @IsString()
   @MaxLength(64)

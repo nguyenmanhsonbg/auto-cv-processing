@@ -6,6 +6,8 @@ import {
   Delete,
   Get,
   Headers,
+  HttpException,
+  HttpStatus,
   Param,
   Post,
   Put,
@@ -294,7 +296,7 @@ export class ExtensionFacebookController {
     const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const group = await this.facebookPublishingService.updateExtensionGroupVerification({
       ownerUserId: req.user.id,
-      targetId,
+      targetId: this.requireGroupTargetIdOrNotFound(targetId),
       eligibilityStatus: dto.eligibilityStatus,
       eligibilityReason: dto.eligibilityReason,
       verifiedAt: dto.verifiedAt ? new Date(dto.verifiedAt) : null,
@@ -357,7 +359,7 @@ export class ExtensionFacebookController {
     await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const result = await this.facebookPublishingService.listExtensionGroupPublishHistories({
       ownerUserId: req.user.id,
-      targetId,
+      targetId: this.requireGroupTargetIdOrNotFound(targetId),
       facebookReviewStatus: this.normalizeReviewStatusQuery(status),
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
@@ -488,6 +490,20 @@ export class ExtensionFacebookController {
     }
 
     return targetId;
+  }
+
+  private requireGroupTargetIdOrNotFound(targetId: string) {
+    if (!targetId?.trim() || !isUUID(targetId.trim())) {
+      throw new HttpException(
+        {
+          code: 'NOT_FOUND',
+          message: 'Requested resource was not found.',
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return targetId.trim();
   }
 
   private async resolveOptionalExtensionInstance(

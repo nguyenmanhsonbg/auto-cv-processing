@@ -1154,6 +1154,11 @@ dd {
   background: transparent;
 }
 
+.channel-action-button.channel-groups-toggle {
+  border: 0;
+  padding: 0;
+}
+
 .channel-option:hover .channel-action-icon,
 .channel-option:hover .channel-action-button,
 .channel-option.is-selected .channel-action-icon,
@@ -1433,11 +1438,12 @@ dd {
   gap: 2px;
 }
 
-.facebook-ineligible-modal-header h2 {
+.facebook-group-modal .facebook-ineligible-modal-header h2 {
   margin: 0;
   color: #262626;
   font-family: Roboto, sans-serif;
   font-size: 11px;
+  font-style: normal;
   font-weight: 700;
   letter-spacing: 0.55px;
   line-height: 16.5px;
@@ -1445,9 +1451,13 @@ dd {
 }
 
 .facebook-ineligible-modal-heading span {
+  display: block;
+  border-top: 1px solid #edf1f7;
+  padding-top: 4px;
   color: #64748b;
   font-family: Roboto, sans-serif;
   font-size: 11px;
+  font-style: normal;
   font-weight: 700;
   letter-spacing: 0.55px;
   line-height: 16.5px;
@@ -1457,15 +1467,18 @@ dd {
 .facebook-ineligible-modal-header .icon-button {
   width: 20px;
   height: 20px;
-  border-radius: 4px;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
   padding: 0;
   color: #9ca3af;
   background: transparent;
+  box-shadow: none;
 }
 
 .facebook-ineligible-modal-header .icon-button:hover {
   color: #4b5563;
-  background: #f3f4f6;
+  background: transparent;
 }
 
 .facebook-ineligible-modal-header .icon-button svg {
@@ -1474,25 +1487,52 @@ dd {
 }
 
 .facebook-ineligible-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   grid-template-rows: minmax(0, 1fr) auto;
-  padding: 0 16px 12px;
+  padding: 16px;
+}
+
+.facebook-ineligible-modal-total {
+  display: flex;
+  min-height: 16.5px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.facebook-ineligible-modal-total span {
+  color: #64748b;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.55px;
+  line-height: 16.5px;
+  text-transform: uppercase;
 }
 
 .facebook-ineligible-modal-list {
   display: grid;
+  gap: 12px;
+  flex: 1 1 auto;
+  width: 100%;
   min-height: 0;
   max-height: min(60vh, 460px);
+  padding-top: 4px;
   overflow-y: auto;
 }
 
 .facebook-ineligible-modal-pagination {
   display: flex;
+  width: 100%;
+  min-height: 46px;
   min-width: 0;
   align-items: center;
   justify-content: flex-start;
-  gap: 1px;
-  padding: 10px 0;
-  overflow-x: auto;
+  gap: 12px;
+  padding: 0 16px;
+  overflow: visible;
   color: #2f2b3d;
   font-family: Roboto, sans-serif;
   font-size: 12px;
@@ -1505,38 +1545,69 @@ dd {
   display: none;
 }
 
-.facebook-ineligible-modal-pagination > span {
-  flex: 0 0 auto;
-  min-width: 0;
+.facebook-ineligible-modal-pagination-summary {
+  display: flex;
+  flex: 1 1 0;
+  min-width: max-content;
+  align-items: center;
+  gap: 8px;
+}
+
+.facebook-ineligible-modal-pagination-summary span {
+  color: rgba(47, 43, 61, 0.9);
+  font-family: Roboto, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 16.8px;
   white-space: nowrap;
 }
 
 .facebook-ineligible-modal-pagination-actions {
-  display: inline-flex;
-  flex: 0 0 auto;
+  display: flex;
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
   align-items: center;
   justify-content: flex-end;
-  gap: 1px;
-  min-width: max-content;
-  white-space: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  align-content: center;
+  scrollbar-width: none;
+}
+
+.facebook-ineligible-modal-pagination-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.facebook-ineligible-modal-pagination-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  align-content: center;
 }
 
 .facebook-ineligible-modal-pagination-actions button,
 .facebook-ineligible-modal-pagination-ellipsis {
   display: inline-grid;
-  flex: 0 0 28px;
-  min-width: 28px;
-  height: 29px;
+  flex: 0 0 30px;
+  min-width: 30px;
+  height: 30px;
   place-items: center;
   border: 0;
-  border-radius: 5px;
-  padding: 4px;
+  border-radius: 6px;
+  padding: 6px;
   color: #2f2b3d;
   background: rgba(47, 43, 61, 0.08);
   font-family: Roboto, sans-serif;
   font-size: 12px;
   font-weight: 400;
-  letter-spacing: 0.1px;
+  letter-spacing: 0.4px;
   line-height: 16.8px;
 }
 
@@ -1562,8 +1633,8 @@ dd {
 }
 
 .facebook-ineligible-modal-pagination-ellipsis {
-  flex-basis: 20px;
-  min-width: 20px;
+  flex-basis: 30px;
+  min-width: 30px;
   background: transparent;
 }
 
@@ -1572,12 +1643,19 @@ dd {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid #f3f4f6;
-  padding: 12px 10px;
+  border: 0;
+  border-radius: 8px;
+  outline: 1px solid #f3f4f6;
+  outline-offset: -1px;
+  padding: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .facebook-ineligible-modal-copy {
   display: grid;
+  flex: 0 1 170px;
+  width: 170px;
   min-width: 0;
   gap: 3px;
 }
@@ -1586,6 +1664,7 @@ dd {
   color: #1e293b;
   font-family: Roboto, sans-serif;
   font-size: 13px;
+  font-style: normal;
   font-weight: 700;
   line-height: 19.5px;
   overflow-wrap: anywhere;
@@ -1596,14 +1675,17 @@ dd {
   color: #64748b;
   font-family: Roboto, sans-serif;
   font-size: 10px;
+  font-style: normal;
   line-height: 15px;
 }
 
 .facebook-ineligible-modal-actions {
   display: inline-flex;
-  flex: 0 0 auto;
+  flex: 0 0 186px;
+  width: 186px;
+  min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 3px;
 }
 
 .facebook-ineligible-open-link {
@@ -1628,16 +1710,17 @@ dd {
 }
 
 .facebook-ineligible-add-button {
-  min-height: 20px;
+  min-height: 28px;
   border: 0;
-  border-radius: 4px;
-  padding: 0 8px;
+  border-radius: 8px;
+  padding: 4px 14px;
   color: #ffffff;
   background: #059669;
   font-family: Inter, sans-serif;
   font-size: 10px;
   font-weight: 600;
   line-height: 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   white-space: nowrap;
 }
 
@@ -2486,6 +2569,10 @@ dd {
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.24);
 }
 
+.facebook-group-modal.facebook-ineligible-modal {
+  width: min(100%, 560px);
+}
+
 .modal-header {
   display: flex;
   align-items: flex-start;
@@ -2511,12 +2598,45 @@ dd {
   background: #e2e8f0;
 }
 
+.facebook-group-settings-modal .modal-header .icon-button {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  padding: 0;
+  color: #9ca3af;
+  background: transparent;
+  box-shadow: none;
+}
+
+.facebook-group-settings-modal .modal-header .icon-button:hover {
+  color: #4b5563;
+  background: transparent;
+}
+
+.facebook-group-settings-modal .modal-header .icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.facebook-group-modal.facebook-ineligible-modal .facebook-ineligible-modal-header {
+  border-bottom: 1px solid #f3f4f6;
+}
+
 .modal-body {
   display: grid;
   gap: 12px;
   min-height: 0;
   overflow: hidden;
   padding: 14px 16px 16px;
+}
+
+.facebook-group-modal.facebook-ineligible-modal .facebook-ineligible-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
 }
 
 .facebook-group-sync-details-body {
@@ -4759,7 +4879,10 @@ dd {
 
 .extension-window .channel-section .section-title {
   color: #6b7280;
-  font-size: 13px;
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .extension-window .channel-option {
@@ -4778,8 +4901,10 @@ dd {
 }
 
 .extension-window .channel-option-label span {
-  font-size: 15px;
-  font-weight: 900;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .extension-window .channel-option.is-facebook.is-selected {
@@ -4787,8 +4912,104 @@ dd {
   background: #e9fff5;
 }
 
+.extension-window .channel-option.is-facebook .channel-option-label span {
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .extension-window .channel-subselection {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
   padding: 0 10px 10px;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    grid-template-rows 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding-bottom 900ms ease,
+    opacity 760ms ease,
+    transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: grid-template-rows, padding-bottom, opacity, transform;
+}
+
+.extension-window .channel-subselection-content {
+  min-height: 0;
+  overflow: hidden;
+  clip-path: inset(0 0 0 0);
+  transform: translateY(0);
+  transition:
+    clip-path 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 760ms ease,
+    transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: clip-path, opacity, transform;
+}
+
+.extension-window .channel-subselection.is-collapsed {
+  grid-template-rows: 0fr;
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+}
+
+.extension-window .channel-subselection.is-collapsed .channel-subselection-content {
+  clip-path: inset(0 0 100% 0);
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .extension-window .channel-subselection,
+  .extension-window .channel-subselection-content {
+    transition: none;
+  }
+}
+
+.extension-window .channel-option.is-facebook .channel-group-copy > span:first-child {
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.extension-window .channel-option.is-facebook .channel-subselection-title {
+  font-family: Arial, sans-serif;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.extension-window .channel-option.is-facebook .channel-subselection-summary {
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.extension-window .channel-option.is-facebook .facebook-ineligible-trigger {
+  color: #4B5563;
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.extension-window .channel-subselection-reload-button {
+  border: 1px solid #6ee7b7;
+  border-radius: 4px;
+  color: #047857;
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 13px;
+}
+
+.extension-window .channel-subselection-reload-button svg {
+  display: none;
 }
 
 .channel-subselection-summary {
