@@ -349,19 +349,6 @@ export interface SyncAmisJobPostingRequest {
   metadata?: Record<string, unknown>;
 }
 
-export interface SyncAmisJobDescriptionRequest {
-  amisRecruitmentId: string;
-  amisUrl?: string;
-  snapshot: AmisJobSnapshot;
-  templateJobDescriptionId?: string;
-}
-
-export interface SyncAmisJobDescriptionResponse {
-  resultCode: 'CREATED' | 'UPDATED' | 'UNCHANGED';
-  amisRecruitmentId: string;
-  jobDescription: JobDescriptionSummary;
-}
-
 export type AmisExtractionStatus =
   | 'AMIS_PAGE_DETECTED'
   | 'UNSUPPORTED_PAGE'

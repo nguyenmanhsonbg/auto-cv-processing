@@ -24,7 +24,6 @@ import {
   syncAmisApplications,
   syncAmisJobStatus,
   syncAmisCareers,
-  syncAmisJobDescription,
   syncAndPublishAmisJob,
   verifyFacebookGroup,
 } from './api-client';
@@ -56,7 +55,7 @@ import {
 } from './facebook-publish-orchestrator';
 import { saveLastFacebookPublishProgress } from './facebook-publish-store';
 import { getSelectedJobQuestionContextForTab, getSelectedJobQuestionIdsForTab } from './selected-job-question-store';
-import { resolveAutoSyncJobDescriptionId } from './amis-auto-sync-payload';
+import { resolveSelectedVcsJobDescriptionId } from './amis-auto-sync-payload';
 import type {
   AmisDiagnosticEvent,
   AmisExtractionResult,
@@ -612,22 +611,9 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
 
     try {
       await heartbeatExtensionInstance(accessToken as string);
-      const syncedJobDescription = await syncAmisJobDescription(accessToken as string, {
-        amisRecruitmentId: amisRecruitmentId as string,
-        amisUrl: enrichedCapture.url,
-        snapshot: snapshot as AmisJobSnapshot,
-      });
-      const autoSyncJobDescriptionId = resolveAutoSyncJobDescriptionId(
-        selectedJobDescriptionId,
-        syncedJobDescription.jobDescription?.id,
-      );
-      if (!autoSyncJobDescriptionId) {
-        throw new Error('AUTO_SYNC_JOB_DESCRIPTION_REQUIRED: AMIS Job Description was not created.');
+      if (!resolveSelectedVcsJobDescriptionId(selectedJobDescriptionId)) {
+        throw new Error('JOB_DESCRIPTION_REQUIRED: Select an existing VCS Job Description before saving an AMIS recruitment.');
       }
-      const selectedJobQuestionContextForSync: SelectedJobQuestionContextForSync = {
-        ...selectedJobQuestionContext,
-        jobDescriptionId: autoSyncJobDescriptionId,
-      };
       const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(sender.tab?.id ?? 0);
       const result = await syncAndPublishAmisJob(
         accessToken as string,
@@ -638,7 +624,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
           selectedQuestionIds,
           facebookContentForPublish,
           facebookAccountId,
-          selectedJobQuestionContextForSync,
+          selectedJobQuestionContext,
         ),
       );
 

@@ -20,8 +20,6 @@ import {
   SyncAmisCareersDto,
   SyncAmisCareersResponseDto,
   SyncAmisJobPostingDto,
-  SyncAmisJobDescriptionDto,
-  SyncAmisJobDescriptionResponseDto,
   SyncAmisJobStatusDto,
   SyncAmisJobStatusResponseDto,
   UpdateAmisApplicationStageDto,
@@ -109,42 +107,6 @@ export class ExtensionIntegrationController {
         timestamp: new Date().toISOString(),
         requestId: this.optionalHeader(requestId) ?? null,
         idempotencyKey: idempotencyKeyValue,
-        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
-        extensionInstanceId: extensionInstance?.id ?? null,
-      },
-    };
-  }
-
-  @Post('job-descriptions/sync')
-  @ApiOperation({ summary: 'Sync an AMIS job description without publishing channels' })
-  @ApiBody({ type: SyncAmisJobDescriptionDto })
-  @ApiResponse({
-    status: 201,
-    description: 'AMIS job description sync result.',
-    type: SyncAmisJobDescriptionResponseDto,
-  })
-  async syncJobDescription(
-    @Body() dto: SyncAmisJobDescriptionDto,
-    @Request() req: ExtensionAuthenticatedRequest,
-    @Headers('x-request-id') requestId: HeaderValue,
-    @Headers('x-extension-version') extensionVersion: HeaderValue,
-    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
-  ) {
-    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
-    const data = await this.extensionIntegrationService.syncAmisJobDescription(dto, {
-      actorUserId: req.user.id,
-      actorRole: req.user.role,
-      requestId: this.optionalHeader(requestId),
-      extensionVersion: this.optionalHeader(extensionVersion),
-      extensionInstanceId: extensionInstance?.id ?? null,
-    });
-
-    return {
-      success: true,
-      data,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: this.optionalHeader(requestId) ?? null,
         extensionVersion: this.optionalHeader(extensionVersion) ?? null,
         extensionInstanceId: extensionInstance?.id ?? null,
       },
