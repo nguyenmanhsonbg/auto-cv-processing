@@ -319,7 +319,6 @@ const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label:
   { value: 'POSTED', label: 'Đã đăng' },
   { value: 'PENDING_REVIEW', label: 'Chờ duyệt' },
   { value: 'REJECTED', label: 'Bị từ chối' },
-  { value: 'DELETED', label: 'Đã xóa' },
 ];
 const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
 type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
@@ -480,7 +479,6 @@ function SidePanel() {
   const [facebookHistoryData, setFacebookHistoryData] = useState<FacebookPublishHistoriesResponse | null>(null);
   const [facebookHistoryLoadState, setFacebookHistoryLoadState] = useState<FacebookPostHistoryLoadState>('IDLE');
   const [facebookHistoryMessage, setFacebookHistoryMessage] = useState<string | null>(null);
-  const [refreshingFacebookHistoryIds, setRefreshingFacebookHistoryIds] = useState<string[]>([]);
   const [isRefreshingFacebookHistoryGroup, setIsRefreshingFacebookHistoryGroup] = useState(false);
 
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
@@ -3270,7 +3268,6 @@ function SidePanel() {
     setFacebookHistoryData(null);
     setFacebookHistoryLoadState('IDLE');
     setFacebookHistoryMessage(null);
-    setRefreshingFacebookHistoryIds([]);
     setIsRefreshingFacebookHistoryGroup(false);
   }
 
@@ -3342,45 +3339,6 @@ function SidePanel() {
     await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, nextPage);
   }
 
-  async function refreshFacebookHistoryItem(item: FacebookPublishHistoryListItem) {
-    const accessToken = tokenRef.current;
-    if (!accessToken) {
-      setState('AUTH_REQUIRED');
-      setFacebookHistoryMessage('Sign in to VCS Recruitment before refreshing Facebook post status.');
-      return;
-    }
-
-    const refreshItem = withFacebookHistoryGroupFallback(item, selectedFacebookHistoryGroup);
-    if (!isRefreshableFacebookHistoryItem(refreshItem)) {
-      setFacebookHistoryMessage('Bài này cần URL bài viết hoặc URL group Facebook hợp lệ để refresh trạng thái.');
-      return;
-    }
-
-    setRefreshingFacebookHistoryIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id]);
-    setFacebookHistoryMessage(`Đang refresh trạng thái bài "${item.title}".`);
-
-    try {
-      const statusCheck = await refreshFacebookPostReviewStatus(refreshItem);
-      await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
-      await syncFacebookImageStatusFromHistoryItem(refreshItem, statusCheck.facebookReviewStatus);
-      await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, facebookHistoryPage);
-      setFacebookHistoryMessage(statusCheck.message ?? 'Đã refresh trạng thái bài đăng.');
-    } catch (err) {
-      if (err instanceof ApiClientError && err.status === 401) {
-        await clearAccessToken();
-        setToken(null);
-        setUser(null);
-        setState('AUTH_REQUIRED');
-        setFacebookHistoryMessage('Authentication expired. Sign in again before refreshing Facebook history.');
-        return;
-      }
-
-      setFacebookHistoryMessage(toErrorMessage(err));
-    } finally {
-      setRefreshingFacebookHistoryIds((ids) => ids.filter((id) => id !== item.id));
-    }
-  }
-
   async function refreshFacebookHistoryGroupStatuses() {
     const group = selectedFacebookHistoryGroup;
     const accessToken = tokenRef.current;
@@ -3416,7 +3374,6 @@ function SidePanel() {
 
       for (let index = 0; index < itemsToRefresh.length; index += 1) {
         const item = itemsToRefresh[index];
-        setRefreshingFacebookHistoryIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id]);
         setFacebookHistoryMessage(`Đang kiểm tra ${index + 1}/${itemsToRefresh.length}: ${item.title}`);
 
         try {
@@ -3438,8 +3395,6 @@ function SidePanel() {
           }
 
           issueCount += 1;
-        } finally {
-          setRefreshingFacebookHistoryIds((ids) => ids.filter((id) => id !== item.id));
         }
       }
 
@@ -3451,7 +3406,6 @@ function SidePanel() {
       setFacebookHistoryMessage(toErrorMessage(err));
     } finally {
       setIsRefreshingFacebookHistoryGroup(false);
-      setRefreshingFacebookHistoryIds([]);
     }
   }
 
@@ -3677,7 +3631,7 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
 
     try {
-      const savedGroup = await createFacebookGroup(token, {
+      await createFacebookGroup(token, {
         targetName,
         targetUrl,
         facebookAccountId: facebookAccount?.id,
@@ -3691,7 +3645,8 @@ function SidePanel() {
       setFacebookGroupUrlError(null);
       setIsFacebookGroupFormOpen(false);
       setFacebookSettingsState('READY');
-      setFacebookSettingsMessage(`Added "${savedGroup.targetName}". Click Check before using it for publishing.`);
+      setFacebookSettingsMessage(null);
+      showExtensionToast('SUCCESS', 'Thành công', 'Đã thêm nhóm thành công');
 
       if (selectedPostingChannels.includes('FACEBOOK')) {
         setFacebookGroupLoadState('READY');
@@ -3796,7 +3751,7 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
 
     try {
-      const deletedGroup = await deleteFacebookGroup(token, selectedFacebookGroup.targetId, facebookAccount?.id);
+      await deleteFacebookGroup(token, selectedFacebookGroup.targetId, facebookAccount?.id);
       const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token, facebookAccount?.id));
       setFacebookGroups(groups);
       setFacebookGroupPage(1);
@@ -3806,7 +3761,8 @@ function SidePanel() {
       setSelectedFacebookGroup(null);
       setFacebookGroupModalMode('SETTINGS');
       setFacebookSettingsState('READY');
-      setFacebookSettingsMessage(`Đã xóa nhóm "${deletedGroup.targetName}".`);
+      setFacebookSettingsMessage(null);
+      showExtensionToast('SUCCESS', 'Thành công', 'Đã xóa nhóm thành công');
 
       if (selectedPostingChannels.includes('FACEBOOK')) {
         setFacebookGroupLoadState('READY');
@@ -4308,7 +4264,6 @@ function SidePanel() {
     const visibleEnd = Math.min(visibleStart + pageItems.length - 1, totalItems);
     const isLoadingHistory = facebookHistoryLoadState === 'LOADING';
     const isHistoryBusy = isLoadingHistory || isRefreshingFacebookHistoryGroup;
-    const refreshableCount = summary.pendingReview + summary.unknown;
     const paginationItems = buildPostHistoryPaginationItems(currentPage, pageCount);
 
     return (
@@ -4327,17 +4282,7 @@ function SidePanel() {
             <div className="post-history-header-actions">
               <button
                 type="button"
-                className={`post-history-refresh-all-button${isRefreshingFacebookHistoryGroup ? ' is-loading' : ''}`}
-                title="Refresh trạng thái các bài đang chờ duyệt hoặc chưa rõ"
-                disabled={isHistoryBusy || refreshableCount === 0}
-                onClick={() => void refreshFacebookHistoryGroupStatuses()}
-              >
-                <RefreshIcon />
-                <span>{isRefreshingFacebookHistoryGroup ? 'Đang kiểm tra' : 'Refresh trạng thái'}</span>
-              </button>
-              <button
-                type="button"
-                className="icon-button"
+                className="icon-button post-history-close-button"
                 title="Đóng"
                 aria-label="Đóng lịch sử đăng bài"
                 disabled={isRefreshingFacebookHistoryGroup}
@@ -4366,26 +4311,35 @@ function SidePanel() {
                 <span>Bị từ chối</span>
                 <strong>{summary.rejected}</strong>
               </article>
-              <article className="post-history-metric is-deleted">
-                <span>Đã xóa</span>
-                <strong>{summary.deleted}</strong>
-              </article>
             </div>
 
             <div className="post-history-filter-row">
-              <span>Lọc theo:</span>
-              <div>
-                {FACEBOOK_HISTORY_FILTERS.map((filter) => (
-                  <button
-                    key={filter.value}
-                    type="button"
-                    className={facebookHistoryFilter === filter.value ? 'is-active' : ''}
-                    disabled={isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryFilter(filter.value)}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
+              <label htmlFor="facebook-post-history-filter">
+                <span>Trạng thái bài đăng</span>
+                <select
+                  id="facebook-post-history-filter"
+                  value={facebookHistoryFilter}
+                  disabled={isHistoryBusy}
+                  onChange={(event) => void changeFacebookHistoryFilter(event.currentTarget.value as FacebookPostHistoryFilter)}
+                >
+                  {FACEBOOK_HISTORY_FILTERS.map((filter) => (
+                    <option key={filter.value} value={filter.value}>
+                      {filter.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="post-history-filter-controls">
+                <button
+                  type="button"
+                  className={`post-history-refresh-all-button${isRefreshingFacebookHistoryGroup ? ' is-loading' : ''}`}
+                  title="Refresh trạng thái các bài đang chờ duyệt hoặc chưa rõ"
+                  disabled={isHistoryBusy}
+                  onClick={() => void refreshFacebookHistoryGroupStatuses()}
+                >
+                  <RefreshIcon />
+                  <span>{isRefreshingFacebookHistoryGroup ? 'Đang kiểm tra' : 'Tải lại'}</span>
+                </button>
               </div>
             </div>
 
@@ -4413,20 +4367,12 @@ function SidePanel() {
                 </thead>
                 <tbody>
                   {pageItems.length > 0 ? pageItems.map((item) => {
-                    const isRefreshing = refreshingFacebookHistoryIds.includes(item.id);
                     const postUrl = getValidFacebookGroupPostUrl(item.externalPostUrl);
-                    const refreshItem = withFacebookHistoryGroupFallback(item, selectedFacebookHistoryGroup);
-                    const canRefreshItem = isRefreshableFacebookHistoryItem(refreshItem);
                     return (
                     <tr key={item.id}>
                       <td>{formatDate(item.submittedAt ?? item.createdAt ?? undefined) ?? '-'}</td>
                       <td>
                         <span>{item.title}</span>
-                        {item.message ? <small>{item.message}</small> : null}
-                        {!item.message && item.contentPreview ? <small>{item.contentPreview}</small> : null}
-                        {item.lastStatusCheckedAt ? (
-                          <small>Đã kiểm tra: {formatFacebookHistoryDateTime(item.lastStatusCheckedAt) ?? item.lastStatusCheckedAt}</small>
-                        ) : null}
                       </td>
                       <td>
                         <span className={`post-history-status is-${item.facebookReviewStatus.toLowerCase().replace('_', '-')}`}>
@@ -4446,21 +4392,7 @@ function SidePanel() {
                             >
                               <ExternalLinkIcon />
                             </button>
-                          ) : null}
-                          {canRefreshItem ? (
-                          <button
-                            type="button"
-                            className={`post-history-action-button is-refresh${isRefreshing ? ' is-loading' : ''}`}
-                            title="Refresh trạng thái bài đăng"
-                            aria-label={`Refresh trạng thái bài đăng ${item.title}`}
-                            disabled={isHistoryBusy}
-                            onClick={() => void refreshFacebookHistoryItem(item)}
-                          >
-                            <RefreshIcon />
-                          </button>
-                        ) : (
-                          !postUrl ? <span className="post-history-no-action">-</span> : null
-                        )}
+                          ) : <span className="post-history-no-action">-</span>}
                         </div>
                       </td>
                     </tr>
@@ -4550,11 +4482,6 @@ function SidePanel() {
       </div>
           </div>
 
-          <footer className="post-history-footer">
-            <button type="button" className="secondary-button compact-button" onClick={closeFacebookPostHistory}>
-              Đóng
-            </button>
-          </footer>
         </section>
       </div>
     );
@@ -5404,7 +5331,7 @@ function SidePanel() {
                                   url: group.url,
                                 })}
                               >
-                                <InfoIcon />
+                                <HistoryIcon />
                               </button>
                             </div>
                           ))
@@ -7196,15 +7123,6 @@ function HistoryIcon({ className }: IconProps) {
   );
 }
 
-function InfoIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5.8" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M8 7.2v3.4M8 5.1h.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function CloseIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
@@ -8847,20 +8765,6 @@ function formatDate(value: string | undefined) {
 }
 
 function formatDateTime(value: string | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-
-  return date.toLocaleString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function formatFacebookHistoryDateTime(value: string | undefined) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
