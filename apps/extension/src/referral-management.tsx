@@ -17,6 +17,7 @@ import { buildFreelancerIdentifierCopyText } from './referral-management-utils';
 
 type CvStatusFilter = 'ALL' | 'APPLICATION' | 'TEST' | 'INTERVIEW' | 'OFFER' | 'HIRED' | 'REJECTED';
 type JdFilter = 'ALL' | string;
+type AccountStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 type ModalMode = 'CREATE' | 'CREDENTIALS' | 'STATUS' | null;
 type NotifyKind = 'SUCCESS' | 'ERROR';
 
@@ -45,6 +46,7 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
   const [search, setSearch] = useState('');
   const [cvStatusFilter, setCvStatusFilter] = useState<CvStatusFilter>('ALL');
   const [jdFilter, setJdFilter] = useState<JdFilter>('ALL');
+  const [accountStatusFilter, setAccountStatusFilter] = useState<AccountStatusFilter>('ALL');
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +73,7 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
         page,
         limit: 10,
         search,
+        status: accountStatusFilter === 'ALL' ? undefined : accountStatusFilter,
       });
       setPeople(result.data);
       setPagination(result.pagination ?? { page, limit: 10, total: result.data.length, totalPages: 1 });
@@ -81,7 +84,7 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
     } finally {
       setLoading(false);
     }
-  }, [accessToken, page, refreshVersion, search, source]);
+  }, [accessToken, accountStatusFilter, page, refreshVersion, search, source]);
 
   useEffect(() => {
     void loadPeople();
@@ -232,7 +235,24 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
             placeholder={source === 'FREELANCER' ? 'Tìm kiếm tên, Mã Freelancer' : 'Tìm kiếm email Nội bộ'}
             aria-label={`Tìm kiếm ${title}`}
           />
+          {search ? (
+            <button
+              type="button"
+              className="referral-search-clear-button"
+              aria-label="Xóa nội dung tìm kiếm"
+              title="Xóa nội dung tìm kiếm"
+              onClick={() => {
+                setSearch('');
+                setPage(1);
+              }}
+            >
+              <SearchClearIcon />
+            </button>
+          ) : null}
         </label>
+        <button type="button" className="referral-primary-button" onClick={openCreateModal}>
+          Thêm nhân sự
+        </button>
         <div className="referral-filter-row">
           <label>
             <span>Tình trạng CV</span>
@@ -247,9 +267,20 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
               {availableJds.map(([id, jdTitle]) => <option key={id} value={id}>{jdTitle}</option>)}
             </select>
           </label>
-          <button type="button" className="referral-primary-button" onClick={openCreateModal}>
-            <span aria-hidden="true">＋</span> Thêm {title.toLowerCase()}
-          </button>
+          <label>
+            <span>Tình trạng tài khoản</span>
+            <select
+              value={accountStatusFilter}
+              onChange={(event) => {
+                setAccountStatusFilter(event.target.value as AccountStatusFilter);
+                setPage(1);
+              }}
+            >
+              <option value="ALL">Tất cả</option>
+              <option value="ACTIVE">Hoạt động</option>
+              <option value="INACTIVE">Đã khóa</option>
+            </select>
+          </label>
         </div>
       </div>
 
@@ -521,6 +552,10 @@ function CopyIcon() {
 
 function SearchIcon() {
   return <svg className="referral-search-svg" aria-hidden="true" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.2" stroke="currentColor" strokeWidth="1.4" /><path d="m10.2 10.2 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>;
+}
+
+function SearchClearIcon() {
+  return <svg className="referral-search-clear-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="m4.5 4.5 7 7m0-7-7 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>;
 }
 
 function DetailChevronIcon({ isOpen }: { isOpen: boolean }) {

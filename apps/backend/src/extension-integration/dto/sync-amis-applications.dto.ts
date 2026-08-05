@@ -206,6 +206,9 @@ export class AmisApplicationListItemDto {
   @ApiPropertyOptional()
   mobile: string | null;
 
+  @ApiPropertyOptional({ description: 'Freelancer or internal note for the application.' })
+  cvNote: string | null;
+
   @ApiProperty()
   status: string;
 

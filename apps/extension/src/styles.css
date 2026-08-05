@@ -513,8 +513,10 @@ h2 {
 
 .career-question-title {
   color: #0b1c30;
+  font-family: Arial, sans-serif;
   font-size: 16px;
-  font-weight: 400;
+  font-style: normal;
+  font-weight: 700;
   line-height: 24px;
   overflow-wrap: anywhere;
 }
@@ -2749,6 +2751,7 @@ dd {
   height: 30px;
   place-items: center;
   border-radius: 6px;
+  border: 1px solid currentColor;
   color: #64748b;
   background: #f1f5f9;
 }
@@ -2770,6 +2773,21 @@ dd {
   box-shadow: none;
 }
 
+.facebook-group-settings-modal .modal-header {
+  align-items: center;
+}
+
+.facebook-group-settings-modal .modal-header h2 {
+  margin: 0;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
+  letter-spacing: 0;
+  vertical-align: middle;
+}
+
 .facebook-group-settings-modal .modal-header .icon-button:hover {
   color: #4b5563;
   background: transparent;
@@ -2778,6 +2796,115 @@ dd {
 .facebook-group-settings-modal .modal-header .icon-button svg {
   width: 16px;
   height: 16px;
+}
+
+.facebook-group-settings-modal .modal-header > div,
+.facebook-group-settings-modal .modal-body,
+.facebook-group-settings-modal .modal-toolbar,
+.facebook-group-settings-modal .facebook-group-list {
+  min-width: 0;
+}
+
+.facebook-group-settings-modal {
+  width: min(100%, 520px);
+}
+
+.facebook-group-settings-modal .facebook-group-list {
+  max-height: none;
+  overflow-y: visible;
+  padding-right: 0;
+}
+
+.facebook-group-settings-modal .modal-toolbar {
+  flex-wrap: wrap;
+}
+
+.facebook-group-settings-modal .modal-toolbar .section-title {
+  flex: 1 1 140px;
+  min-width: 0;
+  margin: 0;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.facebook-group-settings-modal .modal-toolbar .compact-button {
+  flex: 0 1 auto;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.facebook-group-settings-modal .modal-toolbar .secondary-button {
+  color: #ffffff;
+  background-color: #15803d;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  text-align: center;
+}
+
+.facebook-group-settings-modal .modal-toolbar .secondary-button:hover {
+  color: #ffffff;
+  background-color: #166534;
+}
+
+.facebook-group-edit-modal .modal-header {
+  align-items: center;
+}
+
+.facebook-group-edit-modal .modal-header h2 {
+  margin: 0;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.facebook-group-edit-modal .modal-header .icon-button {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  padding: 0;
+  color: #9ca3af;
+  background: transparent;
+  box-shadow: none;
+}
+
+.facebook-group-edit-modal .modal-header .icon-button:hover:not(:disabled) {
+  color: #4b5563;
+  background: transparent;
+}
+
+.facebook-group-edit-modal .modal-header .icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.facebook-group-settings-modal .facebook-group-pagination {
+  flex-wrap: nowrap;
+  row-gap: 0;
+}
+
+.facebook-group-settings-modal .facebook-group-pagination > span {
+  flex: 0 0 auto;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.facebook-group-settings-modal .facebook-group-pagination > div {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+  overflow: visible;
 }
 
 .facebook-group-modal.facebook-ineligible-modal .facebook-ineligible-modal-header {
@@ -2801,6 +2928,16 @@ dd {
 
 .facebook-group-sync-details-body {
   grid-template-rows: minmax(0, 1fr) auto;
+}
+
+#facebook-group-sync-details-title {
+  margin: 0;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 16.5px;
+  letter-spacing: 0.55px;
 }
 
 .facebook-group-sync-details-list {
@@ -2963,7 +3100,9 @@ dd {
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
+  row-gap: 8px;
   border-top: 1px solid #edf1f7;
   padding: 10px 2px 0;
 }
@@ -2982,7 +3121,20 @@ dd {
   flex: 0 0 auto;
   justify-content: flex-start;
   flex-wrap: nowrap;
+  max-width: 100%;
   gap: 5px;
+  overflow-x: auto;
+}
+
+@media (max-width: 480px) {
+  .facebook-group-pagination > span {
+    flex-basis: 100%;
+  }
+
+  .facebook-group-pagination > div {
+    width: 100%;
+    flex: 1 1 100%;
+  }
 }
 
 .facebook-group-pagination button {
@@ -3037,6 +3189,9 @@ dd {
   border-radius: 6px;
   padding: 8px 9px 9px;
   background: #f8fafc;
+  font-family: Roboto, Arial, sans-serif;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .facebook-group-modal .facebook-group-item.is-disabled {
@@ -3144,12 +3299,15 @@ dd {
 
 .facebook-group-modal .facebook-group-open-link {
   display: inline-flex;
+  min-width: 0;
+  overflow: hidden;
   align-items: center;
   justify-content: flex-end;
   gap: 3px;
   color: #059669;
   font-size: 11px;
   line-height: 16.5px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -3165,10 +3323,11 @@ dd {
 
 .facebook-group-modal .facebook-group-item-actions {
   display: grid;
-  grid-template-columns: auto repeat(3, 24px);
+  grid-template-columns: minmax(0, 1fr) repeat(3, 24px);
   align-items: start;
   gap: 4px;
-  width: max-content;
+  width: 100%;
+  min-width: 0;
 }
 
 .group-icon-button {
@@ -3267,6 +3426,53 @@ dd {
   outline-color: rgba(220, 38, 38, 0.16);
 }
 
+.facebook-group-edit-modal .facebook-group-form label {
+  color: #334155;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.facebook-group-edit-modal .facebook-group-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.facebook-group-edit-modal .facebook-group-required-mark {
+  color: #dc2626;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.facebook-group-edit-modal .facebook-group-form input {
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.facebook-group-edit-modal .facebook-group-form input::placeholder {
+  color: #94a3b8;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  opacity: 1;
+}
+
+.facebook-group-edit-modal .form-actions button {
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .facebook-group-form small {
   color: #64748b;
   font-size: 11px;
@@ -3290,8 +3496,10 @@ dd {
 .facebook-group-create-modal {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(100%, 380px);
-  max-height: calc(100vh - 32px);
+  width: min(448px, 100%);
+  height: min(322px, 100%);
+  max-width: 100%;
+  max-height: 100%;
   overflow: hidden;
   border: 1px solid #d8dee9;
   border-radius: 8px;
@@ -3311,21 +3519,33 @@ dd {
 .facebook-group-create-header h2 {
   margin: 0;
   color: #172033;
-  font-size: 13px;
-  font-weight: 850;
-  line-height: 1.3;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
 }
 
 .facebook-group-create-header .icon-button {
-  width: 26px;
-  height: 26px;
-  color: #94a3b8;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  padding: 0;
+  color: #9ca3af;
   background: transparent;
+  box-shadow: none;
 }
 
 .facebook-group-create-header .icon-button:hover:not(:disabled) {
-  color: #475569;
-  background: #f1f5f9;
+  color: #4b5563;
+  background: transparent;
+}
+
+.facebook-group-create-header .icon-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .facebook-group-form.is-create {
@@ -3347,9 +3567,93 @@ dd {
 
 .facebook-group-create-footer .text-button {
   color: #475569;
-  font-size: 11px;
-  font-weight: 850;
-  text-transform: uppercase;
+}
+
+.facebook-group-create-modal .facebook-group-form label {
+  color: #334155;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.facebook-group-create-modal .facebook-group-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.facebook-group-create-modal .facebook-group-required-mark {
+  color: #dc2626;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.facebook-group-create-modal .facebook-group-form input {
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.facebook-group-create-modal .facebook-group-form {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.facebook-group-create-modal .facebook-group-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.facebook-group-create-modal .facebook-group-input-wrap input {
+  padding-right: 38px;
+}
+
+.facebook-group-create-modal .facebook-group-input-clear {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  color: #64748b;
+  background: transparent;
+  transform: translateY(-50%);
+}
+
+.facebook-group-create-modal .facebook-group-input-clear:hover:not(:disabled) {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+.facebook-group-create-modal .facebook-group-input-clear svg {
+  width: 15px;
+  height: 15px;
+}
+
+.facebook-group-create-modal .facebook-group-form input::placeholder {
+  color: #94a3b8;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  opacity: 1;
+}
+
+.facebook-group-create-modal .facebook-group-create-footer button {
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .post-history-backdrop {
@@ -3988,6 +4292,69 @@ dd {
   opacity: 0.6;
 }
 
+.delete-group-modal .modal-header {
+  align-items: center;
+}
+
+.delete-group-modal .modal-header h2 {
+  margin: 0;
+  color: #172033;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.delete-group-modal .modal-header .icon-button {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  padding: 0;
+  color: #9ca3af;
+  background: transparent;
+  box-shadow: none;
+}
+
+.delete-group-modal .modal-header .icon-button:hover:not(:disabled) {
+  color: #4b5563;
+  background: transparent;
+}
+
+.delete-group-modal .modal-header .icon-button svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.delete-group-modal .form-actions {
+  width: 100%;
+  justify-self: stretch;
+  justify-content: flex-end;
+}
+
+.delete-group-modal .form-actions button {
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  padding-right: 16px;
+  padding-left: 16px;
+  text-transform: none;
+}
+
+.delete-group-modal .form-actions .danger-button {
+  color: #ffffff;
+  background-color: #15803d;
+}
+
+.delete-group-modal .form-actions .danger-button:hover:not(:disabled) {
+  color: #ffffff;
+  background-color: #166534;
+}
+
 @keyframes group-icon-spin {
   to {
     transform: rotate(360deg);
@@ -4002,8 +4369,16 @@ dd {
 
 .warning-icon {
   display: grid;
+  width: 48px;
+  height: 48px;
   place-items: center;
-  color: #334155;
+  color: #dc2626;
+}
+
+.delete-group-modal .warning-icon svg {
+  display: block;
+  width: 48px;
+  height: 48px;
 }
 
 .delete-copy {
@@ -4015,15 +4390,21 @@ dd {
 .delete-copy h3 {
   margin: 0;
   color: #172033;
-  font-size: 14px;
-  line-height: 1.35;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
 }
 
 .delete-copy p {
   margin: 0;
   color: #64748b;
-  font-size: 12px;
-  line-height: 1.45;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
 }
 
 .delete-target-preview {
@@ -4039,15 +4420,21 @@ dd {
 
 .delete-target-preview span {
   color: #475569;
+  font-family: Roboto, Arial, sans-serif;
   font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .delete-target-preview strong {
   color: #172033;
-  font-size: 13px;
-  line-height: 1.35;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  vertical-align: middle;
   overflow-wrap: anywhere;
 }
 
@@ -4521,7 +4908,10 @@ dd {
 
 .empty-panel-state strong {
   color: #263449;
+  font-family: Roboto, sans-serif;
   font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .extension-window .preview,
@@ -4605,9 +4995,16 @@ dd {
   line-height: 1.45;
 }
 
-.extension-window .career-industry-badge span,
-.extension-window .career-question-title {
+.extension-window .career-industry-badge span {
   font-size: 13px;
+  line-height: 1.35;
+}
+
+.extension-window .career-question-title {
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
   line-height: 1.35;
 }
 
@@ -5021,8 +5418,10 @@ dd {
   display: flex;
   gap: 8px;
   color: #2d2d2d;
+  font-family: Arial, sans-serif;
   font-size: 16px;
-  font-weight: 850;
+  font-style: normal;
+  font-weight: 700;
   line-height: 1.35;
 }
 
@@ -5296,6 +5695,12 @@ dd {
   width: 13px;
   height: 13px;
   margin-left: 4px;
+}
+
+.facebook-generate-button svg {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
 }
 
 .facebook-content-editor {
@@ -5843,30 +6248,50 @@ dd {
 
 .facebook-publish-results-channel-actions {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
 }
 
 .facebook-publish-results-toggle {
   display: inline-grid;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0;
+  appearance: none;
   place-items: center;
   color: #334155;
   background: transparent;
+  line-height: 0;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.facebook-publish-results-toggle:hover,
+.facebook-publish-results-toggle:hover {
+  border-color: #a7f3d0;
+  color: #047857;
+  background: #ecfdf5;
+}
+
 .facebook-publish-results-toggle:focus-visible {
-  background: #f1f5f9;
-  outline: 2px solid #bfdbfe;
-  outline-offset: 1px;
+  border-color: #6ee7b7;
+  color: #047857;
+  background: #ecfdf5;
+  outline: 2px solid rgba(16, 185, 129, 0.25);
+  outline-offset: 2px;
+}
+
+.facebook-publish-results-toggle:active {
+  transform: translateY(1px);
 }
 
 .facebook-publish-results-toggle svg {
-  width: 14px;
-  height: 14px;
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .facebook-publish-results-list {
@@ -6122,10 +6547,12 @@ dd {
 
 .referral-toolbar {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
 }
 
 .referral-search-field {
+  grid-column: 1;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -6144,6 +6571,10 @@ dd {
   outline: 0;
   background: transparent;
   color: #253247;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
 }
 
 .referral-search-icon {
@@ -6160,9 +6591,33 @@ dd {
   height: 16px;
 }
 
+.referral-search-clear-button {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: #64748b;
+  background: transparent;
+}
+
+.referral-search-clear-button:hover {
+  color: #1f2937;
+  background: #f1f5f9;
+}
+
+.referral-search-clear-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .referral-filter-row {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
   gap: 10px;
 }
@@ -6172,9 +6627,19 @@ dd {
   gap: 4px;
   min-width: 0;
   color: #536074;
-  font-size: 10px;
-  font-weight: 800;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
   text-transform: uppercase;
+}
+
+.referral-filter-row label > span {
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 16px;
 }
 
 .referral-filter-row select,
@@ -6187,6 +6652,14 @@ dd {
   background: #ffffff;
   color: #263449;
   outline: 0;
+}
+
+.referral-filter-row select {
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
 }
 
 .referral-filter-row select:focus,
@@ -6206,13 +6679,20 @@ dd {
   border: 0;
   border-radius: 7px;
   padding: 0 14px;
+  font-family: Inter, sans-serif;
   font-size: 12px;
-  font-weight: 850;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .referral-primary-button {
   color: #ffffff;
   background: #18a900;
+}
+
+.referral-toolbar > .referral-primary-button {
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .referral-primary-button:hover:not(:disabled) {
@@ -6663,6 +7143,20 @@ dd {
 }
 
 @media (max-width: 520px) {
+  .referral-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .referral-search-field,
+  .referral-toolbar > .referral-primary-button,
+  .referral-filter-row {
+    grid-column: 1;
+  }
+
+  .referral-toolbar > .referral-primary-button {
+    grid-row: auto;
+  }
+
   .extension-tabs {
     padding: 0 6px;
   }
@@ -7559,6 +8053,13 @@ dd {
   text-transform: uppercase;
 }
 
+.cv-bulk-sync-button {
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .cv-bulk-sync-button svg {
   width: 14px;
   height: 14px;
@@ -7590,7 +8091,10 @@ dd {
   gap: 7px;
   min-width: 0;
   color: #4b5563;
-  font-size: 13px;
+  font-family: Roboto, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
   line-height: 1.2;
 }
 
@@ -7600,7 +8104,10 @@ dd {
 
 .cv-filter-label {
   color: #4b5563;
-  font-size: 13px;
+  font-family: Roboto, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
   line-height: 1.2;
 }
 
@@ -7617,7 +8124,10 @@ dd {
   padding: 0 12px;
   color: #374151;
   background: #ffffff;
-  font-size: 13px;
+  font-family: Roboto, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
   text-align: left;
 }
 
@@ -7659,7 +8169,10 @@ dd {
   border-radius: 6px;
   color: #4b5563;
   background: #ffffff;
-  font-size: 13px;
+  font-family: Roboto, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
   text-align: left;
   white-space: nowrap;
 }
@@ -7726,17 +8239,25 @@ dd {
 
 .cv-candidate-main strong {
   color: #0f1f33;
-  font-size: 17px;
+  font-family: Roboto, sans-serif;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
   color: #6b7280;
-  font-size: 12px;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
 }
 
 .cv-candidate-main .cv-candidate-applied-date {
   color: #404040;
+  font-family: Roboto, sans-serif;
   font-size: 11px;
+  font-style: normal;
   font-weight: 400;
   line-height: 16.5px;
 }
@@ -7763,6 +8284,10 @@ dd {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
 }
 
 .cv-candidate-source {
@@ -7886,14 +8411,23 @@ dd {
   justify-content: space-between;
 }
 
+.cv-list-toolbar-heading > span {
+  font-family: Roboto, sans-serif;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .cv-select-all-control {
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
   gap: 7px;
   color: #4b5563;
-  font-size: 11px;
-  font-weight: 850;
+  font-family: Roboto, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
 }
@@ -7901,16 +8435,16 @@ dd {
 .cv-candidate-card {
   gap: 12px;
   min-width: 0;
-  border: 1px solid #7ee2c0;
+  border: 1px solid #BDC9C266;
   border-radius: 14px;
   padding: 14px 16px 16px;
-  background: #edfbf8;
+  background: #ffffff;
   box-shadow: 0 1px 3px rgba(15, 118, 110, 0.06);
 }
 
 .cv-candidate-list > li.is-selected .cv-candidate-card {
-  border-color: #32c78d;
-  background: #10B98166;
+  border-color: #10B98166;
+  background: #ECFDF5;
   box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.14) inset;
 }
 
@@ -7957,12 +8491,24 @@ dd {
   width: 31px;
   height: 31px;
   place-items: center;
-  border: 1px solid #fb923c;
+  border: 1px solid #22C55E;
   border-radius: 999px;
-  color: #fb923c;
-  background: #fff7ed;
+  color: #22C55E;
+  background: #DCFCE7;
   font-size: 11px;
   font-weight: 950;
+}
+
+.cv-candidate-score.is-warning {
+  border-color: #F97316;
+  color: #F97316;
+  background: #FFEDD5;
+}
+
+.cv-candidate-score.is-danger {
+  border-color: #EF4444;
+  color: #EF4444;
+  background: #FEE2E2;
 }
 
 .cv-candidate-process {
@@ -7981,10 +8527,11 @@ dd {
   justify-items: center;
   gap: 7px;
   color: #374151;
-  font-family: Pretendard, Roboto, sans-serif;
-  font-size: 10px;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
   font-weight: 500;
-  line-height: 14px;
+  line-height: 20px;
   text-align: center;
   transition: color 350ms ease-out;
 }
@@ -8070,12 +8617,12 @@ dd {
 
 .cv-candidate-process-step.is-current {
   color: rgba(47, 43, 61, 0.9);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .cv-candidate-process-step.is-failed {
   color: #dc2626;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .cv-candidate-process-step.is-failed::before {
@@ -8137,14 +8684,21 @@ dd {
 .cv-candidate-recruiter {
   grid-area: recruiter;
   color: #0b1c30;
-  font-family: Inter, Roboto, sans-serif;
-  font-size: 12px;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
   font-weight: 400;
-  line-height: 18px;
+  line-height: 20px;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.cv-candidate-meta .cv-candidate-recruiter {
+  font-weight: 400;
 }
 
 .cv-candidate-recruiter strong {
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .cv-candidate-applied {
@@ -8175,11 +8729,10 @@ dd {
 }
 
 .cv-candidate-detail {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   min-height: 48px;
-  flex-direction: row;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
   min-width: 0;
   border: 1px solid #deebea;
@@ -8203,15 +8756,35 @@ dd {
   padding: 6px 11px;
   color: #ffffff;
   background: #3f82e8;
-  font-size: 11px;
-  font-weight: 750;
+  font-family: Pretendard, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 140%;
+  letter-spacing: 0;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.cv-candidate-meta .cv-source-chip {
+  font-weight: 500;
 }
 
 .cv-candidate-detail-status strong {
   color: #b76100;
   font-size: 11px;
   font-weight: 950;
+  text-align: left;
   text-transform: uppercase;
+}
+
+.cv-candidate-detail-status,
+.cv-candidate-detail-status small,
+.cv-candidate-detail-status strong {
+  font-family: Roboto, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .cv-candidate-detail-status.is-success strong {
@@ -8244,6 +8817,29 @@ dd {
   padding-top: 8px;
 }
 
+.cv-candidate-note {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #475569;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.cv-candidate-note-label {
+  color: #1f2937;
+}
+
+.cv-candidate-note > span:not(.cv-candidate-note-label) {
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+}
+
 .cv-sync-amis-button {
   min-width: 82px;
   min-height: 34px;
@@ -8252,10 +8848,19 @@ dd {
   padding: 0 17px;
   color: #3e5e4d;
   background: #effff5;
-  font-size: 10px;
-  font-weight: 950;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.cv-candidate-footer .cv-sync-amis-button {
+  font-family: Roboto, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .cv-list-pagination {

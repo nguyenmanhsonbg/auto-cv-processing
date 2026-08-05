@@ -1862,6 +1862,7 @@ export class ExtensionIntegrationService {
         'mappingResults',
         'aiScreeningResults',
         'sources',
+        'freelancerReferral',
       ],
       order: { createdAt: 'DESC' },
     });
@@ -1888,6 +1889,7 @@ export class ExtensionIntegrationService {
           candidateName: application.candidate?.name ?? '',
           email: application.candidate?.email ?? null,
           mobile: application.candidate?.phone ?? null,
+          cvNote: this.optionalText(application.freelancerReferral?.evaluation),
           status: application.status,
           mappingStatus: application.mappingStatus
             ?? latestMapping?.status

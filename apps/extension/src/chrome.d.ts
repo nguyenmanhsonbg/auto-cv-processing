@@ -83,6 +83,12 @@ interface ChromeTab {
 
 interface ChromeTabs {
   query(queryInfo: { active?: boolean; currentWindow?: boolean; url?: string | string[]; windowId?: number }): Promise<ChromeTab[]>;
+  onUpdated: {
+    addListener(callback: (tabId: number, changeInfo: { status?: string }, tab: ChromeTab) => void): void;
+  };
+  onActivated: {
+    addListener(callback: (activeInfo: { tabId: number; windowId: number }) => void): void;
+  };
   create(createProperties: { url?: string; active?: boolean }): Promise<ChromeTab>;
   update(tabId: number, updateProperties: { url?: string; active?: boolean }): Promise<ChromeTab>;
   get(tabId: number): Promise<ChromeTab>;
