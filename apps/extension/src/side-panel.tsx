@@ -502,6 +502,7 @@ function SidePanel() {
   const [vcsPortalSyncResult, setVcsPortalSyncResult] = useState<SyncVcsPortalJdsResponse | null>(null);
   const [, setVcsPortalSyncMessage] = useState<string | null>(null);
   const [selectedJobDescription, setSelectedJobDescription] = useState<JobDescriptionSummary | null>(null);
+  const [lockedAmisJobDescriptionId, setLockedAmisJobDescriptionId] = useState<string | null>(null);
   const [careerQuestionState, setCareerQuestionState] = useState<CareerQuestionState>('IDLE');
   const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
   const [jobDescriptionQuestionContext, setJobDescriptionQuestionContext] = useState<JobDescriptionQuestionSetContext | null>(null);
@@ -1847,6 +1848,7 @@ function SidePanel() {
     lastAmisJobInitiationResetKeyRef.current = resetKey;
 
     setSelectedJobDescription(null);
+    setLockedAmisJobDescriptionId(null);
     setJobDescriptionQuestionContext(null);
     setSelectedJobQuestionIds(new Set());
     setCareerQuestionState('IDLE');
@@ -2229,6 +2231,7 @@ function SidePanel() {
       setApplicationsMessage(null);
       setApplicationsState(normalizedRecruitmentId ? 'LOADING' : 'IDLE');
       setSelectedJobDescription(null);
+      setLockedAmisJobDescriptionId(null);
       setJobDescriptionQuestionContext(null);
       setSelectedJobQuestionIds(new Set());
       setCareerQuestionState('IDLE');
@@ -2399,6 +2402,7 @@ function SidePanel() {
         await saveAmisTemplateContextForRecruitment(recruitmentId, templateContext);
         setJobDescriptionStatus('READY');
         setSelectedJobDescription(sourceJobDescription);
+        setLockedAmisJobDescriptionId(sourceJobDescription.id);
         setSnapshot(capture.snapshot);
         setExtractionResult(capture);
         setAmisUrl(capture.url);
@@ -2614,6 +2618,8 @@ function SidePanel() {
   }
 
   async function fillJobDescriptionInAmis(jobDescription: JobDescriptionSummary) {
+    if (lockedAmisJobDescriptionId && lockedAmisJobDescriptionId !== jobDescription.id) return;
+
     const nextSnapshot = buildAmisJobSnapshotFromJobDescription(jobDescription);
     setSelectedJobDescription(jobDescription);
     setSnapshot(nextSnapshot);
@@ -5542,6 +5548,8 @@ function SidePanel() {
             {jobDescriptions.map((jobDescription) => {
               const badge = getJobDescriptionStatusBadge(jobDescription);
               const isSelected = selectedJobDescription?.id === jobDescription.id;
+              const isLockedByAmis = lockedAmisJobDescriptionId !== null
+                && lockedAmisJobDescriptionId !== jobDescription.id;
               const displayDate = formatDate(
                 jobDescription.sourceModifiedAt
                   ?? jobDescription.lastSyncedAt
@@ -5554,7 +5562,7 @@ function SidePanel() {
                   <button
                     type="button"
                     className="jd-card-button"
-                    disabled={jobDescriptionFillState === 'FILLING'}
+                    disabled={jobDescriptionFillState === 'FILLING' || isLockedByAmis}
                     onClick={() => void fillJobDescriptionInAmis(jobDescription)}
                   >
                     <span className={`status-badge jd-status-badge ${badge.className}`}>{badge.label}</span>
