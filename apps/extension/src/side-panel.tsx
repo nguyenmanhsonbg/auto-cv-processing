@@ -2635,11 +2635,7 @@ function SidePanel() {
         throw new Error('Mở màn tạo tin tuyển dụng AMIS ở tab hiện tại rồi chọn lại JD.');
       }
 
-      if (!chrome.tabs?.sendMessage) {
-        throw new Error('Chrome tabs messaging is unavailable.');
-      }
-
-      const response = await chrome.tabs.sendMessage(activeTab.id, {
+      const response = await sendMessageToAmisTab(activeTab.id, {
         type: FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE,
         payload: buildAmisFormFillPayload(jobDescription),
       });

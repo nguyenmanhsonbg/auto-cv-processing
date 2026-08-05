@@ -2719,7 +2719,6 @@ function isFillAmisRecruitmentFormMessage(value: unknown): value is {
   return (value as { type?: unknown }).type === FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE
     && typeof payload === 'object'
     && payload !== null
-    && typeof (payload as { title?: unknown }).title === 'string'
     && typeof (payload as { positionName?: unknown }).positionName === 'string'
     && typeof (payload as { summary?: unknown }).summary === 'string'
     && typeof (payload as { responsibilities?: unknown }).responsibilities === 'string'
