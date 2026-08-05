@@ -199,6 +199,18 @@ export class ExtensionIntegrationService {
 
       const actor = await this.findActor(manager, context.actorUserId);
       const repo = manager.getRepository(JobDescriptionEntity);
+      const linkedPortalJobDescription = await this.findLinkedPortalJobDescription(
+        manager,
+        amisRecruitmentId,
+      );
+      if (linkedPortalJobDescription) {
+        return {
+          resultCode: 'UNCHANGED' as const,
+          amisRecruitmentId,
+          jobDescription: this.toSyncedAmisJobDescriptionResponse(linkedPortalJobDescription),
+        };
+      }
+
       const existing = await repo.findOne({
         where: {
           sourceSystem: ExtensionSourceSystem.AMIS,
@@ -260,6 +272,33 @@ export class ExtensionIntegrationService {
         jobDescription: this.toSyncedAmisJobDescriptionResponse(loaded),
       };
     });
+  }
+
+  private async findLinkedPortalJobDescription(
+    manager: EntityManager,
+    amisRecruitmentId: string,
+  ) {
+    const externalReference = await manager.getRepository(RecruitmentExternalReferenceEntity).findOne({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+        externalId: amisRecruitmentId,
+        internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
+      },
+    });
+    if (!externalReference) return null;
+
+    const posting = await manager.getRepository(JobPostingEntity).findOne({
+      where: { id: externalReference.internalEntityId },
+      relations: ['jobDescription'],
+    });
+    const jobDescription = posting?.jobDescription;
+    if (!jobDescription || jobDescription.sourceSystem !== ExtensionSourceSystem.VCS_PORTAL) {
+      return null;
+    }
+    if (jobDescription.status === JobDescriptionStatus.ARCHIVED) return null;
+
+    return jobDescription;
   }
 
   private async resolveAmisQuestionSetJobDescription(
