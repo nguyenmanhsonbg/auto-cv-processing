@@ -22,6 +22,7 @@ import {
   reportExtensionTaskProgress,
   startExtensionTask,
   syncAmisApplications,
+  syncAmisJobStatus,
   syncAmisCareers,
   syncAndPublishAmisJob,
   verifyFacebookGroup,
@@ -73,8 +74,10 @@ const AMIS_SAVED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
 const AMIS_CAPTURE_UPDATED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CAPTURE_UPDATED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
+const AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE = 'AMIS_JOB_STATUS_UPDATED';
 let lastCareerSyncSignature: string | null = null;
 let lastApplicationsSyncSignature: string | null = null;
+const activeJobStatusSyncKeys = new Set<string>();
 const FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST = 'FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const FRONTEND_FACEBOOK_PUBLISH_REQUEST = 'FRONTEND_FACEBOOK_PUBLISH_REQUEST';
 const FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
@@ -142,6 +145,11 @@ chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
     void chrome.runtime?.sendMessage?.(
       createAmisCandidateStageRelayMessage(message.payload, sender.tab?.id),
     ).catch(() => undefined);
+    return;
+  }
+
+  if (isAmisJobStatusUpdatedMessage(message)) {
+    void handleAmisJobStatusUpdated(message.payload, sender);
     return;
   }
 
@@ -736,6 +744,56 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
   }
 }
 
+async function handleAmisJobStatusUpdated(
+  payload: { amisRecruitmentId: string; amisStatus: 1 | 2 | 3 | 5; sourceUrl: string },
+  sender: ChromeMessageSender,
+) {
+  const key = `${payload.amisRecruitmentId}:${payload.amisStatus}`;
+  if (activeJobStatusSyncKeys.has(key)) return;
+  activeJobStatusSyncKeys.add(key);
+  await appendAmisDiagnostic({
+    type: 'JOB_STATUS_UPDATE_CAPTURED',
+    pageUrl: sender.tab?.url ?? payload.sourceUrl,
+    requestUrl: payload.sourceUrl,
+    timestamp: new Date().toISOString(),
+    details: payload,
+  });
+
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      await appendAmisDiagnostic({
+        type: 'JOB_STATUS_AUTO_SYNC_SKIPPED',
+        pageUrl: sender.tab?.url ?? payload.sourceUrl,
+        requestUrl: payload.sourceUrl,
+        timestamp: new Date().toISOString(),
+        details: { reason: 'auth-required', ...payload },
+      });
+      return;
+    }
+    await heartbeatExtensionInstance(accessToken);
+    const result = await syncAmisJobStatus(accessToken, payload);
+    await appendAmisDiagnostic({
+      type: 'JOB_STATUS_AUTO_SYNC_SUCCESS',
+      pageUrl: sender.tab?.url ?? payload.sourceUrl,
+      requestUrl: payload.sourceUrl,
+      timestamp: new Date().toISOString(),
+      details: result,
+    });
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 401) await clearAccessToken();
+    await appendAmisDiagnostic({
+      type: 'JOB_STATUS_AUTO_SYNC_FAILED',
+      pageUrl: sender.tab?.url ?? payload.sourceUrl,
+      requestUrl: payload.sourceUrl,
+      timestamp: new Date().toISOString(),
+      details: toAutoSyncError(error),
+    });
+  } finally {
+    activeJobStatusSyncKeys.delete(key);
+  }
+}
+
 async function handleAmisCareersCaptured(capture: AmisCareerCapture, _sender: ChromeMessageSender) {
   const signature = buildCareerSyncSignature(capture);
   if (signature === lastCareerSyncSignature) {
@@ -1012,6 +1070,7 @@ async function buildSyncPayload(
   return {
     sourceSystem: 'AMIS',
     amisRecruitmentId: capture.amisRecruitmentId,
+    ...(capture.amisStatus !== undefined ? { amisStatus: capture.amisStatus } : {}),
     amisUrl: capture.url,
     ...(selectedJobDescriptionId ? { jobDescriptionId: selectedJobDescriptionId } : {}),
     action: 'PUBLISH',
@@ -1033,6 +1092,7 @@ async function buildSyncPayload(
       selectedJobDescriptionTitle: selectedJobQuestionContext?.jobDescriptionTitle ?? null,
       selectedQuestionSetId: selectedJobQuestionContext?.questionSetId ?? null,
       selectedQuestionCount: selectedQuestionIds.length,
+      amisStatus: capture.amisStatus ?? null,
     },
   };
 }
@@ -1263,6 +1323,19 @@ function isAmisSavedMessage(value: unknown): value is {
     && value !== null
     && (value as { type?: unknown }).type === AMIS_SAVED_MESSAGE_TYPE
     && isAmisExtractionResult((value as { payload?: unknown }).payload);
+}
+
+function isAmisJobStatusUpdatedMessage(value: unknown): value is {
+  type: typeof AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE;
+  payload: { amisRecruitmentId: string; amisStatus: 1 | 2 | 3 | 5; sourceUrl: string };
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { type?: unknown; payload?: unknown };
+  if (candidate.type !== AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE || typeof candidate.payload !== 'object' || candidate.payload === null) return false;
+  const payload = candidate.payload as Record<string, unknown>;
+  return typeof payload.amisRecruitmentId === 'string'
+    && (payload.amisStatus === 1 || payload.amisStatus === 2 || payload.amisStatus === 3 || payload.amisStatus === 5)
+    && typeof payload.sourceUrl === 'string';
 }
 
 function isFrontendFacebookAuthCheckRequest(value: unknown): value is {

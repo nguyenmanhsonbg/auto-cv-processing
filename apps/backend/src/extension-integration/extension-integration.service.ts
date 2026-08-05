@@ -31,6 +31,8 @@ import {
   SyncAmisJobPostingDto,
   SyncAmisJobDescriptionDto,
   SyncAmisJobDescriptionResponseDto,
+  SyncAmisJobStatusDto,
+  SyncAmisJobStatusResponseDto,
   UpdateAmisApplicationStageDto,
   UpdateAmisCareerQuestionCategoriesDto,
   UpdateJobDescriptionQuestionSetItemDto,
@@ -49,6 +51,7 @@ import {
   ExtensionIdempotencyService,
 } from './extension-idempotency.service';
 import { createAmisSnapshotHash, createExtensionRequestHash } from './utils';
+import { mapAmisJobStatus } from './amis-job-status.util';
 import { QuestionsService } from '../questions/questions.service';
 import { QuestionSetEntity } from '../questions/entities/question-set.entity';
 import { QuestionEntity } from '../questions/entities/question.entity';
@@ -470,6 +473,57 @@ export class ExtensionIntegrationService {
     };
   }
 
+  async syncAmisJobStatus(
+    dto: SyncAmisJobStatusDto,
+    context: ExtensionCatalogSyncContext,
+  ): Promise<SyncAmisJobStatusResponseDto> {
+    const status = mapAmisJobStatus(dto.amisStatus);
+    return this.dataSource.transaction(async (manager) => {
+      const reference = await manager.getRepository(RecruitmentExternalReferenceEntity).findOne({
+        where: {
+          sourceSystem: ExtensionSourceSystem.AMIS,
+          externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+          externalId: dto.amisRecruitmentId,
+          internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
+        },
+      });
+
+      if (!reference) {
+        throw new BadRequestException({
+          code: 'AMIS_RECRUITMENT_NOT_SYNCED',
+          message: 'AMIS recruitment is not mapped to an internal job posting yet.',
+        });
+      }
+
+      const posting = await manager.getRepository(JobPostingEntity).findOneBy({ id: reference.internalEntityId });
+      if (!posting) {
+        throw new BadRequestException({
+          code: 'JOB_POSTING_NOT_FOUND',
+          message: 'Mapped internal job posting no longer exists.',
+        });
+      }
+
+      posting.status = status;
+      await manager.getRepository(JobPostingEntity).save(posting);
+      reference.lastSyncedAt = new Date();
+      reference.metadata = {
+        ...(reference.metadata ?? {}),
+        amisStatus: dto.amisStatus,
+        statusSyncedAt: reference.lastSyncedAt.toISOString(),
+        statusSourceUrl: dto.sourceUrl ?? null,
+        statusSyncedByUserId: context.actorUserId,
+      };
+      await manager.getRepository(RecruitmentExternalReferenceEntity).save(reference);
+
+      return {
+        amisRecruitmentId: dto.amisRecruitmentId,
+        jobPostingId: posting.id,
+        amisStatus: dto.amisStatus,
+        status: posting.status,
+      };
+    });
+  }
+
   private async syncDomainRecords(
     manager: EntityManager,
     dto: SyncAmisJobPostingDto,
@@ -496,6 +550,10 @@ export class ExtensionIntegrationService {
       const posting = await this.findPosting(manager, existingReference.internalEntityId);
 
       if (existingReference.lastSnapshotHash === snapshotHash) {
+        if (dto.amisStatus !== undefined) {
+          posting.status = mapAmisJobStatus(dto.amisStatus);
+          await manager.getRepository(JobPostingEntity).save(posting);
+        }
         await this.updateExternalReferenceSyncMetadata(
           manager,
           existingReference,
@@ -609,7 +667,9 @@ export class ExtensionIntegrationService {
         jobDescriptionVersionId: version.id,
         title: dto.snapshot.title,
         publicSlug,
-        status: JobPostingStatus.PUBLISHED,
+        status: dto.amisStatus === undefined
+          ? JobPostingStatus.PUBLISHED
+          : mapAmisJobStatus(dto.amisStatus),
         openAt: now,
         closeAt,
         formQuestionIds: null,
@@ -681,7 +741,9 @@ export class ExtensionIntegrationService {
     posting.jobDescriptionId = jobDescription.id;
     posting.title = dto.snapshot.title;
     posting.jobDescriptionVersionId = version.id;
-    posting.status = JobPostingStatus.PUBLISHED;
+    posting.status = dto.amisStatus === undefined
+      ? JobPostingStatus.PUBLISHED
+      : mapAmisJobStatus(dto.amisStatus);
     if (!posting.openAt) posting.openAt = now;
     posting.closeAt = closeAt;
     await manager.getRepository(JobPostingEntity).save(posting);
@@ -2540,6 +2602,7 @@ export class ExtensionIntegrationService {
       extensionInstanceId: context.extensionInstanceId ?? null,
       actorRole: context.actorRole,
       action: dto.action,
+      amisStatus: dto.amisStatus ?? null,
       jobDescriptionId: dto.jobDescriptionId ?? null,
       channels: dto.channels,
       facebookTargetCount: dto.facebookTargetIds?.length ?? 0,

@@ -143,6 +143,12 @@ export class SyncAmisJobPostingDto {
   @IsNotEmpty()
   amisRecruitmentId: string;
 
+  @ApiPropertyOptional({ enum: [1, 2, 3, 5], description: 'AMIS recruitment status.' })
+  @IsOptional()
+  @IsNumber()
+  @IsIn([1, 2, 3, 5])
+  amisStatus?: 1 | 2 | 3 | 5;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

@@ -584,6 +584,32 @@ export async function generateFacebookPreviewContent(
   });
 }
 
+export async function syncAmisJobStatus(
+  accessToken: string,
+  payload: {
+    amisRecruitmentId: string;
+    amisStatus: 1 | 2 | 3 | 5;
+    sourceUrl?: string;
+  },
+) {
+  const requestId = `ext-status-${crypto.randomUUID()}`;
+
+  return request<{
+    amisRecruitmentId: string;
+    jobPostingId: string;
+    amisStatus: number;
+    status: string;
+  }>('/extension/amis/job-postings/status-sync', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+    headers: {
+      'X-Request-Id': requestId,
+      'X-Extension-Version': EXTENSION_VERSION,
+    },
+  });
+}
+
 export async function getAmisCareerQuestionContext(
   accessToken: string,
   amisCareerId: string,

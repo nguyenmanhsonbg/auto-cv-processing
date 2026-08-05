@@ -336,6 +336,7 @@ export interface AmisJobSnapshot {
 export interface SyncAmisJobPostingRequest {
   sourceSystem: 'AMIS';
   amisRecruitmentId: string;
+  amisStatus?: 1 | 2 | 3 | 5;
   amisUrl?: string;
   jobDescriptionId?: string;
   action: 'PUBLISH';
@@ -377,6 +378,7 @@ export interface AmisExtractionResult {
   confidence: AmisExtractionConfidence;
   url: string;
   amisRecruitmentId?: string;
+  amisStatus?: 1 | 2 | 3 | 5;
   snapshot?: AmisJobSnapshot;
   missingFields: string[];
   warnings: string[];
@@ -934,7 +936,11 @@ export type AmisDiagnosticEventType =
   | 'APPLICATIONS_AUTO_SYNC_SKIPPED'
   | 'APPLICATIONS_AUTO_SYNC_FAILED'
   | 'FACEBOOK_IMAGE_ATTACHMENTS_RESOLVED'
-  | 'BACKGROUND_RECEIVED_CAPTURE';
+  | 'BACKGROUND_RECEIVED_CAPTURE'
+  | 'JOB_STATUS_UPDATE_CAPTURED'
+  | 'JOB_STATUS_AUTO_SYNC_SUCCESS'
+  | 'JOB_STATUS_AUTO_SYNC_SKIPPED'
+  | 'JOB_STATUS_AUTO_SYNC_FAILED';
 
 export interface AmisDiagnosticEvent {
   type: AmisDiagnosticEventType;

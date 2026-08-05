@@ -22,6 +22,7 @@ const GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_ROUND
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
 const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_ROUNDS_CHANGED';
+const AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE = 'VCS_AMIS_JOB_STATUS_UPDATED';
 const AMIS_CAREER_DATA_PAGING_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/Career/data_paging';
 const AMIS_RECRUITMENT_ROUNDS_DETAIL_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-round-info/';
 const AMIS_CAREER_SORT = 'W3sic2VsZWN0b3IiOiAiVXNhZ2VTdGF0dXMiLCAiZGVzYyI6ICJmYWxzZSJ9LHsic2VsZWN0b3IiOiAiQ2FyZWVyTmFtZSIsICJkZXNjIjogImZhbHNlIn1d';
@@ -215,7 +216,27 @@ const windowMessageListener = (event: MessageEvent) => {
         payload: event.data.payload,
       }).catch(() => undefined);
     }
+
+    if (isAmisJobStatusUpdatedMessage(event.data)) {
+      void chrome.runtime?.sendMessage?.({
+        type: 'AMIS_JOB_STATUS_UPDATED',
+        payload: event.data.payload,
+      }).catch(() => undefined);
+    }
 };
+
+function isAmisJobStatusUpdatedMessage(value: unknown): value is {
+  type: typeof AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE;
+  payload: { amisRecruitmentId: string; amisStatus: 1 | 2 | 3 | 5; sourceUrl: string };
+} {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { type?: unknown; payload?: unknown };
+  if (candidate.type !== AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE || !candidate.payload || typeof candidate.payload !== 'object') return false;
+  const payload = candidate.payload as Record<string, unknown>;
+  return typeof payload.amisRecruitmentId === 'string'
+    && (payload.amisStatus === 1 || payload.amisStatus === 2 || payload.amisStatus === 3 || payload.amisStatus === 5)
+    && typeof payload.sourceUrl === 'string';
+}
 
 const runtimeMessageListener = (
   message: unknown,
