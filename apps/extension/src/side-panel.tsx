@@ -6621,7 +6621,7 @@ return (
                     <SaveIcon />
                     <span>{facebookSettingsState === 'SAVING' ? 'Đang lưu...' : 'LƯU'}</span>
                   </button>
-                </footer>
+                </div>
               </form>
             </section>
           ) : null}
