@@ -1697,6 +1697,8 @@ function SidePanel() {
       };
     });
 
+    if (payload.isTransitionEvent !== true) return;
+
     const accessToken = tokenRef.current;
     if (!accessToken) return;
 

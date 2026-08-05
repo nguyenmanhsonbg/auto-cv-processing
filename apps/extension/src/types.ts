@@ -797,6 +797,7 @@ export interface AmisCandidateStageChangedPayload {
   sourceUrl: string;
   pageUrl: string;
   changedAt: string;
+  isTransitionEvent?: boolean;
 }
 
 export interface AmisRecruitmentRound {

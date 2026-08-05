@@ -8,6 +8,8 @@ import {
   ExtensionTaskEntity,
   ExtensionTaskEventEntity,
   RecruitmentExternalReferenceEntity,
+  AmisHrMappingEntity,
+  AmisApplicationStageReminderEntity,
 } from './entities';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -31,6 +33,7 @@ import { InternalsModule } from '../internals/internals.module';
 import { VcsPortalClientService } from './vcs-portal-client.service';
 import { VcsPortalJdMapper } from './vcs-portal-jd.mapper';
 import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -42,6 +45,8 @@ import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
       ExtensionInstanceEntity,
       ExtensionTaskEntity,
       ExtensionTaskEventEntity,
+      AmisHrMappingEntity,
+      AmisApplicationStageReminderEntity,
       AuditLogEntity,
       UserEntity,
       JobDescriptionEntity,
@@ -54,6 +59,7 @@ import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
     ApplicationsModule,
     FreelancersModule,
     InternalsModule,
+    NotificationModule,
   ],
   controllers: [
     ExtensionIntegrationController,
@@ -68,7 +74,7 @@ import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
     ExtensionTasksService,
     VcsPortalClientService,
     VcsPortalJdMapper,
-    VcsPortalJdSyncService,
+      VcsPortalJdSyncService,
   ],
   exports: [
     ExtensionIntegrationService,

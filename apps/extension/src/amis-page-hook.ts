@@ -507,6 +507,7 @@ function mapAmisCandidateStageResponse(
     sourceUrl,
     pageUrl,
     changedAt: new Date().toISOString(),
+    isTransitionEvent: false,
   };
 }
 
@@ -589,6 +590,7 @@ function mapAmisCandidateStageRequest(
       sourceUrl,
       pageUrl,
       changedAt: new Date().toISOString(),
+      isTransitionEvent: true,
     };
   });
 }

@@ -72,6 +72,7 @@ import {
   type ReferralCurrentAmisStage,
   type ReferralSourceMetrics,
 } from './referral-source-summary.util';
+import { CvStageReminderService } from '../notification/cv-stage-reminder.service';
 
 const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
 
@@ -128,6 +129,7 @@ export class ExtensionIntegrationService {
     private readonly applicationsService: ApplicationsService,
     private readonly freelancersService: FreelancersService,
     private readonly internalsService: InternalsService,
+    private readonly cvStageReminderService: CvStageReminderService,
   ) {}
 
   async syncAndPublishFromAmis(
@@ -1767,6 +1769,12 @@ export class ExtensionIntegrationService {
         );
         await this.dataSource.getRepository(ApplicationSourceEntity).save(result.applicationSource);
       }
+
+      await this.cvStageReminderService.upsertAmisHrMapping({
+        amisAccountId: item.attractivePersonnelId,
+        amisAccountName: item.attractivePersonnelName,
+        hrUserId: context.actorUserId,
+      });
     }
 
     return {
@@ -1883,6 +1891,7 @@ export class ExtensionIntegrationService {
     amisRecruitmentId: string,
     amisCandidateId: string,
     dto: UpdateAmisApplicationStageDto,
+    context: { actorUserId?: string | null } = {},
   ) {
     const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
     const normalizedCandidateId = this.requireText(amisCandidateId, 'amisCandidateId');
@@ -1916,10 +1925,25 @@ export class ExtensionIntegrationService {
         : this.optionalText(dto.reasonRemoved),
       ...(typeof dto.status === 'number' ? { status: dto.status } : {}),
       ...(this.optionalText(dto.sourceUrl) ? { stageSourceUrl: this.optionalText(dto.sourceUrl) } : {}),
+      ...(this.optionalText(dto.pageUrl) ? { stagePageUrl: this.optionalText(dto.pageUrl) } : {}),
       ...(this.optionalText(dto.changedAt) ? { stageChangedAt: this.optionalText(dto.changedAt) } : {}),
       stageUpdatedAt: updatedAt,
     };
     await this.dataSource.getRepository(ApplicationSourceEntity).save(source);
+
+    if (dto.isTransitionEvent === true) {
+      await this.cvStageReminderService.recordStageTransition({
+        applicationId: applicationRow.application.id,
+        amisRecruitmentId: normalizedRecruitmentId,
+        amisCandidateId: normalizedCandidateId,
+        amisRecruitmentRoundId: normalizedRoundId,
+        amisRecruitmentRoundName: this.optionalText(dto.recruitmentRoundName),
+        candidateAmisUrl: this.optionalText(dto.pageUrl) ?? this.optionalText(rawPayload.stagePageUrl),
+        attractivePersonnelId: this.optionalText(rawPayload.attractivePersonnelId),
+        attractivePersonnelName: this.optionalText(rawPayload.attractivePersonnelName),
+        actorUserId: context.actorUserId,
+      });
+    }
 
     return {
       updated: true,

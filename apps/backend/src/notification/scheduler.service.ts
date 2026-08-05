@@ -4,6 +4,7 @@ import { Repository, Between } from 'typeorm';
 import * as cron from 'node-cron';
 import { SessionEntity } from '../sessions/entities/session.entity';
 import { NotificationService } from './notification.service';
+import { CvStageReminderService } from './cv-stage-reminder.service';
 
 @Injectable()
 export class SchedulerService implements OnModuleInit, OnModuleDestroy {
@@ -15,6 +16,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(SessionEntity)
     private readonly sessionRepository: Repository<SessionEntity>,
     private readonly notificationService: NotificationService,
+    private readonly cvStageReminderService: CvStageReminderService,
   ) {}
 
   onModuleInit() {
@@ -29,6 +31,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // Run every minute to check for upcoming interviews
     this.cronJob = cron.schedule('* * * * *', async () => {
       await this.checkUpcomingInterviews();
+      await this.cvStageReminderService.processDueReminders();
     });
 
     this.logger.log('Interview notification scheduler started (runs every minute)');
