@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
@@ -13,12 +14,18 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class DiscoverFacebookGroupItemDto {
   @ApiProperty({ example: 'Hoi lap Java' })
+  // Preserve the original JSON type so implicit conversion cannot bypass @IsString.
+  @Type(() => Object)
   @IsString()
+  @Matches(/\S/)
   @MaxLength(255)
   targetName: string;
 
   @ApiProperty({ example: 'https://www.facebook.com/groups/javascript.vn' })
+  // Preserve the original JSON type so implicit conversion cannot bypass @IsString.
+  @Type(() => Object)
   @IsString()
+  @Matches(/\S/)
   @MaxLength(2048)
   targetUrl: string;
 

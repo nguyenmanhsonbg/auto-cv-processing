@@ -7,8 +7,10 @@ import { getLastAmisCapture } from './amis-capture-store';
 import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
 import {
   clearAmisTemplateContextForTab,
+  getAmisTemplateContextForRecruitment,
   getAmisTemplateContextForTab,
   saveAmisTemplateContext,
+  saveAmisTemplateContextForRecruitment,
 } from './amis-template-context-store';
 import {
   ApiClientError,
@@ -319,7 +321,6 @@ const FACEBOOK_HISTORY_FILTERS: Array<{ value: FacebookPostHistoryFilter; label:
   { value: 'POSTED', label: 'Đã đăng' },
   { value: 'PENDING_REVIEW', label: 'Chờ duyệt' },
   { value: 'REJECTED', label: 'Bị từ chối' },
-  { value: 'DELETED', label: 'Đã xóa' },
 ];
 const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
 type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
@@ -448,7 +449,7 @@ function SidePanel() {
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
   const [facebookContent, setFacebookContent] = useState('');
   const [facebookContentState, setFacebookContentState] = useState<FacebookContentState>('IDLE');
-  const [facebookContentMessage, setFacebookContentMessage] = useState<string | null>(null);
+  const [, setFacebookContentMessage] = useState<string | null>(null);
   const [facebookPreviewModalMode, setFacebookPreviewModalMode] = useState<FacebookPreviewModalMode | null>(null);
   const [facebookContentDraft, setFacebookContentDraft] = useState('');
   const [facebookImageAttachments, setFacebookImageAttachments] = useState<FacebookPublishAttachment[]>([]);
@@ -460,6 +461,7 @@ function SidePanel() {
   const [facebookGroupDiagnostic, setFacebookGroupDiagnostic] = useState<string | null>(null);
   const [facebookGroupSyncDetails, setFacebookGroupSyncDetails] = useState<FacebookGroupSyncDetails | null>(null);
   const [isFacebookGroupSyncDetailsOpen, setIsFacebookGroupSyncDetailsOpen] = useState(false);
+  const [isFacebookGroupListExpanded, setIsFacebookGroupListExpanded] = useState(true);
   const [facebookIneligiblePage, setFacebookIneligiblePage] = useState(1);
   const [manualIncludingFacebookGroupKeys, setManualIncludingFacebookGroupKeys] = useState<string[]>([]);
   const [extensionToast, setExtensionToast] = useState<ExtensionToastState | null>(null);
@@ -479,7 +481,6 @@ function SidePanel() {
   const [facebookHistoryData, setFacebookHistoryData] = useState<FacebookPublishHistoriesResponse | null>(null);
   const [facebookHistoryLoadState, setFacebookHistoryLoadState] = useState<FacebookPostHistoryLoadState>('IDLE');
   const [facebookHistoryMessage, setFacebookHistoryMessage] = useState<string | null>(null);
-  const [refreshingFacebookHistoryIds, setRefreshingFacebookHistoryIds] = useState<string[]>([]);
   const [isRefreshingFacebookHistoryGroup, setIsRefreshingFacebookHistoryGroup] = useState(false);
 
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
@@ -487,8 +488,6 @@ function SidePanel() {
   const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
   const [facebookGroupUrlError, setFacebookGroupUrlError] = useState<string | null>(null);
   const [editFacebookGroupName, setEditFacebookGroupName] = useState('');
-  const [editFacebookGroupUrl, setEditFacebookGroupUrl] = useState('');
-  const [editFacebookGroupUrlError, setEditFacebookGroupUrlError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [jobDescriptionPagination, setJobDescriptionPagination] = useState<ApiPagination | null>(null);
@@ -501,7 +500,7 @@ function SidePanel() {
   const [fillingJobDescriptionId, setFillingJobDescriptionId] = useState<string | null>(null);
   const [vcsPortalSyncState, setVcsPortalSyncState] = useState<VcsPortalSyncState>('IDLE');
   const [vcsPortalSyncResult, setVcsPortalSyncResult] = useState<SyncVcsPortalJdsResponse | null>(null);
-  const [vcsPortalSyncMessage, setVcsPortalSyncMessage] = useState<string | null>(null);
+  const [, setVcsPortalSyncMessage] = useState<string | null>(null);
   const [selectedJobDescription, setSelectedJobDescription] = useState<JobDescriptionSummary | null>(null);
   const [careerQuestionState, setCareerQuestionState] = useState<CareerQuestionState>('IDLE');
   const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
@@ -910,7 +909,11 @@ function SidePanel() {
       await restoreFacebookImageAttachments(nextRecruitmentId, nextSnapshot, selectedJobDescription);
       if (!token || !nextRecruitmentId || !nextSnapshot) return;
 
-      const restored = await applyStoredFacebookContentDraft(nextRecruitmentId, nextSnapshot);
+      const restored = await applyStoredFacebookContentDraft(
+        nextRecruitmentId,
+        nextSnapshot,
+        selectedJobDescription,
+      );
       if (cancelled || restored) return;
 
       await generateFacebookPostContent({
@@ -1060,12 +1063,6 @@ function SidePanel() {
   }, [selectedFacebookGroupIds, visibleFacebookGroups]);
   const facebookGroupDuplicateUrlError = getDuplicateFacebookGroupUrlError(facebookGroupUrl, facebookGroups);
   const facebookGroupUrlFieldError = facebookGroupDuplicateUrlError ?? facebookGroupUrlError;
-  const editFacebookGroupDuplicateUrlError = getDuplicateFacebookGroupUrlError(
-    editFacebookGroupUrl,
-    facebookGroups,
-    selectedFacebookGroup?.targetId ?? null,
-  );
-  const editFacebookGroupUrlFieldError = editFacebookGroupDuplicateUrlError ?? editFacebookGroupUrlError;
 
   async function restoreAuth() {
     try {
@@ -1220,6 +1217,7 @@ function SidePanel() {
   }
 
   function clearFacebookContent() {
+    facebookContentGenerationSeqRef.current += 1;
     facebookContentRef.current = '';
     facebookContentSourceRef.current = 'EMPTY';
     facebookContentSnapshotKeyRef.current = null;
@@ -1371,6 +1369,7 @@ function SidePanel() {
       const draftScope = await getFacebookContentDraftScope(
         options.selectedJobDescriptionOverride ?? selectedJobDescription,
       );
+      if (facebookContentGenerationSeqRef.current !== generationSeq) return null;
       await persistFacebookContentDraft({
         content,
         source: contentMode,
@@ -1415,6 +1414,11 @@ function SidePanel() {
     const publishPlanContent = getCurrentFacebookPublishPlanContent();
     if (publishPlanContent) {
       facebookContentRef.current = publishPlanContent;
+      if (snapshot) {
+        facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, snapshot);
+        facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(snapshot);
+        facebookContentJobIdentityRef.current = buildFacebookJobIdentity(snapshot);
+      }
       setFacebookContent(publishPlanContent);
       setFacebookContentState('READY');
       setFacebookContentMessage('Đang dùng nội dung Facebook mặc định từ kế hoạch đăng hiện tại.');
@@ -1463,8 +1467,16 @@ function SidePanel() {
   }
 
   function getEffectiveFacebookContent(options: { includeDraft?: boolean } = {}) {
+    if (!isFacebookContentScopedToCurrentSnapshot()) return '';
     const draftContent = options.includeDraft ? facebookContentDraft.trim() : '';
     return draftContent || facebookContentRef.current.trim() || facebookContent.trim();
+  }
+
+  function isFacebookContentScopedToCurrentSnapshot() {
+    if (!snapshot) return false;
+
+    return facebookContentSnapshotFingerprintRef.current === buildFacebookDraftSnapshotFingerprint(snapshot)
+      && facebookContentJobIdentityRef.current === buildFacebookJobIdentity(snapshot);
   }
 
   function requestFacebookImageAttachDecision(
@@ -2252,6 +2264,7 @@ function SidePanel() {
   }
 
   function clearFacebookPostContentState() {
+    facebookContentGenerationSeqRef.current += 1;
     facebookContentSnapshotKeyRef.current = null;
     facebookContentSnapshotFingerprintRef.current = null;
     facebookContentJobIdentityRef.current = null;
@@ -2356,15 +2369,42 @@ function SidePanel() {
     try {
       const activeTab = await getActiveTab();
       if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return null;
-      const templateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+      const tabTemplateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+      const templateContext = tabTemplateContext
+        ?? await getAmisTemplateContextForRecruitment(recruitmentId);
+
+      if (templateContext?.templateJobDescriptionId) {
+        const sourceJobDescription = await resolveAmisTemplateJobDescription(
+          accessToken,
+          templateContext.templateJobDescriptionId,
+        );
+        if (
+          !sourceJobDescription
+          || selectionSeq !== amisJobSelectionSeqRef.current
+          || activeAmisRecruitmentIdRef.current !== recruitmentId
+        ) {
+          return null;
+        }
+
+        await saveAmisTemplateContextForRecruitment(recruitmentId, templateContext);
+        setJobDescriptionStatus('READY');
+        setSelectedJobDescription(sourceJobDescription);
+        setSnapshot(buildAmisJobSnapshotFromJobDescription(sourceJobDescription));
+        setExtractionResult(capture);
+        setAmisUrl(capture.url);
+        setJobDescriptionError(null);
+        await loadSelectedJobDescriptionQuestionSet(sourceJobDescription, accessToken, {
+          silent: true,
+          force: true,
+        });
+        await clearAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
+        return null;
+      }
 
       const response = await syncAmisJobDescription(accessToken, {
         amisRecruitmentId: recruitmentId,
         amisUrl: capture.url,
         snapshot: capture.snapshot,
-        ...(templateContext?.templateJobDescriptionId
-          ? { templateJobDescriptionId: templateContext.templateJobDescriptionId }
-          : {}),
       });
 
       if (
@@ -2403,6 +2443,21 @@ function SidePanel() {
       }
 
       setJobDescriptionError(toErrorMessage(err));
+      return null;
+    }
+  }
+
+  async function resolveAmisTemplateJobDescription(
+    accessToken: string,
+    templateJobDescriptionId: string,
+  ) {
+    const loadedJobDescription = jobDescriptions.find((item) => item.id === templateJobDescriptionId);
+    if (loadedJobDescription) return loadedJobDescription;
+
+    try {
+      const context = await getJobDescriptionQuestionSet(accessToken, templateJobDescriptionId);
+      return context.jobDescription;
+    } catch {
       return null;
     }
   }
@@ -2999,14 +3054,20 @@ function SidePanel() {
   async function applyStoredFacebookContentDraft(
     recruitmentId: string | null,
     nextSnapshot: AmisJobSnapshot,
+    jobDescription: JobDescriptionSummary | null = selectedJobDescription,
   ) {
-    const draftScope = await getFacebookContentDraftScope();
+    const generationSeq = facebookContentGenerationSeqRef.current;
+    const draftScope = await getFacebookContentDraftScope(jobDescription);
+    if (facebookContentGenerationSeqRef.current !== generationSeq) return false;
+
     const draft = await getFacebookContentDraft({
       recruitmentId,
       tabId: draftScope.tabId,
       jobDescriptionId: draftScope.jobDescriptionId,
       snapshot: nextSnapshot,
     });
+    if (facebookContentGenerationSeqRef.current !== generationSeq) return false;
+
     const content = draft?.content.trim();
     if (!content) return false;
 
@@ -3163,8 +3224,6 @@ function SidePanel() {
     setFacebookGroupUrl('');
     setFacebookGroupUrlError(null);
     setEditFacebookGroupName('');
-    setEditFacebookGroupUrl('');
-    setEditFacebookGroupUrlError(null);
   }
 
   function openFacebookGroupCreateModal() {
@@ -3204,7 +3263,6 @@ function SidePanel() {
     setFacebookHistoryData(null);
     setFacebookHistoryLoadState('IDLE');
     setFacebookHistoryMessage(null);
-    setRefreshingFacebookHistoryIds([]);
     setIsRefreshingFacebookHistoryGroup(false);
   }
 
@@ -3276,45 +3334,6 @@ function SidePanel() {
     await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, nextPage);
   }
 
-  async function refreshFacebookHistoryItem(item: FacebookPublishHistoryListItem) {
-    const accessToken = tokenRef.current;
-    if (!accessToken) {
-      setState('AUTH_REQUIRED');
-      setFacebookHistoryMessage('Sign in to VCS Recruitment before refreshing Facebook post status.');
-      return;
-    }
-
-    const refreshItem = withFacebookHistoryGroupFallback(item, selectedFacebookHistoryGroup);
-    if (!isRefreshableFacebookHistoryItem(refreshItem)) {
-      setFacebookHistoryMessage('Bài này cần URL bài viết hoặc URL group Facebook hợp lệ để refresh trạng thái.');
-      return;
-    }
-
-    setRefreshingFacebookHistoryIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id]);
-    setFacebookHistoryMessage(`Đang refresh trạng thái bài "${item.title}".`);
-
-    try {
-      const statusCheck = await refreshFacebookPostReviewStatus(refreshItem);
-      await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
-      await syncFacebookImageStatusFromHistoryItem(refreshItem, statusCheck.facebookReviewStatus);
-      await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, facebookHistoryPage);
-      setFacebookHistoryMessage(statusCheck.message ?? 'Đã refresh trạng thái bài đăng.');
-    } catch (err) {
-      if (err instanceof ApiClientError && err.status === 401) {
-        await clearAccessToken();
-        setToken(null);
-        setUser(null);
-        setState('AUTH_REQUIRED');
-        setFacebookHistoryMessage('Authentication expired. Sign in again before refreshing Facebook history.');
-        return;
-      }
-
-      setFacebookHistoryMessage(toErrorMessage(err));
-    } finally {
-      setRefreshingFacebookHistoryIds((ids) => ids.filter((id) => id !== item.id));
-    }
-  }
-
   async function refreshFacebookHistoryGroupStatuses() {
     const group = selectedFacebookHistoryGroup;
     const accessToken = tokenRef.current;
@@ -3350,7 +3369,6 @@ function SidePanel() {
 
       for (let index = 0; index < itemsToRefresh.length; index += 1) {
         const item = itemsToRefresh[index];
-        setRefreshingFacebookHistoryIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id]);
         setFacebookHistoryMessage(`Đang kiểm tra ${index + 1}/${itemsToRefresh.length}: ${item.title}`);
 
         try {
@@ -3372,8 +3390,6 @@ function SidePanel() {
           }
 
           issueCount += 1;
-        } finally {
-          setRefreshingFacebookHistoryIds((ids) => ids.filter((id) => id !== item.id));
         }
       }
 
@@ -3385,7 +3401,6 @@ function SidePanel() {
       setFacebookHistoryMessage(toErrorMessage(err));
     } finally {
       setIsRefreshingFacebookHistoryGroup(false);
-      setRefreshingFacebookHistoryIds([]);
     }
   }
 
@@ -3418,8 +3433,6 @@ function SidePanel() {
     setFacebookGroupModalMode('SETTINGS');
     setSelectedFacebookGroup(null);
     setEditFacebookGroupName('');
-    setEditFacebookGroupUrl('');
-    setEditFacebookGroupUrlError(null);
     setFacebookSettingsState('READY');
     setFacebookSettingsMessage(null);
   }
@@ -3437,8 +3450,6 @@ function SidePanel() {
 
     setSelectedFacebookGroup(group);
     setEditFacebookGroupName(group.targetName);
-    setEditFacebookGroupUrl(group.targetUrl ?? '');
-    setEditFacebookGroupUrlError(null);
     setFacebookSettingsMessage(null);
     setFacebookSettingsState('READY');
     setFacebookGroupModalMode('EDIT');
@@ -3481,8 +3492,7 @@ function SidePanel() {
       }
       if (isDuplicateFacebookGroupError(err)) {
         setFacebookSettingsState('READY');
-        setFacebookSettingsMessage(null);
-        setEditFacebookGroupUrlError('Group đã tồn tại.');
+        setFacebookSettingsMessage('Nhóm Facebook đã tồn tại.');
         return;
       }
       setFacebookSettingsState('ERROR');
@@ -3611,7 +3621,7 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
 
     try {
-      const savedGroup = await createFacebookGroup(token, {
+      await createFacebookGroup(token, {
         targetName,
         targetUrl,
         facebookAccountId: facebookAccount?.id,
@@ -3625,7 +3635,8 @@ function SidePanel() {
       setFacebookGroupUrlError(null);
       setIsFacebookGroupFormOpen(false);
       setFacebookSettingsState('READY');
-      setFacebookSettingsMessage(`Added "${savedGroup.targetName}". Click Check before using it for publishing.`);
+      setFacebookSettingsMessage(null);
+      showExtensionToast('SUCCESS', 'Thành công', 'Đã thêm nhóm thành công');
 
       if (selectedPostingChannels.includes('FACEBOOK')) {
         setFacebookGroupLoadState('READY');
@@ -3655,19 +3666,7 @@ function SidePanel() {
     if (!token || !selectedFacebookGroup?.targetId) return;
 
     const targetName = editFacebookGroupName.trim();
-    const targetUrl = editFacebookGroupUrl.trim();
-    const targetUrlError = getFacebookGroupUrlValidationError(
-      targetUrl,
-      facebookGroups,
-      selectedFacebookGroup.targetId,
-    );
-    if (targetUrlError) {
-      setEditFacebookGroupUrlError(targetUrlError);
-      setFacebookSettingsState('READY');
-      setFacebookSettingsMessage(null);
-      return;
-    }
-    setEditFacebookGroupUrlError(null);
+    const targetUrl = selectedFacebookGroup.targetUrl?.trim() ?? '';
     if (!targetName) {
       setFacebookSettingsState('ERROR');
       setFacebookSettingsMessage('Tên nhóm là bắt buộc.');
@@ -3694,8 +3693,6 @@ function SidePanel() {
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setSelectedFacebookGroup(null);
       setEditFacebookGroupName('');
-      setEditFacebookGroupUrl('');
-      setEditFacebookGroupUrlError(null);
       setFacebookGroupModalMode('SETTINGS');
       setFacebookSettingsState('READY');
       setFacebookSettingsMessage(`Saved "${savedGroup.targetName}". Click Check before using it for publishing.`);
@@ -3713,9 +3710,8 @@ function SidePanel() {
         return;
       }
       if (isDuplicateFacebookGroupError(err)) {
-        setFacebookSettingsState('READY');
-        setFacebookSettingsMessage(null);
-        setEditFacebookGroupUrlError('Group đã tồn tại.');
+        setFacebookSettingsState('ERROR');
+        setFacebookSettingsMessage('Nhóm Facebook đã tồn tại.');
         return;
       }
       setFacebookSettingsState('ERROR');
@@ -3730,7 +3726,7 @@ function SidePanel() {
     setFacebookSettingsMessage(null);
 
     try {
-      const deletedGroup = await deleteFacebookGroup(token, selectedFacebookGroup.targetId, facebookAccount?.id);
+      await deleteFacebookGroup(token, selectedFacebookGroup.targetId, facebookAccount?.id);
       const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token, facebookAccount?.id));
       setFacebookGroups(groups);
       setFacebookGroupPage(1);
@@ -3740,7 +3736,8 @@ function SidePanel() {
       setSelectedFacebookGroup(null);
       setFacebookGroupModalMode('SETTINGS');
       setFacebookSettingsState('READY');
-      setFacebookSettingsMessage(`Đã xóa nhóm "${deletedGroup.targetName}".`);
+      setFacebookSettingsMessage(null);
+      showExtensionToast('SUCCESS', 'Thành công', 'Đã xóa nhóm thành công');
 
       if (selectedPostingChannels.includes('FACEBOOK')) {
         setFacebookGroupLoadState('READY');
@@ -3866,6 +3863,11 @@ function SidePanel() {
         ?? response.facebookPublishPlan?.content;
       if (confirmedFacebookContent && shouldPublishFacebook) {
         facebookContentRef.current = confirmedFacebookContent;
+        if (snapshot) {
+          facebookContentSnapshotKeyRef.current = getFacebookContentSnapshotKey(amisRecruitmentId, snapshot);
+          facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(snapshot);
+          facebookContentJobIdentityRef.current = buildFacebookJobIdentity(snapshot);
+        }
         setFacebookContent(confirmedFacebookContent);
         setFacebookContentState('READY');
         setFacebookContentMessage('Đã cập nhật nội dung Facebook theo kế hoạch đăng thật.');
@@ -4237,7 +4239,6 @@ function SidePanel() {
     const visibleEnd = Math.min(visibleStart + pageItems.length - 1, totalItems);
     const isLoadingHistory = facebookHistoryLoadState === 'LOADING';
     const isHistoryBusy = isLoadingHistory || isRefreshingFacebookHistoryGroup;
-    const refreshableCount = summary.pendingReview + summary.unknown;
     const paginationItems = buildPostHistoryPaginationItems(currentPage, pageCount);
 
     return (
@@ -4256,17 +4257,7 @@ function SidePanel() {
             <div className="post-history-header-actions">
               <button
                 type="button"
-                className={`post-history-refresh-all-button${isRefreshingFacebookHistoryGroup ? ' is-loading' : ''}`}
-                title="Refresh trạng thái các bài đang chờ duyệt hoặc chưa rõ"
-                disabled={isHistoryBusy || refreshableCount === 0}
-                onClick={() => void refreshFacebookHistoryGroupStatuses()}
-              >
-                <RefreshIcon />
-                <span>{isRefreshingFacebookHistoryGroup ? 'Đang kiểm tra' : 'Refresh trạng thái'}</span>
-              </button>
-              <button
-                type="button"
-                className="icon-button"
+                className="icon-button post-history-close-button"
                 title="Đóng"
                 aria-label="Đóng lịch sử đăng bài"
                 disabled={isRefreshingFacebookHistoryGroup}
@@ -4295,26 +4286,35 @@ function SidePanel() {
                 <span>Bị từ chối</span>
                 <strong>{summary.rejected}</strong>
               </article>
-              <article className="post-history-metric is-deleted">
-                <span>Đã xóa</span>
-                <strong>{summary.deleted}</strong>
-              </article>
             </div>
 
             <div className="post-history-filter-row">
-              <span>Lọc theo:</span>
-              <div>
-                {FACEBOOK_HISTORY_FILTERS.map((filter) => (
-                  <button
-                    key={filter.value}
-                    type="button"
-                    className={facebookHistoryFilter === filter.value ? 'is-active' : ''}
-                    disabled={isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryFilter(filter.value)}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
+              <label htmlFor="facebook-post-history-filter">
+                <span>Trạng thái bài đăng</span>
+                <select
+                  id="facebook-post-history-filter"
+                  value={facebookHistoryFilter}
+                  disabled={isHistoryBusy}
+                  onChange={(event) => void changeFacebookHistoryFilter(event.currentTarget.value as FacebookPostHistoryFilter)}
+                >
+                  {FACEBOOK_HISTORY_FILTERS.map((filter) => (
+                    <option key={filter.value} value={filter.value}>
+                      {filter.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="post-history-filter-controls">
+                <button
+                  type="button"
+                  className={`post-history-refresh-all-button${isRefreshingFacebookHistoryGroup ? ' is-loading' : ''}`}
+                  title="Refresh trạng thái các bài đang chờ duyệt hoặc chưa rõ"
+                  disabled={isHistoryBusy}
+                  onClick={() => void refreshFacebookHistoryGroupStatuses()}
+                >
+                  <RefreshIcon />
+                  <span>{isRefreshingFacebookHistoryGroup ? 'Đang kiểm tra' : 'Tải lại'}</span>
+                </button>
               </div>
             </div>
 
@@ -4342,20 +4342,12 @@ function SidePanel() {
                 </thead>
                 <tbody>
                   {pageItems.length > 0 ? pageItems.map((item) => {
-                    const isRefreshing = refreshingFacebookHistoryIds.includes(item.id);
                     const postUrl = getValidFacebookGroupPostUrl(item.externalPostUrl);
-                    const refreshItem = withFacebookHistoryGroupFallback(item, selectedFacebookHistoryGroup);
-                    const canRefreshItem = isRefreshableFacebookHistoryItem(refreshItem);
                     return (
                     <tr key={item.id}>
                       <td>{formatDate(item.submittedAt ?? item.createdAt ?? undefined) ?? '-'}</td>
                       <td>
                         <span>{item.title}</span>
-                        {item.message ? <small>{item.message}</small> : null}
-                        {!item.message && item.contentPreview ? <small>{item.contentPreview}</small> : null}
-                        {item.lastStatusCheckedAt ? (
-                          <small>Đã kiểm tra: {formatFacebookHistoryDateTime(item.lastStatusCheckedAt) ?? item.lastStatusCheckedAt}</small>
-                        ) : null}
                       </td>
                       <td>
                         <span className={`post-history-status is-${item.facebookReviewStatus.toLowerCase().replace('_', '-')}`}>
@@ -4375,21 +4367,7 @@ function SidePanel() {
                             >
                               <ExternalLinkIcon />
                             </button>
-                          ) : null}
-                          {canRefreshItem ? (
-                          <button
-                            type="button"
-                            className={`post-history-action-button is-refresh${isRefreshing ? ' is-loading' : ''}`}
-                            title="Refresh trạng thái bài đăng"
-                            aria-label={`Refresh trạng thái bài đăng ${item.title}`}
-                            disabled={isHistoryBusy}
-                            onClick={() => void refreshFacebookHistoryItem(item)}
-                          >
-                            <RefreshIcon />
-                          </button>
-                        ) : (
-                          !postUrl ? <span className="post-history-no-action">-</span> : null
-                        )}
+                          ) : <span className="post-history-no-action">-</span>}
                         </div>
                       </td>
                     </tr>
@@ -4473,16 +4451,12 @@ function SidePanel() {
                   >
                     <DoubleChevronRightIcon />
                   </button>
-                </div>
-              </div>
-            </div>
+          </div>
+        </div>
+
+      </div>
           </div>
 
-          <footer className="post-history-footer">
-            <button type="button" className="secondary-button compact-button" onClick={closeFacebookPostHistory}>
-              Đóng
-            </button>
-          </footer>
         </section>
       </div>
     );
@@ -4869,10 +4843,6 @@ function SidePanel() {
     const previewCopy = effectiveContent
       ? summarizeText(effectiveContent)
       : summarizeText(snapshot?.summary ?? snapshot?.description ?? selectedJobDescription?.summary ?? selectedJobDescription?.description);
-    const helperText = effectiveContent
-      ? '{{APPLY_URL}} sẽ được thay bằng link tuyển dụng thật sau khi đồng bộ.'
-      : 'Sinh bài từ JD/AMIS snapshot hiện tại trước khi đăng.';
-
     return (
       <div className="facebook-content-panel">
         <p className="channel-subselection-title facebook-preview-title">Xem trước bài đăng</p>
@@ -4913,14 +4883,8 @@ function SidePanel() {
 
         <div className="facebook-content-meta is-preview">
           <span>{effectiveContent.length} ký tự</span>
-          <span>{helperText}</span>
         </div>
 
-        {facebookContentMessage ? (
-          <p className={facebookContentState === 'ERROR' ? 'error-text' : 'muted-text'}>
-            {facebookContentMessage}
-          </p>
-        ) : null}
       </div>
     );
   }
@@ -5188,9 +5152,16 @@ function SidePanel() {
                     </label>
                     <span className="channel-actions">
                       {showFacebookGroups ? (
-                        <span className="channel-action-icon" title="Select groups">
-                          <ChevronUpIcon />
-                        </span>
+                        <button
+                          type="button"
+                          className="channel-action-button channel-groups-toggle"
+                          title={isFacebookGroupListExpanded ? 'Ẩn danh sách nhóm Facebook' : 'Hiện danh sách nhóm Facebook'}
+                          aria-label={isFacebookGroupListExpanded ? 'Ẩn danh sách nhóm Facebook' : 'Hiện danh sách nhóm Facebook'}
+                          aria-expanded={isFacebookGroupListExpanded}
+                          onClick={() => setIsFacebookGroupListExpanded((expanded) => !expanded)}
+                        >
+                          {isFacebookGroupListExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                        </button>
                       ) : null}
                       {isFacebookChannel ? (
                         <button
@@ -5210,7 +5181,11 @@ function SidePanel() {
                     </span>
                   </div>
                   {showFacebookGroups ? (
-                    <div className="channel-subselection">
+                    <div
+                      className={`channel-subselection${isFacebookGroupListExpanded ? ' is-expanded' : ' is-collapsed'}`}
+                      aria-hidden={!isFacebookGroupListExpanded}
+                    >
+                      <div className="channel-subselection-content">
                       <div className="channel-subselection-title">
                         <div className="channel-subselection-heading">
                           <span>Nhóm Facebook</span>
@@ -5224,7 +5199,6 @@ function SidePanel() {
                           disabled={!token || isFacebookLoading}
                           onClick={() => void handleSyncFacebookGroups()}
                         >
-                          <RefreshIcon />
                           <span>{isFacebookLoading ? 'Đang tải lại...' : 'Tải lại'}</span>
                         </button>
                       </div>
@@ -5332,7 +5306,7 @@ function SidePanel() {
                                   url: group.url,
                                 })}
                               >
-                                <InfoIcon />
+                                <HistoryIcon />
                               </button>
                             </div>
                           ))
@@ -5395,6 +5369,7 @@ function SidePanel() {
                         </>
                       ) : null}
                       {isSelected ? renderFacebookContentPanel() : null}
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -6188,41 +6163,6 @@ function SidePanel() {
           </section>
         ) : null}
 
-        {facebookProgress ? (
-          <section className="capture-panel">
-            <div className="status-row">
-              <span>Facebook publish</span>
-              <strong>{facebookProgress.status}</strong>
-            </div>
-            <dl>
-              <div>
-                <dt>Progress</dt>
-                <dd>{facebookProgress.currentIndex}/{facebookProgress.total}</dd>
-              </div>
-              {facebookProgress.target ? (
-                <div>
-                  <dt>Target</dt>
-                  <dd>{facebookProgress.target.targetName}</dd>
-                </div>
-              ) : null}
-              <div>
-                <dt>Status</dt>
-                <dd>{facebookProgress.message}</dd>
-              </div>
-            </dl>
-            {facebookProgress.results.length > 0 ? (
-              <ul className="diagnostic-list">
-                {facebookProgress.results.map((item) => (
-                  <li key={`${item.targetName}-${item.status}`}>
-                    <strong>{item.targetName}</strong>
-                    <span>{item.status}</span>
-                    <small>{item.message}</small>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
-        ) : null}
       </>
     );
   }
@@ -6333,7 +6273,7 @@ return (
         <div className="modal-backdrop" role="presentation">
           {facebookGroupModalMode === 'SETTINGS' ? (
             <section
-              className="facebook-group-modal"
+              className="facebook-group-modal facebook-group-settings-modal"
               role="dialog"
               aria-modal="true"
               aria-labelledby="facebook-group-settings-title"
@@ -6592,58 +6532,63 @@ return (
                 </button>
               </header>
 
-              <form className="modal-body facebook-group-form is-standalone" onSubmit={(event) => void submitFacebookGroupEdit(event)}>
-                {facebookSettingsMessage ? (
-                  <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
-                    {facebookSettingsMessage}
-                  </p>
-                ) : null}
-                <label>
-                  Tên nhóm
-                  <input
-                    value={editFacebookGroupName}
-                    maxLength={255}
-                    placeholder="Hội Dev Java VN"
-                    disabled={facebookSettingsState === 'SAVING'}
-                    onChange={(event) => setEditFacebookGroupName(event.target.value)}
-                  />
-                </label>
-                <label>
-                  Link URL
-                  <input
-                    value={editFacebookGroupUrl}
-                    maxLength={2048}
-                    placeholder="https://facebook.com/groups/..."
-                    disabled={facebookSettingsState === 'SAVING'}
-                    aria-invalid={Boolean(editFacebookGroupUrlFieldError)}
-                    onChange={(event) => {
-                      setEditFacebookGroupUrl(event.target.value);
-                      setEditFacebookGroupUrlError(null);
-                    }}
-                  />
-                  {editFacebookGroupUrlFieldError ? (
-                    <span className="field-error">{editFacebookGroupUrlFieldError}</span>
+              <form
+                className="facebook-group-edit-form"
+                onSubmit={(event) => void submitFacebookGroupEdit(event)}
+              >
+                <div className="facebook-group-edit-body">
+                  {facebookSettingsMessage ? (
+                    <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
+                      {facebookSettingsMessage}
+                    </p>
                   ) : null}
-                  <small>Link trực tiếp đến trang chủ của nhóm Facebook.</small>
-                </label>
-                <div className="form-actions">
+                  <div className="facebook-group-edit-field">
+                    <label htmlFor="facebook-group-edit-name">
+                      <span>TÊN NHÓM <em aria-hidden="true">*</em></span>
+                    </label>
+                    <input
+                      id="facebook-group-edit-name"
+                      value={editFacebookGroupName}
+                      maxLength={255}
+                      placeholder="Hội Dev Java VN"
+                      disabled={facebookSettingsState === 'SAVING'}
+                      onChange={(event) => setEditFacebookGroupName(event.target.value)}
+                    />
+                  </div>
+                  <div className="facebook-group-edit-field facebook-group-edit-url-field">
+                    <span className="facebook-group-edit-label">LINK URL</span>
+                    {selectedFacebookGroup.targetUrl ? (
+                      <a
+                        className="facebook-group-edit-url"
+                        href={selectedFacebookGroup.targetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {selectedFacebookGroup.targetUrl}
+                      </a>
+                    ) : (
+                      <span className="facebook-group-edit-url is-empty">Chưa có link URL</span>
+                    )}
+                  </div>
+                </div>
+                <footer className="facebook-group-edit-footer">
                   <button
                     type="button"
                     className="text-button"
                     disabled={facebookSettingsState === 'SAVING'}
                     onClick={closeFacebookGroupActionModal}
                   >
-                    Hủy
+                    HỦY
                   </button>
                   <button
                     type="submit"
-                    className="primary-button compact-button"
-                    disabled={facebookSettingsState === 'SAVING' || Boolean(editFacebookGroupUrlFieldError)}
+                    className="facebook-group-edit-save-button"
+                    disabled={facebookSettingsState === 'SAVING'}
                   >
                     <SaveIcon />
-                    <span>{facebookSettingsState === 'SAVING' ? 'Đang lưu...' : 'Lưu'}</span>
+                    <span>{facebookSettingsState === 'SAVING' ? 'Đang lưu...' : 'LƯU'}</span>
                   </button>
-                </div>
+                </footer>
               </form>
             </section>
           ) : null}
@@ -6724,9 +6669,6 @@ return (
               <div className="facebook-ineligible-modal-heading">
                 <div>
                   <h2 id="facebook-group-sync-details-title">DANH SÁCH NHÓM KHÔNG PHÙ HỢP</h2>
-                  <span>
-                    {`${facebookIneligibleTotalItems} nhóm không phù hợp / ${facebookIneligibleTotalGroupCount} nhóm`}
-                  </span>
                 </div>
               </div>
               <button
@@ -6740,6 +6682,11 @@ return (
               </button>
             </header>
             <div className="modal-body facebook-ineligible-modal-body">
+              <div className="facebook-ineligible-modal-total">
+                <span>
+                  {`${facebookIneligibleTotalItems} nhóm không phù hợp / ${facebookIneligibleTotalGroupCount} nhóm`}
+                </span>
+              </div>
               <div className="facebook-ineligible-modal-list">
                 {facebookIneligiblePageItems.length > 0 ? (
                   facebookIneligiblePageItems.map((group) => {
@@ -6777,49 +6724,53 @@ return (
                 ) : (
                   <p className="channel-subselection-empty">Không có nhóm không phù hợp.</p>
                 )}
-              </div>
               {facebookIneligibleTotalItems > 0 ? (
                 <div className="facebook-ineligible-modal-pagination">
-                  <span>
-                    {`Hi\u1ec3n th\u1ecb t\u1eeb ${facebookIneligibleVisibleStart} - ${facebookIneligibleVisibleEnd} c\u1ee7a ${facebookIneligibleTotalItems} k\u1ebft qu\u1ea3`}
-                  </span>
+                  <div className="facebook-ineligible-modal-pagination-summary">
+                    <span>
+                      {`Hi\u1ec3n th\u1ecb t\u1eeb ${facebookIneligibleVisibleStart} - ${facebookIneligibleVisibleEnd} c\u1ee7a ${facebookIneligibleTotalItems} k\u1ebft qu\u1ea3`}
+                    </span>
+                  </div>
                   <div className="facebook-ineligible-modal-pagination-actions">
-                    <button
-                      type="button"
-                      title="Trang truoc"
-                      aria-label="Trang truoc danh sach nhom khong phu hop"
-                      disabled={currentFacebookIneligiblePage <= 1}
-                      onClick={() => setFacebookIneligiblePage((page) => Math.max(1, page - 1))}
-                    >
-                      <BackIcon />
-                    </button>
-                    {facebookIneligiblePaginationItems.map((page) => (
-                      typeof page === 'number' ? (
-                        <button
-                          key={page}
-                          type="button"
-                          className={page === currentFacebookIneligiblePage ? 'is-active' : undefined}
-                          aria-current={page === currentFacebookIneligiblePage ? 'page' : undefined}
-                          onClick={() => setFacebookIneligiblePage(page)}
-                        >
-                          {page}
-                        </button>
-                      ) : (
-                        <span key={page} className="facebook-ineligible-modal-pagination-ellipsis">...</span>
-                      )
-                    ))}
-                    <button
-                      type="button"
-                      title="Trang sau"
-                      aria-label="Trang sau danh sach nhom khong phu hop"
-                      disabled={currentFacebookIneligiblePage >= facebookIneligiblePageCount}
-                      onClick={() => setFacebookIneligiblePage((page) => Math.min(facebookIneligiblePageCount, page + 1))}
-                    >
-                      <ChevronRightIcon />
-                    </button>
+                    <div className="facebook-ineligible-modal-pagination-buttons">
+                      <button
+                        type="button"
+                        title="Trang truoc"
+                        aria-label="Trang truoc danh sach nhom khong phu hop"
+                        disabled={currentFacebookIneligiblePage <= 1}
+                        onClick={() => setFacebookIneligiblePage((page) => Math.max(1, page - 1))}
+                      >
+                        <BackIcon />
+                      </button>
+                      {facebookIneligiblePaginationItems.map((page) => (
+                        typeof page === 'number' ? (
+                          <button
+                            key={page}
+                            type="button"
+                            className={page === currentFacebookIneligiblePage ? 'is-active' : undefined}
+                            aria-current={page === currentFacebookIneligiblePage ? 'page' : undefined}
+                            onClick={() => setFacebookIneligiblePage(page)}
+                          >
+                            {page}
+                          </button>
+                        ) : (
+                          <span key={page} className="facebook-ineligible-modal-pagination-ellipsis">...</span>
+                        )
+                      ))}
+                      <button
+                        type="button"
+                        title="Trang sau"
+                        aria-label="Trang sau danh sach nhom khong phu hop"
+                        disabled={currentFacebookIneligiblePage >= facebookIneligiblePageCount}
+                        onClick={() => setFacebookIneligiblePage((page) => Math.min(facebookIneligiblePageCount, page + 1))}
+                      >
+                        <ChevronRightIcon />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}
+              </div>
             </div>
           </section>
         </div>
@@ -7178,15 +7129,6 @@ function HistoryIcon({ className }: IconProps) {
     <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="M3.2 4.3A5.4 5.4 0 1 1 2.7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M2.8 2.5v2.3h2.3M8 4.8v3.3l2.2 1.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function InfoIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5.8" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M8 7.2v3.4M8 5.1h.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -8837,20 +8779,6 @@ function formatDate(value: string | undefined) {
 }
 
 function formatDateTime(value: string | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-
-  return date.toLocaleString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function formatFacebookHistoryDateTime(value: string | undefined) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;

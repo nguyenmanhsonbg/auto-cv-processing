@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsISO8601, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsEnum, IsISO8601, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
 import { FacebookPublishTargetEligibilityStatus } from '../../facebook-publishing/facebook-publishing.types';
 
 export class VerifyFacebookGroupDto {
@@ -19,6 +19,7 @@ export class VerifyFacebookGroupDto {
   @ApiPropertyOptional({ example: '2026-07-03T10:00:00.000Z' })
   @IsOptional()
   @IsISO8601()
+  @Matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
   verifiedAt?: string | null;
 
   @ApiPropertyOptional({ description: 'Stable Facebook account id resolved from the current browser session.' })
