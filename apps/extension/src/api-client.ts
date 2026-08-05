@@ -44,8 +44,6 @@ import type {
   SyncAmisCareersRequest,
   SyncAmisCareersResponse,
   SyncAmisJobPostingRequest,
-  SyncAmisJobDescriptionRequest,
-  SyncAmisJobDescriptionResponse,
   SyncVcsPortalJdsResponse,
   RunApplicationAiScreeningResponse,
   UpdateFacebookGroupRequest,
@@ -233,23 +231,6 @@ export async function syncAndPublishAmisJob(
   });
 }
 
-export async function syncAmisJobDescription(
-  accessToken: string,
-  payload: SyncAmisJobDescriptionRequest,
-) {
-  const requestId = `ext-amis-jd-${crypto.randomUUID()}`;
-
-  return request<SyncAmisJobDescriptionResponse>('/extension/amis/job-descriptions/sync', {
-    method: 'POST',
-    accessToken,
-    body: payload,
-    headers: {
-      'X-Request-Id': requestId,
-      'X-Extension-Version': EXTENSION_VERSION,
-    },
-  });
-}
-
 export async function previewAmisJobPublishPlan(
   accessToken: string,
   payload: SyncAmisJobPostingRequest,
@@ -342,7 +323,9 @@ export async function updateAmisApplicationStage(
         status: payload.amisStatus ?? undefined,
         reasonRemoved: payload.reasonRemoved,
         sourceUrl: payload.sourceUrl,
+        pageUrl: payload.pageUrl,
         changedAt: payload.changedAt,
+        isTransitionEvent: payload.isTransitionEvent === true,
       },
     },
   );

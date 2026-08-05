@@ -34,7 +34,6 @@ import {
   resolveFacebookAccount,
   runApplicationAiScreening,
   syncAmisApplications,
-  syncAmisJobDescription,
   syncAndPublishAmisJob,
   syncFacebookGroups,
   syncVcsPortalJobDescriptions,
@@ -485,6 +484,7 @@ function SidePanel() {
 
   const [isFacebookGroupFormOpen, setIsFacebookGroupFormOpen] = useState(false);
   const [facebookGroupName, setFacebookGroupName] = useState('');
+  const [facebookGroupNameError, setFacebookGroupNameError] = useState<string | null>(null);
   const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
   const [facebookGroupUrlError, setFacebookGroupUrlError] = useState<string | null>(null);
   const [editFacebookGroupName, setEditFacebookGroupName] = useState('');
@@ -502,6 +502,7 @@ function SidePanel() {
   const [vcsPortalSyncResult, setVcsPortalSyncResult] = useState<SyncVcsPortalJdsResponse | null>(null);
   const [, setVcsPortalSyncMessage] = useState<string | null>(null);
   const [selectedJobDescription, setSelectedJobDescription] = useState<JobDescriptionSummary | null>(null);
+  const [lockedAmisJobDescriptionId, setLockedAmisJobDescriptionId] = useState<string | null>(null);
   const [careerQuestionState, setCareerQuestionState] = useState<CareerQuestionState>('IDLE');
   const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
   const [jobDescriptionQuestionContext, setJobDescriptionQuestionContext] = useState<JobDescriptionQuestionSetContext | null>(null);
@@ -1361,11 +1362,11 @@ function SidePanel() {
       facebookContentSnapshotFingerprintRef.current = buildFacebookDraftSnapshotFingerprint(sourceSnapshot);
       facebookContentJobIdentityRef.current = buildFacebookJobIdentity(sourceSnapshot);
       setFacebookContentState('READY');
-      setFacebookContentMessage(
-        contentMode === 'AI'
-          ? 'Facebook content replaced with an AI-generated version.'
-          : 'Đã sinh nội dung Facebook từ JD hiện tại.',
-      );
+      // setFacebookContentMessage(
+      //   contentMode === 'AI'
+      //     ? 'Facebook content replaced with an AI-generated version.'
+      //     : 'Đã sinh nội dung Facebook từ JD hiện tại.',
+      // );
       const draftScope = await getFacebookContentDraftScope(
         options.selectedJobDescriptionOverride ?? selectedJobDescription,
       );
@@ -1532,6 +1533,14 @@ function SidePanel() {
     setJobDescriptions([]);
     setJobDescriptionPagination(null);
     setJobDescriptionStatus('IDLE');
+    setCvQuestionFilter('ALL');
+    setCvSyncFilter('ALL');
+    setCvEvaluationFilter('ALL');
+    setCvSourceFilter('ALL');
+    setCvSortMode('APPLIED_DESC');
+    setOpenCvFilter(null);
+    setCvApplicationPage(1);
+    setSelectedCvApplicationIds(new Set());
     setState('AUTH_REQUIRED');
   }
 
@@ -1697,6 +1706,8 @@ function SidePanel() {
       };
     });
 
+    if (payload.isTransitionEvent !== true) return;
+
     const accessToken = tokenRef.current;
     if (!accessToken) return;
 
@@ -1837,6 +1848,7 @@ function SidePanel() {
     lastAmisJobInitiationResetKeyRef.current = resetKey;
 
     setSelectedJobDescription(null);
+    setLockedAmisJobDescriptionId(null);
     setJobDescriptionQuestionContext(null);
     setSelectedJobQuestionIds(new Set());
     setCareerQuestionState('IDLE');
@@ -1981,7 +1993,7 @@ function SidePanel() {
       if (!capture.detected || !capture.snapshot || !capture.amisRecruitmentId) return;
 
       applyExtractionResult(capture);
-      await syncAndSelectAmisJobDescription(capture, tokenRef.current, sourceTabId);
+      await selectExistingJobDescriptionForAmisCapture(capture, tokenRef.current, sourceTabId);
     } catch (err) {
       if (!(err instanceof ApiClientError && err.status === 401)) {
         setJobDescriptionError(toErrorMessage(err));
@@ -2219,6 +2231,7 @@ function SidePanel() {
       setApplicationsMessage(null);
       setApplicationsState(normalizedRecruitmentId ? 'LOADING' : 'IDLE');
       setSelectedJobDescription(null);
+      setLockedAmisJobDescriptionId(null);
       setJobDescriptionQuestionContext(null);
       setSelectedJobQuestionIds(new Set());
       setCareerQuestionState('IDLE');
@@ -2319,7 +2332,7 @@ function SidePanel() {
       ) {
         postingSnapshotRefreshAttemptsRef.current.delete(attemptKey);
         applyExtractionResult(extraction);
-        await syncAndSelectAmisJobDescription(extraction, tokenRef.current, activeTab.id);
+        await selectExistingJobDescriptionForAmisCapture(extraction, tokenRef.current, activeTab.id);
         setState('READY');
         return;
       }
@@ -2355,7 +2368,7 @@ function SidePanel() {
     return injectionResults[0]?.result;
   }
 
-  async function syncAndSelectAmisJobDescription(
+  async function selectExistingJobDescriptionForAmisCapture(
     capture: AmisExtractionResult,
     accessToken = tokenRef.current,
     sourceTabId?: number,
@@ -2389,7 +2402,8 @@ function SidePanel() {
         await saveAmisTemplateContextForRecruitment(recruitmentId, templateContext);
         setJobDescriptionStatus('READY');
         setSelectedJobDescription(sourceJobDescription);
-        setSnapshot(buildAmisJobSnapshotFromJobDescription(sourceJobDescription));
+        setLockedAmisJobDescriptionId(sourceJobDescription.id);
+        setSnapshot(capture.snapshot);
         setExtractionResult(capture);
         setAmisUrl(capture.url);
         setJobDescriptionError(null);
@@ -2401,38 +2415,11 @@ function SidePanel() {
         return null;
       }
 
-      const response = await syncAmisJobDescription(accessToken, {
-        amisRecruitmentId: recruitmentId,
-        amisUrl: capture.url,
-        snapshot: capture.snapshot,
-      });
-
-      if (
-        selectionSeq !== amisJobSelectionSeqRef.current
-        || activeAmisRecruitmentIdRef.current !== recruitmentId
-      ) {
-        return null;
-      }
-
-      const jobDescription = response.jobDescription;
-      setJobDescriptions((current) => {
-        const existingIndex = current.findIndex((item) => item.id === jobDescription.id);
-        if (existingIndex < 0) return [jobDescription, ...current];
-
-        return current.map((item, index) => index === existingIndex ? jobDescription : item);
-      });
-      setJobDescriptionStatus('READY');
-      setSelectedJobDescription(jobDescription);
       setSnapshot(capture.snapshot);
       setExtractionResult(capture);
       setAmisUrl(capture.url);
       setJobDescriptionError(null);
-      await loadSelectedJobDescriptionQuestionSet(jobDescription, accessToken, {
-        silent: true,
-        force: true,
-      });
-      await clearAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
-      return response;
+      return null;
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
@@ -2479,7 +2466,7 @@ function SidePanel() {
 
       applyAutoSyncState(latestState, { force: true });
       if (latestState.capture) {
-        await syncAndSelectAmisJobDescription(latestState.capture, tokenRef.current);
+          await selectExistingJobDescriptionForAmisCapture(latestState.capture, tokenRef.current);
       }
       return true;
     }
@@ -2494,7 +2481,7 @@ function SidePanel() {
       }
 
       applyExtractionResult(capture);
-      await syncAndSelectAmisJobDescription(capture, tokenRef.current);
+      await selectExistingJobDescriptionForAmisCapture(capture, tokenRef.current);
       setState('READY');
       return true;
     }
@@ -2631,6 +2618,8 @@ function SidePanel() {
   }
 
   async function fillJobDescriptionInAmis(jobDescription: JobDescriptionSummary) {
+    if (lockedAmisJobDescriptionId && lockedAmisJobDescriptionId !== jobDescription.id) return;
+
     const nextSnapshot = buildAmisJobSnapshotFromJobDescription(jobDescription);
     setSelectedJobDescription(jobDescription);
     setSnapshot(nextSnapshot);
@@ -2652,11 +2641,7 @@ function SidePanel() {
         throw new Error('Mở màn tạo tin tuyển dụng AMIS ở tab hiện tại rồi chọn lại JD.');
       }
 
-      if (!chrome.tabs?.sendMessage) {
-        throw new Error('Chrome tabs messaging is unavailable.');
-      }
-
-      const response = await chrome.tabs.sendMessage(activeTab.id, {
+      const response = await sendMessageToAmisTab(activeTab.id, {
         type: FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE,
         payload: buildAmisFormFillPayload(jobDescription),
       });
@@ -2706,7 +2691,7 @@ function SidePanel() {
       }
 
       applyExtractionResult(capture);
-      await syncAndSelectAmisJobDescription(capture, accessToken);
+      await selectExistingJobDescriptionForAmisCapture(capture, accessToken);
       setState('READY');
     } catch (err) {
       if (!options.silent) {
@@ -3221,6 +3206,7 @@ function SidePanel() {
     setFacebookSettingsState('IDLE');
     setFacebookSettingsMessage(null);
     setFacebookGroupName('');
+    setFacebookGroupNameError(null);
     setFacebookGroupUrl('');
     setFacebookGroupUrlError(null);
     setEditFacebookGroupName('');
@@ -3229,6 +3215,7 @@ function SidePanel() {
   function openFacebookGroupCreateModal() {
     setIsFacebookGroupFormOpen(true);
     setFacebookGroupName('');
+    setFacebookGroupNameError(null);
     setFacebookGroupUrl('');
     setFacebookGroupUrlError(null);
     setFacebookSettingsMessage(null);
@@ -3240,6 +3227,7 @@ function SidePanel() {
 
     setIsFacebookGroupFormOpen(false);
     setFacebookGroupName('');
+    setFacebookGroupNameError(null);
     setFacebookGroupUrl('');
     setFacebookGroupUrlError(null);
     setFacebookSettingsMessage(validFacebookGroups.length > 0 ? null : 'Chưa có nhóm Facebook nào.');
@@ -3598,22 +3586,13 @@ function SidePanel() {
 
     const targetName = facebookGroupName.trim();
     const targetUrl = facebookGroupUrl.trim();
+    const nameError = targetName ? null : 'Tên nhóm là bắt buộc, không được để trống.';
     const targetUrlError = getFacebookGroupUrlValidationError(targetUrl, facebookGroups);
-    if (targetUrlError) {
-      setFacebookGroupUrlError(targetUrlError);
+    setFacebookGroupNameError(nameError);
+    setFacebookGroupUrlError(targetUrlError);
+    if (nameError || targetUrlError) {
       setFacebookSettingsState('READY');
       setFacebookSettingsMessage(null);
-      return;
-    }
-    setFacebookGroupUrlError(null);
-    if (!targetName) {
-      setFacebookSettingsState('ERROR');
-      setFacebookSettingsMessage('Tên nhóm là bắt buộc.');
-      return;
-    }
-    if (!isFacebookGroupUrlCandidate(targetUrl)) {
-      setFacebookSettingsState('ERROR');
-      setFacebookSettingsMessage('Link URL phải có dạng https://www.facebook.com/groups/{groupId}.');
       return;
     }
 
@@ -3631,6 +3610,7 @@ function SidePanel() {
       setFacebookGroupPage(1);
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setFacebookGroupName('');
+      setFacebookGroupNameError(null);
       setFacebookGroupUrl('');
       setFacebookGroupUrlError(null);
       setIsFacebookGroupFormOpen(false);
@@ -3653,7 +3633,7 @@ function SidePanel() {
       if (isDuplicateFacebookGroupError(err)) {
         setFacebookSettingsState('READY');
         setFacebookSettingsMessage(null);
-        setFacebookGroupUrlError('Group đã tồn tại.');
+        setFacebookGroupUrlError('Link URL không được trùng với nhóm đã tồn tại trong hệ thống.');
         return;
       }
       setFacebookSettingsState('ERROR');
@@ -3908,7 +3888,12 @@ function SidePanel() {
       ? { ...contentResolvedPlan, attachments: publishAttachments }
       : contentResolvedPlan;
     const planKey = getFacebookPlanKey(planForPublish);
-    if (startedFacebookPlanKeys.current.has(planKey)) return planForPublish;
+    if (startedFacebookPlanKeys.current.has(planKey)) {
+      // The plan was already completed; keep repeated AMIS syncs from leaving the button stuck in SYNCING.
+      setState('SUCCESS');
+      setError(null);
+      return planForPublish;
+    }
 
     if (planForPublish.targets.length === 0) {
       const progress: FacebookPublishProgress = {
@@ -4161,6 +4146,7 @@ function SidePanel() {
 
           <form
             className="facebook-group-form is-create"
+            noValidate
             onSubmit={(event) => void submitFacebookGroup(event)}
           >
             {facebookSettingsMessage ? (
@@ -4169,28 +4155,75 @@ function SidePanel() {
               </p>
             ) : null}
             <label>
-              Tên nhóm
-              <input
-                value={facebookGroupName}
-                maxLength={255}
-                placeholder="Ví dụ: Việc làm IT Đà Nẵng"
-                disabled={isSaving}
-                onChange={(event) => setFacebookGroupName(event.target.value)}
-              />
+              <span className="facebook-group-field-label">
+                Tên nhóm
+                <span className="facebook-group-required-mark" aria-hidden="true">*</span>
+              </span>
+              <div className="facebook-group-input-wrap">
+                <input
+                  value={facebookGroupName}
+                  maxLength={255}
+                  placeholder="Ví dụ: Việc làm IT Đà Nẵng"
+                  aria-invalid={Boolean(facebookGroupNameError)}
+                  disabled={isSaving}
+                  onChange={(event) => {
+                    setFacebookGroupName(event.target.value);
+                    setFacebookGroupNameError(null);
+                  }}
+                />
+                {facebookGroupName ? (
+                  <button
+                    type="button"
+                    className="facebook-group-input-clear"
+                    title="Xóa tên nhóm"
+                    aria-label="Xóa tên nhóm"
+                    disabled={isSaving}
+                    onClick={() => {
+                      setFacebookGroupName('');
+                      setFacebookGroupNameError(null);
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                ) : null}
+              </div>
+              {facebookGroupNameError ? (
+                <span className="field-error">{facebookGroupNameError}</span>
+              ) : null}
             </label>
             <label>
-              Link URL
-              <input
-                value={facebookGroupUrl}
-                maxLength={2048}
-                placeholder="https://facebook.com/groups/..."
-                disabled={isSaving}
-                aria-invalid={Boolean(facebookGroupUrlFieldError)}
-                onChange={(event) => {
-                  setFacebookGroupUrl(event.target.value);
-                  setFacebookGroupUrlError(null);
-                }}
-              />
+              <span className="facebook-group-field-label">
+                Link URL
+                <span className="facebook-group-required-mark" aria-hidden="true">*</span>
+              </span>
+              <div className="facebook-group-input-wrap">
+                <input
+                  value={facebookGroupUrl}
+                  maxLength={500}
+                  placeholder="https://facebook.com/groups/..."
+                  disabled={isSaving}
+                  aria-invalid={Boolean(facebookGroupUrlFieldError)}
+                  onChange={(event) => {
+                    setFacebookGroupUrl(event.target.value);
+                    setFacebookGroupUrlError(null);
+                  }}
+                />
+                {facebookGroupUrl ? (
+                  <button
+                    type="button"
+                    className="facebook-group-input-clear"
+                    title="Xóa link URL"
+                    aria-label="Xóa link URL"
+                    disabled={isSaving}
+                    onClick={() => {
+                      setFacebookGroupUrl('');
+                      setFacebookGroupUrlError(null);
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                ) : null}
+              </div>
               {facebookGroupUrlFieldError ? (
                 <span className="field-error">{facebookGroupUrlFieldError}</span>
               ) : null}
@@ -4208,7 +4241,7 @@ function SidePanel() {
               <button
                 type="submit"
                 className="primary-button compact-button"
-                disabled={isSaving || Boolean(facebookGroupUrlFieldError)}
+                disabled={isSaving || Boolean(facebookGroupNameError) || Boolean(facebookGroupUrlFieldError)}
               >
                 <SaveIcon />
                 <span>{isSaving ? 'Đang lưu...' : 'Lưu'}</span>
@@ -4750,7 +4783,7 @@ function SidePanel() {
               title={isFacebookResultsExpanded ? 'Thu gọn kết quả' : 'Mở rộng kết quả'}
               onClick={() => setIsFacebookResultsExpanded((current) => !current)}
             >
-              {isFacebookResultsExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+              {isFacebookResultsExpanded ? <ChevronDownIcon /> : <ChevronUpIcon />}
             </button>
           </span>
         </div>
@@ -4814,7 +4847,7 @@ function SidePanel() {
                 [channelKey]: !isExpanded,
               }))}
             >
-              {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+              {isExpanded ? <ChevronDownIcon /> : <ChevronUpIcon />}
             </button>
           </span>
         </div>
@@ -4867,6 +4900,7 @@ function SidePanel() {
               disabled={!canGenerate}
               onClick={() => void generateFacebookPostContent({ mode: 'AI' })}
             >
+              <FacebookGenerateIcon />
               {facebookContentBusy ? 'Đang sinh...' : 'Sinh bài'}
             </button>
             <button
@@ -5514,6 +5548,8 @@ function SidePanel() {
             {jobDescriptions.map((jobDescription) => {
               const badge = getJobDescriptionStatusBadge(jobDescription);
               const isSelected = selectedJobDescription?.id === jobDescription.id;
+              const isLockedByAmis = lockedAmisJobDescriptionId !== null
+                && lockedAmisJobDescriptionId !== jobDescription.id;
               const displayDate = formatDate(
                 jobDescription.sourceModifiedAt
                   ?? jobDescription.lastSyncedAt
@@ -5526,7 +5562,7 @@ function SidePanel() {
                   <button
                     type="button"
                     className="jd-card-button"
-                    disabled={jobDescriptionFillState === 'FILLING'}
+                    disabled={jobDescriptionFillState === 'FILLING' || isLockedByAmis}
                     onClick={() => void fillJobDescriptionInAmis(jobDescription)}
                   >
                     <span className={`status-badge jd-status-badge ${badge.className}`}>{badge.label}</span>
@@ -5881,7 +5917,7 @@ function SidePanel() {
             <button
               type="button"
               className="cv-bulk-sync-button"
-              disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId) || !isAmisCandidateFormOpen}
+              disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId)}
               onClick={() => void uploadApplicationCvsToAmisForm(selectedFilteredApplications)}
             >
               <RefreshIcon />
@@ -5953,7 +5989,7 @@ function SidePanel() {
                 ?? 'Chưa cập nhật';
               const isAmisRejected = application.amisStatus === 0;
               const rejectionReason = application.amisReasonRemoved?.trim() || null;
-              const recruiterName = application.attractivePersonnelName ?? 'Chưa phân công';
+              const recruiterName = application.attractivePersonnelName ?? '-';
               const appliedDate = formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-';
 
               return (
@@ -5973,7 +6009,9 @@ function SidePanel() {
                         <span>{[application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact'}</span>
                         <span className="cv-candidate-applied-date">Ngày ứng tuyển: {appliedDate}</span>
                       </div>
-                      {score != null ? <b className="cv-candidate-score">{score}</b> : null}
+                      {score != null ? (
+                        <b className={`cv-candidate-score ${getCvScoreTone(score)}`}>{score}</b>
+                      ) : null}
                     </div>
                     <div
                       className="cv-candidate-process"
@@ -6020,6 +6058,10 @@ function SidePanel() {
                         <strong>{aiEvaluationStatus.label}</strong>
                       </div>
                     </div>
+                    <div className="cv-candidate-note">
+                      <span className="cv-candidate-note-label">Ghi chú của CV</span>
+                      <span>{application.cvNote?.trim() || 'CV này không có ghi chú nào.'}</span>
+                    </div>
                     <div className="cv-candidate-footer">
                       {canShowAmisSyncButton && isAmisCandidateFormOpen ? (
                         <button
@@ -6042,7 +6084,7 @@ function SidePanel() {
                           disabled={!canRunAiScreening || aiScreeningRunning || Boolean(aiScreeningApplicationId)}
                           onClick={() => void runAiScreeningForApplication(application)}
                         >
-                          {aiScreeningRunning ? 'Đang đánh giá...' : 'Đánh giá AI'}
+                          {aiScreeningRunning ? 'Đang đánh giá...' : 'Đánh giá bằng AI'}
                         </button>
                       ) : null}
                       {canShowAiUploadButton ? (
@@ -6065,12 +6107,12 @@ function SidePanel() {
           </ul>
         ) : (
           <div className="empty-panel-state">
-            <strong>Chưa có ứng viên ứng tuyển vào công việc này</strong>
-            <span>Mở AMIS recruitment có ứng viên hoặc refresh sau khi autosync chạy.</span>
+            <strong>Không tìm thấy hồ sơ ứng viên</strong>
           </div>
         )}
 
-        <div className="cv-list-pagination">
+        {filteredApplications.length > CV_APPLICATION_PAGE_SIZE && (
+          <div className="cv-list-pagination">
           <span>Hiển thị {visibleStart} - {visibleEnd} của {filteredApplications.length} kết quả</span>
           <div>
             <button
@@ -6103,7 +6145,8 @@ function SidePanel() {
               <ChevronRightIcon />
             </button>
           </div>
-        </div>
+          </div>
+        )}
       </section>
     );
   }
@@ -6280,8 +6323,7 @@ return (
             >
             <header className="modal-header">
               <div>
-                <p className="eyebrow">Facebook</p>
-                <h2 id="facebook-group-settings-title">Cài đặt Group Facebook</h2>
+                <h2 id="facebook-group-settings-title">Cài đặt nhóm Facebook</h2>
               </div>
               <button
                 type="button"
@@ -6456,15 +6498,6 @@ return (
                   <div>
                     <button
                       type="button"
-                      title="Trang đầu"
-                      aria-label="Trang đầu danh sách nhóm Facebook"
-                      disabled={currentFacebookGroupPage <= 1 || facebookSettingsState === 'SAVING'}
-                      onClick={() => changeFacebookGroupPage(1)}
-                    >
-                      <DoubleBackIcon />
-                    </button>
-                    <button
-                      type="button"
                       title="Trang trước"
                       aria-label="Trang trước danh sách nhóm Facebook"
                       disabled={currentFacebookGroupPage <= 1 || facebookSettingsState === 'SAVING'}
@@ -6472,17 +6505,27 @@ return (
                     >
                       <BackIcon />
                     </button>
-                    {facebookGroupPaginationItems.map((page) => (
-                      <button
-                        key={page}
-                        type="button"
-                        className={page === currentFacebookGroupPage ? 'is-active' : undefined}
-                        aria-current={page === currentFacebookGroupPage ? 'page' : undefined}
-                        disabled={facebookSettingsState === 'SAVING'}
-                        onClick={() => changeFacebookGroupPage(page)}
-                      >
-                        {page}
-                      </button>
+                    {facebookGroupPaginationItems.map((page, index) => (
+                      typeof page === 'number' ? (
+                        <button
+                          key={page}
+                          type="button"
+                          className={page === currentFacebookGroupPage ? 'is-active' : undefined}
+                          aria-current={page === currentFacebookGroupPage ? 'page' : undefined}
+                          disabled={facebookSettingsState === 'SAVING'}
+                          onClick={() => changeFacebookGroupPage(page)}
+                        >
+                          {page}
+                        </button>
+                      ) : (
+                        <span
+                          key={`facebook-group-ellipsis-${index}`}
+                          className="facebook-group-pagination-ellipsis"
+                          aria-hidden="true"
+                        >
+                          ...
+                        </span>
+                      )
                     ))}
                     <button
                       type="button"
@@ -6493,15 +6536,6 @@ return (
                     >
                       <ChevronRightIcon />
                     </button>
-                    <button
-                      type="button"
-                      title="Trang cuối"
-                      aria-label="Trang cuối danh sách nhóm Facebook"
-                      disabled={currentFacebookGroupPage >= facebookGroupPageCount || facebookSettingsState === 'SAVING'}
-                      onClick={() => changeFacebookGroupPage(facebookGroupPageCount)}
-                    >
-                      <DoubleChevronRightIcon />
-                    </button>
                   </div>
                 </div>
               ) : null}
@@ -6511,7 +6545,7 @@ return (
           ) : null}
           {facebookGroupModalMode === 'EDIT' && selectedFacebookGroup ? (
             <section
-              className="facebook-group-modal"
+              className="facebook-group-modal facebook-group-edit-modal"
               role="dialog"
               aria-modal="true"
               aria-labelledby="facebook-group-edit-title"
@@ -6532,46 +6566,49 @@ return (
                 </button>
               </header>
 
-              <form
-                className="facebook-group-edit-form"
-                onSubmit={(event) => void submitFacebookGroupEdit(event)}
-              >
-                <div className="facebook-group-edit-body">
-                  {facebookSettingsMessage ? (
-                    <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
-                      {facebookSettingsMessage}
-                    </p>
+              <form className="modal-body facebook-group-form is-standalone" onSubmit={(event) => void submitFacebookGroupEdit(event)}>
+                {facebookSettingsMessage ? (
+                  <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
+                    {facebookSettingsMessage}
+                  </p>
+                ) : null}
+                <label>
+                  <span className="facebook-group-field-label">
+                    Tên nhóm
+                    <span className="facebook-group-required-mark" aria-hidden="true">*</span>
+                  </span>
+                  <input
+                    value={editFacebookGroupName}
+                    maxLength={255}
+                    placeholder="Hội Dev Java VN"
+                    required
+                    disabled={facebookSettingsState === 'SAVING'}
+                    onChange={(event) => setEditFacebookGroupName(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span className="facebook-group-field-label">
+                    Link URL
+                    <span className="facebook-group-required-mark" aria-hidden="true">*</span>
+                  </span>
+                  <input
+                    value={editFacebookGroupUrl}
+                    maxLength={2048}
+                    placeholder="https://facebook.com/groups/..."
+                    required
+                    disabled={facebookSettingsState === 'SAVING'}
+                    aria-invalid={Boolean(editFacebookGroupUrlFieldError)}
+                    onChange={(event) => {
+                      setEditFacebookGroupUrl(event.target.value);
+                      setEditFacebookGroupUrlError(null);
+                    }}
+                  />
+                  {editFacebookGroupUrlFieldError ? (
+                    <span className="field-error">{editFacebookGroupUrlFieldError}</span>
                   ) : null}
-                  <div className="facebook-group-edit-field">
-                    <label htmlFor="facebook-group-edit-name">
-                      <span>TÊN NHÓM <em aria-hidden="true">*</em></span>
-                    </label>
-                    <input
-                      id="facebook-group-edit-name"
-                      value={editFacebookGroupName}
-                      maxLength={255}
-                      placeholder="Hội Dev Java VN"
-                      disabled={facebookSettingsState === 'SAVING'}
-                      onChange={(event) => setEditFacebookGroupName(event.target.value)}
-                    />
-                  </div>
-                  <div className="facebook-group-edit-field facebook-group-edit-url-field">
-                    <span className="facebook-group-edit-label">LINK URL</span>
-                    {selectedFacebookGroup.targetUrl ? (
-                      <a
-                        className="facebook-group-edit-url"
-                        href={selectedFacebookGroup.targetUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {selectedFacebookGroup.targetUrl}
-                      </a>
-                    ) : (
-                      <span className="facebook-group-edit-url is-empty">Chưa có link URL</span>
-                    )}
-                  </div>
-                </div>
-                <footer className="facebook-group-edit-footer">
+                  <small>Link trực tiếp đến trang chủ của nhóm Facebook.</small>
+                </label>
+                <div className="form-actions">
                   <button
                     type="button"
                     className="text-button"
@@ -6588,7 +6625,7 @@ return (
                     <SaveIcon />
                     <span>{facebookSettingsState === 'SAVING' ? 'Đang lưu...' : 'LƯU'}</span>
                   </button>
-                </footer>
+                </div>
               </form>
             </section>
           ) : null}
@@ -7201,6 +7238,14 @@ function SparklesIcon({ className }: IconProps) {
   );
 }
 
+function FacebookGenerateIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M10.5 4.66667L9.77083 3.0625L8.16667 2.33333L9.77083 1.60417L10.5 0L11.2292 1.60417L12.8333 2.33333L11.2292 3.0625L10.5 4.66667ZM10.5 12.8333L9.77083 11.2292L8.16667 10.5L9.77083 9.77083L10.5 8.16667L11.2292 9.77083L12.8333 10.5L11.2292 11.2292L10.5 12.8333ZM4.66667 11.0833L3.20833 7.875L0 6.41667L3.20833 4.95833L4.66667 1.75L6.125 4.95833L9.33333 6.41667L6.125 7.875L4.66667 11.0833ZM4.66667 8.25417L5.25 7L6.50417 6.41667L5.25 5.83333L4.66667 4.57917L4.08333 5.83333L2.82917 6.41667L4.08333 7L4.66667 8.25417Z" fill="#059669" />
+    </svg>
+  );
+}
+
 function WarningIcon({ className }: IconProps) {
   return (
     <svg className={className} aria-hidden="true" viewBox="0 0 24 24" fill="none">
@@ -7394,7 +7439,7 @@ function getDuplicateFacebookGroupUrlError(
     && group.targetId !== currentTargetId
   ));
 
-  return existingGroup ? 'Group đã tồn tại.' : null;
+  return existingGroup ? 'Link URL không được trùng với nhóm đã tồn tại trong hệ thống.' : null;
 }
 
 function isFacebookPageUrl(value: string | undefined) {
@@ -8323,6 +8368,12 @@ function getApplicationMatchScore(application: ExtensionApplication) {
   return Math.round(score);
 }
 
+function getCvScoreTone(score: number) {
+  if (score >= 80) return 'is-success';
+  if (score >= 50) return 'is-warning';
+  return 'is-danger';
+}
+
 function getCvApplicationFilterBucket(application: ExtensionApplication): CvStatusFilter {
   const cvStatus = getApplicationCvDisplayStatus(application);
   if (cvStatus.tone === 'is-success') return 'PASSED';
@@ -8787,14 +8838,18 @@ function formatDateTime(value: string | undefined) {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
   });
+  const dateLabel = date.toLocaleDateString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+
+  return `${dateLabel} ${timeLabel}`;
 }
 
 function buildAmisFormFillPayload(jobDescription: JobDescriptionSummary) {
   return {
-    title: jobDescription.title,
     positionName: jobDescription.position?.name ?? '',
     summary: truncateForMaxLength(
       jobDescription.summary ?? jobDescription.overview ?? jobDescription.description,
@@ -9060,7 +9115,7 @@ async function injectAmisBridge(tabId: number) {
   }
 
   await chrome.scripting.executeScript({
-    target: { tabId, allFrames: true },
+    target: { tabId },
     files: ['assets/amis-bridge.js'],
   });
 }
@@ -9179,18 +9234,8 @@ function GearIcon() {
 
 function ChevronUpIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      height="16"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-      width="16"
-    >
-      <path d="m18 15-6-6-6 6" />
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="m3.5 10 4.5-4.5 4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

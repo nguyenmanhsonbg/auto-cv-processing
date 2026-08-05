@@ -15,44 +15,40 @@ const AMIS_RECRUITMENT_ROUNDS_PATHS = [
 const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_CANDIDATE_STAGE_CHANGED';
 const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_RECRUITMENT_ROUNDS_CHANGED';
 const HOOK_INSTALLED_KEY = '__VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__';
-const CANDIDATE_STAGE_HOOK_INSTALLED_KEY = '__VCS_AMIS_CANDIDATE_STAGE_HOOK_INSTALLED__';
-const RECRUITMENT_ROUNDS_HOOK_INSTALLED_KEY = '__VCS_AMIS_RECRUITMENT_ROUNDS_HOOK_INSTALLED__';
-const JOB_STATUS_HOOK_INSTALLED_KEY = '__VCS_AMIS_JOB_STATUS_HOOK_INSTALLED__';
+const FETCH_HOOK_INSTALLED_KEY = '__VCS_AMIS_FETCH_HOOK_INSTALLED__';
 
 const hookWindow = window as Window & {
   __VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__?: boolean;
-  __VCS_AMIS_CANDIDATE_STAGE_HOOK_INSTALLED__?: boolean;
-  __VCS_AMIS_RECRUITMENT_ROUNDS_HOOK_INSTALLED__?: boolean;
-  __VCS_AMIS_JOB_STATUS_HOOK_INSTALLED__?: boolean;
+  __VCS_AMIS_FETCH_HOOK_INSTALLED__?: boolean;
 };
 
-if (!hookWindow[HOOK_INSTALLED_KEY]) {
-  hookWindow[HOOK_INSTALLED_KEY] = true;
-  installXhrHook();
-  publishDiagnostic('HOOK_READY', {
-    details: {
-      watchedTransport: 'xhr',
-      trigger: 'XMLHttpRequest.loadend',
-    },
-  });
-}
+schedulePageHooksAfterBootstrap();
 
-if (!hookWindow[CANDIDATE_STAGE_HOOK_INSTALLED_KEY]) {
-  hookWindow[CANDIDATE_STAGE_HOOK_INSTALLED_KEY] = true;
-  installCandidateStageXhrHook();
-  installCandidateStageFetchHook();
-}
+function schedulePageHooksAfterBootstrap() {
+  const install = () => {
+    if (!hookWindow[HOOK_INSTALLED_KEY]) {
+      hookWindow[HOOK_INSTALLED_KEY] = true;
+      installXhrHook();
+      publishDiagnostic('HOOK_READY', {
+        details: {
+          watchedTransport: 'xhr',
+          trigger: 'XMLHttpRequest.loadend',
+          installPhase: 'after-window-load',
+        },
+      });
+    }
 
-if (!hookWindow[RECRUITMENT_ROUNDS_HOOK_INSTALLED_KEY]) {
-  hookWindow[RECRUITMENT_ROUNDS_HOOK_INSTALLED_KEY] = true;
-  installRecruitmentRoundsXhrHook();
-  installRecruitmentRoundsFetchHook();
-}
+    if (!hookWindow[FETCH_HOOK_INSTALLED_KEY]) {
+      hookWindow[FETCH_HOOK_INSTALLED_KEY] = true;
+      installFetchHook();
+    }
+  };
 
-if (!hookWindow[JOB_STATUS_HOOK_INSTALLED_KEY]) {
-  hookWindow[JOB_STATUS_HOOK_INSTALLED_KEY] = true;
-  installJobStatusXhrHook();
-  installJobStatusFetchHook();
+  if (document.readyState === 'loading') {
+    window.addEventListener('load', install, { once: true });
+  } else {
+    window.setTimeout(install, 0);
+  }
 }
 
 function installXhrHook() {
@@ -75,6 +71,10 @@ function installXhrHook() {
 
   xhrPrototype.send = function sendWithAmisCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
     const requestUrl = this.__vcsAmisRequestUrl;
+    const requestBody = requestUrl && isAmisCandidateUpdateRoundUrl(requestUrl)
+      ? parseRequestJson(args[0])
+      : null;
+
     if (requestUrl && isAmisSaveRecruitmentUrl(requestUrl)) {
       this.addEventListener('loadend', () => {
         publishDiagnostic('SAVE_XHR_RESPONSE_SEEN', {
@@ -125,29 +125,6 @@ function installXhrHook() {
       }, { once: true });
     }
 
-    return Reflect.apply(originalSend, this, args);
-  };
-}
-
-function installCandidateStageXhrHook() {
-  const xhrPrototype = window.XMLHttpRequest?.prototype as XMLHttpRequest & {
-    open: (...args: unknown[]) => void;
-    send: (...args: unknown[]) => void;
-  } | undefined;
-  if (!xhrPrototype) return;
-
-  const originalOpen = xhrPrototype.open;
-  const originalSend = xhrPrototype.send;
-
-  xhrPrototype.open = function openWithCandidateStageCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
-    const [, url] = args;
-    this.__vcsAmisCandidateStageRequestUrl = getRequestUrl(url);
-    return Reflect.apply(originalOpen, this, args);
-  };
-
-  xhrPrototype.send = function sendWithCandidateStageCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
-    const requestUrl = this.__vcsAmisCandidateStageRequestUrl;
-    const requestBody = parseRequestJson(args[0]);
     if (requestUrl && isAmisCandidateAdditionalInfoUrl(requestUrl)) {
       this.addEventListener('loadend', () => {
         if (this.status < 200 || this.status >= 300) return;
@@ -167,53 +144,6 @@ function installCandidateStageXhrHook() {
       }, { once: true });
     }
 
-    return Reflect.apply(originalSend, this, args);
-  };
-}
-
-function installCandidateStageFetchHook() {
-  const originalFetch = window.fetch?.bind(window);
-  if (!originalFetch) return;
-
-  window.fetch = async (...args: Parameters<typeof fetch>) => {
-    const requestUrl = getRequestUrl(args[0] instanceof Request ? args[0].url : args[0]);
-    const requestBodyPromise = readFetchRequestBody(args);
-    const response = await originalFetch(...args);
-
-    if (requestUrl && isAmisCandidateAdditionalInfoUrl(requestUrl) && response.ok) {
-      void response.clone().text()
-        .then((text) => publishCandidateStage(parseJsonText(text), requestUrl))
-        .catch(() => undefined);
-    }
-
-    if (requestUrl && isAmisCandidateUpdateRoundUrl(requestUrl) && response.ok) {
-      void requestBodyPromise.then((requestBody) => {
-        publishCandidateStagesFromUpdateRoundRequest(requestBody, requestUrl);
-      });
-    }
-
-    return response;
-  };
-}
-
-function installRecruitmentRoundsXhrHook() {
-  const xhrPrototype = window.XMLHttpRequest?.prototype as XMLHttpRequest & {
-    open: (...args: unknown[]) => void;
-    send: (...args: unknown[]) => void;
-  } | undefined;
-  if (!xhrPrototype) return;
-
-  const originalOpen = xhrPrototype.open;
-  const originalSend = xhrPrototype.send;
-
-  xhrPrototype.open = function openWithRecruitmentRoundsCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
-    const [, url] = args;
-    this.__vcsAmisRecruitmentRoundsRequestUrl = getRequestUrl(url);
-    return Reflect.apply(originalOpen, this, args);
-  };
-
-  xhrPrototype.send = function sendWithRecruitmentRoundsCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
-    const requestUrl = this.__vcsAmisRecruitmentRoundsRequestUrl;
     if (requestUrl && isAmisRecruitmentRoundsUrl(requestUrl)) {
       this.addEventListener('loadend', () => {
         if (this.status < 200 || this.status >= 300) return;
@@ -226,67 +156,72 @@ function installRecruitmentRoundsXhrHook() {
       }, { once: true });
     }
 
-    return Reflect.apply(originalSend, this, args);
-  };
-}
-
-function installRecruitmentRoundsFetchHook() {
-  const originalFetch = window.fetch?.bind(window);
-  if (!originalFetch) return;
-
-  window.fetch = async (...args: Parameters<typeof fetch>) => {
-    const requestUrl = getRequestUrl(args[0] instanceof Request ? args[0].url : args[0]);
-    const response = await originalFetch(...args);
-
-    if (requestUrl && isAmisRecruitmentRoundsUrl(requestUrl) && response.ok) {
-      void response.clone().text()
-        .then((text) => publishRecruitmentRounds(parseJsonText(text), requestUrl))
-        .catch(() => undefined);
-    }
-
-    return response;
-  };
-}
-
-function installJobStatusXhrHook() {
-  const xhrPrototype = window.XMLHttpRequest?.prototype as XMLHttpRequest & {
-    open: (...args: unknown[]) => void;
-    send: (...args: unknown[]) => void;
-  } | undefined;
-  if (!xhrPrototype) return;
-
-  const originalOpen = xhrPrototype.open;
-  const originalSend = xhrPrototype.send;
-  xhrPrototype.open = function openWithAmisJobStatus(this: HookedXMLHttpRequest, ...args: unknown[]) {
-    const [, url] = args;
-    this.__vcsAmisJobStatusRequestUrl = getRequestUrl(url);
-    return Reflect.apply(originalOpen, this, args);
-  };
-  xhrPrototype.send = function sendWithAmisJobStatus(this: HookedXMLHttpRequest, ...args: unknown[]) {
-    const requestUrl = this.__vcsAmisJobStatusRequestUrl;
     if (requestUrl && isAmisUpdateRecruitmentFieldUrl(requestUrl)) {
       this.addEventListener('loadend', () => {
         if (this.status < 200 || this.status >= 300) return;
         publishJobStatusUpdate(readXhrJson(this), requestUrl);
       }, { once: true });
     }
+
     return Reflect.apply(originalSend, this, args);
   };
 }
 
-function installJobStatusFetchHook() {
+function installFetchHook() {
   const originalFetch = window.fetch?.bind(window);
   if (!originalFetch) return;
-  window.fetch = async (...args: Parameters<typeof fetch>) => {
+
+  window.fetch = function fetchWithAmisInspection(
+    this: Window,
+    ...args: Parameters<typeof fetch>
+  ) {
     const requestUrl = getRequestUrl(args[0] instanceof Request ? args[0].url : args[0]);
-    const response = await originalFetch(...args);
-    if (requestUrl && isAmisUpdateRecruitmentFieldUrl(requestUrl) && response.ok) {
+    const requestBodyPromise = requestUrl && isAmisCandidateUpdateRoundUrl(requestUrl)
+      ? readFetchRequestBody(args)
+      : null;
+
+    if (!requestUrl || !isTrackedFetchUrl(requestUrl)) {
+      return originalFetch(...args);
+    }
+
+    const responsePromise = originalFetch(...args);
+    return responsePromise.then((response) => {
+      if (!response.ok) return response;
+
+      if (isAmisCandidateAdditionalInfoUrl(requestUrl)) {
+        void response.clone().text()
+          .then((text) => publishCandidateStage(parseJsonText(text), requestUrl))
+          .catch(() => undefined);
+        return response;
+      }
+
+      if (isAmisCandidateUpdateRoundUrl(requestUrl)) {
+        void requestBodyPromise?.then((requestBody) => {
+          publishCandidateStagesFromUpdateRoundRequest(requestBody, requestUrl);
+        });
+        return response;
+      }
+
+      if (isAmisRecruitmentRoundsUrl(requestUrl)) {
+        void response.clone().text()
+          .then((text) => publishRecruitmentRounds(parseJsonText(text), requestUrl))
+          .catch(() => undefined);
+        return response;
+      }
+
       void response.clone().text()
         .then((text) => publishJobStatusUpdate(parseJsonText(text), requestUrl))
         .catch(() => undefined);
-    }
-    return response;
+      return response;
+    });
   };
+}
+
+function isTrackedFetchUrl(url: string) {
+  return isAmisCandidateAdditionalInfoUrl(url)
+    || isAmisCandidateUpdateRoundUrl(url)
+    || isAmisRecruitmentRoundsUrl(url)
+    || isAmisUpdateRecruitmentFieldUrl(url);
 }
 
 function isAmisUpdateRecruitmentFieldUrl(url: string) {
@@ -586,6 +521,7 @@ function mapAmisCandidateStageResponse(
     sourceUrl,
     pageUrl,
     changedAt: new Date().toISOString(),
+    isTransitionEvent: false,
   };
 }
 
@@ -668,6 +604,7 @@ function mapAmisCandidateStageRequest(
       sourceUrl,
       pageUrl,
       changedAt: new Date().toISOString(),
+      isTransitionEvent: true,
     };
   });
 }
@@ -951,7 +888,4 @@ function isObject(value: unknown): value is Record<string, unknown> {
 interface HookedXMLHttpRequest extends XMLHttpRequest {
   __vcsAmisRequestMethod?: string;
   __vcsAmisRequestUrl?: string;
-  __vcsAmisCandidateStageRequestUrl?: string;
-  __vcsAmisRecruitmentRoundsRequestUrl?: string;
-  __vcsAmisJobStatusRequestUrl?: string;
 }

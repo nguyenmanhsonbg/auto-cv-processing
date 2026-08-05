@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:group-modal": "node --test scripts/facebook-group-modal-layout.test.mjs",
+    "test:results-toggle": "node --test scripts/facebook-publish-results-toggle.test.mjs",
+    "test:cv-list": "node --test scripts/cv-list-regression.test.mjs",
     "test:tab-labels": "node scripts/tab-label-visibility.test.mjs",
     "typecheck": "tsc --noEmit",
     "build": "vite build"

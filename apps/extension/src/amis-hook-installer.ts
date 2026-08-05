@@ -36,15 +36,10 @@ export async function ensureAmisHooksInActiveTab(): Promise<AmisHookInstallResul
     target: { tabId: activeTab.id },
     files: ['assets/amis-bridge.js'],
   });
-  await chrome.scripting.executeScript({
-    target: { tabId: activeTab.id },
-    files: ['assets/amis-page-hook.js'],
-    world: 'MAIN',
-  });
 
   return {
     status: 'INJECTED',
-    message: 'AMIS bridge and SaveRecruitment hook are active in the current tab.',
+    message: 'AMIS bridge is active in the current tab without modifying AMIS network transports.',
     tabUrl: activeTab.url,
   };
 }
