@@ -109,8 +109,11 @@ export async function seedTestJobDescriptions() {
     const jobDescriptionRepository = dataSource.getRepository(JobDescriptionEntity);
     let createdCount = 0;
     let skippedCount = 0;
+    const fixturesToSeed = process.env.SEED_LEGACY_TEST_JDS === 'true'
+      ? TEST_JOB_DESCRIPTIONS
+      : [];
 
-    for (const fixture of TEST_JOB_DESCRIPTIONS) {
+    for (const fixture of fixturesToSeed) {
       const existing = await jobDescriptionRepository.findOne({ where: { id: fixture.id } });
       if (existing) {
         skippedCount += 1;
@@ -157,7 +160,7 @@ export async function seedTestJobDescriptions() {
 
     console.log(
       `Test JD seed complete: user=${userCreated ? 'created' : 'existing'}, `
-      + `created=${createdCount}, skipped=${skippedCount}, total=${TEST_JOB_DESCRIPTIONS.length}.`,
+      + `created=${createdCount}, skipped=${skippedCount}, total=${fixturesToSeed.length}.`,
     );
   } finally {
     if (initializedBySeed) await dataSource.destroy();

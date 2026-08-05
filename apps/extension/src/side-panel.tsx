@@ -8796,7 +8796,6 @@ function formatDateTime(value: string | undefined) {
 
 function buildAmisFormFillPayload(jobDescription: JobDescriptionSummary) {
   return {
-    title: jobDescription.title,
     positionName: jobDescription.position?.name ?? '',
     summary: truncateForMaxLength(
       jobDescription.summary ?? jobDescription.overview ?? jobDescription.description,
