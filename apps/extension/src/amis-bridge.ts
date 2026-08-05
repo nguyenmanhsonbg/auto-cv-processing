@@ -1886,7 +1886,6 @@ function typeIntoAmisDropdownFilter(input: HTMLInputElement, value: string) {
     input.dispatchEvent(new KeyboardEvent('keyup', eventInit));
   }
 
-  input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 async function waitForAmisCandidateFormToSettle(timeoutMs: number) {

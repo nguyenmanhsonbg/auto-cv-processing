@@ -5930,6 +5930,9 @@ function SidePanel() {
       canUploadApplicationCv(application)
       && !pendingAmisUploadApplicationIds.has(application.applicationId),
     ).length;
+    const allFilteredApplicationsSelected = filteredApplications.length > 0
+      && selectedFilteredApplications.length === filteredApplications.length;
+    const someFilteredApplicationsSelected = selectedFilteredApplications.length > 0 && !allFilteredApplicationsSelected;
     const visibleStart = filteredApplications.length === 0 ? 0 : pageStartIndex + 1;
     const visibleEnd = Math.min(pageStartIndex + pageApplications.length, filteredApplications.length);
     const paginationPages = getPaginationPages(currentPage, totalPages);
@@ -6006,13 +6009,26 @@ function SidePanel() {
             <button
               type="button"
               className="cv-bulk-sync-button"
-              disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId) || !isAmisCandidateFormOpen}
+              disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId)}
               onClick={() => void uploadApplicationCvsToAmisForm(selectedFilteredApplications)}
             >
               <RefreshIcon />
               {cvUploadApplicationId === 'BATCH' ? 'Đang đồng bộ...' : 'Đồng bộ CV đã chọn'}
             </button>
           </div>
+          <label className="cv-select-all-control">
+            <input
+              type="checkbox"
+              checked={allFilteredApplicationsSelected}
+              ref={(input) => {
+                if (input) input.indeterminate = someFilteredApplicationsSelected;
+              }}
+              disabled={filteredApplications.length === 0}
+              aria-label="Chọn tất cả ứng viên"
+              onChange={() => toggleAllCvCandidateSelection(filteredApplications.map((application) => application.applicationId))}
+            />
+            <span>Chọn tất cả ứng viên</span>
+          </label>
         </div>
 
         {applicationsMessage ? (
@@ -6065,7 +6081,7 @@ function SidePanel() {
                 ?? 'Chưa cập nhật';
               const isAmisRejected = application.amisStatus === 0;
               const rejectionReason = application.amisReasonRemoved?.trim() || null;
-              const recruiterName = application.attractivePersonnelName ?? 'Chưa phân công';
+              const recruiterName = application.attractivePersonnelName ?? '-';
               const appliedDate = formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-';
 
               return (
@@ -6085,7 +6101,9 @@ function SidePanel() {
                         <span>{[application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact'}</span>
                         <span className="cv-candidate-applied-date">Ngày ứng tuyển: {appliedDate}</span>
                       </div>
-                      {score != null ? <b className="cv-candidate-score">{score}</b> : null}
+                      {score != null ? (
+                        <b className={`cv-candidate-score ${getCvScoreTone(score)}`}>{score}</b>
+                      ) : null}
                     </div>
                     <div
                       className="cv-candidate-process"
@@ -6132,6 +6150,10 @@ function SidePanel() {
                         <strong>{aiEvaluationStatus.label}</strong>
                       </div>
                     </div>
+                    <div className="cv-candidate-note">
+                      <span className="cv-candidate-note-label">Ghi chú của CV</span>
+                      <span>{application.cvNote?.trim() || 'CV này không có ghi chú nào.'}</span>
+                    </div>
                     <div className="cv-candidate-footer">
                       {canShowAmisSyncButton && isAmisCandidateFormOpen ? (
                         <button
@@ -6154,7 +6176,7 @@ function SidePanel() {
                           disabled={!canRunAiScreening || aiScreeningRunning || Boolean(aiScreeningApplicationId)}
                           onClick={() => void runAiScreeningForApplication(application)}
                         >
-                          {aiScreeningRunning ? 'Đang đánh giá...' : 'Đánh giá AI'}
+                          {aiScreeningRunning ? 'Đang đánh giá...' : 'Đánh giá bằng AI'}
                         </button>
                       ) : null}
                       {canShowAiUploadButton ? (
@@ -6177,11 +6199,11 @@ function SidePanel() {
           </ul>
         ) : (
           <div className="empty-panel-state">
-            <strong>Chưa có ứng viên ứng tuyển vào công việc này</strong>
+            <strong>Không tìm thấy hồ sơ ứng viên</strong>
           </div>
         )}
 
-        {filteredApplications.length > 0 && (
+        {filteredApplications.length > CV_APPLICATION_PAGE_SIZE && (
           <div className="cv-list-pagination">
           <span>Hiển thị {visibleStart} - {visibleEnd} của {filteredApplications.length} kết quả</span>
           <div>
@@ -6229,6 +6251,22 @@ function SidePanel() {
       } else {
         next.add(applicationId);
       }
+      return next;
+    });
+  }
+
+  function toggleAllCvCandidateSelection(applicationIds: string[]) {
+    if (applicationIds.length === 0) return;
+
+    setSelectedCvApplicationIds((current) => {
+      const next = new Set(current);
+      const shouldSelectAll = applicationIds.some((applicationId) => !next.has(applicationId));
+
+      for (const applicationId of applicationIds) {
+        if (shouldSelectAll) next.add(applicationId);
+        else next.delete(applicationId);
+      }
+
       return next;
     });
   }
@@ -8431,6 +8469,12 @@ function getApplicationMatchScore(application: ExtensionApplication) {
   return Math.round(score);
 }
 
+function getCvScoreTone(score: number) {
+  if (score >= 80) return 'is-success';
+  if (score >= 50) return 'is-warning';
+  return 'is-danger';
+}
+
 function getCvApplicationFilterBucket(application: ExtensionApplication): CvStatusFilter {
   const cvStatus = getApplicationCvDisplayStatus(application);
   if (cvStatus.tone === 'is-success') return 'PASSED';
@@ -8891,13 +8935,17 @@ function formatDateTime(value: string | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
 
-  return date.toLocaleString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
+  const timeLabel = date.toLocaleTimeString('vi-VN', {
     hour: '2-digit',
     minute: '2-digit',
   });
+  const dateLabel = date.toLocaleDateString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+
+  return `${dateLabel} ${timeLabel}`;
 }
 
 function formatFacebookHistoryDateTime(value: string | undefined) {

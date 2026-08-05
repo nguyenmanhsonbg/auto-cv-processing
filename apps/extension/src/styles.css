@@ -4734,7 +4734,10 @@ dd {
 
 .empty-panel-state strong {
   color: #263449;
+  font-family: Roboto, sans-serif;
   font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .extension-window .preview,
@@ -6370,10 +6373,12 @@ dd {
 
 .referral-toolbar {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
 }
 
 .referral-search-field {
+  grid-column: 1;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -6392,6 +6397,10 @@ dd {
   outline: 0;
   background: transparent;
   color: #253247;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
 }
 
 .referral-search-icon {
@@ -6408,9 +6417,33 @@ dd {
   height: 16px;
 }
 
+.referral-search-clear-button {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: #64748b;
+  background: transparent;
+}
+
+.referral-search-clear-button:hover {
+  color: #1f2937;
+  background: #f1f5f9;
+}
+
+.referral-search-clear-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .referral-filter-row {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
   gap: 10px;
 }
@@ -6420,9 +6453,19 @@ dd {
   gap: 4px;
   min-width: 0;
   color: #536074;
-  font-size: 10px;
-  font-weight: 800;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
   text-transform: uppercase;
+}
+
+.referral-filter-row label > span {
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 16px;
 }
 
 .referral-filter-row select,
@@ -6435,6 +6478,14 @@ dd {
   background: #ffffff;
   color: #263449;
   outline: 0;
+}
+
+.referral-filter-row select {
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
 }
 
 .referral-filter-row select:focus,
@@ -6454,13 +6505,20 @@ dd {
   border: 0;
   border-radius: 7px;
   padding: 0 14px;
+  font-family: Inter, sans-serif;
   font-size: 12px;
-  font-weight: 850;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .referral-primary-button {
   color: #ffffff;
   background: #18a900;
+}
+
+.referral-toolbar > .referral-primary-button {
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .referral-primary-button:hover:not(:disabled) {
@@ -6911,6 +6969,20 @@ dd {
 }
 
 @media (max-width: 520px) {
+  .referral-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .referral-search-field,
+  .referral-toolbar > .referral-primary-button,
+  .referral-filter-row {
+    grid-column: 1;
+  }
+
+  .referral-toolbar > .referral-primary-button {
+    grid-row: auto;
+  }
+
   .extension-tabs {
     padding: 0 6px;
   }
@@ -7807,6 +7879,13 @@ dd {
   text-transform: uppercase;
 }
 
+.cv-bulk-sync-button {
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .cv-bulk-sync-button svg {
   width: 14px;
   height: 14px;
@@ -7986,17 +8065,25 @@ dd {
 
 .cv-candidate-main strong {
   color: #0f1f33;
-  font-size: 17px;
+  font-family: Roboto, sans-serif;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
   color: #6b7280;
-  font-size: 12px;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
 }
 
 .cv-candidate-main .cv-candidate-applied-date {
   color: #404040;
+  font-family: Roboto, sans-serif;
   font-size: 11px;
+  font-style: normal;
   font-weight: 400;
   line-height: 16.5px;
 }
@@ -8023,6 +8110,10 @@ dd {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
 }
 
 .cv-candidate-source {
@@ -8146,14 +8237,23 @@ dd {
   justify-content: space-between;
 }
 
+.cv-list-toolbar-heading > span {
+  font-family: Roboto, sans-serif;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .cv-select-all-control {
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
   gap: 7px;
   color: #4b5563;
-  font-size: 11px;
-  font-weight: 850;
+  font-family: Roboto, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
 }
@@ -8161,16 +8261,16 @@ dd {
 .cv-candidate-card {
   gap: 12px;
   min-width: 0;
-  border: 1px solid #7ee2c0;
+  border: 1px solid #BDC9C266;
   border-radius: 14px;
   padding: 14px 16px 16px;
-  background: #edfbf8;
+  background: #ffffff;
   box-shadow: 0 1px 3px rgba(15, 118, 110, 0.06);
 }
 
 .cv-candidate-list > li.is-selected .cv-candidate-card {
-  border-color: #32c78d;
-  background: #10B98166;
+  border-color: #10B98166;
+  background: #ECFDF5;
   box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.14) inset;
 }
 
@@ -8217,12 +8317,24 @@ dd {
   width: 31px;
   height: 31px;
   place-items: center;
-  border: 1px solid #fb923c;
+  border: 1px solid #22C55E;
   border-radius: 999px;
-  color: #fb923c;
-  background: #fff7ed;
+  color: #22C55E;
+  background: #DCFCE7;
   font-size: 11px;
   font-weight: 950;
+}
+
+.cv-candidate-score.is-warning {
+  border-color: #F97316;
+  color: #F97316;
+  background: #FFEDD5;
+}
+
+.cv-candidate-score.is-danger {
+  border-color: #EF4444;
+  color: #EF4444;
+  background: #FEE2E2;
 }
 
 .cv-candidate-process {
@@ -8241,10 +8353,11 @@ dd {
   justify-items: center;
   gap: 7px;
   color: #374151;
-  font-family: Pretendard, Roboto, sans-serif;
-  font-size: 10px;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
   font-weight: 500;
-  line-height: 14px;
+  line-height: 20px;
   text-align: center;
   transition: color 350ms ease-out;
 }
@@ -8330,12 +8443,12 @@ dd {
 
 .cv-candidate-process-step.is-current {
   color: rgba(47, 43, 61, 0.9);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .cv-candidate-process-step.is-failed {
   color: #dc2626;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .cv-candidate-process-step.is-failed::before {
@@ -8397,14 +8510,21 @@ dd {
 .cv-candidate-recruiter {
   grid-area: recruiter;
   color: #0b1c30;
-  font-family: Inter, Roboto, sans-serif;
-  font-size: 12px;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
   font-weight: 400;
-  line-height: 18px;
+  line-height: 20px;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.cv-candidate-meta .cv-candidate-recruiter {
+  font-weight: 400;
 }
 
 .cv-candidate-recruiter strong {
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .cv-candidate-applied {
@@ -8435,11 +8555,10 @@ dd {
 }
 
 .cv-candidate-detail {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   min-height: 48px;
-  flex-direction: row;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
   min-width: 0;
   border: 1px solid #deebea;
@@ -8463,15 +8582,35 @@ dd {
   padding: 6px 11px;
   color: #ffffff;
   background: #3f82e8;
-  font-size: 11px;
-  font-weight: 750;
+  font-family: Pretendard, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 140%;
+  letter-spacing: 0;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.cv-candidate-meta .cv-source-chip {
+  font-weight: 500;
 }
 
 .cv-candidate-detail-status strong {
   color: #b76100;
   font-size: 11px;
   font-weight: 950;
+  text-align: left;
   text-transform: uppercase;
+}
+
+.cv-candidate-detail-status,
+.cv-candidate-detail-status small,
+.cv-candidate-detail-status strong {
+  font-family: Roboto, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .cv-candidate-detail-status.is-success strong {
@@ -8504,6 +8643,29 @@ dd {
   padding-top: 8px;
 }
 
+.cv-candidate-note {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #475569;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.cv-candidate-note-label {
+  color: #1f2937;
+}
+
+.cv-candidate-note > span:not(.cv-candidate-note-label) {
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+}
+
 .cv-sync-amis-button {
   min-width: 82px;
   min-height: 34px;
@@ -8512,10 +8674,19 @@ dd {
   padding: 0 17px;
   color: #3e5e4d;
   background: #effff5;
-  font-size: 10px;
-  font-weight: 950;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.cv-candidate-footer .cv-sync-amis-button {
+  font-family: Roboto, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .cv-list-pagination {

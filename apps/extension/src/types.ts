@@ -741,6 +741,7 @@ export interface AmisApplicationListItem {
   candidateName: string;
   email: string | null;
   mobile: string | null;
+  cvNote: string | null;
   status: string;
   mappingStatus: string | null;
   aiScreeningStatus: string | null;
