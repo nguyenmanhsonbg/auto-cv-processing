@@ -76,6 +76,7 @@ import {
   type ReferralSourceMetrics,
 } from './referral-source-summary.util';
 import { CvStageReminderService } from '../notification/cv-stage-reminder.service';
+import { CandidateStageNotificationService } from '../notification/candidate-stage-notification.service';
 
 const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
 
@@ -133,6 +134,7 @@ export class ExtensionIntegrationService {
     private readonly freelancersService: FreelancersService,
     private readonly internalsService: InternalsService,
     private readonly cvStageReminderService: CvStageReminderService,
+    private readonly candidateStageNotificationService: CandidateStageNotificationService,
   ) {}
 
   async syncAndPublishFromAmis(
@@ -2006,6 +2008,14 @@ export class ExtensionIntegrationService {
         attractivePersonnelId: this.optionalText(rawPayload.attractivePersonnelId),
         attractivePersonnelName: this.optionalText(rawPayload.attractivePersonnelName),
         actorUserId: context.actorUserId,
+      });
+      await this.candidateStageNotificationService.enqueueForStageTransition({
+        applicationId: applicationRow.application.id,
+        amisRecruitmentId: normalizedRecruitmentId,
+        amisCandidateId: normalizedCandidateId,
+        amisRecruitmentRoundId: normalizedRoundId,
+        amisRecruitmentRoundName: this.optionalText(dto.recruitmentRoundName),
+        changedAt: this.optionalText(dto.changedAt),
       });
     }
 
