@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsDateString,
@@ -5,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
 } from 'class-validator';
 import {
@@ -20,6 +22,7 @@ export class ReportFacebookPublishResultDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @Type(() => Object)
   @IsUUID()
   targetId?: string | null;
 
@@ -28,7 +31,9 @@ export class ReportFacebookPublishResultDto {
   targetType: FacebookPublishTargetType;
 
   @ApiProperty()
+  @Type(() => Object)
   @IsString()
+  @Matches(/\S/)
   @MaxLength(255)
   targetName: string;
 
@@ -53,7 +58,9 @@ export class ReportFacebookPublishResultDto {
   facebookReviewStatus?: FacebookReviewStatus | null;
 
   @ApiProperty()
+  @Type(() => Object)
   @IsString()
+  @Matches(/\S/)
   @MaxLength(4000)
   message: string;
 

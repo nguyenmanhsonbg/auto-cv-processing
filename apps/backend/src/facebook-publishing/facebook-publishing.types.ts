@@ -130,6 +130,7 @@ export interface FacebookPublishSummary {
 }
 
 export interface ReportFacebookPublishResultInput {
+  ownerUserId: string;
   jobPostingId: string;
   targetId?: string | null;
   targetType: FacebookPublishTargetType;

@@ -350,20 +350,30 @@ export class ExtensionFacebookController {
   @ApiResponse({ status: 200, description: 'Facebook publish histories returned.' })
   async listGroupPublishHistories(
     @Param('targetId') targetId: string,
-    @Query('status') status: FacebookReviewStatus | undefined,
+    @Query('status') status: string | undefined,
     @Query('page') page: string | undefined,
     @Query('limit') limit: string | undefined,
     @Request() req: ExtensionFacebookRequest,
     @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
+    const facebookReviewStatus = this.normalizeReviewStatusQuery(status);
+    const normalizedPage = this.requirePositiveIntegerQuery(page);
+    const normalizedLimit = this.normalizeLimitQuery(limit);
+    const normalizedTargetId = this.requireGroupTargetIdOrNotFound(targetId);
+
     await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
-    const result = await this.facebookPublishingService.listExtensionGroupPublishHistories({
-      ownerUserId: req.user.id,
-      targetId: this.requireGroupTargetIdOrNotFound(targetId),
-      facebookReviewStatus: this.normalizeReviewStatusQuery(status),
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
-    });
+    let result;
+    try {
+      result = await this.facebookPublishingService.listExtensionGroupPublishHistories({
+        ownerUserId: req.user.id,
+        targetId: normalizedTargetId,
+        facebookReviewStatus,
+        page: normalizedPage,
+        limit: normalizedLimit,
+      });
+    } catch (error) {
+      this.rethrowMissingFacebookGroupAsNotFound(error);
+    }
 
     return {
       success: true,
@@ -415,6 +425,7 @@ export class ExtensionFacebookController {
     const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const history = await this.facebookPublishingService.reportExtensionPublishResult({
       ...dto,
+      ownerUserId: req.user.id,
       submittedAt: dto.submittedAt ? new Date(dto.submittedAt) : null,
       extensionInstanceId: extensionInstance?.id ?? null,
     });
@@ -455,10 +466,11 @@ export class ExtensionFacebookController {
     @Request() req: ExtensionFacebookRequest,
     @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
   ) {
+    const normalizedHistoryId = this.requirePublishHistoryIdOrNotFound(historyId);
     const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
     const history = await this.facebookPublishingService.updateExtensionPublishHistoryStatusCheck({
       ownerUserId: req.user.id,
-      historyId,
+      historyId: normalizedHistoryId,
       facebookReviewStatus: dto.facebookReviewStatus,
       message: dto.message,
       externalPostUrl: dto.externalPostUrl,
@@ -476,9 +488,51 @@ export class ExtensionFacebookController {
     };
   }
 
-  private normalizeReviewStatusQuery(status: FacebookReviewStatus | undefined) {
-    if (!status) return null;
-    return Object.values(FacebookReviewStatus).includes(status) ? status : null;
+  private normalizeReviewStatusQuery(status: string | undefined) {
+    if (status === undefined) return null;
+
+    if (!Object.values(FacebookReviewStatus).includes(status as FacebookReviewStatus)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Request payload is invalid.',
+      });
+    }
+
+    return status as FacebookReviewStatus;
+  }
+
+  private requirePositiveIntegerQuery(value: string | undefined) {
+    if (value === undefined || !/^\d+$/.test(value)) {
+      if (value === undefined) return undefined;
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Request payload is invalid.',
+      });
+    }
+
+    const parsedValue = Number(value);
+    if (!Number.isSafeInteger(parsedValue) || parsedValue < 1) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Request payload is invalid.',
+      });
+    }
+
+    return parsedValue;
+  }
+
+  private normalizeLimitQuery(value: string | undefined) {
+    if (value !== undefined && value.trim() === '') return undefined;
+
+    const normalizedLimit = this.requirePositiveIntegerQuery(value);
+    if (normalizedLimit !== undefined && normalizedLimit > 50) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Request payload is invalid.',
+      });
+    }
+
+    return normalizedLimit;
   }
 
   private requireDeleteTargetId(targetId: string) {
@@ -493,7 +547,8 @@ export class ExtensionFacebookController {
   }
 
   private requireGroupTargetIdOrNotFound(targetId: string) {
-    if (!targetId?.trim() || !isUUID(targetId.trim())) {
+    const normalizedTargetId = targetId?.trim();
+    if (!normalizedTargetId || ['null', 'undefined', '""'].includes(normalizedTargetId)) {
       throw new HttpException(
         {
           code: 'NOT_FOUND',
@@ -503,7 +558,50 @@ export class ExtensionFacebookController {
       );
     }
 
-    return targetId.trim();
+    if (!isUUID(normalizedTargetId)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Request payload is invalid.',
+      });
+    }
+
+    return normalizedTargetId;
+  }
+
+  private requirePublishHistoryIdOrNotFound(historyId: string) {
+    const normalizedHistoryId = historyId?.trim();
+    if (!normalizedHistoryId || ['null', 'undefined', '""'].includes(normalizedHistoryId) || !isUUID(normalizedHistoryId)) {
+      throw new HttpException(
+        {
+          code: 'NOT_FOUND',
+          message: 'Requested resource was not found.',
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return normalizedHistoryId;
+  }
+
+  private rethrowMissingFacebookGroupAsNotFound(error: unknown): never {
+    if (error instanceof BadRequestException) {
+      const response = error.getResponse();
+      if (this.isRecord(response) && response.code === 'FACEBOOK_GROUP_NOT_FOUND') {
+        throw new HttpException(
+          {
+            code: 'FACEBOOK_GROUP_NOT_FOUND',
+            message: 'Facebook group not found for this account.',
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+    }
+
+    throw error;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
   private async resolveOptionalExtensionInstance(
