@@ -2589,7 +2589,7 @@ dd {
 .facebook-group-edit-modal .modal-header h2 {
   margin: 0;
   color: #1e293b;
-  font-family: Roboto, Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-weight: 700;
   line-height: 20px;
@@ -2619,7 +2619,7 @@ dd {
 .facebook-group-edit-field > label,
 .facebook-group-edit-label {
   color: #334155;
-  font-family: Roboto, Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-weight: 700;
   line-height: 16px;
@@ -2644,7 +2644,7 @@ dd {
   padding: 8px 12px 9px;
   color: #6b7280;
   background: #ffffff;
-  font-family: Roboto, Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-weight: 400;
   line-height: 20px;
@@ -2663,7 +2663,7 @@ dd {
 .facebook-group-edit-url {
   display: block;
   color: #3578ff;
-  font-family: Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 11px;
   font-style: italic;
   font-weight: 400;
@@ -2695,7 +2695,7 @@ dd {
   min-height: 32px;
   padding: 8px 16px;
   color: #475569;
-  font-family: Roboto, Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.3px;
@@ -2714,7 +2714,7 @@ dd {
   color: #ffffff;
   background: #047857;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  font-family: Roboto, Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.3px;
@@ -2856,7 +2856,7 @@ dd {
 
 .facebook-group-edit-modal .modal-header h2 {
   margin: 0;
-  font-family: Roboto, Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 700;
@@ -3428,7 +3428,7 @@ dd {
 
 .facebook-group-edit-modal .facebook-group-form label {
   color: #334155;
-  font-family: Roboto, Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -3442,15 +3442,16 @@ dd {
 }
 
 .facebook-group-edit-modal .facebook-group-required-mark {
-  color: #dc2626;
-  font-family: Roboto, Arial, sans-serif;
+  color: #ff0004;
+  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
 }
 
 .facebook-group-edit-modal .facebook-group-form input {
-  font-family: Roboto, Arial, sans-serif;
+  color: #6b7280;
+  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -3459,7 +3460,7 @@ dd {
 
 .facebook-group-edit-modal .facebook-group-form input::placeholder {
   color: #94a3b8;
-  font-family: Roboto, Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -3467,7 +3468,7 @@ dd {
 }
 
 .facebook-group-edit-modal .form-actions button {
-  font-family: Roboto, Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;

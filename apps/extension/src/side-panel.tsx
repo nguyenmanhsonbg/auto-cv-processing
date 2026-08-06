@@ -488,6 +488,7 @@ function SidePanel() {
   const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
   const [facebookGroupUrlError, setFacebookGroupUrlError] = useState<string | null>(null);
   const [editFacebookGroupName, setEditFacebookGroupName] = useState('');
+  const [editFacebookGroupUrl, setEditFacebookGroupUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [jobDescriptionPagination, setJobDescriptionPagination] = useState<ApiPagination | null>(null);
@@ -3210,6 +3211,7 @@ function SidePanel() {
     setFacebookGroupUrl('');
     setFacebookGroupUrlError(null);
     setEditFacebookGroupName('');
+    setEditFacebookGroupUrl('');
   }
 
   function openFacebookGroupCreateModal() {
@@ -3421,6 +3423,7 @@ function SidePanel() {
     setFacebookGroupModalMode('SETTINGS');
     setSelectedFacebookGroup(null);
     setEditFacebookGroupName('');
+    setEditFacebookGroupUrl('');
     setFacebookSettingsState('READY');
     setFacebookSettingsMessage(null);
   }
@@ -3438,6 +3441,7 @@ function SidePanel() {
 
     setSelectedFacebookGroup(group);
     setEditFacebookGroupName(group.targetName);
+    setEditFacebookGroupUrl(group.targetUrl ?? '');
     setFacebookSettingsMessage(null);
     setFacebookSettingsState('READY');
     setFacebookGroupModalMode('EDIT');
@@ -3646,7 +3650,7 @@ function SidePanel() {
     if (!token || !selectedFacebookGroup?.targetId) return;
 
     const targetName = editFacebookGroupName.trim();
-    const targetUrl = selectedFacebookGroup.targetUrl?.trim() ?? '';
+    const targetUrl = editFacebookGroupUrl.trim();
     if (!targetName) {
       setFacebookSettingsState('ERROR');
       setFacebookSettingsMessage('Tên nhóm là bắt buộc.');
@@ -3673,6 +3677,7 @@ function SidePanel() {
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setSelectedFacebookGroup(null);
       setEditFacebookGroupName('');
+      setEditFacebookGroupUrl('');
       setFacebookGroupModalMode('SETTINGS');
       setFacebookSettingsState('READY');
       setFacebookSettingsMessage(`Saved "${savedGroup.targetName}". Click Check before using it for publishing.`);
@@ -6589,24 +6594,19 @@ return (
                 <label>
                   <span className="facebook-group-field-label">
                     Link URL
-                    <span className="facebook-group-required-mark" aria-hidden="true">*</span>
                   </span>
-                  <input
-                    value={editFacebookGroupUrl}
-                    maxLength={2048}
-                    placeholder="https://facebook.com/groups/..."
-                    required
-                    disabled={facebookSettingsState === 'SAVING'}
-                    aria-invalid={Boolean(editFacebookGroupUrlFieldError)}
-                    onChange={(event) => {
-                      setEditFacebookGroupUrl(event.target.value);
-                      setEditFacebookGroupUrlError(null);
-                    }}
-                  />
-                  {editFacebookGroupUrlFieldError ? (
-                    <span className="field-error">{editFacebookGroupUrlFieldError}</span>
-                  ) : null}
-                  <small>Link trực tiếp đến trang chủ của nhóm Facebook.</small>
+                  {editFacebookGroupUrl ? (
+                    <a
+                      className="facebook-group-edit-url"
+                      href={editFacebookGroupUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {editFacebookGroupUrl}
+                    </a>
+                  ) : (
+                    <span className="facebook-group-edit-url is-empty">Chưa có URL</span>
+                  )}
                 </label>
                 <div className="form-actions">
                   <button
