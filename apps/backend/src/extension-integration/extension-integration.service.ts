@@ -141,6 +141,13 @@ export class ExtensionIntegrationService {
     dto: SyncAmisJobPostingDto,
     context: ExtensionSyncContext,
   ): Promise<ExtensionSyncResponseDto> {
+    if (!Array.isArray(dto.selectedQuestionIds)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Request payload is invalid.',
+      });
+    }
+
     const normalizedDto = this.normalizeRequest(dto);
     const requestHash = createExtensionRequestHash({
       body: normalizedDto,

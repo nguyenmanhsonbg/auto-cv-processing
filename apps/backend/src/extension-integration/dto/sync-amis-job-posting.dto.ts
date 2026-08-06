@@ -12,9 +12,11 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   Min,
   Validate,
+  ValidateIf,
   ValidatorConstraint,
   ValidatorConstraintInterface,
   ValidateNested,
@@ -25,6 +27,7 @@ import {
   ExtensionSyncAction,
   type ExtensionSyncChannel,
 } from '../enums/extension-integration.enum';
+import { RecruitmentChannel } from '../../recruitment-common';
 
 @ValidatorConstraint({ name: 'amisSourceSystemPresence', async: false })
 class AmisSourceSystemPresenceConstraint implements ValidatorConstraintInterface {
@@ -227,7 +230,10 @@ export class SyncAmisJobPostingDto {
   facebookTargetIds?: string[];
 
   @ApiPropertyOptional({ description: 'Stable Facebook account id used for the selected group targets.' })
-  @IsOptional()
+  @ValidateIf((dto) => Array.isArray(dto.channels) && dto.channels.includes(RecruitmentChannel.FACEBOOK))
+  @IsDefined()
+  // Preserve null and primitive values so invalid payload types cannot be converted into valid UUIDs.
+  @Type(() => Object)
   @IsUUID('4')
   facebookAccountId?: string;
 
@@ -250,8 +256,13 @@ export class SyncAmisJobPostingDto {
     description: 'Optional Facebook post content prepared or edited in the extension. {{APPLY_URL}} is replaced after sync.',
     maxLength: 10000,
   })
-  @IsOptional()
+  @ValidateIf((dto) => Array.isArray(dto.channels) && dto.channels.includes(RecruitmentChannel.FACEBOOK))
+  @IsDefined()
+  // Preserve null and primitive values so invalid payload types cannot be converted into valid strings.
+  @Type(() => Object)
   @IsString()
+  @IsNotEmpty()
+  @Matches(/\S/)
   @MaxLength(10000)
   facebookContent?: string;
 }
