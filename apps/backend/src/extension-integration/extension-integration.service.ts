@@ -1276,7 +1276,8 @@ export class ExtensionIntegrationService {
     if (dto.sourceSystem !== ExtensionSourceSystem.AMIS) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
-        message: 'AMIS job posting sync only accepts AMIS as sourceSystem.',
+        message: 'Request payload is invalid.',
+        details: ['AMIS job posting sync only accepts AMIS as sourceSystem.'],
       });
     }
 

@@ -14,6 +14,9 @@ import {
   IsUUID,
   MaxLength,
   Min,
+  Validate,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -22,6 +25,28 @@ import {
   ExtensionSyncAction,
   type ExtensionSyncChannel,
 } from '../enums/extension-integration.enum';
+
+@ValidatorConstraint({ name: 'amisSourceSystemPresence', async: false })
+class AmisSourceSystemPresenceConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown) {
+    return typeof value === 'string' && value.trim().length > 0;
+  }
+
+  defaultMessage() {
+    return 'sourceSystem must be AMIS';
+  }
+}
+
+@ValidatorConstraint({ name: 'amisSourceSystemType', async: false })
+class AmisSourceSystemTypeConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown) {
+    return value === null || value === undefined || typeof value === 'string';
+  }
+
+  defaultMessage() {
+    return 'sourceSystem must be string';
+  }
+}
 
 export class AmisJobRequirementSectionDto {
   @ApiPropertyOptional()
@@ -135,7 +160,10 @@ export class AmisJobSnapshotDto {
 
 export class SyncAmisJobPostingDto {
   @ApiProperty({ enum: ExtensionSourceSystem, enumName: 'ExtensionSourceSystem' })
-  @IsEnum(ExtensionSourceSystem)
+  // Keep non-AMIS strings available for the service-level contract message.
+  @Type(() => Object)
+  @Validate(AmisSourceSystemTypeConstraint)
+  @Validate(AmisSourceSystemPresenceConstraint)
   sourceSystem: ExtensionSourceSystem;
 
   @ApiProperty()
