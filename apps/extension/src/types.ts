@@ -157,6 +157,8 @@ export interface JobPostingSummary {
     jobDescriptionId?: string;
     title: string;
     status?: string;
+    sourceSystem?: string | null;
+    sourceJobId?: string | null;
   } | null;
   title: string;
   publicSlug: string;

@@ -14,36 +14,64 @@ import type {
   ReferralManagementPerson,
   ReferralManagementSource,
   JobPostingSummary,
+  AmisRecruitmentRound,
 } from './types';
 import { buildFreelancerIdentifierCopyText } from './referral-management-utils';
 
-type CvStatusFilter = 'ALL' | 'APPLICATION' | 'TEST' | 'INTERVIEW' | 'OFFER' | 'HIRED' | 'REJECTED';
+type CvStatusFilter = string;
 type JdFilter = 'ALL' | string;
 type AccountStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 type ModalMode = 'CREATE' | 'CREDENTIALS' | 'STATUS' | null;
 type NotifyKind = 'SUCCESS' | 'ERROR';
+type ReferralRoundOptionKind = 'ROUND' | 'HIRED' | 'REJECTED' | 'LEGACY_STAGE';
+
+interface ReferralRoundLoadTarget {
+  jobPostingId: string;
+  amisRecruitmentId: string;
+}
+
+interface ReferralRoundLoadResult extends ReferralRoundLoadTarget {
+  rounds: AmisRecruitmentRound[];
+}
+
+interface ReferralRoundOption {
+  value: string;
+  label: string;
+  kind: ReferralRoundOptionKind;
+  roundIds: string[];
+  normalizedName: string;
+  sortOrder: number;
+}
 
 interface ReferralManagementProps {
   source: ReferralManagementSource;
   accessToken: string;
   refreshVersion: number;
   onNotify?: (kind: NotifyKind, title: string, message: string) => void;
+  loadRecruitmentRounds?: (
+    targets: ReferralRoundLoadTarget[],
+  ) => Promise<ReferralRoundLoadResult[]>;
 }
 
 const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@viettel\.com\.vn$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REFERRAL_PAGE_SIZE = 5;
-const CV_STATUS_FILTER_OPTIONS: Array<{ value: CvStatusFilter; label: string }> = [
-  { value: 'ALL', label: 'Tất cả các vòng' },
-  { value: 'APPLICATION', label: 'Ứng tuyển' },
-  { value: 'TEST', label: 'Thi tuyển' },
-  { value: 'INTERVIEW', label: 'Phỏng vấn' },
-  { value: 'OFFER', label: 'Offer' },
-  { value: 'HIRED', label: 'Đã tuyển' },
-  { value: 'REJECTED', label: 'Loại' },
-];
+const REFERRAL_ALL_ROUNDS_OPTION: ReferralRoundOption = {
+  value: 'ALL',
+  label: 'Tất cả các vòng',
+  kind: 'ROUND',
+  roundIds: [],
+  normalizedName: '',
+  sortOrder: -1,
+};
 
-export function ReferralManagementPanel({ source, accessToken, refreshVersion, onNotify }: ReferralManagementProps) {
+export function ReferralManagementPanel({
+  source,
+  accessToken,
+  refreshVersion,
+  onNotify,
+  loadRecruitmentRounds,
+}: ReferralManagementProps) {
   const [people, setPeople] = useState<ReferralManagementPerson[]>([]);
   const [allPeopleForJd, setAllPeopleForJd] = useState<ReferralManagementPerson[]>([]);
   const [jobPostings, setJobPostings] = useState<JobPostingSummary[]>([]);
@@ -51,6 +79,10 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [cvStatusFilter, setCvStatusFilter] = useState<CvStatusFilter>('ALL');
+  const [cvRoundOptions, setCvRoundOptions] = useState<ReferralRoundOption[]>(() => (
+    buildReferralRoundOptions([], source !== 'FREELANCER')
+  ));
+  const [roundsLoading, setRoundsLoading] = useState(false);
   const [jdFilter, setJdFilter] = useState<JdFilter>('ALL');
   const [isJdFilterOpen, setIsJdFilterOpen] = useState(false);
   const [accountStatusFilter, setAccountStatusFilter] = useState<AccountStatusFilter>('ALL');
@@ -216,6 +248,74 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
   }, [allPeopleForJd, jobPostings, people]);
   const selectedJd = availableJds.find(([id]) => id === jdFilter)?.[1];
 
+  useEffect(() => {
+    if (source !== 'FREELANCER') {
+      setCvRoundOptions(buildReferralRoundOptions([], true));
+      setRoundsLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function loadRoundsForFilter() {
+      setRoundsLoading(true);
+
+      const scopedPostings = jdFilter === 'ALL'
+        ? jobPostings
+        : jobPostings.filter((posting) => posting.jobPostingId === jdFilter);
+      const targets = scopedPostings
+        .filter((posting) => posting.jobDescription?.sourceSystem?.toUpperCase() === 'AMIS')
+        .map((posting) => ({
+          jobPostingId: posting.jobPostingId,
+          amisRecruitmentId: posting.jobDescription?.sourceJobId?.trim() ?? '',
+        }))
+        .filter((target): target is ReferralRoundLoadTarget => Boolean(target.amisRecruitmentId));
+
+      let loadedRounds: ReferralRoundLoadResult[] = [];
+      if (loadRecruitmentRounds && targets.length > 0) {
+        try {
+          loadedRounds = await loadRecruitmentRounds(targets);
+        } catch {
+          loadedRounds = [];
+        }
+      }
+
+      const fallbackEntries = allPeopleForJd
+        .flatMap((person) => person.applications)
+        .filter((application) => jdFilter === 'ALL' || application.jobPosting.jobPostingId === jdFilter)
+        .map((application) => application.currentAmisStage)
+        .filter((stage): stage is NonNullable<typeof stage> => Boolean(stage?.recruitmentRoundName?.trim()))
+        .map((stage) => ({
+          id: stage.recruitmentRoundId,
+          name: stage.recruitmentRoundName?.trim() ?? '',
+          sortOrder: Number.MAX_SAFE_INTEGER,
+        }));
+
+      const configuredEntries = loadedRounds.flatMap((result) => result.rounds.map((round) => ({
+        id: round.id,
+        name: round.name,
+        sortOrder: round.sortOrder,
+      })));
+      const options = buildReferralRoundOptions([...configuredEntries, ...fallbackEntries], false);
+
+      if (!cancelled) {
+        setCvRoundOptions(options);
+        setRoundsLoading(false);
+      }
+    }
+
+    void loadRoundsForFilter();
+    return () => {
+      cancelled = true;
+    };
+  }, [allPeopleForJd, jdFilter, jobPostings, loadRecruitmentRounds, source]);
+
+  useEffect(() => {
+    if (cvStatusFilter === 'ALL' || cvRoundOptions.some((option) => option.value === cvStatusFilter)) return;
+    setCvStatusFilter('ALL');
+    setPage(1);
+  }, [cvRoundOptions, cvStatusFilter]);
+
   const isClientFilterMode = jdFilter !== 'ALL' || cvStatusFilter !== 'ALL';
   const filteredPeople = useMemo(() => {
     const sourcePeople = isClientFilterMode && allPeopleForJd.length > 0 ? allPeopleForJd : people;
@@ -237,14 +337,14 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
       person,
       applications: person.applications.filter((application) => (
         (jdFilter === 'ALL' || application.jobPosting.jobPostingId === jdFilter)
-        && matchesCvStatus(application, cvStatusFilter)
+        && matchesCvStatus(application, cvStatusFilter, cvRoundOptions)
       )),
     }))
     .filter(({ person, applications }) => (
       applications.length > 0
       || (cvStatusFilter === 'ALL' && jdFilter === 'ALL' && person.applications.length === 0)
     ));
-  }, [accountStatusFilter, allPeopleForJd, cvStatusFilter, isClientFilterMode, jdFilter, people, search]);
+  }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, isClientFilterMode, jdFilter, people, search]);
   const visiblePeople = isClientFilterMode
     ? filteredPeople.slice((page - 1) * REFERRAL_PAGE_SIZE, page * REFERRAL_PAGE_SIZE)
     : filteredPeople;
@@ -445,12 +545,13 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
             <span>Tình trạng CV</span>
               <select
                 value={cvStatusFilter}
+                disabled={source === 'FREELANCER' && roundsLoading}
                 onChange={(event) => {
-                  setCvStatusFilter(event.target.value as CvStatusFilter);
+                  setCvStatusFilter(event.target.value);
                   setPage(1);
                 }}
               >
-              {CV_STATUS_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {cvRoundOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
           <label className="referral-jd-filter-label">
@@ -819,16 +920,101 @@ function StatusPill({ application }: { application: ReferralManagementApplicatio
   return <span className={`referral-status-pill ${className}`}><i />{label}</span>;
 }
 
-function matchesCvStatus(application: ReferralManagementApplication, filter: CvStatusFilter): boolean {
+function buildReferralRoundOptions(
+  entries: Array<{ id?: string | null; name: string; sortOrder?: number | null }>,
+  includeLegacyStageOptions: boolean,
+): ReferralRoundOption[] {
+  const groupedRounds = new Map<string, ReferralRoundOption>();
+
+  for (const entry of entries) {
+    const label = entry.name.trim();
+    const normalizedName = normalizeAmisStageName(label);
+    if (!label || !normalizedName) continue;
+
+    const existing = groupedRounds.get(normalizedName);
+    const roundId = entry.id?.trim();
+    const sortOrder = Number.isFinite(entry.sortOrder) ? entry.sortOrder as number : Number.MAX_SAFE_INTEGER;
+    if (existing) {
+      if (roundId && !existing.roundIds.includes(roundId)) existing.roundIds.push(roundId);
+      existing.sortOrder = Math.min(existing.sortOrder, sortOrder);
+      continue;
+    }
+
+    groupedRounds.set(normalizedName, {
+      value: `ROUND:${normalizedName}`,
+      label,
+      kind: normalizedName === 'DA TUYEN' ? 'HIRED' : normalizedName === 'LOAI' ? 'REJECTED' : 'ROUND',
+      roundIds: roundId ? [roundId] : [],
+      normalizedName,
+      sortOrder,
+    });
+  }
+
+  if (groupedRounds.size === 0 && includeLegacyStageOptions) {
+    [
+      { name: '\u1ee8ng tuy\u1ec3n', normalizedName: 'UNG TUYEN' },
+      { name: 'Thi tuy\u1ec3n', normalizedName: 'THI TUYEN' },
+      { name: 'Ph\u1ecfng v\u1ea5n', normalizedName: 'PHONG VAN' },
+      { name: 'Offer', normalizedName: 'OFFER' },
+    ].forEach((entry, index) => {
+      groupedRounds.set(entry.normalizedName, {
+        value: `ROUND:${entry.normalizedName}`,
+        label: entry.name,
+        kind: 'LEGACY_STAGE',
+        roundIds: [],
+        normalizedName: entry.normalizedName,
+        sortOrder: index,
+      });
+    });
+  }
+
+  if (!groupedRounds.has('DA TUYEN')) {
+    groupedRounds.set('DA TUYEN', {
+      value: 'STATUS:HIRED',
+      label: '\u0110\u00e3 tuy\u1ec3n',
+      kind: 'HIRED',
+      roundIds: [],
+      normalizedName: 'DA TUYEN',
+      sortOrder: Number.MAX_SAFE_INTEGER - 1,
+    });
+  }
+  if (!groupedRounds.has('LOAI')) {
+    groupedRounds.set('LOAI', {
+      value: 'STATUS:REJECTED',
+      label: 'Lo\u1ea1i',
+      kind: 'REJECTED',
+      roundIds: [],
+      normalizedName: 'LOAI',
+      sortOrder: Number.MAX_SAFE_INTEGER,
+    });
+  }
+
+  return [
+    REFERRAL_ALL_ROUNDS_OPTION,
+    ...[...groupedRounds.values()].sort((left, right) => (
+      left.sortOrder - right.sortOrder || left.label.localeCompare(right.label, 'vi')
+    )),
+  ];
+}
+
+function matchesCvStatus(
+  application: ReferralManagementApplication,
+  filter: CvStatusFilter,
+  options: ReferralRoundOption[],
+): boolean {
   if (filter === 'ALL') return true;
 
+  const option = options.find((candidate) => candidate.value === filter);
+  if (!option) return false;
+
   const stageName = normalizeAmisStageName(application.currentAmisStage?.recruitmentRoundName);
-  if (filter === 'REJECTED') return application.statusCategory === 'REJECTED' || application.currentAmisStage?.amisStatus === 0;
-  if (filter === 'HIRED') return application.statusCategory === 'PASSED';
-  if (filter === 'APPLICATION') return stageName.includes('UNG TUYEN');
-  if (filter === 'TEST') return stageName.includes('THI TUYEN');
-  if (filter === 'INTERVIEW') return stageName.includes('PHONG VAN');
-  if (filter === 'OFFER') return stageName.includes('OFFER');
+  const stageId = application.currentAmisStage?.recruitmentRoundId?.trim();
+  if (stageId && option.roundIds.includes(stageId)) return true;
+  if (option.normalizedName && option.normalizedName === stageName) return true;
+  if (option.kind === 'REJECTED') {
+    return application.statusCategory === 'REJECTED' || application.currentAmisStage?.amisStatus === 0;
+  }
+  if (option.kind === 'HIRED') return application.statusCategory === 'PASSED';
   return false;
 }
 

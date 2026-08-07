@@ -24,6 +24,7 @@ import { MappingResultEntity } from '../mapping/entities/mapping-result.entity';
 import { PositionEntity } from '../positions/entities/position.entity';
 import { WorkflowEventEntity } from '../workflow-state/entities/workflow-event.entity';
 import { JobPostingEntity } from './entities/job-posting.entity';
+import { RecruitmentExternalReferenceEntity } from '../extension-integration/entities/recruitment-external-reference.entity';
 import { JobPostingsController } from './job-postings.controller';
 import { JobPostingsService } from './job-postings.service';
 import { PublicJobPostingsController } from './public-job-postings.controller';
@@ -49,6 +50,7 @@ import { FormSessionsModule } from '../form-sessions/form-sessions.module';
       JobDescriptionEntity,
       JobDescriptionVersionEntity,
       JobPostingEntity,
+      RecruitmentExternalReferenceEntity,
       PositionEntity,
       LevelEntity,
       MappingResultEntity,

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PaginatedResponse } from '@interview-assistant/shared';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
 import {
@@ -13,6 +13,12 @@ import {
 import { JobPostingEntity } from './entities/job-posting.entity';
 import { QuestionSetEntity } from '../questions/entities/question-set.entity';
 import { QuestionSetItemEntity } from '../questions/entities/question-set-item.entity';
+import { RecruitmentExternalReferenceEntity } from '../extension-integration/entities/recruitment-external-reference.entity';
+import {
+  ExtensionExternalEntityType,
+  ExtensionInternalEntityType,
+  ExtensionSourceSystem,
+} from '../extension-integration/enums/extension-integration.enum';
 
 type DateInput = Date | string | null;
 const VCS_PORTAL_SOURCE_SYSTEM = 'VCS_PORTAL';
@@ -63,13 +69,16 @@ export class JobPostingsService {
     private readonly questionSetsRepo: Repository<QuestionSetEntity>,
     @InjectRepository(QuestionSetItemEntity)
     private readonly questionSetItemsRepo: Repository<QuestionSetItemEntity>,
+    @InjectRepository(RecruitmentExternalReferenceEntity)
+    private readonly externalReferencesRepo: Repository<RecruitmentExternalReferenceEntity>,
   ) {}
 
-  findAll() {
-    return this.jobPostingsRepo.find({
+  async findAll() {
+    const postings = await this.jobPostingsRepo.find({
       relations: ['jobDescription', 'jobDescriptionVersion', 'formQuestionSet', 'createdBy'],
       order: { createdAt: 'DESC' },
     });
+    return this.attachAmisSourceMetadata(postings);
   }
 
   async findPaginated(
@@ -123,6 +132,7 @@ export class JobPostingsService {
     }
 
     const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
+    await this.attachAmisSourceMetadata(data);
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
@@ -140,6 +150,40 @@ export class JobPostingsService {
     });
     if (!posting) throw new BadRequestException('Job posting not found');
     return posting;
+  }
+
+  private async attachAmisSourceMetadata(postings: JobPostingEntity[]) {
+    const postingIds = postings.map((posting) => posting.id).filter(Boolean);
+    if (postingIds.length === 0) return postings;
+
+    const references = await this.externalReferencesRepo.find({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+        internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
+        internalEntityId: In(postingIds),
+      },
+    });
+    const referenceByPostingId = new Map(
+      references.map((reference) => [reference.internalEntityId, reference]),
+    );
+
+    for (const posting of postings) {
+      const reference = referenceByPostingId.get(posting.id);
+      if (!reference || !posting.jobDescription) continue;
+
+      if (!posting.jobDescription.sourceSystem) {
+        posting.jobDescription.sourceSystem = ExtensionSourceSystem.AMIS;
+      }
+      if (!posting.jobDescription.sourceJobId) {
+        posting.jobDescription.sourceJobId = reference.externalId;
+      }
+      if (!posting.jobDescription.sourceUrl && reference.externalUrl) {
+        posting.jobDescription.sourceUrl = reference.externalUrl;
+      }
+    }
+
+    return postings;
   }
 
   async findPublishedBySlug(publicSlug: string) {

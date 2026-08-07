@@ -213,6 +213,8 @@ export class JobPostingsController {
           jobDescriptionId: posting.jobDescription.id,
           title: posting.jobDescription.title,
           status: posting.jobDescription.status,
+          sourceSystem: posting.jobDescription.sourceSystem,
+          sourceJobId: posting.jobDescription.sourceJobId,
         }
         : null,
       jobDescriptionVersionId: posting.jobDescriptionVersionId,

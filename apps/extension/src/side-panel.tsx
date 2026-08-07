@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { extractAmisJobFromDetailApi } from './amis-detail-api-extractor';
 import { extractAmisJobFromPage } from './amis-page-extractor';
@@ -423,6 +423,41 @@ function SidePanel() {
   const [cvWorkspaceView, setCvWorkspaceView] = useState<CvWorkspaceView>('list');
   const [user, setUser] = useState<ExtensionUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const loadReferralRecruitmentRounds = useCallback(async (
+    targets: Array<{ jobPostingId: string; amisRecruitmentId: string }>,
+  ) => {
+    if (targets.length === 0) return [];
+
+    let activeTab: Awaited<ReturnType<typeof getActiveTab>>;
+    try {
+      activeTab = await getActiveTab();
+    } catch {
+      return targets.map((target) => ({ ...target, rounds: [] as AmisRecruitmentRound[] }));
+    }
+
+    if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+      return targets.map((target) => ({ ...target, rounds: [] as AmisRecruitmentRound[] }));
+    }
+
+    return Promise.all(targets.map(async (target) => {
+      try {
+        const response = await sendMessageToAmisTab(activeTab.id, {
+          type: GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE,
+          payload: { amisRecruitmentId: target.amisRecruitmentId },
+        });
+        if (
+          isAmisRecruitmentRoundsResponse(response)
+          && response.ok
+          && response.amisRecruitmentId === target.amisRecruitmentId
+        ) {
+          return { ...target, rounds: response.rounds };
+        }
+      } catch {
+        // The referral filter falls back to rounds already present on applications.
+      }
+      return { ...target, rounds: [] as AmisRecruitmentRound[] };
+    }));
+  }, []);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -4077,7 +4112,13 @@ function SidePanel() {
         {tab === 'posting' ? renderPostingPanel() : null}
         {tab === 'cv' ? renderCvPanel() : null}
         {tab === 'freelancer' && token ? (
-          <ReferralManagementPanel source="FREELANCER" accessToken={token} refreshVersion={referralRefreshVersion} onNotify={showExtensionToast} />
+          <ReferralManagementPanel
+            source="FREELANCER"
+            accessToken={token}
+            refreshVersion={referralRefreshVersion}
+            onNotify={showExtensionToast}
+            loadRecruitmentRounds={loadReferralRecruitmentRounds}
+          />
         ) : null}
         {tab === 'internal' && token ? (
           <ReferralManagementPanel source="INTERNAL" accessToken={token} refreshVersion={referralRefreshVersion} onNotify={showExtensionToast} />
