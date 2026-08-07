@@ -39,6 +39,7 @@ import type {
   FacebookPublishResultPayload,
   JobDescriptionQuestionSetContext,
   JobDescriptionSummary,
+  JobPostingSummary,
   SyncAmisApplicationsRequest,
   SyncAmisApplicationsResponse,
   SyncAmisCareersRequest,
@@ -212,6 +213,32 @@ export async function listJobDescriptions(
   );
 }
 
+export async function listJobPostings(
+  accessToken: string,
+  params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    sortBy?: string;
+    sortOrder?: 'ASC' | 'DESC';
+  } = {},
+) {
+  const searchParams = new URLSearchParams();
+  searchParams.set('page', String(params.page ?? 1));
+  searchParams.set('limit', String(params.limit ?? 20));
+  searchParams.set('status', params.status ?? 'ALL');
+  searchParams.set('sortBy', params.sortBy ?? 'createdAt');
+  searchParams.set('sortOrder', params.sortOrder ?? 'DESC');
+
+  return requestWithPagination<JobPostingSummary>(
+    `/job-postings?${searchParams.toString()}`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
+}
+
 export async function syncAndPublishAmisJob(
   accessToken: string,
   payload: SyncAmisJobPostingRequest,
@@ -358,11 +385,14 @@ export async function createFreelancer(
   });
 }
 
-export async function createInternal(accessToken: string, email: string) {
+export async function createInternal(
+  accessToken: string,
+  payload: { name: string; email: string; phone: string },
+) {
   return request<ReferralManagementPerson>('/extension/amis/referral-sources/internals', {
     method: 'POST',
     accessToken,
-    body: { email },
+    body: payload,
   });
 }
 

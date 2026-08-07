@@ -30,9 +30,11 @@ export class InternalsService {
 
     try {
       const internal = await this.internalsRepo.save(
-        this.internalsRepo.create({
-          email,
-          isActive: true,
+      this.internalsRepo.create({
+        email,
+        name: input.name?.trim() || null,
+        phone: input.phone?.trim() || null,
+        isActive: true,
           createdById: input.createdById ?? null,
         }),
       );
@@ -60,7 +62,11 @@ export class InternalsService {
       .take(limit);
 
     const search = this.optionalText(params.search);
-    if (search) qb.andWhere('internal.email ILIKE :search', { search: `%${search}%` });
+    if (search) {
+      qb.andWhere("(internal.email ILIKE :search ESCAPE E'\\\\' OR internal.name ILIKE :search ESCAPE E'\\\\' OR internal.phone ILIKE :search ESCAPE E'\\\\')", {
+        search: `%${escapeLikePattern(search)}%`,
+      });
+    }
     if (params.status === 'ACTIVE') qb.andWhere('internal.isActive = :isActive', { isActive: true });
     if (params.status === 'INACTIVE') qb.andWhere('internal.isActive = :isActive', { isActive: false });
 
@@ -87,8 +93,16 @@ export class InternalsService {
       where: { id: this.requireText(id, 'Internal id') },
     });
     if (!internal) throw this.internalNotFoundError();
-    internal.isActive = isActive;
-    await this.internalsRepo.save(internal);
+    const updateResult = await this.internalsRepo.update(
+      { id: internal.id, isActive: !isActive },
+      { isActive },
+    );
+    if (!updateResult.affected) {
+      throw new BadRequestException({
+        code: isActive ? 'INTERNAL_ALREADY_ACTIVE' : 'INTERNAL_ALREADY_INACTIVE',
+        message: isActive ? 'Nhân sự đã được mở khoá.' : 'Nhân sự đã bị khoá.',
+      });
+    }
     return this.findOne(internal.id);
   }
 
@@ -117,8 +131,8 @@ export class InternalsService {
 
     const search = this.optionalText(params.search);
     if (search) {
-      qb.andWhere('(candidate.name ILIKE :search OR jobPosting.title ILIKE :search)', {
-        search: `%${search}%`,
+      qb.andWhere("(candidate.name ILIKE :search ESCAPE E'\\\\' OR jobPosting.title ILIKE :search ESCAPE E'\\\\')", {
+        search: `%${escapeLikePattern(search)}%`,
       });
     }
     if (params.processStatus) qb.andWhere('application.status = :processStatus', {
@@ -175,7 +189,9 @@ export class InternalsService {
   private toSummary(internal: InternalEntity): InternalSummary {
     return {
       internalId: internal.id,
+      name: internal.name,
       email: internal.email,
+      phone: internal.phone,
       isActive: internal.isActive,
       applicationCount: this.extractApplicationCount(internal),
       createdBy: internal.createdBy
@@ -268,4 +284,8 @@ export class InternalsService {
     const normalized = value?.trim();
     return normalized || null;
   }
+}
+
+function escapeLikePattern(value: string) {
+  return value.replace(/[\\%_]/g, '\\$&');
 }
