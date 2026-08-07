@@ -374,6 +374,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
   }
 
   private publicMessageForCode(code: string, rawMessage: string) {
+    if (code === 'FACEBOOK_TARGETS_REQUIRED') {
+      return 'Select at least one Facebook group before publishing.';
+    }
     if (this.isSensitiveText(rawMessage)) return 'Request could not be completed. Please retry later.';
     return rawMessage || this.defaultMessageForCode(code);
   }

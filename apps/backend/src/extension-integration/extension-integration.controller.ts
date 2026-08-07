@@ -286,11 +286,13 @@ export class ExtensionIntegrationController {
     @Param('amisRecruitmentId') amisRecruitmentId: string,
     @Param('amisCandidateId') amisCandidateId: string,
     @Body() dto: UpdateAmisApplicationStageDto,
+    @Request() req: ExtensionAuthenticatedRequest,
   ) {
     return this.extensionIntegrationService.updateAmisApplicationStage(
       amisRecruitmentId,
       amisCandidateId,
       dto,
+      { actorUserId: req.user.id },
     );
   }
 

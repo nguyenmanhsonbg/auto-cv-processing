@@ -45,7 +45,6 @@ const CAREER_LABEL_TEXT = 'Ng\u00e0nh ngh\u1ec1';
 const CAREER_LABEL_TEXT_MOJIBAKE = 'NgÃ nh nghá»';
 
 interface AmisRecruitmentFormFillPayload {
-  title: string;
   positionName: string;
   summary: string;
   responsibilities: string;
@@ -764,10 +763,15 @@ async function fillAmisRecruitmentForm(
 
   const filledFields: string[] = [];
   const missingFields: string[] = [];
-  const textInputs = getVisibleElements<HTMLInputElement>('input.dx-texteditor-input[type="text"]');
 
-  fillTextInput(textInputs[0], payload.title, 'title', filledFields, missingFields);
-  fillTextInput(textInputs[1], payload.positionName, 'position', filledFields, missingFields);
+  // AMIS has two title fields before the position field; never fill either title.
+  fillTextInput(
+    findTextInputByLabel('Vị trí tuyển dụng'),
+    payload.positionName,
+    'position',
+    filledFields,
+    missingFields,
+  );
 
   fillTextInput(
     findTextareaByDxPlaceholder('Mô tả tóm tắt') ?? getVisibleElements<HTMLTextAreaElement>('textarea.dx-texteditor-input')[0],
@@ -2387,6 +2391,35 @@ function fillTextInput(
   filledFields.push(fieldName);
 }
 
+function findTextInputByLabel(labelText: string) {
+  const label = findVisibleTextElement(labelText);
+  if (!label) return undefined;
+
+  const labelRect = label.getBoundingClientRect();
+  const inputSelector = 'input.dx-texteditor-input[type="text"], input.dx-dropdowneditor-input, [role="combobox"] input';
+  let ancestor: HTMLElement | null = label.parentElement;
+
+  for (let depth = 0; depth < 6 && ancestor; depth += 1) {
+    const candidates = getVisibleElements<HTMLInputElement>(inputSelector)
+      .filter((input) => ancestor?.contains(input))
+      .map((input) => ({ input, rect: input.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.top >= labelRect.bottom - 8)
+      .filter(({ rect }) => rect.right >= labelRect.left - 20)
+      .sort((left, right) => {
+        const leftDistance = Math.abs(left.rect.top - labelRect.bottom)
+          + Math.abs(left.rect.left - labelRect.left) / 10;
+        const rightDistance = Math.abs(right.rect.top - labelRect.bottom)
+          + Math.abs(right.rect.left - labelRect.left) / 10;
+        return leftDistance - rightDistance;
+      });
+
+    if (candidates[0]) return candidates[0].input;
+    ancestor = ancestor.parentElement;
+  }
+
+  return undefined;
+}
+
 function fillHtmlEditorByPlaceholder(
   placeholder: string,
   value: string,
@@ -2686,7 +2719,6 @@ function isFillAmisRecruitmentFormMessage(value: unknown): value is {
   return (value as { type?: unknown }).type === FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE
     && typeof payload === 'object'
     && payload !== null
-    && typeof (payload as { title?: unknown }).title === 'string'
     && typeof (payload as { positionName?: unknown }).positionName === 'string'
     && typeof (payload as { summary?: unknown }).summary === 'string'
     && typeof (payload as { responsibilities?: unknown }).responsibilities === 'string'

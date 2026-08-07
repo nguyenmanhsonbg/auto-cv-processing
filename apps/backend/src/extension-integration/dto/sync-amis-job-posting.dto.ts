@@ -12,8 +12,13 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   Min,
+  Validate,
+  ValidateIf,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -22,6 +27,29 @@ import {
   ExtensionSyncAction,
   type ExtensionSyncChannel,
 } from '../enums/extension-integration.enum';
+import { RecruitmentChannel } from '../../recruitment-common';
+
+@ValidatorConstraint({ name: 'amisSourceSystemPresence', async: false })
+class AmisSourceSystemPresenceConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown) {
+    return typeof value === 'string' && value.trim().length > 0;
+  }
+
+  defaultMessage() {
+    return 'sourceSystem must be AMIS';
+  }
+}
+
+@ValidatorConstraint({ name: 'amisSourceSystemType', async: false })
+class AmisSourceSystemTypeConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown) {
+    return value === null || value === undefined || typeof value === 'string';
+  }
+
+  defaultMessage() {
+    return 'sourceSystem must be string';
+  }
+}
 
 export class AmisJobRequirementSectionDto {
   @ApiPropertyOptional()
@@ -135,7 +163,10 @@ export class AmisJobSnapshotDto {
 
 export class SyncAmisJobPostingDto {
   @ApiProperty({ enum: ExtensionSourceSystem, enumName: 'ExtensionSourceSystem' })
-  @IsEnum(ExtensionSourceSystem)
+  // Keep non-AMIS strings available for the service-level contract message.
+  @Type(() => Object)
+  @Validate(AmisSourceSystemTypeConstraint)
+  @Validate(AmisSourceSystemPresenceConstraint)
   sourceSystem: ExtensionSourceSystem;
 
   @ApiProperty()
@@ -199,7 +230,10 @@ export class SyncAmisJobPostingDto {
   facebookTargetIds?: string[];
 
   @ApiPropertyOptional({ description: 'Stable Facebook account id used for the selected group targets.' })
-  @IsOptional()
+  @ValidateIf((dto) => Array.isArray(dto.channels) && dto.channels.includes(RecruitmentChannel.FACEBOOK))
+  @IsDefined()
+  // Preserve null and primitive values so invalid payload types cannot be converted into valid UUIDs.
+  @Type(() => Object)
   @IsUUID('4')
   facebookAccountId?: string;
 
@@ -222,8 +256,13 @@ export class SyncAmisJobPostingDto {
     description: 'Optional Facebook post content prepared or edited in the extension. {{APPLY_URL}} is replaced after sync.',
     maxLength: 10000,
   })
-  @IsOptional()
+  @ValidateIf((dto) => Array.isArray(dto.channels) && dto.channels.includes(RecruitmentChannel.FACEBOOK))
+  @IsDefined()
+  // Preserve null and primitive values so invalid payload types cannot be converted into valid strings.
+  @Type(() => Object)
   @IsString()
+  @IsNotEmpty()
+  @Matches(/\S/)
   @MaxLength(10000)
   facebookContent?: string;
 }

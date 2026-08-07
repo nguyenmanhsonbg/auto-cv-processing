@@ -76,6 +76,8 @@ import {
   type ReferralCurrentAmisStage,
   type ReferralSourceMetrics,
 } from './referral-source-summary.util';
+import { CvStageReminderService } from '../notification/cv-stage-reminder.service';
+import { CandidateStageNotificationService } from '../notification/candidate-stage-notification.service';
 
 const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
 
@@ -142,13 +144,21 @@ export class ExtensionIntegrationService {
     private readonly applicationsService: ApplicationsService,
     private readonly freelancersService: FreelancersService,
     private readonly internalsService: InternalsService,
-    private readonly mailService: MailService,
+    private readonly cvStageReminderService: CvStageReminderService,
+    private readonly candidateStageNotificationService: CandidateStageNotificationService,
   ) {}
 
   async syncAndPublishFromAmis(
     dto: SyncAmisJobPostingDto,
     context: ExtensionSyncContext,
   ): Promise<ExtensionSyncResponseDto> {
+    if (!Array.isArray(dto.selectedQuestionIds)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Request payload is invalid.',
+      });
+    }
+
     const normalizedDto = this.normalizeRequest(dto);
     const requestHash = createExtensionRequestHash({
       body: normalizedDto,
@@ -1284,7 +1294,8 @@ export class ExtensionIntegrationService {
     if (dto.sourceSystem !== ExtensionSourceSystem.AMIS) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
-        message: 'AMIS job posting sync only accepts AMIS as sourceSystem.',
+        message: 'Request payload is invalid.',
+        details: ['AMIS job posting sync only accepts AMIS as sourceSystem.'],
       });
     }
 
@@ -1841,6 +1852,12 @@ export class ExtensionIntegrationService {
         );
         await this.dataSource.getRepository(ApplicationSourceEntity).save(result.applicationSource);
       }
+
+      await this.cvStageReminderService.upsertAmisHrMapping({
+        amisAccountId: item.attractivePersonnelId,
+        amisAccountName: item.attractivePersonnelName,
+        hrUserId: context.actorUserId,
+      });
     }
 
     return {
@@ -1959,6 +1976,7 @@ export class ExtensionIntegrationService {
     amisRecruitmentId: string,
     amisCandidateId: string,
     dto: UpdateAmisApplicationStageDto,
+    context: { actorUserId?: string | null } = {},
   ) {
     const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
     const normalizedCandidateId = this.requireText(amisCandidateId, 'amisCandidateId');
@@ -1992,10 +2010,33 @@ export class ExtensionIntegrationService {
         : this.optionalText(dto.reasonRemoved),
       ...(typeof dto.status === 'number' ? { status: dto.status } : {}),
       ...(this.optionalText(dto.sourceUrl) ? { stageSourceUrl: this.optionalText(dto.sourceUrl) } : {}),
+      ...(this.optionalText(dto.pageUrl) ? { stagePageUrl: this.optionalText(dto.pageUrl) } : {}),
       ...(this.optionalText(dto.changedAt) ? { stageChangedAt: this.optionalText(dto.changedAt) } : {}),
       stageUpdatedAt: updatedAt,
     };
     await this.dataSource.getRepository(ApplicationSourceEntity).save(source);
+
+    if (dto.isTransitionEvent === true) {
+      await this.cvStageReminderService.recordStageTransition({
+        applicationId: applicationRow.application.id,
+        amisRecruitmentId: normalizedRecruitmentId,
+        amisCandidateId: normalizedCandidateId,
+        amisRecruitmentRoundId: normalizedRoundId,
+        amisRecruitmentRoundName: this.optionalText(dto.recruitmentRoundName),
+        candidateAmisUrl: this.optionalText(dto.pageUrl) ?? this.optionalText(rawPayload.stagePageUrl),
+        attractivePersonnelId: this.optionalText(rawPayload.attractivePersonnelId),
+        attractivePersonnelName: this.optionalText(rawPayload.attractivePersonnelName),
+        actorUserId: context.actorUserId,
+      });
+      await this.candidateStageNotificationService.enqueueForStageTransition({
+        applicationId: applicationRow.application.id,
+        amisRecruitmentId: normalizedRecruitmentId,
+        amisCandidateId: normalizedCandidateId,
+        amisRecruitmentRoundId: normalizedRoundId,
+        amisRecruitmentRoundName: this.optionalText(dto.recruitmentRoundName),
+        changedAt: this.optionalText(dto.changedAt),
+      });
+    }
 
     return {
       updated: true,

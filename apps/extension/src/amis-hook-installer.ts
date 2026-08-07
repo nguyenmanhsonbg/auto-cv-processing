@@ -28,6 +28,14 @@ export async function ensureAmisHooksInActiveTab(): Promise<AmisHookInstallResul
     };
   }
 
+  // The page hook must run in AMIS's main world so it can observe the page's
+  // XHR/fetch calls. The bridge remains isolated and relays those events to
+  // the extension service worker.
+  await chrome.scripting.executeScript({
+    target: { tabId: activeTab.id },
+    files: ['assets/amis-page-hook.js'],
+    world: 'MAIN',
+  });
   await chrome.scripting.executeScript({
     target: { tabId: activeTab.id },
     files: ['assets/amis-source-column.js'],
@@ -39,7 +47,7 @@ export async function ensureAmisHooksInActiveTab(): Promise<AmisHookInstallResul
 
   return {
     status: 'INJECTED',
-    message: 'AMIS bridge is active in the current tab without modifying AMIS network transports.',
+    message: 'AMIS page hook and bridge are active in the current tab.',
     tabUrl: activeTab.url,
   };
 }

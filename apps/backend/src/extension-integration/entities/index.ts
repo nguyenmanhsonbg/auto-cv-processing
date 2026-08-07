@@ -4,3 +4,5 @@ export * from './extension-task.entity';
 export * from './extension-task-event.entity';
 export * from './recruitment-external-reference.entity';
 export * from './extension-idempotency-record.entity';
+export * from './amis-hr-mapping.entity';
+export * from './amis-application-stage-reminder.entity';

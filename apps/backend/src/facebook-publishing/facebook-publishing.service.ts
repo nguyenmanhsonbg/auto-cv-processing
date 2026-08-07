@@ -782,6 +782,20 @@ export class FacebookPublishingService {
   }
 
   async reportExtensionPublishResult(input: ReportFacebookPublishResultInput) {
+    if (input.targetId) {
+      try {
+        await this.findOwnedActiveGroup(input.ownerUserId, input.targetId, input.extensionInstanceId);
+      } catch (error) {
+        if (error instanceof BadRequestException) {
+          throw new BadRequestException({
+            code: 'VALIDATION_ERROR',
+            message: 'Request payload is invalid.',
+          });
+        }
+        throw error;
+      }
+    }
+
     const posting = await this.jobPostingsRepo.findOne({
       where: { id: input.jobPostingId },
       relations: [

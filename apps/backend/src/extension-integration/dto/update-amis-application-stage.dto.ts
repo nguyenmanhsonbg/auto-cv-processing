@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UpdateAmisApplicationStageDto {
   @ApiProperty({ description: 'The AMIS recruitment round id currently assigned to the candidate.' })
@@ -30,4 +30,14 @@ export class UpdateAmisApplicationStageDto {
   @IsOptional()
   @IsString()
   changedAt?: string;
+
+  @ApiPropertyOptional({ description: 'The AMIS candidate page URL captured by the extension.' })
+  @IsOptional()
+  @IsString()
+  pageUrl?: string;
+
+  @ApiPropertyOptional({ description: 'True only when this event came from the AMIS update-round action.' })
+  @IsOptional()
+  @IsBoolean()
+  isTransitionEvent?: boolean;
 }

@@ -488,6 +488,7 @@ function SidePanel() {
   const [facebookGroupUrl, setFacebookGroupUrl] = useState('');
   const [facebookGroupUrlError, setFacebookGroupUrlError] = useState<string | null>(null);
   const [editFacebookGroupName, setEditFacebookGroupName] = useState('');
+  const [editFacebookGroupUrl, setEditFacebookGroupUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [jobDescriptionPagination, setJobDescriptionPagination] = useState<ApiPagination | null>(null);
@@ -502,6 +503,7 @@ function SidePanel() {
   const [vcsPortalSyncResult, setVcsPortalSyncResult] = useState<SyncVcsPortalJdsResponse | null>(null);
   const [, setVcsPortalSyncMessage] = useState<string | null>(null);
   const [selectedJobDescription, setSelectedJobDescription] = useState<JobDescriptionSummary | null>(null);
+  const [lockedAmisJobDescriptionId, setLockedAmisJobDescriptionId] = useState<string | null>(null);
   const [careerQuestionState, setCareerQuestionState] = useState<CareerQuestionState>('IDLE');
   const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
   const [jobDescriptionQuestionContext, setJobDescriptionQuestionContext] = useState<JobDescriptionQuestionSetContext | null>(null);
@@ -1705,6 +1707,8 @@ function SidePanel() {
       };
     });
 
+    if (payload.isTransitionEvent !== true) return;
+
     const accessToken = tokenRef.current;
     if (!accessToken) return;
 
@@ -1845,6 +1849,7 @@ function SidePanel() {
     lastAmisJobInitiationResetKeyRef.current = resetKey;
 
     setSelectedJobDescription(null);
+    setLockedAmisJobDescriptionId(null);
     setJobDescriptionQuestionContext(null);
     setSelectedJobQuestionIds(new Set());
     setCareerQuestionState('IDLE');
@@ -2227,6 +2232,7 @@ function SidePanel() {
       setApplicationsMessage(null);
       setApplicationsState(normalizedRecruitmentId ? 'LOADING' : 'IDLE');
       setSelectedJobDescription(null);
+      setLockedAmisJobDescriptionId(null);
       setJobDescriptionQuestionContext(null);
       setSelectedJobQuestionIds(new Set());
       setCareerQuestionState('IDLE');
@@ -2397,6 +2403,7 @@ function SidePanel() {
         await saveAmisTemplateContextForRecruitment(recruitmentId, templateContext);
         setJobDescriptionStatus('READY');
         setSelectedJobDescription(sourceJobDescription);
+        setLockedAmisJobDescriptionId(sourceJobDescription.id);
         setSnapshot(capture.snapshot);
         setExtractionResult(capture);
         setAmisUrl(capture.url);
@@ -2612,6 +2619,8 @@ function SidePanel() {
   }
 
   async function fillJobDescriptionInAmis(jobDescription: JobDescriptionSummary) {
+    if (lockedAmisJobDescriptionId && lockedAmisJobDescriptionId !== jobDescription.id) return;
+
     const nextSnapshot = buildAmisJobSnapshotFromJobDescription(jobDescription);
     setSelectedJobDescription(jobDescription);
     setSnapshot(nextSnapshot);
@@ -2633,11 +2642,7 @@ function SidePanel() {
         throw new Error('Mở màn tạo tin tuyển dụng AMIS ở tab hiện tại rồi chọn lại JD.');
       }
 
-      if (!chrome.tabs?.sendMessage) {
-        throw new Error('Chrome tabs messaging is unavailable.');
-      }
-
-      const response = await chrome.tabs.sendMessage(activeTab.id, {
+      const response = await sendMessageToAmisTab(activeTab.id, {
         type: FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE,
         payload: buildAmisFormFillPayload(jobDescription),
       });
@@ -3206,6 +3211,7 @@ function SidePanel() {
     setFacebookGroupUrl('');
     setFacebookGroupUrlError(null);
     setEditFacebookGroupName('');
+    setEditFacebookGroupUrl('');
   }
 
   function openFacebookGroupCreateModal() {
@@ -3417,6 +3423,7 @@ function SidePanel() {
     setFacebookGroupModalMode('SETTINGS');
     setSelectedFacebookGroup(null);
     setEditFacebookGroupName('');
+    setEditFacebookGroupUrl('');
     setFacebookSettingsState('READY');
     setFacebookSettingsMessage(null);
   }
@@ -3434,6 +3441,7 @@ function SidePanel() {
 
     setSelectedFacebookGroup(group);
     setEditFacebookGroupName(group.targetName);
+    setEditFacebookGroupUrl(group.targetUrl ?? '');
     setFacebookSettingsMessage(null);
     setFacebookSettingsState('READY');
     setFacebookGroupModalMode('EDIT');
@@ -3642,7 +3650,7 @@ function SidePanel() {
     if (!token || !selectedFacebookGroup?.targetId) return;
 
     const targetName = editFacebookGroupName.trim();
-    const targetUrl = selectedFacebookGroup.targetUrl?.trim() ?? '';
+    const targetUrl = editFacebookGroupUrl.trim();
     if (!targetName) {
       setFacebookSettingsState('ERROR');
       setFacebookSettingsMessage('Tên nhóm là bắt buộc.');
@@ -3669,6 +3677,7 @@ function SidePanel() {
       const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
       setSelectedFacebookGroup(null);
       setEditFacebookGroupName('');
+      setEditFacebookGroupUrl('');
       setFacebookGroupModalMode('SETTINGS');
       setFacebookSettingsState('READY');
       setFacebookSettingsMessage(`Saved "${savedGroup.targetName}". Click Check before using it for publishing.`);
@@ -5557,6 +5566,8 @@ function SidePanel() {
             {jobDescriptions.map((jobDescription) => {
               const badge = getJobDescriptionStatusBadge(jobDescription);
               const isSelected = selectedJobDescription?.id === jobDescription.id;
+              const isLockedByAmis = lockedAmisJobDescriptionId !== null
+                && lockedAmisJobDescriptionId !== jobDescription.id;
               const displayDate = formatDate(
                 jobDescription.sourceModifiedAt
                   ?? jobDescription.lastSyncedAt
@@ -5569,7 +5580,7 @@ function SidePanel() {
                   <button
                     type="button"
                     className="jd-card-button"
-                    disabled={jobDescriptionFillState === 'FILLING'}
+                    disabled={jobDescriptionFillState === 'FILLING' || isLockedByAmis}
                     onClick={() => void fillJobDescriptionInAmis(jobDescription)}
                   >
                     <span className={`status-badge jd-status-badge ${badge.className}`}>{badge.label}</span>
@@ -6599,24 +6610,19 @@ return (
                 <label>
                   <span className="facebook-group-field-label">
                     Link URL
-                    <span className="facebook-group-required-mark" aria-hidden="true">*</span>
                   </span>
-                  <input
-                    value={editFacebookGroupUrl}
-                    maxLength={2048}
-                    placeholder="https://facebook.com/groups/..."
-                    required
-                    disabled={facebookSettingsState === 'SAVING'}
-                    aria-invalid={Boolean(editFacebookGroupUrlFieldError)}
-                    onChange={(event) => {
-                      setEditFacebookGroupUrl(event.target.value);
-                      setEditFacebookGroupUrlError(null);
-                    }}
-                  />
-                  {editFacebookGroupUrlFieldError ? (
-                    <span className="field-error">{editFacebookGroupUrlFieldError}</span>
-                  ) : null}
-                  <small>Link trực tiếp đến trang chủ của nhóm Facebook.</small>
+                  {editFacebookGroupUrl ? (
+                    <a
+                      className="facebook-group-edit-url"
+                      href={editFacebookGroupUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {editFacebookGroupUrl}
+                    </a>
+                  ) : (
+                    <span className="facebook-group-edit-url is-empty">Chưa có URL</span>
+                  )}
                 </label>
                 <div className="form-actions">
                   <button
@@ -8869,7 +8875,6 @@ function formatDateTime(value: string | undefined) {
 
 function buildAmisFormFillPayload(jobDescription: JobDescriptionSummary) {
   return {
-    title: jobDescription.title,
     positionName: jobDescription.position?.name ?? '',
     summary: truncateForMaxLength(
       jobDescription.summary ?? jobDescription.overview ?? jobDescription.description,

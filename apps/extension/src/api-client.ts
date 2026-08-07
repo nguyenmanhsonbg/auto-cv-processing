@@ -350,7 +350,9 @@ export async function updateAmisApplicationStage(
         status: payload.amisStatus ?? undefined,
         reasonRemoved: payload.reasonRemoved,
         sourceUrl: payload.sourceUrl,
+        pageUrl: payload.pageUrl,
         changedAt: payload.changedAt,
+        isTransitionEvent: payload.isTransitionEvent === true,
       },
     },
   );

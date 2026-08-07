@@ -7,19 +7,26 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUrl,
   ValidateNested,
 } from 'class-validator';
 
 export class SyncAmisApplicationItemDto {
   @ApiProperty()
+  // Preserve the original JSON type so implicit conversion cannot bypass @IsString.
+  @Type(() => Object)
   @IsString()
   recruitmentId: string;
 
   @ApiProperty()
+  // Preserve the original JSON type so implicit conversion cannot bypass @IsString.
+  @Type(() => Object)
   @IsString()
   recruitmentRoundId: string;
 
   @ApiProperty()
+  // Preserve the original JSON type so implicit conversion cannot bypass @IsString.
+  @Type(() => Object)
   @IsString()
   candidateId: string;
 
@@ -29,6 +36,8 @@ export class SyncAmisApplicationItemDto {
   candidateConvertId?: string;
 
   @ApiProperty()
+  // Preserve the original JSON type so implicit conversion cannot bypass @IsString.
+  @Type(() => Object)
   @IsString()
   candidateName: string;
 
@@ -39,6 +48,8 @@ export class SyncAmisApplicationItemDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  // Preserve the original JSON type so implicit conversion cannot bypass @IsString.
+  @Type(() => Object)
   @IsString()
   mobile?: string;
 
@@ -132,7 +143,10 @@ export class SyncAmisApplicationsDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  // Preserve the original JSON type so implicit conversion cannot bypass @IsString.
+  @Type(() => Object)
   @IsString()
+  @IsUrl({ require_protocol: true })
   sourceUrl?: string;
 
   @ApiPropertyOptional()

@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
 } from 'class-validator';
 import { FacebookReviewStatus } from '../../facebook-publishing/facebook-publishing.types';
@@ -34,5 +35,6 @@ export class FacebookPublishHistoryStatusCheckDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
   checkedAt?: string | null;
 }

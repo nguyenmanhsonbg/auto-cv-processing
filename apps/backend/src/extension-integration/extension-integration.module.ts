@@ -8,6 +8,8 @@ import {
   ExtensionTaskEntity,
   ExtensionTaskEventEntity,
   RecruitmentExternalReferenceEntity,
+  AmisHrMappingEntity,
+  AmisApplicationStageReminderEntity,
 } from './entities';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -43,6 +45,8 @@ import { NotificationModule } from '../notification/notification.module';
       ExtensionInstanceEntity,
       ExtensionTaskEntity,
       ExtensionTaskEventEntity,
+      AmisHrMappingEntity,
+      AmisApplicationStageReminderEntity,
       AuditLogEntity,
       UserEntity,
       JobDescriptionEntity,
@@ -70,7 +74,7 @@ import { NotificationModule } from '../notification/notification.module';
     ExtensionTasksService,
     VcsPortalClientService,
     VcsPortalJdMapper,
-    VcsPortalJdSyncService,
+      VcsPortalJdSyncService,
   ],
   exports: [
     ExtensionIntegrationService,
