@@ -4,6 +4,10 @@ dist/
 .env.local
 *.log
 .turbo/
+.scannerwork/
+.sonar/
+coverage/
+**/coverage/
 apps/backend/uploads/
 .DS_Store
 ~*
