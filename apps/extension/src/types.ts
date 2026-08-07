@@ -148,6 +148,25 @@ export interface JobDescriptionSummary {
   updatedAt?: string;
 }
 
+export interface JobPostingSummary {
+  id: string;
+  jobPostingId: string;
+  jobDescriptionId: string | null;
+  jobDescription?: {
+    id: string;
+    jobDescriptionId?: string;
+    title: string;
+    status?: string;
+  } | null;
+  title: string;
+  publicSlug: string;
+  status: string;
+  openAt?: string | null;
+  closeAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface AmisCareerCatalogItem {
   id: string;
   amisCareerId: string;

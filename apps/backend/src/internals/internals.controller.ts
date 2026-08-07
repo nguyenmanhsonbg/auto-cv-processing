@@ -39,7 +39,9 @@ export class InternalsController {
   @ApiOperation({ summary: 'Create an Internal email record' })
   async create(@Body() dto: CreateInternalDto, @Request() req: any) {
     const data = await this.internalsService.create({
+      name: dto.name,
       email: dto.email,
+      phone: dto.phone,
       createdById: req?.user?.id ?? null,
     });
     return { success: true, data: this.toResponse(data), meta: this.meta() };
@@ -100,7 +102,9 @@ export class InternalsController {
   private toResponse(data: InternalSummary) {
     return {
       internalId: data.internalId,
+      name: data.name,
       email: data.email,
+      phone: data.phone,
       isActive: data.isActive,
       applicationCount: data.applicationCount,
       createdBy: data.createdBy,

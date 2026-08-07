@@ -29,7 +29,7 @@ export const CHANNELS = [
 ] as const;
 
 export const POSTING_CHANNELS = [
-  'VCS_PORTAL',
+  // 'VCS_PORTAL',
   'FACEBOOK',
   'TOPCV',
   'ITVIEC',

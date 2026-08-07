@@ -234,11 +234,13 @@ export function InternalDetailPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Candidates / Internals</p>
-            <h1 className="text-2xl font-semibold">{currentInternal?.email ?? 'Internal detail'}</h1>
+            <h1 className="text-2xl font-semibold">{currentInternal?.name ?? currentInternal?.email ?? 'Internal detail'}</h1>
             {summaryLoading && !currentInternal ? (
               <p className="text-sm text-muted-foreground">Loading internal summary...</p>
             ) : currentInternal ? (
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                <span>{currentInternal.email}</span>
+                <span>{currentInternal.phone ?? '-'}</span>
                 <span>{currentInternal.applicationCount} applications</span>
                 <Badge className={getStatusBadgeClassName(currentInternal.isActive)}>
                   {currentInternal.isActive ? 'Active' : 'Inactive'}
@@ -248,7 +250,7 @@ export function InternalDetailPage() {
               <p className="text-sm text-muted-foreground">Internal summary unavailable.</p>
             )}
             <p className="text-sm text-muted-foreground">
-              The email is read-only after creation. Deactivating it blocks new referrals and preserves history.
+              Contact information is read-only after creation. Deactivating this record blocks new referrals and preserves history.
             </p>
           </div>
 

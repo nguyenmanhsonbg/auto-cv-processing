@@ -13,7 +13,9 @@ interface ApiEnvelope<T> {
 
 interface ApiInternalRecord {
   internalId: string;
+  name: string | null;
   email: string;
+  phone: string | null;
   isActive: boolean;
   applicationCount: number;
   createdAt: string;
@@ -40,7 +42,9 @@ interface ApiInternalApplicationRecord {
 
 export interface InternalRecord {
   id: string;
+  name: string | null;
   email: string;
+  phone: string | null;
   isActive: boolean;
   applicationCount: number;
   createdAt: string;
@@ -67,7 +71,9 @@ export interface ListInternalsParams {
 }
 
 export interface CreateInternalPayload {
+  name: string;
   email: string;
+  phone: string;
 }
 
 export interface ListInternalApplicationsParams {
@@ -117,7 +123,9 @@ function unwrapPaginated<TInput, TOutput>(
 function mapInternalRecord(response: ApiInternalRecord): InternalRecord {
   return {
     id: response.internalId,
+    name: response.name,
     email: response.email,
+    phone: response.phone,
     isActive: response.isActive,
     applicationCount: response.applicationCount,
     createdAt: response.createdAt,
