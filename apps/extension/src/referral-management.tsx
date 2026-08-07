@@ -65,6 +65,79 @@ const REFERRAL_ALL_ROUNDS_OPTION: ReferralRoundOption = {
   sortOrder: -1,
 };
 
+function ReferralChevronDownIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="m3.5 6 4.5 4.5L12.5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ReferralFilterDropdown({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? options[0]?.label ?? '';
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!dropdownRef.current?.contains(event.target as Node)) setIsOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [isOpen]);
+
+  return (
+    <label className="referral-custom-filter">
+      <span>{label}</span>
+      <div ref={dropdownRef} className={`referral-filter-dropdown${isOpen ? ' is-open' : ''}`}>
+        <button
+          type="button"
+          className="referral-filter-trigger"
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          disabled={disabled}
+          onClick={() => setIsOpen((current) => !current)}
+        >
+          <span>{selectedLabel}</span>
+          <ReferralChevronDownIcon />
+        </button>
+        {isOpen ? (
+          <div className="referral-filter-options" role="listbox" aria-label={label}>
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={option.value === value}
+                className={option.value === value ? 'is-selected' : ''}
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </label>
+  );
+}
+
 export function ReferralManagementPanel({
   source,
   accessToken,
@@ -246,8 +319,6 @@ export function ReferralManagementPanel({
       return rightTime - leftTime || left[1].title.localeCompare(right[1].title, 'vi');
     });
   }, [allPeopleForJd, jobPostings, people]);
-  const selectedJd = availableJds.find(([id]) => id === jdFilter)?.[1];
-
   useEffect(() => {
     if (source !== 'FREELANCER') {
       setCvRoundOptions(buildReferralRoundOptions([], true));
@@ -541,19 +612,16 @@ export function ReferralManagementPanel({
           </button>
         ) : null}
         <div className={`referral-filter-row${source === 'INTERNAL' ? ' is-internal' : ''}`}>
-          <label>
-            <span>Tình trạng CV</span>
-              <select
-                value={cvStatusFilter}
-                disabled={source === 'FREELANCER' && roundsLoading}
-                onChange={(event) => {
-                  setCvStatusFilter(event.target.value);
-                  setPage(1);
-                }}
-              >
-              {cvRoundOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
+          <ReferralFilterDropdown
+            label="Tình trạng CV"
+            value={cvStatusFilter}
+            disabled={source === 'FREELANCER' && roundsLoading}
+            options={cvRoundOptions.map((option) => ({ value: option.value, label: option.label }))}
+            onChange={(value) => {
+              setCvStatusFilter(value as CvStatusFilter);
+              setPage(1);
+            }}
+          />
           <label className="referral-jd-filter-label">
             <span>Lọc theo JD</span>
             <div ref={jdDropdownRef} className="referral-jd-dropdown">
@@ -564,7 +632,8 @@ export function ReferralManagementPanel({
                 aria-expanded={isJdFilterOpen}
                 onClick={() => setIsJdFilterOpen((current) => !current)}
               >
-                <span>{selectedJd?.title ?? 'Tất cả JD'}</span>
+                <span>{jdFilter === 'ALL' ? 'Tất cả JD' : availableJds.find(([id]) => id === jdFilter)?.[1].title ?? 'Tất cả JD'}</span>
+                <ReferralChevronDownIcon />
               </button>
               {isJdFilterOpen ? (
                 <div className="referral-jd-options" role="listbox" aria-label="Danh sách JD">
@@ -578,11 +647,11 @@ export function ReferralManagementPanel({
                       setPage(1);
                       setIsJdFilterOpen(false);
                     }}
-                >
-                <span className="referral-jd-option-label">
-                  <span className={`referral-jd-checkbox${jdFilter === 'ALL' ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
-                  <span>Tất cả JD</span>
-                </span>
+                  >
+                    <span className="referral-jd-option-label">
+                      <span className={`referral-jd-checkbox${jdFilter === 'ALL' ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
+                      <span>Tất cả JD</span>
+                    </span>
                   </button>
                   {availableJds.map(([id, jd]) => (
                     <button
@@ -609,20 +678,19 @@ export function ReferralManagementPanel({
             </div>
           </label>
           {source === 'FREELANCER' ? (
-            <label>
-              <span>Tình trạng tài khoản</span>
-              <select
-                value={accountStatusFilter}
-                onChange={(event) => {
-                  setAccountStatusFilter(event.target.value as AccountStatusFilter);
-                  setPage(1);
-                }}
-              >
-                <option value="ALL">Tất cả</option>
-                <option value="ACTIVE">Hoạt động</option>
-                <option value="INACTIVE">Đã khóa</option>
-              </select>
-            </label>
+            <ReferralFilterDropdown
+              label="Tình trạng tài khoản"
+              value={accountStatusFilter}
+              options={[
+                { value: 'ALL', label: 'Tất cả' },
+                { value: 'ACTIVE', label: 'Hoạt động' },
+                { value: 'INACTIVE', label: 'Đã khóa' },
+              ]}
+              onChange={(value) => {
+                setAccountStatusFilter(value as AccountStatusFilter);
+                setPage(1);
+              }}
+            />
           ) : null}
         </div>
       </div>

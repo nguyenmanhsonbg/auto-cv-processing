@@ -6693,28 +6693,14 @@ dd {
   min-height: 38px;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   border: 1px solid #c5cdd9;
   border-radius: 7px;
   padding: 0 10px;
   color: #263449;
   background: #ffffff;
-  font-family: Inter, sans-serif;
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 400;
-  line-height: 20px;
+  font: 400 14px/20px Inter, sans-serif;
   text-align: left;
-}
-
-.referral-jd-select-trigger::after {
-  width: 9px;
-  height: 9px;
-  margin: -4px 3px 0 0;
-  border-right: 2px solid #263449;
-  border-bottom: 2px solid #263449;
-  content: '';
-  transform: rotate(45deg);
 }
 
 .referral-jd-select-trigger:focus {
@@ -6723,11 +6709,90 @@ dd {
   outline: 0;
 }
 
-.referral-jd-select-trigger > span:first-child {
+.referral-jd-select-trigger > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.referral-jd-select-trigger svg,
+.referral-filter-trigger svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: #374151;
+}
+
+.referral-custom-filter {
+  position: relative;
+}
+
+.referral-filter-dropdown {
+  position: relative;
+  min-width: 0;
+}
+
+.referral-filter-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #c5cdd9;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: #263449;
+  background: #ffffff;
+  font: 400 14px/20px Inter, sans-serif;
+  text-align: left;
+}
+
+.referral-filter-trigger:focus,
+.referral-filter-dropdown.is-open .referral-filter-trigger {
+  border-color: #129447;
+  box-shadow: 0 0 0 3px rgba(18, 148, 71, 0.1);
+  outline: 0;
+}
+
+.referral-filter-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.referral-filter-options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  display: grid;
+  max-height: 230px;
+  overflow-y: auto;
+  border: 1px solid #c5cdd9;
+  border-radius: 7px;
+  padding: 4px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+}
+
+.referral-filter-options button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 8px;
+  color: #536074;
+  background: transparent;
+  font: 400 14px/20px Inter, sans-serif;
+  text-align: left;
+}
+
+.referral-filter-options button:hover,
+.referral-filter-options button.is-selected {
+  color: #263449;
+  background: #eef9ed;
 }
 
 .referral-jd-options {
@@ -6748,7 +6813,7 @@ dd {
 
 .referral-jd-option {
   display: flex;
-  min-height: 36px;
+  min-height: 42px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -6757,11 +6822,14 @@ dd {
   padding: 0 8px;
   color: #536074;
   background: transparent;
-  font-family: Inter, sans-serif;
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 400;
+  font: 400 14px/20px Inter, sans-serif;
   text-align: left;
+}
+
+.referral-jd-option:hover,
+.referral-jd-option.is-selected {
+  color: #263449;
+  background: #eef9ed;
 }
 
 .referral-jd-option-label {
@@ -6769,6 +6837,12 @@ dd {
   min-width: 0;
   align-items: center;
   gap: 8px;
+}
+
+.referral-jd-option-label > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .referral-jd-checkbox {
@@ -6790,19 +6864,6 @@ dd {
   border-color: #1476ff;
   color: #ffffff;
   background: #1476ff;
-}
-
-.referral-jd-option:hover,
-.referral-jd-option.is-selected {
-  color: #263449;
-  background: #eef9ed;
-}
-
-.referral-jd-option-label > span:not(.referral-jd-checkbox) {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .referral-jd-option > time {
