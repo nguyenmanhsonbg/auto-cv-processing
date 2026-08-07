@@ -144,6 +144,7 @@ export class ExtensionIntegrationService {
     private readonly applicationsService: ApplicationsService,
     private readonly freelancersService: FreelancersService,
     private readonly internalsService: InternalsService,
+    private readonly mailService: MailService,
     private readonly cvStageReminderService: CvStageReminderService,
     private readonly candidateStageNotificationService: CandidateStageNotificationService,
     private readonly mailService: MailService,
