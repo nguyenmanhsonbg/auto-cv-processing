@@ -4028,6 +4028,16 @@ function SidePanel() {
   }
 
   function selectWorkspaceTab(tab: WorkspaceTab) {
+    if (tab !== activeWorkspaceTab && (tab === 'cv' || activeWorkspaceTab === 'cv')) {
+      setCvQuestionFilter('ALL');
+      setCvSyncFilter('ALL');
+      setCvEvaluationFilter('ALL');
+      setCvSourceFilter('ALL');
+      setCvSortMode('APPLIED_DESC');
+      setOpenCvFilter(null);
+      setCvApplicationPage(1);
+      setSelectedCvApplicationIds(new Set());
+    }
     setActiveWorkspaceTab(tab);
   }
 
@@ -5470,24 +5480,27 @@ function SidePanel() {
               </button>
             ) : null}
           </div>
-          <select
-            value={jobDescriptionStatusFilter}
-            aria-label="Lọc trạng thái JD"
-            disabled={jobDescriptionStatus === 'LOADING'}
-            onChange={(event) => changeJobDescriptionStatusFilter(event.target.value)}
-          >
-            {JOB_DESCRIPTION_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-          <button
+          <label className="jd-status-filter">
+            <span>Trạng thái JD</span>
+            <select
+              value={jobDescriptionStatusFilter}
+              aria-label="Lọc trạng thái JD"
+              disabled={jobDescriptionStatus === 'LOADING'}
+              onChange={(event) => changeJobDescriptionStatusFilter(event.target.value)}
+            >
+              {JOB_DESCRIPTION_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          {/* <button
             type="button"
             className="primary-button portal-sync-button"
             disabled={vcsPortalSyncState === 'SYNCING' || jobDescriptionStatus === 'LOADING'}
             onClick={() => void syncPortalJobDescriptions()}
           >
             {vcsPortalSyncState === 'SYNCING' ? 'Đang đồng bộ...' : 'Đồng bộ VCS Portal'}
-          </button>
+          </button> */}
         </form>
 
         {/* {vcsPortalSyncMessage ? (
@@ -5929,19 +5942,20 @@ function SidePanel() {
               {cvUploadApplicationId === 'BATCH' ? 'Đang đồng bộ...' : 'Đồng bộ CV đã chọn'}
             </button>
           </div>
-          <label className="cv-select-all-control">
-            <input
-              type="checkbox"
-              checked={allFilteredApplicationsSelected}
-              ref={(input) => {
-                if (input) input.indeterminate = someFilteredApplicationsSelected;
-              }}
-              disabled={filteredApplications.length === 0}
-              aria-label="Chọn tất cả ứng viên"
-              onChange={() => toggleAllCvCandidateSelection(filteredApplications.map((application) => application.applicationId))}
-            />
-            <span>Chọn tất cả ứng viên</span>
-          </label>
+          {filteredApplications.length > 0 ? (
+            <label className="cv-select-all-control">
+              <input
+                type="checkbox"
+                checked={allFilteredApplicationsSelected}
+                ref={(input) => {
+                  if (input) input.indeterminate = someFilteredApplicationsSelected;
+                }}
+                aria-label="Chọn tất cả ứng viên"
+                onChange={() => toggleAllCvCandidateSelection(filteredApplications.map((application) => application.applicationId))}
+              />
+              <span>Chọn tất cả ứng viên</span>
+            </label>
+          ) : null}
         </div>
 
         {applicationsMessage ? (
@@ -6010,7 +6024,7 @@ function SidePanel() {
                       </label>
                       <span className="cv-avatar">{getCandidateInitials(application.candidateName)}</span>
                       <div>
-                        <strong>{application.candidateName}</strong>
+                        <strong title={application.candidateName}>{application.candidateName}</strong>
                         <span>{[application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact'}</span>
                         <span className="cv-candidate-applied-date">Ngày ứng tuyển: {appliedDate}</span>
                       </div>
@@ -6039,33 +6053,35 @@ function SidePanel() {
                         <span>{rejectionReason}</span>
                       </div>
                     ) : null}
-                    <div className="cv-candidate-meta">
-                      <span className="cv-candidate-source">
-                        <SourceIcon />
-                        <span>Nguồn</span>
-                        <span className="cv-source-chip">{getCvSourceLabel(application)}</span>
-                      </span>
-                      <span className="cv-candidate-recruiter">
-                        Nhân sự khai thác: <strong>{recruiterName}</strong>
-                      </span>
-                    </div>
-                    <div className="cv-candidate-details">
-                      <div className={`cv-candidate-detail cv-candidate-detail-status cv-question-status ${questionStatus.tone}`}>
-                        <small>CÂU HỎI</small>
-                        <strong>{questionStatus.label}</strong>
+                    <div className="cv-candidate-info">
+                      <div className="cv-candidate-meta">
+                        <span className="cv-candidate-source">
+                          <SourceIcon />
+                          <span>Nguồn</span>
+                          <span className="cv-source-chip">{getCvSourceLabel(application)}</span>
+                        </span>
+                        <span className="cv-candidate-recruiter">
+                          Nhân sự khai thác: <strong>{recruiterName}</strong>
+                        </span>
                       </div>
-                      <div className={`cv-candidate-detail cv-candidate-detail-status ${syncStatus.tone}`}>
-                        <small>ĐỒNG BỘ AMIS</small>
-                        <strong>{syncStatus.label}</strong>
+                      <div className="cv-candidate-details">
+                        <div className={`cv-candidate-detail cv-candidate-detail-status cv-question-status ${questionStatus.tone}`}>
+                          <small>CÂU HỎI</small>
+                          <strong>{questionStatus.label}</strong>
+                        </div>
+                        <div className={`cv-candidate-detail cv-candidate-detail-status ${syncStatus.tone}`}>
+                          <small>ĐỒNG BỘ AMIS</small>
+                          <strong>{syncStatus.label}</strong>
+                        </div>
+                        <div className={`cv-candidate-detail cv-candidate-detail-status cv-ai-status ${aiEvaluationStatus.tone}`}>
+                          <small>FILE ĐÁNH GIÁ BẰNG AI</small>
+                          <strong>{aiEvaluationStatus.label}</strong>
+                        </div>
                       </div>
-                      <div className={`cv-candidate-detail cv-candidate-detail-status cv-ai-status ${aiEvaluationStatus.tone}`}>
-                        <small>FILE ĐÁNH GIÁ BẰNG AI</small>
-                        <strong>{aiEvaluationStatus.label}</strong>
+                      <div className="cv-candidate-note">
+                        <span className="cv-candidate-note-label">Ghi chú của CV</span>
+                        <span>{application.cvNote?.trim() || 'CV này không có ghi chú nào.'}</span>
                       </div>
-                    </div>
-                    <div className="cv-candidate-note">
-                      <span className="cv-candidate-note-label">Ghi chú của CV</span>
-                      <span>{application.cvNote?.trim() || 'CV này không có ghi chú nào.'}</span>
                     </div>
                     <div className="cv-candidate-footer">
                       {canShowAmisSyncButton && isAmisCandidateFormOpen ? (
@@ -7222,9 +7238,8 @@ function UploadIcon({ className }: IconProps) {
 
 function CheckCircleIcon({ className }: IconProps) {
   return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="6.2" stroke="currentColor" strokeWidth="1.6" />
-      <path d="m5.2 8 1.8 1.8 3.8-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    <svg className={className} width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <path d="M15.2082 6.9485L9.16732 12.9893L5.87648 9.70766L4.58398 11.0002L9.16732 15.5835L16.5007 8.25016L15.2082 6.9485ZM11.0007 1.8335C5.94065 1.8335 1.83398 5.94016 1.83398 11.0002C1.83398 16.0602 5.94065 20.1668 11.0007 20.1668C16.0607 20.1668 20.1673 16.0602 20.1673 11.0002C20.1673 5.94016 16.0607 1.8335 11.0007 1.8335ZM11.0007 18.3335C6.94898 18.3335 3.66732 15.0518 3.66732 11.0002C3.66732 6.9485 6.94898 3.66683 11.0007 3.66683C15.0523 3.66683 18.334 6.9485 18.334 11.0002C18.334 15.0518 15.0523 18.3335 11.0007 18.3335Z" fill="currentColor" />
     </svg>
   );
 }
@@ -8464,9 +8479,19 @@ function getVisibleCvApplications(
         return sortMode === 'SCORE_ASC' ? scoreDelta : -scoreDelta;
       }
 
-      const firstTime = getTimeValue(first.applyDate ?? first.createdAt);
-      const secondTime = getTimeValue(second.applyDate ?? second.createdAt);
-      return sortMode === 'APPLIED_ASC' ? firstTime - secondTime : secondTime - firstTime;
+      const firstAppliedTime = getTimeValue(first.applyDate);
+      const secondAppliedTime = getTimeValue(second.applyDate);
+      const firstTime = firstAppliedTime || getTimeValue(first.createdAt);
+      const secondTime = secondAppliedTime || getTimeValue(second.createdAt);
+      const appliedTimeDelta = firstTime - secondTime;
+      if (appliedTimeDelta !== 0) {
+        return sortMode === 'APPLIED_ASC' ? appliedTimeDelta : -appliedTimeDelta;
+      }
+
+      // AMIS may only provide the application date, so use the persisted
+      // creation timestamp to keep candidates from the same day ordered.
+      const createdTimeDelta = getTimeValue(first.createdAt) - getTimeValue(second.createdAt);
+      return sortMode === 'APPLIED_ASC' ? createdTimeDelta : -createdTimeDelta;
     });
 }
 
@@ -8834,15 +8859,15 @@ function formatDateTime(value: string | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
 
-  return date.toLocaleString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
   const dateLabel = date.toLocaleDateString('vi-VN', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
+  });
+  const timeLabel = date.toLocaleTimeString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
   });
 
   return `${dateLabel} ${timeLabel}`;

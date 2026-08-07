@@ -7,6 +7,8 @@ export enum ApplicationReferralSourceType {
 
 export interface CreateInternalInput {
   email: string;
+  name?: string | null;
+  phone?: string | null;
   createdById?: string | null;
 }
 
@@ -31,6 +33,8 @@ export interface ListInternalApplicationsParams {
 export interface InternalSummary {
   internalId: string;
   email: string;
+  name: string | null;
+  phone: string | null;
   isActive: boolean;
   applicationCount: number;
   createdBy: {

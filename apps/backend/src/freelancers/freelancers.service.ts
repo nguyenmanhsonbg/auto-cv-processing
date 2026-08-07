@@ -139,7 +139,32 @@ export class FreelancersService {
         if (!createdBy) throw new BadRequestException('Created by user not found');
 
         const existingUser = await usersRepo.findOne({ where: { email } });
-        if (existingUser) throw this.duplicateEmailError();
+        if (existingUser) {
+          const existingFreelancer = await freelancersRepo.findOne({
+            where: { userId: existingUser.id },
+          });
+          if (existingFreelancer && !existingFreelancer.isActive) {
+            existingUser.name = name;
+            existingUser.password = await bcrypt.hash(existingFreelancer.identifier, 10);
+            await usersRepo.save(existingUser);
+
+            existingFreelancer.phone = phone;
+            existingFreelancer.isActive = true;
+            await freelancersRepo.save(existingFreelancer);
+
+            const restoredFreelancer = await freelancersRepo.findOne({
+              where: { id: existingFreelancer.id },
+              relations: { user: true, createdBy: true },
+            });
+            if (!restoredFreelancer) throw this.freelancerNotFoundError();
+
+            return {
+              ...this.toFreelancerSummary(restoredFreelancer),
+              initialPassword: restoredFreelancer.identifier,
+            };
+          }
+          throw this.duplicateEmailError();
+        }
 
         const nextNumber = counter.lastIssuedNumber + 1;
         if (nextNumber > FreelancersService.IDENTIFIER_MAX) {
@@ -240,8 +265,16 @@ export class FreelancersService {
     const freelancer = await this.freelancersRepo.findOne({ where: { id: freelancerId } });
     if (!freelancer) throw this.freelancerNotFoundError();
 
-    freelancer.isActive = isActive;
-    await this.freelancersRepo.save(freelancer);
+    const updateResult = await this.freelancersRepo.update(
+      { id: freelancerId, isActive: !isActive },
+      { isActive },
+    );
+    if (!updateResult.affected) {
+      throw new BadRequestException({
+        code: isActive ? 'FREELANCER_ALREADY_ACTIVE' : 'FREELANCER_ALREADY_INACTIVE',
+        message: isActive ? 'Nhân sự đã được mở khoá.' : 'Nhân sự đã bị khoá.',
+      });
+    }
     return this.findOne(freelancerId);
   }
 
@@ -447,8 +480,8 @@ export class FreelancersService {
 
     const search = this.optionalText(params.search);
     if (search) {
-      qb.andWhere('(candidate.name ILIKE :search OR jobPosting.title ILIKE :search)', {
-        search: `%${search}%`,
+      qb.andWhere("(candidate.name ILIKE :search ESCAPE E'\\\\' OR jobPosting.title ILIKE :search ESCAPE E'\\\\')", {
+        search: `%${escapeLikePattern(search)}%`,
       });
     }
 
@@ -491,7 +524,7 @@ export class FreelancersService {
       qb.andWhere(
         '(freelancer.identifier ILIKE :search OR user.name ILIKE :search OR user.email ILIKE :search)',
         {
-          search: `%${search}%`,
+          search: `%${escapeLikePattern(search)}%`,
         },
       );
     }
@@ -651,7 +684,7 @@ export class FreelancersService {
   private duplicateEmailError() {
     return new BadRequestException({
       code: 'USER_EMAIL_EXISTS',
-      message: 'A user with this email already exists.',
+      message: 'Email này đã có người đăng ký.',
     });
   }
 
@@ -716,4 +749,8 @@ export class FreelancersService {
     const normalized = value?.trim();
     return normalized || null;
   }
+}
+
+function escapeLikePattern(value: string) {
+  return value.replace(/[\\%_]/g, '\\$&');
 }

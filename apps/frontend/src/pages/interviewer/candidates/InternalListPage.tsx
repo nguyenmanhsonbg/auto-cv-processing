@@ -80,7 +80,9 @@ export function InternalListPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState('');
   const [createEmail, setCreateEmail] = useState('');
+  const [createPhone, setCreatePhone] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
@@ -135,7 +137,9 @@ export function InternalListPage() {
   }, [loadInternals]);
 
   const resetCreateDialog = () => {
+    setCreateName('');
     setCreateEmail('');
+    setCreatePhone('');
     setCreateError(null);
   };
 
@@ -146,16 +150,26 @@ export function InternalListPage() {
   };
 
   const handleCreate = async () => {
+    const name = createName.trim();
     const email = createEmail.trim().toLowerCase();
+    const phone = createPhone.trim();
+    if (!name) {
+      setCreateError('Name is required.');
+      return;
+    }
     if (!INTERNAL_EMAIL_PATTERN.test(email)) {
       setCreateError('Email phải có đuôi @viettel.com.vn.');
+      return;
+    }
+    if (!phone) {
+      setCreateError('Phone is required.');
       return;
     }
 
     setSubmitting(true);
     setCreateError(null);
     try {
-      await createInternal({ email });
+      await createInternal({ name, email, phone });
       toast({ title: 'Internal created' });
       handleCreateDialogChange(false);
       if (page === 1) await loadInternals();
@@ -233,7 +247,7 @@ export function InternalListPage() {
               <Input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Search internal email"
+                placeholder="Search name, email, or phone"
                 className="pl-8"
               />
             </div>
@@ -257,7 +271,9 @@ export function InternalListPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Phone</TableHead>
                 <TableHead>Applications</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created at</TableHead>
@@ -266,10 +282,10 @@ export function InternalListPage() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">Loading internals...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">Loading internals...</TableCell></TableRow>
               ) : null}
               {!loading && items.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No internals found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No internals found.</TableCell></TableRow>
               ) : null}
               {!loading && items.map((internal) => {
                 const detailPath = `/candidates/internals/${internal.id}`;
@@ -280,7 +296,9 @@ export function InternalListPage() {
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => navigate(detailPath)}
                   >
-                    <TableCell className="font-medium text-primary underline underline-offset-4">{internal.email}</TableCell>
+                    <TableCell className="font-medium">{internal.name ?? '-'}</TableCell>
+                    <TableCell className="text-primary underline underline-offset-4">{internal.email}</TableCell>
+                    <TableCell>{internal.phone ?? '-'}</TableCell>
                     <TableCell>{internal.applicationCount}</TableCell>
                     <TableCell><Badge className={getStatusBadgeClassName(internal.isActive)}>{getStatusLabel(internal.isActive)}</Badge></TableCell>
                     <TableCell>{formatDate(internal.createdAt)}</TableCell>
@@ -328,8 +346,18 @@ export function InternalListPage() {
               Add an internal referral email. The email is stored as a management record only; no login account is created.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+            <div className="space-y-4">
             {createError ? <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{createError}</div> : null}
+            <div className="space-y-1">
+              <Label htmlFor="internal-name">Name</Label>
+              <Input
+                id="internal-name"
+                value={createName}
+                onChange={(event) => setCreateName(event.target.value)}
+                placeholder="Nguyen Van A"
+                disabled={submitting}
+              />
+            </div>
             <div className="space-y-1">
               <Label htmlFor="internal-email">Viettel email</Label>
               <Input
@@ -341,10 +369,20 @@ export function InternalListPage() {
                 disabled={submitting}
               />
             </div>
+            <div className="space-y-1">
+              <Label htmlFor="internal-phone">Phone</Label>
+              <Input
+                id="internal-phone"
+                value={createPhone}
+                onChange={(event) => setCreatePhone(event.target.value)}
+                placeholder="0988123456"
+                disabled={submitting}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => handleCreateDialogChange(false)} disabled={submitting}>Cancel</Button>
-            <Button type="button" onClick={() => void handleCreate()} disabled={submitting || !createEmail.trim()}>
+            <Button type="button" onClick={() => void handleCreate()} disabled={submitting || !createName.trim() || !createEmail.trim() || !createPhone.trim()}>
               {submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating...</> : <><Plus className="mr-2 h-4 w-4" />Create</>}
             </Button>
           </DialogFooter>

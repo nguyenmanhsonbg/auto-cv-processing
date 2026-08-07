@@ -22,6 +22,12 @@ export class InternalEntity {
   @Column({ type: 'varchar', length: 255, update: false })
   email: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  name: string | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  phone: string | null;
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 

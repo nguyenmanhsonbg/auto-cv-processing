@@ -53,6 +53,7 @@ import {
 import { createAmisSnapshotHash, createExtensionRequestHash } from './utils';
 import { mapAmisJobStatus } from './amis-job-status.util';
 import { QuestionsService } from '../questions/questions.service';
+import { MailService } from '../notification/mail.service';
 import { QuestionSetEntity } from '../questions/entities/question-set.entity';
 import { QuestionEntity } from '../questions/entities/question.entity';
 import { QuestionSetItemEntity } from '../questions/entities/question-set-item.entity';
@@ -86,6 +87,16 @@ interface PostingQuestionSnapshotItemInput {
   questionType: string;
   required: boolean;
   metadata: Record<string, unknown> | null;
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  })[character] ?? character);
 }
 
 export interface ExtensionSyncContext {
@@ -2075,20 +2086,31 @@ export class ExtensionIntegrationService {
     input: { name: string; email: string; phone?: string | null },
     createdById: string,
   ) {
-    return this.freelancersService.create({
+    const freelancer = await this.freelancersService.create({
       name: input.name,
       email: input.email,
       phone: input.phone,
       createdById,
     });
+    const { name, email } = freelancer.user;
+    const { identifier, initialPassword } = freelancer;
+    void this.mailService.sendMail(
+      email,
+      'Thông tin tài khoản Freelancer',
+      `<p>Xin chào ${escapeHtml(name)},</p><p>Tài khoản Freelancer của bạn đã được tạo.</p><p><strong>Mã định danh:</strong> ${escapeHtml(identifier)}</p><p><strong>Mật khẩu:</strong> ${escapeHtml(initialPassword)}</p><p>Vui lòng sử dụng mã định danh và mật khẩu trên để đăng nhập, theo dõi và nộp CV.</p>`,
+      `Xin chào ${name},\n\nTài khoản Freelancer của bạn đã được tạo.\nMã định danh: ${identifier}\nMật khẩu: ${initialPassword}\n\nVui lòng sử dụng thông tin trên để đăng nhập, theo dõi và nộp CV.`,
+    );
+    return freelancer;
   }
 
   async createExtensionReferralInternal(
-    input: { email: string },
+    input: { name: string; email: string; phone: string },
     createdById: string,
   ): Promise<ExtensionReferralSourceGroup> {
     const internal = await this.internalsService.create({
+      name: input.name,
       email: input.email,
+      phone: input.phone,
       createdById,
     });
     return this.buildInternalReferralSourceGroup(internal);
@@ -2138,9 +2160,9 @@ export class ExtensionIntegrationService {
       sourceType: ExtensionReferralSourceType.INTERNAL,
       sourceId: internal.internalId,
       identifier: null,
-      name: null,
+      name: internal.name,
       email: internal.email,
-      phone: null,
+      phone: internal.phone,
       isActive: internal.isActive,
       applicationCount: applications.length,
       metrics: buildReferralSourceMetrics(applications),

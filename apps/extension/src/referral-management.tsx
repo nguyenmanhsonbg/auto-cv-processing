@@ -4,6 +4,7 @@ import {
   createFreelancer,
   createInternal,
   getReferralManagementSources,
+  listJobPostings,
   updateFreelancerStatus,
   updateInternalStatus,
 } from './api-client';
@@ -12,6 +13,7 @@ import type {
   ReferralManagementApplication,
   ReferralManagementPerson,
   ReferralManagementSource,
+  JobPostingSummary,
 } from './types';
 import { buildFreelancerIdentifierCopyText } from './referral-management-utils';
 
@@ -29,6 +31,8 @@ interface ReferralManagementProps {
 }
 
 const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@viettel\.com\.vn$/i;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const REFERRAL_PAGE_SIZE = 5;
 const CV_STATUS_FILTER_OPTIONS: Array<{ value: CvStatusFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả các vòng' },
   { value: 'APPLICATION', label: 'Ứng tuyển' },
@@ -41,11 +45,14 @@ const CV_STATUS_FILTER_OPTIONS: Array<{ value: CvStatusFilter; label: string }> 
 
 export function ReferralManagementPanel({ source, accessToken, refreshVersion, onNotify }: ReferralManagementProps) {
   const [people, setPeople] = useState<ReferralManagementPerson[]>([]);
-  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+  const [allPeopleForJd, setAllPeopleForJd] = useState<ReferralManagementPerson[]>([]);
+  const [jobPostings, setJobPostings] = useState<JobPostingSummary[]>([]);
+  const [pagination, setPagination] = useState({ page: 1, limit: REFERRAL_PAGE_SIZE, total: 0, totalPages: 1 });
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [cvStatusFilter, setCvStatusFilter] = useState<CvStatusFilter>('ALL');
   const [jdFilter, setJdFilter] = useState<JdFilter>('ALL');
+  const [isJdFilterOpen, setIsJdFilterOpen] = useState(false);
   const [accountStatusFilter, setAccountStatusFilter] = useState<AccountStatusFilter>('ALL');
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -56,14 +63,30 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const [nameFieldError, setNameFieldError] = useState<string | null>(null);
+  const [emailFieldError, setEmailFieldError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [createdFreelancer, setCreatedFreelancer] = useState<CreatedFreelancerResult | null>(null);
   const [copiedIdentifier, setCopiedIdentifier] = useState<string | null>(null);
   const onNotifyRef = useRef(onNotify);
+  const jdDropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     onNotifyRef.current = onNotify;
   }, [onNotify]);
+
+  useEffect(() => {
+    if (!isJdFilterOpen) return undefined;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!jdDropdownRef.current?.contains(event.target as Node)) {
+        setIsJdFilterOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [isJdFilterOpen]);
 
   const loadPeople = useCallback(async () => {
     setLoading(true);
@@ -71,12 +94,24 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
     try {
       const result = await getReferralManagementSources(accessToken, source, {
         page,
-        limit: 10,
+        limit: REFERRAL_PAGE_SIZE,
         search,
         status: accountStatusFilter === 'ALL' ? undefined : accountStatusFilter,
       });
       setPeople(result.data);
-      setPagination(result.pagination ?? { page, limit: 10, total: result.data.length, totalPages: 1 });
+      const resultPagination = result.pagination;
+      setPagination(resultPagination ? {
+        ...resultPagination,
+        page: resultPagination.page ?? page,
+        limit: resultPagination.limit || REFERRAL_PAGE_SIZE,
+        total: resultPagination.total ?? result.data.length,
+        totalPages: resultPagination.totalPages || Math.max(1, Math.ceil((resultPagination.total ?? result.data.length) / (resultPagination.limit || REFERRAL_PAGE_SIZE))),
+      } : {
+        page,
+        limit: REFERRAL_PAGE_SIZE,
+        total: result.data.length,
+        totalPages: 1,
+      });
     } catch (loadError) {
       const message = getErrorMessage(loadError);
       setError(message);
@@ -90,17 +125,114 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
     void loadPeople();
   }, [loadPeople]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAllPeopleForJd() {
+      try {
+        const allPeople: ReferralManagementPerson[] = [];
+        let currentPage = 1;
+        let totalPages = 1;
+
+        do {
+          const result = await getReferralManagementSources(accessToken, source, {
+            page: currentPage,
+            limit: 100,
+          });
+          allPeople.push(...result.data);
+          totalPages = result.pagination?.totalPages ?? 1;
+          currentPage += 1;
+        } while (currentPage <= totalPages);
+
+        if (!cancelled) setAllPeopleForJd(allPeople);
+      } catch {
+        if (!cancelled) setAllPeopleForJd([]);
+      }
+    }
+
+    void loadAllPeopleForJd();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, refreshVersion, source]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAllJobPostings() {
+      try {
+        const allJobPostings: JobPostingSummary[] = [];
+        let currentPage = 1;
+        let totalPages = 1;
+
+        do {
+          const result = await listJobPostings(accessToken, {
+            page: currentPage,
+            limit: 100,
+            status: 'ALL',
+            sortBy: 'createdAt',
+            sortOrder: 'DESC',
+          });
+          allJobPostings.push(...result.data);
+          totalPages = result.pagination?.totalPages ?? 1;
+          currentPage += 1;
+        } while (currentPage <= totalPages);
+
+        if (!cancelled) setJobPostings(allJobPostings);
+      } catch (loadError) {
+        if (!cancelled) {
+          setJobPostings([]);
+          onNotifyRef.current?.('ERROR', 'Không tải được danh sách JD', getErrorMessage(loadError));
+        }
+      }
+    }
+
+    void loadAllJobPostings();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, refreshVersion]);
+
   const availableJds = useMemo(() => {
-    const jdMap = new Map<string, string>();
-    people.forEach((person) => {
-      person.applications.forEach((application) => {
-        jdMap.set(application.jobPosting.jobPostingId, application.jobPosting.title);
+    const jdMap = new Map<string, { title: string; createdAt?: string }>();
+    jobPostings.forEach((posting) => {
+      jdMap.set(posting.jobPostingId, {
+        title: posting.jobDescription?.title ?? posting.title,
+        createdAt: posting.createdAt,
       });
     });
-    return [...jdMap.entries()].sort((left, right) => left[1].localeCompare(right[1], 'vi'));
-  }, [people]);
+    [...allPeopleForJd, ...people].forEach((person) => {
+      person.applications.forEach((application) => {
+        if (!jdMap.has(application.jobPosting.jobPostingId)) {
+          jdMap.set(application.jobPosting.jobPostingId, { title: application.jobPosting.title });
+        }
+      });
+    });
+    return [...jdMap.entries()].sort((left, right) => {
+      const rightTime = right[1].createdAt ? new Date(right[1].createdAt).getTime() : 0;
+      const leftTime = left[1].createdAt ? new Date(left[1].createdAt).getTime() : 0;
+      return rightTime - leftTime || left[1].title.localeCompare(right[1].title, 'vi');
+    });
+  }, [allPeopleForJd, jobPostings, people]);
+  const selectedJd = availableJds.find(([id]) => id === jdFilter)?.[1];
 
-  const filteredPeople = useMemo(() => people
+  const isClientFilterMode = jdFilter !== 'ALL' || cvStatusFilter !== 'ALL';
+  const filteredPeople = useMemo(() => {
+    const sourcePeople = isClientFilterMode && allPeopleForJd.length > 0 ? allPeopleForJd : people;
+    const normalizedSearch = search.trim().toLocaleLowerCase();
+
+    return sourcePeople
+    .filter((person) => (
+      !isClientFilterMode
+      || accountStatusFilter === 'ALL'
+      || (accountStatusFilter === 'ACTIVE' ? person.isActive : !person.isActive)
+    ))
+    .filter((person) => (
+      !normalizedSearch
+      || [person.name, person.email, person.identifier]
+        .filter(Boolean)
+        .some((value) => value?.toLocaleLowerCase().includes(normalizedSearch))
+    ))
     .map((person) => ({
       person,
       applications: person.applications.filter((application) => (
@@ -109,14 +241,25 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
       )),
     }))
     .filter(({ person, applications }) => (
-      (cvStatusFilter === 'ALL' && jdFilter === 'ALL') || applications.length > 0 || person.applications.length === 0
-    )), [cvStatusFilter, jdFilter, people]);
+      applications.length > 0
+      || (cvStatusFilter === 'ALL' && jdFilter === 'ALL' && person.applications.length === 0)
+    ));
+  }, [accountStatusFilter, allPeopleForJd, cvStatusFilter, isClientFilterMode, jdFilter, people, search]);
+  const visiblePeople = isClientFilterMode
+    ? filteredPeople.slice((page - 1) * REFERRAL_PAGE_SIZE, page * REFERRAL_PAGE_SIZE)
+    : filteredPeople;
+  const visibleTotal = isClientFilterMode ? filteredPeople.length : pagination.total;
+  const visibleTotalPages = isClientFilterMode
+    ? Math.max(1, Math.ceil(filteredPeople.length / REFERRAL_PAGE_SIZE))
+    : pagination.totalPages;
 
   function openCreateModal() {
     setName('');
     setEmail('');
     setPhone('');
     setFormError(null);
+    setNameFieldError(null);
+    setEmailFieldError(null);
     setCreatedFreelancer(null);
     setModal('CREATE');
   }
@@ -126,49 +269,83 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
     setModal(null);
     setSelectedPerson(null);
     setFormError(null);
+    setNameFieldError(null);
+    setEmailFieldError(null);
     setCreatedFreelancer(null);
   }
 
   async function submitCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+    setNameFieldError(null);
+    setEmailFieldError(null);
     const normalizedEmail = email.trim().toLowerCase();
 
     if (source === 'FREELANCER') {
       if (!name.trim()) {
-        setFormError('Vui lòng nhập họ và tên Freelancer.');
+        setNameFieldError('Họ và tên là bắt buộc, không được để trống.');
         return;
       }
       if (!normalizedEmail) {
-        setFormError('Vui lòng nhập email Freelancer.');
+        setEmailFieldError('Email không hợp lệ. Vui lòng kiểm tra lại.');
         return;
       }
-    } else if (!INTERNAL_EMAIL_PATTERN.test(normalizedEmail)) {
-      setFormError('Email Nội bộ phải có đuôi @viettel.com.vn.');
-      return;
+      if (!EMAIL_PATTERN.test(normalizedEmail)) {
+        setEmailFieldError('Email không hợp lệ. Vui lòng kiểm tra lại.');
+        return;
+      }
+      if (!phone.trim()) {
+        setFormError('Vui lòng nhập số điện thoại Freelancer.');
+        return;
+      }
+    } else {
+      if (!name.trim()) {
+        setNameFieldError('Họ và tên là bắt buộc, không được để trống.');
+        return;
+      }
+      if (!normalizedEmail || !EMAIL_PATTERN.test(normalizedEmail)) {
+        setEmailFieldError('Email không hợp lệ. Vui lòng kiểm tra lại.');
+        return;
+      }
+      if (!INTERNAL_EMAIL_PATTERN.test(normalizedEmail)) {
+        setEmailFieldError('Email Nội bộ phải có đuôi @viettel.com.vn.');
+        return;
+      }
+      if (!phone.trim()) {
+        setFormError('Vui lòng nhập số điện thoại nhân sự nội bộ.');
+        return;
+      }
     }
 
     setSaving(true);
     try {
       if (source === 'FREELANCER') {
-        const result = await createFreelancer(accessToken, {
+        await createFreelancer(accessToken, {
           name: name.trim(),
           email: normalizedEmail,
           phone: phone.trim() || undefined,
         });
-        setCreatedFreelancer(result);
-        setModal('CREDENTIALS');
-        onNotify?.('SUCCESS', 'Đã thêm Freelancer', `${result.identifier} đã được tạo.`);
+        setCreatedFreelancer(null);
+        setModal(null);
+        onNotify?.('SUCCESS', 'Thành công', 'Đã thêm freelancer thành công');
       } else {
-        await createInternal(accessToken, normalizedEmail);
-        onNotify?.('SUCCESS', 'Đã thêm Nội bộ', normalizedEmail);
+        await createInternal(accessToken, {
+          name: name.trim(),
+          email: normalizedEmail,
+          phone: phone.trim(),
+        });
+        onNotify?.('SUCCESS', 'Đã thêm Nội bộ', 'Đã thêm nhân sự nội bộ thành công');
         setModal(null);
         setFormError(null);
       }
       setPage(1);
       await loadPeople();
     } catch (createError) {
-      setFormError(getErrorMessage(createError));
+      if (createError instanceof ApiClientError && createError.code === 'USER_EMAIL_EXISTS') {
+        setEmailFieldError('Email này đã có người đăng ký.');
+      } else {
+        setFormError(getErrorMessage(createError));
+      }
     } finally {
       setSaving(false);
     }
@@ -209,6 +386,13 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
   const emptyText = source === 'FREELANCER'
     ? 'Chưa có Freelancer nào.'
     : 'Chưa có người Nội bộ nào.';
+  const hasActiveFilter = Boolean(search.trim())
+    || cvStatusFilter !== 'ALL'
+    || jdFilter !== 'ALL'
+    || accountStatusFilter !== 'ALL';
+  const noMatchingPeopleText = source === 'INTERNAL'
+    ? 'Không tìm thấy thông tin NSNB phù hợp'
+    : 'Không có CV phù hợp với bộ lọc.';
 
   async function copyIdentifier(identifier: string) {
     try {
@@ -223,16 +407,17 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
 
   return (
     <div className="referral-management-panel">
-      <div className="referral-toolbar">
+      <div className={`referral-toolbar${source === 'INTERNAL' ? ' is-internal' : ''}`}>
         <label className="referral-search-field">
           <span className="referral-search-icon" aria-hidden="true"><SearchIcon /></span>
           <input
             value={search}
+            maxLength={64}
             onChange={(event) => {
-              setSearch(event.target.value);
+              setSearch(event.target.value.trim());
               setPage(1);
             }}
-            placeholder={source === 'FREELANCER' ? 'Tìm kiếm tên, Mã Freelancer' : 'Tìm kiếm email Nội bộ'}
+            placeholder={source === 'FREELANCER' ? 'Tìm kiếm tên, Mã Freelancer' : 'Tìm kiếm tên, email, số điện thoại'}
             aria-label={`Tìm kiếm ${title}`}
           />
           {search ? (
@@ -250,56 +435,120 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
             </button>
           ) : null}
         </label>
-        <button type="button" className="referral-primary-button" onClick={openCreateModal}>
-          Thêm nhân sự
-        </button>
-        <div className="referral-filter-row">
+        {source === 'FREELANCER' ? (
+          <button type="button" className="referral-primary-button" onClick={openCreateModal}>
+            Thêm nhân sự
+          </button>
+        ) : null}
+        <div className={`referral-filter-row${source === 'INTERNAL' ? ' is-internal' : ''}`}>
           <label>
             <span>Tình trạng CV</span>
-            <select value={cvStatusFilter} onChange={(event) => setCvStatusFilter(event.target.value as CvStatusFilter)}>
+              <select
+                value={cvStatusFilter}
+                onChange={(event) => {
+                  setCvStatusFilter(event.target.value as CvStatusFilter);
+                  setPage(1);
+                }}
+              >
               {CV_STATUS_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
-          <label>
+          <label className="referral-jd-filter-label">
             <span>Lọc theo JD</span>
-            <select value={jdFilter} onChange={(event) => setJdFilter(event.target.value)}>
-              <option value="ALL">Tất cả JD</option>
-              {availableJds.map(([id, jdTitle]) => <option key={id} value={id}>{jdTitle}</option>)}
-            </select>
+            <div ref={jdDropdownRef} className="referral-jd-dropdown">
+              <button
+                type="button"
+                className="referral-jd-select-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={isJdFilterOpen}
+                onClick={() => setIsJdFilterOpen((current) => !current)}
+              >
+                <span>{selectedJd?.title ?? 'Tất cả JD'}</span>
+              </button>
+              {isJdFilterOpen ? (
+                <div className="referral-jd-options" role="listbox" aria-label="Danh sách JD">
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={jdFilter === 'ALL'}
+                    className={`referral-jd-option${jdFilter === 'ALL' ? ' is-selected' : ''}`}
+                    onClick={() => {
+                      setJdFilter('ALL');
+                      setPage(1);
+                      setIsJdFilterOpen(false);
+                    }}
+                >
+                <span className="referral-jd-option-label">
+                  <span className={`referral-jd-checkbox${jdFilter === 'ALL' ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
+                  <span>Tất cả JD</span>
+                </span>
+                  </button>
+                  {availableJds.map(([id, jd]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="option"
+                      aria-selected={jdFilter === id}
+                      className={`referral-jd-option${jdFilter === id ? ' is-selected' : ''}`}
+                      onClick={() => {
+                        setJdFilter(id);
+                        setPage(1);
+                        setIsJdFilterOpen(false);
+                      }}
+                    >
+                      <span className="referral-jd-option-label">
+                        <span className={`referral-jd-checkbox${jdFilter === id ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
+                        <span>{jd.title}</span>
+                      </span>
+                      {jd.createdAt ? <time>{formatDate(jd.createdAt)}</time> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </label>
-          <label>
-            <span>Tình trạng tài khoản</span>
-            <select
-              value={accountStatusFilter}
-              onChange={(event) => {
-                setAccountStatusFilter(event.target.value as AccountStatusFilter);
-                setPage(1);
-              }}
-            >
-              <option value="ALL">Tất cả</option>
-              <option value="ACTIVE">Hoạt động</option>
-              <option value="INACTIVE">Đã khóa</option>
-            </select>
-          </label>
+          {source === 'FREELANCER' ? (
+            <label>
+              <span>Tình trạng tài khoản</span>
+              <select
+                value={accountStatusFilter}
+                onChange={(event) => {
+                  setAccountStatusFilter(event.target.value as AccountStatusFilter);
+                  setPage(1);
+                }}
+              >
+                <option value="ALL">Tất cả</option>
+                <option value="ACTIVE">Hoạt động</option>
+                <option value="INACTIVE">Đã khóa</option>
+              </select>
+            </label>
+          ) : null}
         </div>
       </div>
 
       {loading ? <div className="referral-state">Đang tải danh sách...</div> : null}
       {!loading && error ? <div className="referral-state is-error">{error}</div> : null}
-      {!loading && !error && filteredPeople.length === 0 ? <div className="referral-state">{people.length ? 'Không có CV phù hợp với bộ lọc.' : emptyText}</div> : null}
+      {!loading && !error && filteredPeople.length === 0 ? (
+        <div className="referral-state referral-empty-state">
+          {people.length || hasActiveFilter ? noMatchingPeopleText : emptyText}
+        </div>
+      ) : null}
 
-      {!loading && !error && filteredPeople.length > 0 ? (
+      {!loading && !error && visiblePeople.length > 0 ? (
         <div className="referral-people-list">
-          {filteredPeople.map(({ person, applications }) => {
+          {visiblePeople.map(({ person, applications }) => {
             const isExpanded = Boolean(expandedIds[person.sourceId]);
             const metrics = person.metrics;
             return (
               <article className={`referral-person-card${person.isActive ? '' : ' is-inactive'}`} key={person.sourceId}>
                 <div className="referral-person-heading">
                   <div className="referral-person-identity">
-                    <h3>{person.name || person.email}</h3>
-                    <div className="referral-person-meta">
-                      {person.identifier ? (
+                    <div className="referral-person-name-row">
+                      <h3>{person.name || null}</h3>
+                      {!person.isActive ? <span className="referral-active-badge is-inactive">Đã khoá</span> : null}
+                    </div>
+                    {person.identifier ? (
+                      <div className="referral-person-identifier-row">
                         <span className="referral-identifier">
                           <span>{person.identifier}</span>
                           <button
@@ -312,25 +561,25 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
                             {copiedIdentifier === person.identifier ? 'Đã copy' : <CopyIcon />}
                           </button>
                         </span>
-                      ) : null}
-                      <span>{person.email}</span>
-                      {person.phone ? <span>{person.phone}</span> : null}
+                      </div>
+                    ) : null}
+                    <div className="referral-person-meta">
+                      <span>{[person.email, person.phone].filter(Boolean).join(' • ')}</span>
                     </div>
                   </div>
-                  <div className="referral-person-actions">
-                    <span className={`referral-active-badge${person.isActive ? '' : ' is-inactive'}`}>
-                      {person.isActive ? 'Đang hoạt động' : 'Đã vô hiệu hóa'}
-                    </span>
-                    <button
-                      type="button"
-                      className="referral-status-icon-button"
-                      onClick={() => requestStatusChange(person)}
-                      title={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
-                      aria-label={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
-                    >
-                      {source === 'FREELANCER' && person.isActive ? <TrashIcon /> : <PowerIcon />}
-                    </button>
-                  </div>
+                  {source === 'FREELANCER' ? (
+                    <div className="referral-person-actions">
+                      <button
+                        type="button"
+                        className="referral-status-icon-button"
+                        onClick={() => requestStatusChange(person)}
+                        title={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
+                        aria-label={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
+                      >
+                        {person.isActive ? <UnlockIcon /> : <LockIcon />}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="referral-metrics-grid">
@@ -350,20 +599,54 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
                   <DetailChevronIcon isOpen={isExpanded} />
                 </button>
 
-                {isExpanded ? <ApplicationTable applications={applications} /> : null}
+                {isExpanded ? <ApplicationTable applications={applications} source={source} /> : null}
               </article>
             );
           })}
         </div>
       ) : null}
 
-      {pagination.totalPages > 1 ? (
+      {visibleTotalPages > 1 ? (
         <div className="referral-pagination">
-          <span>Hiển thị {people.length ? (page - 1) * pagination.limit + 1 : 0} - {(page - 1) * pagination.limit + people.length} của {pagination.total} kết quả</span>
+          <span>
+            Hiển thị {visiblePeople.length ? (page - 1) * REFERRAL_PAGE_SIZE + 1 : 0}
+            {' - '}
+            {visiblePeople.length ? (page - 1) * REFERRAL_PAGE_SIZE + visiblePeople.length : 0}
+            {' của '}
+            {visibleTotal} kết quả
+          </span>
           <div>
-            <button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>‹</button>
-            <strong>{page}</strong>
-            <button type="button" disabled={page >= pagination.totalPages} onClick={() => setPage((current) => Math.min(pagination.totalPages, current + 1))}>›</button>
+            <button
+              type="button"
+              aria-label="Trang trước"
+              disabled={page <= 1}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+            >
+              ‹
+            </button>
+            {buildReferralPaginationPages(page, visibleTotalPages).map((paginationPage, index) => (
+              paginationPage === 'ellipsis' ? (
+                <span key={`ellipsis-${index}`} className="referral-pagination-ellipsis" aria-hidden="true">…</span>
+              ) : (
+                <button
+                  key={paginationPage}
+                  type="button"
+                  className={paginationPage === page ? 'is-active' : ''}
+                  aria-current={paginationPage === page ? 'page' : undefined}
+                  onClick={() => setPage(paginationPage)}
+                >
+                  {paginationPage}
+                </button>
+              )
+            ))}
+            <button
+              type="button"
+              aria-label="Trang sau"
+              disabled={page >= visibleTotalPages}
+              onClick={() => setPage((current) => Math.min(visibleTotalPages, current + 1))}
+            >
+              ›
+            </button>
           </div>
         </div>
       ) : null}
@@ -375,20 +658,76 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
               <h2 id="referral-create-title">Thêm {title} mới</h2>
               <button type="button" onClick={closeModal} aria-label="Đóng">×</button>
             </div>
-            <form onSubmit={submitCreate}>
+            <form onSubmit={submitCreate} noValidate>
               {source === 'FREELANCER' ? (
                 <>
-                  <label>HỌ VÀ TÊN<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nhập tên Freelancer mới..." /></label>
-                  <label>EMAIL<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="freelancer@gmail.com" /></label>
-                  <label>SỐ ĐIỆN THOẠI<input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0988098797" /></label>
+                  <label>
+                    <span>HỌ VÀ TÊN <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={name} maxLength={255} onChange={(event) => { setName(event.target.value); setNameFieldError(null); }} placeholder="Nhập tên Freelancer mới..." />
+                      {name ? <button type="button" className="referral-input-clear-button" onClick={() => { setName(''); setNameFieldError(null); }} aria-label="Xóa họ và tên"><SearchClearIcon /></button> : null}
+                    </div>
+                    {nameFieldError ? <div className="referral-field-error">{nameFieldError}</div> : null}
+                  </label>
+                  <label>
+                    <span>EMAIL <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={email} maxLength={255} onChange={(event) => { setEmail(event.target.value); setEmailFieldError(null); }} type="email" placeholder="freelancer@gmail.com" />
+                      {email ? <button type="button" className="referral-input-clear-button" onClick={() => { setEmail(''); setEmailFieldError(null); }} aria-label="Xóa email"><SearchClearIcon /></button> : null}
+                    </div>
+                    {emailFieldError ? <div className="referral-field-error">{emailFieldError}</div> : null}
+                  </label>
+                  <label>
+                    <span>SỐ ĐIỆN THOẠI <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={phone} maxLength={50} onChange={(event) => setPhone(event.target.value)} placeholder="0988098797" />
+                      {phone ? <button type="button" className="referral-input-clear-button" onClick={() => setPhone('')} aria-label="Xóa số điện thoại"><SearchClearIcon /></button> : null}
+                    </div>
+                  </label>
+                  <div className="referral-identifier-preview">
+                    <div className="referral-identifier-preview-text">MÃ ĐỊNH DANH SẼ ĐƯỢC CẤP</div>
+                    <div className="referral-identifier-preview-text">FL-2026-004</div>
+                    <div className="referral-identifier-preview-text">Gửi mã định danh này cho Freelancer để họ dùng khi nộp CV và đăng nhập theo dõi.</div>
+                    <div className="referral-identifier-preview-text">Mật khẩu sẽ được gửi đến email được nhập.</div>
+                  </div>
                 </>
               ) : (
-                <label>EMAIL NỘI BỘ<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="ten.nguoi@viettel.com.vn" /></label>
+                <>
+                  <label>
+                    <span>HỌ VÀ TÊN <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={name} maxLength={255} onChange={(event) => { setName(event.target.value); setNameFieldError(null); }} placeholder="Nhập họ và tên nhân sự..." />
+                      {name ? <button type="button" className="referral-input-clear-button" onClick={() => { setName(''); setNameFieldError(null); }} aria-label="Xóa họ và tên nội bộ"><SearchClearIcon /></button> : null}
+                    </div>
+                    {nameFieldError ? <div className="referral-field-error">{nameFieldError}</div> : null}
+                  </label>
+                  <label>
+                    <span>EMAIL NỘI BỘ <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={email} maxLength={255} onChange={(event) => { setEmail(event.target.value); setEmailFieldError(null); }} type="email" placeholder="ten.nguoi@viettel.com.vn" />
+                      {email ? <button type="button" className="referral-input-clear-button" onClick={() => { setEmail(''); setEmailFieldError(null); }} aria-label="Xóa email Nội bộ"><SearchClearIcon /></button> : null}
+                    </div>
+                    {emailFieldError ? <div className="referral-field-error">{emailFieldError}</div> : null}
+                  </label>
+                  <label>
+                    <span>SỐ ĐIỆN THOẠI <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={phone} maxLength={50} onChange={(event) => setPhone(event.target.value)} placeholder="0988123456" />
+                      {phone ? <button type="button" className="referral-input-clear-button" onClick={() => setPhone('')} aria-label="Xóa số điện thoại nội bộ"><SearchClearIcon /></button> : null}
+                    </div>
+                  </label>
+                </>
               )}
               {formError ? <p className="referral-form-error">{formError}</p> : null}
               <div className="referral-modal-actions">
                 <button type="button" className="referral-secondary-button" onClick={closeModal}>Hủy</button>
-                <button type="submit" className="referral-primary-button" disabled={saving}>{saving ? 'Đang lưu...' : 'Thêm mới'}</button>
+                <button
+                  type="submit"
+                  className="referral-primary-button"
+                  disabled={saving || !email.trim() || !name.trim() || !phone.trim()}
+                >
+                  {saving ? 'Đang lưu...' : 'Thêm mới'}
+                </button>
               </div>
             </form>
           </section>
@@ -418,14 +757,23 @@ export function ReferralManagementPanel({ source, accessToken, refreshVersion, o
         <div className="referral-modal-backdrop" role="presentation">
           <section className="referral-modal referral-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="referral-status-title">
             <div className="referral-modal-header">
-              <h2 id="referral-status-title">{selectedPerson.isActive ? 'Xác nhận vô hiệu hóa' : 'Xác nhận kích hoạt lại'}</h2>
+              <h2 id="referral-status-title">
+                {selectedPerson.isActive ? 'Xác nhận khoá tài khoản Freelancer' : 'Xác nhận mở khoá tài khoản Freelancer'}
+              </h2>
               <button type="button" onClick={closeModal} aria-label="Đóng">×</button>
             </div>
             <div className="referral-confirm-body">
               <WarningIcon />
               <h3>{selectedPerson.isActive ? 'Bạn có chắc muốn vô hiệu hóa nhân sự này không?' : 'Bạn có muốn kích hoạt lại nhân sự này không?'}</h3>
-              <p>{selectedPerson.isActive ? 'Lịch sử CV và dữ liệu liên quan vẫn được giữ nguyên, chỉ ngừng sử dụng nhân sự này làm nguồn giới thiệu mới.' : 'Nhân sự này sẽ có thể tiếp tục được chọn làm nguồn giới thiệu.'}</p>
-              <strong>{selectedPerson.name || selectedPerson.email}</strong>
+              <p>
+                {selectedPerson.isActive ? (
+                  <>
+                    <strong className="referral-status-subject">{source === 'FREELANCER' ? 'Freelancer' : 'Nhân sự nội bộ'}</strong>{' '}
+                    bị khóa tài khoản, không thể đăng nhập vào hệ thống.
+                  </>
+                ) : 'Nhân sự này sẽ có thể tiếp tục được chọn làm nguồn giới thiệu.'}
+              </p>
+              <strong className="referral-confirm-person">{selectedPerson.name || selectedPerson.email}</strong>
             </div>
             {formError ? <p className="referral-form-error">{formError}</p> : null}
             <div className="referral-modal-actions">
@@ -443,13 +791,13 @@ function Metric({ label, value, isPositive = false }: { label: string; value: nu
   return <div className="referral-metric"><span>{label}</span><strong className={isPositive ? 'is-positive' : ''}>{value}</strong></div>;
 }
 
-function ApplicationTable({ applications }: { applications: ReferralManagementApplication[] }) {
-  if (applications.length === 0) return <div className="referral-empty-detail">Chưa có CV nào được gửi.</div>;
+function ApplicationTable({ applications, source }: { applications: ReferralManagementApplication[]; source: ReferralManagementSource }) {
+  if (applications.length === 0) return <div className="referral-empty-detail">Chưa tải lên CV nào</div>;
 
   return (
     <div className="referral-table-wrap">
       <table className="referral-application-table">
-        <thead><tr><th>STT</th><th>CV</th><th>JD</th><th>Tình trạng xử lý</th><th>Thời gian nộp CV</th><th>TA quản lý</th><th>Ghi chú</th></tr></thead>
+        <thead><tr><th>STT</th><th>CV</th><th>JD</th><th>Tình trạng xử lý</th><th>Thời gian nộp CV</th><th>TA quản lý</th><th>{source === 'INTERNAL' ? 'Ghi chú của Nhân sự nội bộ' : 'Ghi chú của Freelancer'}</th></tr></thead>
         <tbody>{applications.map((application, index) => (
           <tr key={application.applicationId}>
             <td>{String(index + 1).padStart(2, '0')}</td>
@@ -482,6 +830,21 @@ function matchesCvStatus(application: ReferralManagementApplication, filter: CvS
   if (filter === 'INTERVIEW') return stageName.includes('PHONG VAN');
   if (filter === 'OFFER') return stageName.includes('OFFER');
   return false;
+}
+
+function buildReferralPaginationPages(currentPage: number, totalPages: number): Array<number | 'ellipsis'> {
+  const safeTotal = Math.max(1, totalPages);
+  const safeCurrent = Math.min(Math.max(1, currentPage), safeTotal);
+
+  if (safeTotal <= 7) {
+    return Array.from({ length: safeTotal }, (_, index) => index + 1);
+  }
+
+  if (safeCurrent <= 2) return [1, 2, 3, 'ellipsis', safeTotal - 1, safeTotal];
+  if (safeCurrent === 3) return [2, 3, 4, 'ellipsis', safeTotal - 1, safeTotal];
+  if (safeCurrent >= safeTotal - 2) return [1, 2, 'ellipsis', safeTotal - 2, safeTotal - 1, safeTotal];
+
+  return [1, 2, 'ellipsis', safeCurrent - 1, safeCurrent, safeCurrent + 1, 'ellipsis', safeTotal - 1, safeTotal];
 }
 
 function getApplicationStatus(application: ReferralManagementApplication) {
@@ -534,12 +897,12 @@ async function copyCredentials(result: CreatedFreelancerResult) {
   await navigator.clipboard?.writeText(`Mã định danh: ${result.identifier}\nMật khẩu: ${result.initialPassword}`);
 }
 
-function TrashIcon() {
-  return <svg className="referral-action-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M5 7h14M10 4h4l1 3H9l1-3ZM7 7l1 13h8l1-13M10 10v7M14 10v7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+function UnlockIcon() {
+  return <svg className="referral-action-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="16" r="1" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M8 11V6C8 3.79086 9.79086 2 12 2C14.20914 2 16 3.79086 16 6" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
-function PowerIcon() {
-  return <svg className="referral-action-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M12 3v8M7.2 5.8a8 8 0 1 0 9.6 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>;
+function LockIcon() {
+  return <svg className="referral-action-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="16" r="1" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M8 11V7C8 4.79086 9.79086 3 12 3C14.20914 3 16 4.79086 16 7V11" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
 function WarningIcon() {
@@ -559,5 +922,5 @@ function SearchClearIcon() {
 }
 
 function DetailChevronIcon({ isOpen }: { isOpen: boolean }) {
-  return <svg className={`referral-detail-chevron${isOpen ? ' is-open' : ''}`} aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="m4.5 6 3.5 3.5L11.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  return <svg className={`referral-detail-chevron${isOpen ? ' is-open' : ''}`} width="6" height="11" viewBox="0 0 6 11" fill="none" aria-hidden="true"><path d="M0.859375 10.8594L5.85938 5.85937C5.90104 5.80729 5.9349 5.7526 5.96094 5.69531C5.98698 5.63802 6 5.57292 6 5.5C6 5.42708 5.98698 5.36198 5.96094 5.30469C5.9349 5.2474 5.90104 5.19271 5.85938 5.14062L0.859375 0.140625C0.807292 0.0989583 0.752604 0.0651042 0.695312 0.0390625C0.638021 0.0130208 0.572917 0 0.5 0C0.364583 0 0.247396 0.0494792 0.148438 0.148437C0.0494792 0.247396 0 0.364583 0 0.5C0 0.572917 0.0130208 0.638021 0.0390625 0.695312C0.0651042 0.752604 0.0989583 0.807292 0.140625 0.859375L4.79688 5.5L0.140625 10.1406C0.0989583 10.1927 0.0651042 10.2474 0.0390625 10.3047C0.0130208 10.362 0 10.4271 0 10.5C0 10.6354 0.0494792 10.7526 0.148438 10.8516C0.247396 10.9505 0.364583 11 0.5 11C0.572917 11 0.638021 10.987 0.695313 10.9609C0.752604 10.9349 0.807292 10.901 0.859375 10.8594Z" fill="white" /></svg>;
 }
