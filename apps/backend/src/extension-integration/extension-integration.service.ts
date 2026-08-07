@@ -146,6 +146,7 @@ export class ExtensionIntegrationService {
     private readonly internalsService: InternalsService,
     private readonly cvStageReminderService: CvStageReminderService,
     private readonly candidateStageNotificationService: CandidateStageNotificationService,
+    private readonly mailService: MailService,
   ) {}
 
   async syncAndPublishFromAmis(
