@@ -122,11 +122,12 @@ export function subscribeAuthTokenChanges(listener: AuthTokenChangeListener) {
   };
 }
 
-function notifyAuthTokenChange(tokens: AuthTokenSnapshot = {
-  accessToken: memoryToken,
-  refreshToken: memoryRefreshToken,
-}) {
-  authTokenChangeListeners.forEach((listener) => listener(tokens));
+function notifyAuthTokenChange(tokens?: AuthTokenSnapshot) {
+  const snapshot = tokens ?? {
+    accessToken: memoryToken,
+    refreshToken: memoryRefreshToken,
+  };
+  authTokenChangeListeners.forEach((listener) => listener(snapshot));
 }
 
 function installStorageChangeListener() {

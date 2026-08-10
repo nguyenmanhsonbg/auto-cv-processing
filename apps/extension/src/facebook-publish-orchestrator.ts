@@ -4,6 +4,7 @@ import { summarizeFacebookPublishResults } from './facebook-channel-status';
 import { FACEBOOK_MAX_IMAGE_ATTACHMENTS } from './config';
 import { hashText } from './hash-text';
 import { secureRandomFraction } from './secure-random';
+import { trimTrailingSlashes } from './text-normalization';
 import {
   buildFacebookGroupPostUrl,
   parseFacebookGroupPostUrl,
@@ -1476,7 +1477,7 @@ function getFacebookGroupIdFromUrl(value: string | null | undefined) {
 }
 
 function normalizeFacebookGroupId(value: string | null | undefined) {
-  const normalized = value ? decodeURIComponent(value).trim().replace(/^\/+|\/+$/g, '') : '';
+  const normalized = value ? trimTrailingSlashes(decodeURIComponent(value).trim()) : '';
   return normalized || null;
 }
 
@@ -1692,7 +1693,7 @@ function isFacebookProfileUrlForExternalId(profileUrl: string | null, externalId
     const queryId = parsed.searchParams.get('id')?.trim();
     if (queryId) return queryId === externalId;
 
-    const normalizedPath = parsed.pathname.replace(/^\/+|\/+$/g, '');
+    const normalizedPath = trimTrailingSlashes(parsed.pathname);
     if (/^\d+$/.test(normalizedPath)) return normalizedPath === externalId;
 
     // Vanity URLs do not expose the numeric account ID. Keep them as a
@@ -1711,8 +1712,8 @@ function areFacebookProfileUrlsSame(left: string | null, right: string | null) {
     const rightUrl = new URL(right);
     if (leftUrl.hostname.toLowerCase() !== rightUrl.hostname.toLowerCase()) return false;
 
-    const leftPath = leftUrl.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
-    const rightPath = rightUrl.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+    const leftPath = trimTrailingSlashes(leftUrl.pathname).toLowerCase();
+    const rightPath = trimTrailingSlashes(rightUrl.pathname).toLowerCase();
     if (leftPath !== rightPath) return false;
 
     const leftId = leftUrl.searchParams.get('id')?.trim() ?? '';
@@ -2978,7 +2979,7 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
     if (profileLink) {
       const parsed = new URL(profileLink.href);
       const numericId = parsed.searchParams.get('id')?.trim();
-      const normalizedPath = parsed.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+      const normalizedPath = trimTrailingSlashes(parsed.pathname).toLowerCase();
       const facebookExternalId = numericId || (normalizedPath ? `profile:${normalizedPath}` : null);
       const displayName = [profileLink.text, ...profileLink.labels]
         .map((value) => value
@@ -6632,9 +6633,9 @@ async function waitForFacebookSubmissionInPage(
     const safeDecode = (value: string | null | undefined) => {
       if (!value) return null;
       try {
-        return decodeURIComponent(value).trim().replace(/^\/+|\/+$/g, '');
+        return trimTrailingSlashes(decodeURIComponent(value).trim());
       } catch {
-        return value.trim().replace(/^\/+|\/+$/g, '');
+        return trimTrailingSlashes(value.trim());
       }
     };
     const normalizeGroupId = (value: string | null | undefined) => safeDecode(value);

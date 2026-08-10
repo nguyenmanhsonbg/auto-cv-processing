@@ -1,4 +1,5 @@
 import type { AmisExtractionResult } from './types';
+import { removeHorizontalWhitespaceBeforeNewlines } from './text-normalization';
 
 export function extractAmisJobFromPage(): AmisExtractionResult {
   type FieldValue = {
@@ -463,9 +464,9 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
   }
 
   function trimText(value: string, maxLength: number) {
-    return value
+    return removeHorizontalWhitespaceBeforeNewlines(value
       .replace(/\u00a0/g, ' ')
-      .replace(/[ \t]+\n/g, '\n')
+    )
       .replace(/\n{3,}/g, '\n\n')
       .replace(/[ \t]{2,}/g, ' ')
       .trim()

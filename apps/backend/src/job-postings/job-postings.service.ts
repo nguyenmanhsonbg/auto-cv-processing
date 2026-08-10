@@ -498,13 +498,15 @@ export class JobPostingsService {
   }
 
   private normalizeSlug(value: string) {
-    const slug = value
-      ?.normalize('NFD')
+    let slug = value
+      .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
       .replace(/-{2,}/g, '-');
+
+    while (slug.startsWith('-')) slug = slug.slice(1);
+    while (slug.endsWith('-')) slug = slug.slice(0, -1);
 
     if (!slug) throw new BadRequestException('Public slug is required');
     return slug;

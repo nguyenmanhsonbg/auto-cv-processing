@@ -25,6 +25,76 @@ interface RatingItem {
   comment?: string;
 }
 
+interface SelfClosingXmlElement {
+  match: string;
+  attributes: string;
+}
+
+function isXmlWhitespace(character: string | undefined) {
+  return character === ' ' || character === '\t' || character === '\r' || character === '\n';
+}
+
+function transformSelfClosingXmlElements(
+  xml: string,
+  tagName: string,
+  transform: (element: SelfClosingXmlElement) => string,
+) {
+  const tagPrefix = `<${tagName}`;
+  let cursor = 0;
+  let outputStart = 0;
+  let output = '';
+
+  while (cursor < xml.length) {
+    const elementStart = xml.indexOf(tagPrefix, cursor);
+    if (elementStart < 0) break;
+
+    const afterTagName = xml[elementStart + tagPrefix.length];
+    if (!isXmlWhitespace(afterTagName)) {
+      cursor = elementStart + tagPrefix.length;
+      continue;
+    }
+
+    const elementEnd = xml.indexOf('/>', elementStart + tagPrefix.length);
+    if (elementEnd < 0) break;
+
+    output += xml.slice(outputStart, elementStart);
+    output += transform({
+      match: xml.slice(elementStart, elementEnd + 2),
+      attributes: xml.slice(elementStart + tagPrefix.length, elementEnd),
+    });
+    outputStart = elementEnd + 2;
+    cursor = outputStart;
+  }
+
+  return outputStart === 0 ? xml : output + xml.slice(outputStart);
+}
+
+function getXmlAttribute(attributes: string, name: string) {
+  const marker = `${name}="`;
+  const valueStart = attributes.indexOf(marker);
+  if (valueStart < 0) return null;
+
+  const contentStart = valueStart + marker.length;
+  const contentEnd = attributes.indexOf('"', contentStart);
+  return contentEnd < 0 ? null : attributes.slice(contentStart, contentEnd);
+}
+
+function removeXmlAttribute(attributes: string, name: string) {
+  const marker = `${name}="`;
+  const valueStart = attributes.indexOf(marker);
+  if (valueStart < 0) return attributes;
+
+  const contentStart = valueStart + marker.length;
+  const contentEnd = attributes.indexOf('"', contentStart);
+  if (contentEnd < 0) return attributes;
+
+  let attributeStart = valueStart;
+  while (attributeStart > 0 && isXmlWhitespace(attributes[attributeStart - 1])) {
+    attributeStart -= 1;
+  }
+  return attributes.slice(0, attributeStart) + attributes.slice(contentEnd + 1);
+}
+
 // BM04.1/BM04.2 rating level → column letter
 // [1] Cơ bản → E, [2] Ứng dụng → F, [3] Thành thạo → G, [4] Chuyên gia → H, [5] Định hướng → I
 const RATING_COL: Record<number, string> = { 1: 'E', 2: 'F', 3: 'G', 4: 'H', 5: 'I' };
@@ -130,30 +200,21 @@ export class ExportService {
     if (relsFile) {
       let relsXml = await relsFile.async('string');
 
-      // Collect rel IDs for the sheets we want to keep
-      const relRe = /<Relationship\s+([^>]*)\/>/g;
-      let m: RegExpExecArray | null;
-      while ((m = relRe.exec(relsXml)) !== null) {
-        const attrs = m[1];
-        const idMatch = attrs.match(/Id="([^"]+)"/);
-        const targetMatch = attrs.match(/Target="([^"]+)"/);
-        if (idMatch && targetMatch) {
-          const target = targetMatch[1].startsWith('/')
-            ? targetMatch[1].slice(1)
-            : `xl/${targetMatch[1]}`;
-          if (keptSheetFiles.has(target)) keptRelIds.add(idMatch[1]);
+      relsXml = transformSelfClosingXmlElements(relsXml, 'Relationship', ({ match, attributes }) => {
+        const type = getXmlAttribute(attributes, 'Type') ?? '';
+        if (type.includes('externalLink') || type.includes('calcChain')) return '';
+        if (!type.includes('worksheet')) return match;
+
+        const id = getXmlAttribute(attributes, 'Id');
+        const targetValue = getXmlAttribute(attributes, 'Target');
+        const target = targetValue?.startsWith('/')
+          ? targetValue.slice(1)
+          : targetValue ? `xl/${targetValue}` : null;
+        if (id && target && keptSheetFiles.has(target)) {
+          keptRelIds.add(id);
+          return match;
         }
-      }
-
-      relsXml = relsXml.replace(/<Relationship[^>]*Type="[^"]*externalLink"[^>]*\/>/g, '');
-      relsXml = relsXml.replace(/<Relationship[^>]*Type="[^"]*calcChain"[^>]*\/>/g, '');
-
-      // Remove relationships for sheets we are dropping
-      relsXml = relsXml.replace(/<Relationship\s+([^>]*)\/>/g, (match, attrs) => {
-        const typeMatch = attrs.match(/Type="([^"]+)"/);
-        if (!typeMatch?.[1].includes('worksheet')) return match;
-        const idMatch = attrs.match(/Id="([^"]+)"/);
-        return idMatch && keptRelIds.has(idMatch[1]) ? match : '';
+        return '';
       });
 
       zip.file('xl/_rels/workbook.xml.rels', relsXml);
@@ -179,9 +240,9 @@ export class ExportService {
       xml = xml.replace(/<definedNames>[\s\S]*?<\/definedNames>/g, '');
 
       // Remove <sheet> entries whose r:id is not in keptRelIds
-      xml = xml.replace(/<sheet\s+[^>]*\/>/g, (match) => {
-        const ridMatch = match.match(/r:id="([^"]+)"/);
-        return ridMatch && keptRelIds.has(ridMatch[1]) ? match : '';
+      xml = transformSelfClosingXmlElements(xml, 'sheet', ({ match, attributes }) => {
+        const relationshipId = getXmlAttribute(attributes, 'r:id');
+        return relationshipId && keptRelIds.has(relationshipId) ? match : '';
       });
 
       zip.file('xl/workbook.xml', xml);
@@ -191,14 +252,12 @@ export class ExportService {
     const ctFile = zip.file('[Content_Types].xml');
     if (ctFile) {
       let xml = await ctFile.async('string');
-      xml = xml.replace(/<Override[^>]*PartName="[^"]*externalLink[^"]*"[^>]*\/>/g, '');
-      xml = xml.replace(/<Override[^>]*PartName="[^"]*calcChain[^"]*"[^>]*\/>/g, '');
-
       // Remove content type overrides for dropped worksheet files
-      xml = xml.replace(/<Override\s+[^>]*\/>/g, (match) => {
-        const partMatch = match.match(/PartName="([^"]+)"/);
-        if (!partMatch) return match;
-        const part = partMatch[1].startsWith('/') ? partMatch[1].slice(1) : partMatch[1];
+      xml = transformSelfClosingXmlElements(xml, 'Override', ({ match, attributes }) => {
+        const partValue = getXmlAttribute(attributes, 'PartName');
+        if (!partValue) return match;
+        if (partValue.includes('externalLink') || partValue.includes('calcChain')) return '';
+        const part = partValue.startsWith('/') ? partValue.slice(1) : partValue;
         if (!part.startsWith('xl/worksheets/sheet')) return match;
         return keptSheetFiles.has(part) ? match : '';
       });
@@ -428,12 +487,12 @@ export class ExportService {
   private shiftRowsAndCells(xml: string, fromRow: number, by: number): string {
     // Shift <row r="N"> elements
     xml = xml.replace(/<row r="(\d+)"/g, (match, n) => {
-      const num = parseInt(n, 10);
+      const num = Number.parseInt(n, 10);
       return num >= fromRow ? `<row r="${num + by}"` : match;
     });
     // Shift <c r="XN"> cell references
     xml = xml.replace(/<c r="([A-Z]+)(\d+)"/g, (match, col, n) => {
-      const num = parseInt(n, 10);
+      const num = Number.parseInt(n, 10);
       return num >= fromRow ? `<c r="${col}${num + by}"` : match;
     });
     return xml;
@@ -443,8 +502,8 @@ export class ExportService {
     return xml.replace(
       /(<mergeCell ref=")([A-Z]+)(\d+):([A-Z]+)(\d+)(")/g,
       (match, pre, c1, r1, c2, r2, post) => {
-        const row1 = parseInt(r1, 10);
-        const row2 = parseInt(r2, 10);
+        const row1 = Number.parseInt(r1, 10);
+        const row2 = Number.parseInt(r2, 10);
         const newR1 = row1 >= fromRow ? row1 + by : row1;
         const newR2 = row2 >= fromRow ? row2 + by : row2;
         return `${pre}${c1}${newR1}:${c2}${newR2}${post}`;
@@ -482,7 +541,7 @@ export class ExportService {
     const valueRe = new RegExp(`<c r="${ref}"([^>]*)><v>[^<]*</v></c>`);
     if (valueRe.test(xml)) {
       return xml.replace(valueRe, (_, attrs) => {
-        const cleanAttrs = attrs.replace(/\s+t="[^"]*"/g, '');
+        const cleanAttrs = removeXmlAttribute(attrs, 't');
         return `<c r="${ref}"${cleanAttrs} ${inlineVal}`;
       });
     }

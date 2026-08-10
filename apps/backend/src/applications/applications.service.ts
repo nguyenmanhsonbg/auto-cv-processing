@@ -1869,8 +1869,20 @@ export class ApplicationsService {
   private normalizeEmail(value?: string | null) {
     const email = this.optionalText(value)?.toLowerCase() ?? null;
     if (!email) return null;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    const atIndex = email.indexOf('@');
+    const lastAtIndex = email.lastIndexOf('@');
+    const domainStart = atIndex + 1;
+    const domainDotIndex = email.lastIndexOf('.');
+    const hasWhitespace = [...email].some((character) => (
+      character === ' ' || character === '\t' || character === '\r' || character === '\n'
+    ));
+    const hasValidShape = atIndex > 0
+      && atIndex === lastAtIndex
+      && domainDotIndex > domainStart
+      && domainDotIndex < email.length - 1
+      && !hasWhitespace;
+
+    if (!hasValidShape) {
       throw new BadRequestException('Candidate email is invalid');
     }
     return email;

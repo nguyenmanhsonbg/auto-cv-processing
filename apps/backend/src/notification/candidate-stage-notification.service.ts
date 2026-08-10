@@ -270,7 +270,20 @@ export class CandidateStageNotificationService {
 
   private normalizeEmail(value: string | null | undefined) {
     const normalized = value?.trim().toLowerCase();
-    return normalized && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
+    if (!normalized) return null;
+
+    const atIndex = normalized.indexOf('@');
+    const domainDotIndex = normalized.lastIndexOf('.');
+    const hasWhitespace = [...normalized].some((character) => (
+      character === ' ' || character === '\t' || character === '\r' || character === '\n'
+    ));
+    return atIndex > 0
+      && atIndex === normalized.lastIndexOf('@')
+      && domainDotIndex > atIndex + 1
+      && domainDotIndex < normalized.length - 1
+      && !hasWhitespace
+      ? normalized
+      : null;
   }
 
   private optionalText(value: string | null | undefined) {

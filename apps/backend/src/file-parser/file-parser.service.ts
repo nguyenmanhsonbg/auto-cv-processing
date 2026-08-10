@@ -5,6 +5,84 @@ import pdfParse from 'pdf-parse';
 import * as mammoth from 'mammoth';
 import * as ExcelJS from 'exceljs';
 
+function isParserWhitespace(character: string | undefined) {
+  return character === ' ' || character === '\t' || character === '\r' || character === '\n';
+}
+
+function isAsciiDigit(character: string | undefined) {
+  if (!character) return false;
+  const code = character.charCodeAt(0);
+  return code >= 48 && code <= 57;
+}
+
+function parseExperienceCell(raw: string) {
+  let value = raw.trim();
+  const lowerValue = value.toLowerCase();
+  for (const suffix of ['years', 'year', 'y']) {
+    if (!lowerValue.endsWith(suffix)) continue;
+    value = value.slice(0, -suffix.length).trimEnd();
+    break;
+  }
+
+  const numberEnd = value.length;
+  let numberStart = numberEnd;
+  while (numberStart > 0 && isAsciiDigit(value[numberStart - 1])) numberStart -= 1;
+
+  const decimalPointIndex = numberStart - 1;
+  if (numberStart < numberEnd && value[decimalPointIndex] === '.') {
+    let integerStart = decimalPointIndex;
+    while (integerStart > 0 && isAsciiDigit(value[integerStart - 1])) integerStart -= 1;
+    if (integerStart === decimalPointIndex) return null;
+    numberStart = integerStart;
+  }
+
+  if (numberStart === numberEnd) return null;
+  const separator = value[numberStart - 1];
+  if (!separator || (separator !== ':' && !isParserWhitespace(separator))) return null;
+
+  let language = value.slice(0, numberStart).trim();
+  while (language.endsWith(':')) language = language.slice(0, -1).trimEnd();
+  if (!language) return null;
+
+  const years = Number.parseFloat(value.slice(numberStart, numberEnd));
+  return Number.isNaN(years) ? null : { language, years };
+}
+
+function isEmailTokenCharacter(character: string | undefined) {
+  if (!character) return false;
+  const code = character.charCodeAt(0);
+  return (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122)
+    || '._+-@'.includes(character);
+}
+
+function extractEmailFromText(text: string) {
+  for (const token of text.split(/\s+/u)) {
+    const tokenAtIndex = token.indexOf('@');
+    if (tokenAtIndex <= 0) continue;
+
+    let start = tokenAtIndex;
+    while (start > 0 && isEmailTokenCharacter(token[start - 1])) start -= 1;
+    let end = tokenAtIndex + 1;
+    while (end < token.length && isEmailTokenCharacter(token[end])) end += 1;
+
+    let candidate = token.slice(start, end);
+    while (candidate.endsWith('.')) candidate = candidate.slice(0, -1);
+    const atIndex = candidate.indexOf('@');
+    const domainDotIndex = candidate.lastIndexOf('.');
+    if (
+      atIndex > 0
+      && atIndex === candidate.lastIndexOf('@')
+      && domainDotIndex > atIndex + 1
+      && domainDotIndex < candidate.length - 1
+    ) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 @Injectable()
 export class FileParserService {
   private readonly logger = new Logger(FileParserService.name);
@@ -95,11 +173,9 @@ export class FileParserService {
           const raw = String(cell ?? '').trim();
           if (!raw) continue;
           // Handles: "JavaScript: 3", "Python 2 years", "Go 1y"
-          const match = raw.match(/^(.+?)[\s:]+(\d+(?:\.\d+)?)\s*(?:y(?:ears?)?)?$/i);
-          if (match) {
-            const lang = match[1].trim();
-            const yrs = parseFloat(match[2]);
-            if (lang && !isNaN(yrs)) expMap[lang] = yrs;
+          const experience = parseExperienceCell(raw);
+          if (experience) {
+            expMap[experience.language] = experience.years;
           }
         }
         if (Object.keys(expMap).length > 0) data['experienceByLanguage'] = expMap;
@@ -112,8 +188,8 @@ export class FileParserService {
       } else if (label.includes('cấp độ') || label.includes('cap do') || label.includes('level')) {
         data['xlsxLevel'] = row[1] || row[2];
       } else if (label.includes('năm sinh') || label.includes('nam sinh') || label.includes('birth')) {
-        const yr = parseInt(String(row[1] || row[2] || ''), 10);
-        if (!isNaN(yr) && yr > 1950 && yr < 2010) data['birthYear'] = yr;
+        const yr = Number.parseInt(String(row[1] || row[2] || ''), 10);
+        if (!Number.isNaN(yr) && yr > 1950 && yr < 2010) data['birthYear'] = yr;
       } else if (label.includes('học vấn') || label.includes('hoc van') || label.includes('education') || label.includes('trình độ')) {
         data['xlsxEducation'] = row[1] || row[2];
       } else if (label.includes('công ty') || label.includes('cong ty') || label.includes('company') || label.includes('nơi làm')) {
@@ -170,8 +246,8 @@ export class FileParserService {
     const info: Record<string, unknown> = {};
 
     // Extract email
-    const emailMatch = text.match(/[\w.-]+@[\w.-]+\.\w+/);
-    if (emailMatch) info['email'] = emailMatch[0];
+    const email = extractEmailFromText(text);
+    if (email) info['email'] = email;
 
     // Extract phone (Vietnamese format)
     const phoneMatch = text.match(/(?:\+84|0)\s*\d[\d\s.-]{7,}/);

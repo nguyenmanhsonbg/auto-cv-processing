@@ -12,6 +12,33 @@ const ROUTE_CHECK_INTERVAL_MS = 750;
 const RECONCILE_DEBOUNCE_MS = 100;
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 
+function isEmailTokenCharacter(character: string | undefined) {
+  if (!character) return false;
+  const code = character.charCodeAt(0);
+  return (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122)
+    || '._+-@'.includes(character);
+}
+
+function findEmailInText(value: string) {
+  for (const token of value.split(/\s+/u)) {
+    const atIndex = token.indexOf('@');
+    if (atIndex <= 0) continue;
+
+    let start = atIndex;
+    while (start > 0 && isEmailTokenCharacter(token[start - 1])) start -= 1;
+    let end = atIndex + 1;
+    while (end < token.length && isEmailTokenCharacter(token[end])) end += 1;
+
+    let candidate = token.slice(start, end);
+    while (candidate.endsWith('.')) candidate = candidate.slice(0, -1);
+    const dotIndex = candidate.lastIndexOf('.');
+    if (dotIndex > atIndex + 1 && dotIndex < candidate.length - 1) return candidate;
+  }
+  return null;
+}
+
 interface AmisSourceColumnItem {
   applicationId: string;
   amisCandidateId?: string | null;
@@ -720,7 +747,7 @@ function readRowEmail(row: HTMLElement) {
     .find((value) => /@/.test(value));
   if (emailFromTitle) return emailFromTitle;
 
-  return row.innerText.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/)?.[0] ?? '';
+  return findEmailInText(row.innerText) ?? '';
 }
 
 function readRowMobile(row: HTMLElement) {

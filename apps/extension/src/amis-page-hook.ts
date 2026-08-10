@@ -1,5 +1,6 @@
 import type { AmisRecruitmentRound } from './types';
 import { extractAmisJobStatusUpdate } from './amis-job-status';
+import { removeHorizontalWhitespaceBeforeNewlines } from './text-normalization';
 
 const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
@@ -825,9 +826,9 @@ function htmlToText(value: unknown) {
 }
 
 function cleanText(value: unknown) {
-  return String(value ?? '')
+  return removeHorizontalWhitespaceBeforeNewlines(String(value ?? '')
     .replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+\n/g, '\n')
+  )
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();

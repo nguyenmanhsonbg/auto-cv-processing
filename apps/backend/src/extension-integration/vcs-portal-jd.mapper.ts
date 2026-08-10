@@ -396,11 +396,13 @@ export class VcsPortalJdMapper {
   }
 
   private slugify(value: string) {
-    return this.removeVietnameseMarks(value)
+    let slug = this.removeVietnameseMarks(value)
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      || 'uncategorized';
+      .replace(/[^a-z0-9]+/g, '-');
+
+    while (slug.startsWith('-')) slug = slug.slice(1);
+    while (slug.endsWith('-')) slug = slug.slice(0, -1);
+    return slug || 'uncategorized';
   }
 
   private removeVietnameseMarks(value: string) {

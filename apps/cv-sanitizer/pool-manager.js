@@ -444,14 +444,13 @@ async function reconcilePool() {
   reconciling = true;
 
   try {
-    while (
-      workers.filter((worker) => worker.status === 'READY' || worker.status === 'STARTING').length < settings.minReady
-      && capacityWorkers().length < settings.maxWorkers
-    ) {
+    const readyWorkers = workers.filter(
+      (worker) => worker.status === 'READY' || worker.status === 'STARTING',
+    ).length;
+    if (readyWorkers < settings.minReady && capacityWorkers().length < settings.maxWorkers) {
       spawnWorker().catch((error) => {
         console.error(`Failed to spawn disposable CV worker: ${error.message}`);
       });
-      break;
     }
   } finally {
     reconciling = false;

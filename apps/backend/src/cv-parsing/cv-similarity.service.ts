@@ -54,6 +54,108 @@ const CV_SECTION_LABELS: Record<CvSectionName, string> = {
   other: 'other',
 };
 
+const CV_SECTION_HEADING_ALIASES: ReadonlyArray<{
+  name: Exclude<CvSectionName, 'other'>;
+  aliases: readonly string[];
+}> = [
+  {
+    name: 'experience',
+    aliases: [
+      'work experience',
+      'professional experience',
+      'employment',
+      'employment history',
+      'career history',
+      'experience',
+      'kinh nghiệm',
+      'kinh nghiệm làm việc',
+      'kinh nghiem',
+    ],
+  },
+  {
+    name: 'education',
+    aliases: ['education', 'academic background', 'học vấn', 'hoc van'],
+  },
+  {
+    name: 'projects',
+    aliases: [
+      'personal projects',
+      'personal project',
+      'project experience',
+      'projects',
+      'project',
+      'selected projects',
+      'selected project',
+      'dự án',
+      'dự án cá nhân',
+      'dự án chọn lọc',
+      'du an',
+      'du an ca nhan',
+      'du an chon loc',
+    ],
+  },
+  {
+    name: 'skills',
+    aliases: [
+      'technical skills',
+      'technical skill',
+      'core competencies',
+      'skills',
+      'skill',
+      'competencies',
+      'competency',
+      'expertise',
+      'kỹ năng',
+      'kỹ năng kỹ thuật',
+      'kỹ năng chuyên môn',
+      'ky nang',
+      'ky nang ky thuat',
+      'ky nang chuyen mon',
+    ],
+  },
+  {
+    name: 'certifications',
+    aliases: ['certifications', 'certification', 'licenses', 'license', 'chứng chỉ', 'chung chi'],
+  },
+  {
+    name: 'summary',
+    aliases: [
+      'professional summary',
+      'career objective',
+      'summary',
+      'profile',
+      'objective',
+      'about me',
+      'tóm tắt',
+      'tom tat',
+      'mục tiêu',
+      'mục tiêu nghề nghiệp',
+      'muc tieu',
+      'muc tieu nghe nghiep',
+      'giới thiệu',
+      'gioi thieu',
+    ],
+  },
+];
+
+const CV_HEADER_ALIASES = new Set([
+  ...CV_SECTION_HEADING_ALIASES.flatMap(({ aliases }) => aliases),
+  'achievements',
+  'awards',
+  'volunteer experience',
+  'references',
+  'học vấn',
+  'hoc van',
+  'kinh nghiệm',
+  'kinh nghiem',
+  'kỹ năng',
+  'ky nang',
+  'dự án',
+  'du an',
+  'chứng chỉ',
+  'chung chi',
+]);
+
 export interface CvSimilarityIdentity {
   name?: string | null;
   email?: string | null;
@@ -257,45 +359,30 @@ export class CvSimilarityService {
   }
 
   private matchSectionHeading(line: string): SectionHeadingMatch | null {
-    const trimmedLine = line
-      .trim()
-      .replace(/^(?:\d+[.)-]|[•▪])\s*/u, '')
-      .trim();
-    const patterns: Array<{ name: CvSectionName; pattern: RegExp }> = [
-      {
-        name: 'experience',
-        pattern: /^(?:work\s+experience|professional\s+experience|employment(?:\s+history)?|career\s+history|kinh\s+nghiệm(?:\s+làm\s+việc)?|kinh\s+nghiem)(?:\s*[:\-]\s*(.*))?$/iu,
-      },
-      {
-        name: 'education',
-        pattern: /^(?:education|academic\s+background|học\s+vấn|hoc\s+van)(?:\s*[:\-]\s*(.*))?$/iu,
-      },
-      {
-        name: 'projects',
-        pattern: /^(?:personal\s+projects?|project\s+experience|projects?|selected\s+projects?|dự\s+án(?:\s+(?:cá\s+nhân|chọn\s+lọc))?|du\s+an(?:\s+(?:ca\s+nhan|chon\s+loc))?)(?:\s*[:\-]\s*(.*))?$/iu,
-      },
-      {
-        name: 'skills',
-        pattern: /^(?:technical\s+skills?|core\s+competencies|skills?|competencies|expertise|kỹ\s+năng(?:\s+(?:kỹ\s+thuật|chuyên\s+môn))?|ky\s+nang(?:\s+(?:ky\s+thuat|chuyen\s+mon))?)(?:\s*[:\-]\s*(.*))?$/iu,
-      },
-      {
-        name: 'certifications',
-        pattern: /^(?:certifications?|licenses?|chứng\s+chỉ|chung\s+chi)(?:\s*[:\-]\s*(.*))?$/iu,
-      },
-      {
-        name: 'summary',
-        pattern: /^(?:professional\s+summary|career\s+objective|summary|profile|objective|about\s+me|tóm\s+tắt|tom\s+tat|mục\s+tiêu(?:\s+nghề\s+nghiệp)?|muc\s+tieu(?:\s+nghe\s+nghiep)?|giới\s+thiệu|gioi\s+thieu)(?:\s*[:\-]\s*(.*))?$/iu,
-      },
-    ];
-
-    for (const { name, pattern } of patterns) {
-      const match = trimmedLine.match(pattern);
-      if (match) {
-        return { name, content: match[1]?.trim() ?? '' };
+    const { heading, content } = this.parseSectionHeading(line);
+    for (const { name, aliases } of CV_SECTION_HEADING_ALIASES) {
+      if (aliases.includes(heading)) {
+        return { name, content };
       }
     }
 
     return null;
+  }
+
+  private parseSectionHeading(line: string) {
+    const trimmedLine = line
+      .trim()
+      .replace(/^(?:\d+[.)-]|[•▪])\s*/u, '')
+      .trim();
+    const separatorIndex = trimmedLine.search(/[:\-]/u);
+    const headingEnd = separatorIndex >= 0 ? separatorIndex : trimmedLine.length;
+    const heading = trimmedLine
+      .slice(0, headingEnd)
+      .replace(/\s+/gu, ' ')
+      .trim()
+      .toLowerCase();
+    const content = separatorIndex >= 0 ? trimmedLine.slice(separatorIndex + 1).trim() : '';
+    return { heading, content };
   }
 
   private appendSectionText(
@@ -371,11 +458,18 @@ export class CvSimilarityService {
   }
 
   private stripExtractedCvHeader(text: string): string {
-    const firstSectionHeading = text.search(
-      /(?:^|\n)\s*(?:(?:\d+[.)-]|[•▪])\s*)?(?:professional\s+summary|summary|profile|objective|education|work\s+experience|professional\s+experience|experience|employment|technical\s+skills|skills|projects|certifications|achievements|awards|volunteer\s+experience|references|học\s+vấn|hoc\s+van|kinh\s+nghiệm|kinh\s+nghiem|kỹ\s+năng|ky\s+nang|dự\s+án|du\s+an|chứng\s+chỉ|chung\s+chi)\b/iu,
-    );
+    let lineStart = 0;
+    for (const line of text.split(/\r?\n/u)) {
+      if (lineStart > 0 && CV_HEADER_ALIASES.has(this.parseSectionHeading(line).heading)) {
+        return text.slice(lineStart - 1);
+      }
 
-    return firstSectionHeading > 0 ? text.slice(firstSectionHeading) : text;
+      const newlineIndex = text.indexOf('\n', lineStart);
+      if (newlineIndex < 0) break;
+      lineStart = newlineIndex + 1;
+    }
+
+    return text;
   }
 
   private tokenize(text: string): string[] {

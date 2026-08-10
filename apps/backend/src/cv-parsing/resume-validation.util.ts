@@ -306,7 +306,52 @@ function extractEmail(parsedData: Record<string, unknown>, normalizedText: strin
   );
   if (parsedEmail) return parsedEmail.toLowerCase();
 
-  return normalizedText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0].toLowerCase() ?? null;
+  for (const token of normalizedText.split(' ')) {
+    const candidate = trimEmailToken(token);
+    if (isResumeEmailCandidate(candidate)) return candidate.toLowerCase();
+  }
+
+  return null;
+}
+
+function trimEmailToken(token: string) {
+  let start = 0;
+  let end = token.length;
+  while (start < end && !isEmailTokenCharacter(token[start])) start += 1;
+  while (end > start && !isEmailTokenCharacter(token[end - 1])) end -= 1;
+
+  let candidate = token.slice(start, end);
+  while (candidate.endsWith('.')) candidate = candidate.slice(0, -1);
+  return candidate;
+}
+
+function isEmailTokenCharacter(character: string | undefined) {
+  if (!character) return false;
+  const code = character.charCodeAt(0);
+  return (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122)
+    || '._%+-@'.includes(character);
+}
+
+function isResumeEmailCandidate(value: string) {
+  const atIndex = value.indexOf('@');
+  if (atIndex <= 0 || atIndex !== value.lastIndexOf('@')) return false;
+
+  const domainStart = atIndex + 1;
+  const dotIndex = value.lastIndexOf('.');
+  if (dotIndex <= domainStart || dotIndex >= value.length - 1) return false;
+
+  const topLevelDomain = value.slice(dotIndex + 1);
+  if (topLevelDomain.length < 2) return false;
+  if ([...topLevelDomain].some((character) => {
+    const code = character.charCodeAt(0);
+    return !((code >= 65 && code <= 90) || (code >= 97 && code <= 122));
+  })) return false;
+
+  return ![...value].some((character) => (
+    character === ' ' || character === '\t' || character === '\r' || character === '\n'
+  ));
 }
 
 function extractSkills(parsedData: Record<string, unknown>, normalizedText: string) {

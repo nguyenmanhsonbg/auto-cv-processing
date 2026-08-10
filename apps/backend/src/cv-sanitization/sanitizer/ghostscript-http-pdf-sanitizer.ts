@@ -125,7 +125,9 @@ export class GhostscriptHttpPdfSanitizer implements CleanCvSanitizer {
         return null;
       }
 
-      return configuredUrl.replace(/\/+$/, '');
+      let normalizedUrl = configuredUrl;
+      while (normalizedUrl.endsWith('/')) normalizedUrl = normalizedUrl.slice(0, -1);
+      return normalizedUrl;
     } catch {
       return null;
     }

@@ -1,4 +1,8 @@
 import type { AmisApplicationItem, AmisCareerItem, AmisExtractionResult, AmisJobSnapshot } from './types';
+import {
+  removeHorizontalWhitespaceBeforeNewlines,
+  stripHtmlTags,
+} from './text-normalization';
 
 interface AmisSaveRecruitmentResponse {
   Success?: boolean;
@@ -172,11 +176,11 @@ function htmlToText(value: string | null | undefined) {
   if (!html) return '';
 
   if (typeof document === 'undefined') {
-    return cleanText(html
+    return cleanText(stripHtmlTags(html
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/p>/gi, '</p>\n')
       .replace(/<\/li>/gi, '</li>\n')
-      .replace(/<[^>]+>/g, ' '));
+    ));
   }
 
   const element = document.createElement('div');
@@ -189,9 +193,8 @@ function htmlToText(value: string | null | undefined) {
 }
 
 function cleanText(value: string | null | undefined) {
-  return (value ?? '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+\n/g, '\n')
+  return removeHorizontalWhitespaceBeforeNewlines((value ?? '')
+    .replace(/\u00a0/g, ' '))
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();

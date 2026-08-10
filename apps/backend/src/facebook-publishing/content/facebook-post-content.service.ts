@@ -88,7 +88,9 @@ export class FacebookPostContentService {
 
   private buildApplyUrl(publicSlug: string) {
     const base = this.configService.get<string>('FACEBOOK_CANDIDATE_CTA_URL_BASE') || '/jobs';
-    return `${base.replace(/\/+$/, '')}/${publicSlug}`;
+    let normalizedBase = base;
+    while (normalizedBase.endsWith('/')) normalizedBase = normalizedBase.slice(0, -1);
+    return `${normalizedBase}/${publicSlug}`;
   }
 
   private hydrateApplyUrl(content: string, publicSlug: string) {

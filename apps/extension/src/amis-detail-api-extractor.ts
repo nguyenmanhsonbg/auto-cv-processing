@@ -1,4 +1,5 @@
 import type { AmisExtractionResult, AmisJobSnapshot } from './types';
+import { removeHorizontalWhitespaceBeforeNewlines } from './text-normalization';
 
 export async function extractAmisJobFromDetailApi(
   amisRecruitmentId: string,
@@ -151,9 +152,8 @@ export async function extractAmisJobFromDetailApi(
 
     const container = document.createElement('div');
     container.innerHTML = html;
-    return (container.innerText || container.textContent || '')
-      .replace(/\r/g, '')
-      .replace(/[ \t]+\n/g, '\n')
+    return removeHorizontalWhitespaceBeforeNewlines((container.innerText || container.textContent || '')
+      .replace(/\r/g, ''))
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }

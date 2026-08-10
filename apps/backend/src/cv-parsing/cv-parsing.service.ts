@@ -29,6 +29,7 @@ import { GeminiCvParserService } from './gemini-cv-parser.service';
 import { validateResumeSignals } from './resume-validation.util';
 
 const DEFAULT_PARSER_VERSION = 'file-parser-v1';
+const NULL_CHARACTER = String.fromCharCode(0);
 
 export interface ParseCleanCvInput {
   applicationId: string;
@@ -262,7 +263,7 @@ export class CvParsingService {
 
   private sanitizeJsonbValue(value: unknown): unknown {
     if (typeof value === 'string') {
-      return value.replace(/\u0000/g, '');
+      return value.replaceAll(NULL_CHARACTER, '');
     }
 
     if (Array.isArray(value)) {
@@ -274,7 +275,7 @@ export class CvParsingService {
         Object.entries(value)
           .filter(([, item]) => item !== undefined)
           .map(([key, item]) => [
-            key.replace(/\u0000/g, ''),
+            key.replaceAll(NULL_CHARACTER, ''),
             this.sanitizeJsonbValue(item),
           ]),
       );

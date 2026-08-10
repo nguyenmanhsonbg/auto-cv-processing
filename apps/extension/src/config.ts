@@ -1,12 +1,15 @@
 import type { ExtensionChannel } from './types';
+import { trimTrailingSlashes } from './text-normalization';
 
 export const BE_API_BASE_URL =
-  (import.meta.env.VITE_BE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '')
-  ?? 'http://localhost:3002/api';
+  import.meta.env.VITE_BE_API_BASE_URL === undefined
+    ? 'http://localhost:3002/api'
+    : trimTrailingSlashes(import.meta.env.VITE_BE_API_BASE_URL as string);
 
 export const FRONTEND_BASE_URL =
-  (import.meta.env.VITE_FE_BASE_URL as string | undefined)?.replace(/\/+$/, '')
-  ?? 'http://localhost:4000';
+  import.meta.env.VITE_FE_BASE_URL === undefined
+    ? 'http://localhost:4000'
+    : trimTrailingSlashes(import.meta.env.VITE_FE_BASE_URL as string);
 
 export const EXTENSION_VERSION = '0.1.0';
 

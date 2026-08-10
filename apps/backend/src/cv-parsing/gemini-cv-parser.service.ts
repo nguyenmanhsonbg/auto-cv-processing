@@ -19,6 +19,11 @@ const GEMINI_MODEL_ALIASES: Record<string, string> = {
   'gemini 3 flash': 'gemini-3-flash',
   'gemini 3.1 flash lite': 'gemini-3.1-flash-lite',
 };
+const NULL_CHARACTER = String.fromCharCode(0);
+
+function isJsonWhitespace(character: string | undefined) {
+  return character === ' ' || character === '\t' || character === '\r' || character === '\n';
+}
 
 export interface GeminiCvParseInput {
   rawText: string;
@@ -409,8 +414,26 @@ ${rawText}`;
   }
 
   private extractJson(text: string): unknown {
-    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    return JSON.parse((fenced ? fenced[1] : text).trim());
+    const fenceStart = text.indexOf('```');
+    if (fenceStart < 0) return JSON.parse(text.trim());
+
+    let contentStart = fenceStart + 3;
+    const language = text.slice(contentStart, contentStart + 4).toLowerCase();
+    if (language === 'json') {
+      const nextCharacter = text[contentStart + 4];
+      if (nextCharacter !== undefined && !isJsonWhitespace(nextCharacter)) {
+        return JSON.parse(text.trim());
+      }
+      contentStart += 4;
+    }
+
+    while (contentStart < text.length && isJsonWhitespace(text[contentStart])) {
+      contentStart += 1;
+    }
+
+    const fenceEnd = text.indexOf('```', contentStart);
+    const raw = fenceEnd >= 0 ? text.slice(contentStart, fenceEnd).trim() : text.trim();
+    return JSON.parse(raw);
   }
 
   private getApiKey() {
@@ -450,7 +473,7 @@ ${rawText}`;
 
   private sanitizeJsonbValue(value: unknown): unknown {
     if (typeof value === 'string') {
-      const sanitized = value.replace(/\u0000/g, '').trim();
+      const sanitized = value.replaceAll(NULL_CHARACTER, '').trim();
       return this.isRedactedPlaceholder(sanitized) ? undefined : sanitized;
     }
 
@@ -465,7 +488,7 @@ ${rawText}`;
         Object.entries(value)
           .filter(([, item]) => item !== undefined && item !== null)
           .map(([key, item]) => ({
-            key: key.replace(/\u0000/g, ''),
+            key: key.replaceAll(NULL_CHARACTER, ''),
             value: this.sanitizeJsonbValue(item),
           }))
           .filter((entry) => entry.value !== undefined && entry.value !== null && entry.value !== '')
