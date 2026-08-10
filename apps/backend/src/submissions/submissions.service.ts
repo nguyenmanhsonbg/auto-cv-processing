@@ -1,65 +1,14 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as vm from 'vm';
 import { SubmissionStatus } from '@interview-assistant/shared';
 import { CodeSubmissionEntity } from './entities/code-submission.entity';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
+import { runInSandbox } from './sandbox-runner';
 import { SessionQuestionEntity } from '../sessions/entities/session-question.entity';
 import { InterviewWebSocketGateway } from '../websocket/websocket.gateway';
 
 const SUPPORTED_LANGUAGES = ['javascript', 'typescript'];
-
-// Wrap candidate code so it can read INPUT from the sandbox context
-function wrapCode(code: string, input: string): string {
-  const escaped = JSON.stringify(input);
-  return `const INPUT = ${escaped};\n${code}`;
-}
-
-/**
- * Run candidate code in an isolated VM context — no access to require, process,
- * fs, child_process, or any Node built-in. Only safe globals (Math, JSON, etc.)
- * and console.log are exposed. Throws on timeout or runtime error.
- */
-function runInSandbox(code: string, timeoutMs = 5000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const output: string[] = [];
-    const context = vm.createContext({
-      // Safe built-ins
-      Math,
-      JSON,
-      parseInt,
-      parseFloat,
-      isNaN,
-      isFinite,
-      Number,
-      String,
-      Boolean,
-      Array,
-      Object,
-      Map,
-      Set,
-      Date,
-      RegExp,
-      Error,
-      TypeError,
-      RangeError,
-      Symbol,
-      // Capture output — no access to real console
-      console: {
-        log: (...args: unknown[]) => output.push(args.map(String).join(' ')),
-        error: (...args: unknown[]) => output.push(args.map(String).join(' ')),
-        warn: (...args: unknown[]) => output.push(args.map(String).join(' ')),
-      },
-    });
-    try {
-      vm.runInContext(code, context, { timeout: timeoutMs });
-      resolve(output.join('\n').trim());
-    } catch (err: any) {
-      reject(err);
-    }
-  });
-}
 
 @Injectable()
 export class SubmissionsService {
@@ -77,7 +26,7 @@ export class SubmissionsService {
       status: SubmissionStatus.PENDING,
     });
     const saved = await this.submissionRepo.save(submission);
-    // Run asynchronously — don't block the HTTP response
+    // Run asynchronously - don't block the HTTP response.
     this.runCode(saved.id).catch(() => {});
     return saved;
   }
@@ -91,7 +40,7 @@ export class SubmissionsService {
 
     const lang = submission.language?.toLowerCase();
     if (!SUPPORTED_LANGUAGES.includes(lang)) {
-      // Mark as not runnable but leave PENDING for display
+      // Mark as not runnable but leave PENDING for display.
       return;
     }
 
@@ -110,7 +59,7 @@ export class SubmissionsService {
       const tc = testCases[i];
       const start = Date.now();
       try {
-        const actual = await runInSandbox(wrapCode(submission.code, tc.input));
+        const actual = await runInSandbox(submission.code, tc.input);
         const runtime = Date.now() - start;
         const ok = actual === tc.expectedOutput.trim();
         if (ok) passed++;
