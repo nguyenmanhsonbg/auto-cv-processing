@@ -4,6 +4,7 @@ import {
   createFreelancer,
   createInternal,
   getReferralManagementSources,
+  listJobDescriptions,
   listJobPostings,
   updateFreelancerStatus,
   updateInternalStatus,
@@ -13,13 +14,14 @@ import type {
   ReferralManagementApplication,
   ReferralManagementPerson,
   ReferralManagementSource,
+  JobDescriptionSummary,
   JobPostingSummary,
   AmisRecruitmentRound,
 } from './types';
 import { buildFreelancerIdentifierCopyText } from './referral-management-utils';
 
 type CvStatusFilter = string;
-type JdFilter = 'ALL' | string;
+type JdFilter = string[];
 type AccountStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 type ModalMode = 'CREATE' | 'CREDENTIALS' | 'STATUS' | null;
 type NotifyKind = 'SUCCESS' | 'ERROR';
@@ -148,6 +150,7 @@ export function ReferralManagementPanel({
   const [people, setPeople] = useState<ReferralManagementPerson[]>([]);
   const [allPeopleForJd, setAllPeopleForJd] = useState<ReferralManagementPerson[]>([]);
   const [jobPostings, setJobPostings] = useState<JobPostingSummary[]>([]);
+  const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: REFERRAL_PAGE_SIZE, total: 0, totalPages: 1 });
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -156,7 +159,8 @@ export function ReferralManagementPanel({
     buildReferralRoundOptions([], source !== 'FREELANCER')
   ));
   const [roundsLoading, setRoundsLoading] = useState(false);
-  const [jdFilter, setJdFilter] = useState<JdFilter>('ALL');
+  const [jdFilter, setJdFilter] = useState<JdFilter>([]);
+  const isAllJdSelected = jdFilter.length === 0;
   const [isJdFilterOpen, setIsJdFilterOpen] = useState(false);
   const [accountStatusFilter, setAccountStatusFilter] = useState<AccountStatusFilter>('ALL');
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
@@ -298,13 +302,59 @@ export function ReferralManagementPanel({
     };
   }, [accessToken, refreshVersion]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAllJobDescriptions() {
+      try {
+        const allJobDescriptions: JobDescriptionSummary[] = [];
+        let currentPage = 1;
+        let totalPages = 1;
+
+        do {
+          const result = await listJobDescriptions(accessToken, {
+            page: currentPage,
+            limit: 100,
+            status: 'ALL',
+            latestSyncedOnly: false,
+            sortBy: 'createdAt',
+            sortOrder: 'DESC',
+          });
+          allJobDescriptions.push(...result.data);
+          totalPages = result.pagination?.totalPages ?? 1;
+          currentPage += 1;
+        } while (currentPage <= totalPages);
+
+        if (!cancelled) setJobDescriptions(allJobDescriptions);
+      } catch {
+        if (!cancelled) setJobDescriptions([]);
+      }
+    }
+
+    void loadAllJobDescriptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, refreshVersion]);
+
   const availableJds = useMemo(() => {
     const jdMap = new Map<string, { title: string; createdAt?: string }>();
+    const linkedJobDescriptionIds = new Set<string>();
     jobPostings.forEach((posting) => {
+      if (posting.jobDescriptionId) linkedJobDescriptionIds.add(posting.jobDescriptionId);
       jdMap.set(posting.jobPostingId, {
         title: posting.jobDescription?.title ?? posting.title,
         createdAt: posting.createdAt,
       });
+    });
+    jobDescriptions.forEach((jobDescription) => {
+      const filterId = `job-description:${jobDescription.id}`;
+      if (!linkedJobDescriptionIds.has(jobDescription.id) && !jdMap.has(filterId)) {
+        jdMap.set(filterId, {
+          title: jobDescription.title,
+          createdAt: jobDescription.createdAt,
+        });
+      }
     });
     [...allPeopleForJd, ...people].forEach((person) => {
       person.applications.forEach((application) => {
@@ -318,7 +368,7 @@ export function ReferralManagementPanel({
       const leftTime = left[1].createdAt ? new Date(left[1].createdAt).getTime() : 0;
       return rightTime - leftTime || left[1].title.localeCompare(right[1].title, 'vi');
     });
-  }, [allPeopleForJd, jobPostings, people]);
+  }, [allPeopleForJd, jobDescriptions, jobPostings, people]);
   useEffect(() => {
     if (source !== 'FREELANCER') {
       setCvRoundOptions(buildReferralRoundOptions([], true));
@@ -331,9 +381,9 @@ export function ReferralManagementPanel({
     async function loadRoundsForFilter() {
       setRoundsLoading(true);
 
-      const scopedPostings = jdFilter === 'ALL'
+      const scopedPostings = isAllJdSelected
         ? jobPostings
-        : jobPostings.filter((posting) => posting.jobPostingId === jdFilter);
+        : jobPostings.filter((posting) => jdFilter.includes(posting.jobPostingId));
       const targets = scopedPostings
         .filter((posting) => posting.jobDescription?.sourceSystem?.toUpperCase() === 'AMIS')
         .map((posting) => ({
@@ -353,7 +403,7 @@ export function ReferralManagementPanel({
 
       const fallbackEntries = allPeopleForJd
         .flatMap((person) => person.applications)
-        .filter((application) => jdFilter === 'ALL' || application.jobPosting.jobPostingId === jdFilter)
+        .filter((application) => isAllJdSelected || jdFilter.includes(application.jobPosting.jobPostingId))
         .map((application) => application.currentAmisStage)
         .filter((stage): stage is NonNullable<typeof stage> => Boolean(stage?.recruitmentRoundName?.trim()))
         .map((stage) => ({
@@ -379,7 +429,7 @@ export function ReferralManagementPanel({
     return () => {
       cancelled = true;
     };
-  }, [allPeopleForJd, jdFilter, jobPostings, loadRecruitmentRounds, source]);
+  }, [allPeopleForJd, isAllJdSelected, jdFilter, jobPostings, loadRecruitmentRounds, source]);
 
   useEffect(() => {
     if (cvStatusFilter === 'ALL' || cvRoundOptions.some((option) => option.value === cvStatusFilter)) return;
@@ -387,7 +437,7 @@ export function ReferralManagementPanel({
     setPage(1);
   }, [cvRoundOptions, cvStatusFilter]);
 
-  const isClientFilterMode = jdFilter !== 'ALL' || cvStatusFilter !== 'ALL';
+  const isClientFilterMode = !isAllJdSelected || cvStatusFilter !== 'ALL';
   const filteredPeople = useMemo(() => {
     const sourcePeople = isClientFilterMode && allPeopleForJd.length > 0 ? allPeopleForJd : people;
     const normalizedSearch = search.trim().toLocaleLowerCase();
@@ -407,15 +457,15 @@ export function ReferralManagementPanel({
     .map((person) => ({
       person,
       applications: person.applications.filter((application) => (
-        (jdFilter === 'ALL' || application.jobPosting.jobPostingId === jdFilter)
+        (isAllJdSelected || jdFilter.includes(application.jobPosting.jobPostingId))
         && matchesCvStatus(application, cvStatusFilter, cvRoundOptions)
       )),
     }))
     .filter(({ person, applications }) => (
       applications.length > 0
-      || (cvStatusFilter === 'ALL' && jdFilter === 'ALL' && person.applications.length === 0)
+      || (cvStatusFilter === 'ALL' && isAllJdSelected && person.applications.length === 0)
     ));
-  }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, isClientFilterMode, jdFilter, people, search]);
+  }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, isAllJdSelected, isClientFilterMode, jdFilter, people, search]);
   const visiblePeople = isClientFilterMode
     ? filteredPeople.slice((page - 1) * REFERRAL_PAGE_SIZE, page * REFERRAL_PAGE_SIZE)
     : filteredPeople;
@@ -559,7 +609,7 @@ export function ReferralManagementPanel({
     : 'Chưa có người Nội bộ nào.';
   const hasActiveFilter = Boolean(search.trim())
     || cvStatusFilter !== 'ALL'
-    || jdFilter !== 'ALL'
+    || !isAllJdSelected
     || accountStatusFilter !== 'ALL';
   const noMatchingPeopleText = source === 'INTERNAL'
     ? 'Không tìm thấy thông tin NSNB phù hợp'
@@ -632,7 +682,13 @@ export function ReferralManagementPanel({
                 aria-expanded={isJdFilterOpen}
                 onClick={() => setIsJdFilterOpen((current) => !current)}
               >
-                <span>{jdFilter === 'ALL' ? 'Tất cả JD' : availableJds.find(([id]) => id === jdFilter)?.[1].title ?? 'Tất cả JD'}</span>
+                <span>
+                  {isAllJdSelected
+                    ? 'Tất cả JD'
+                    : jdFilter.length === 1
+                      ? availableJds.find(([id]) => id === jdFilter[0])?.[1].title ?? '1 JD'
+                      : `${jdFilter.length} JD đã chọn`}
+                </span>
                 <ReferralChevronDownIcon />
               </button>
               {isJdFilterOpen ? (
@@ -640,16 +696,15 @@ export function ReferralManagementPanel({
                   <button
                     type="button"
                     role="option"
-                    aria-selected={jdFilter === 'ALL'}
-                    className={`referral-jd-option${jdFilter === 'ALL' ? ' is-selected' : ''}`}
+                    aria-selected={isAllJdSelected}
+                    className={`referral-jd-option${isAllJdSelected ? ' is-selected' : ''}`}
                     onClick={() => {
-                      setJdFilter('ALL');
+                      setJdFilter([]);
                       setPage(1);
-                      setIsJdFilterOpen(false);
                     }}
                   >
                     <span className="referral-jd-option-label">
-                      <span className={`referral-jd-checkbox${jdFilter === 'ALL' ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
+                      <span className={`referral-jd-checkbox${isAllJdSelected ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
                       <span>Tất cả JD</span>
                     </span>
                   </button>
@@ -658,16 +713,17 @@ export function ReferralManagementPanel({
                       key={id}
                       type="button"
                       role="option"
-                      aria-selected={jdFilter === id}
-                      className={`referral-jd-option${jdFilter === id ? ' is-selected' : ''}`}
+                      aria-selected={jdFilter.includes(id)}
+                      className={`referral-jd-option${jdFilter.includes(id) ? ' is-selected' : ''}`}
                       onClick={() => {
-                        setJdFilter(id);
+                        setJdFilter((current) => current.includes(id)
+                          ? current.filter((selectedId) => selectedId !== id)
+                          : [...current, id]);
                         setPage(1);
-                        setIsJdFilterOpen(false);
                       }}
                     >
                       <span className="referral-jd-option-label">
-                        <span className={`referral-jd-checkbox${jdFilter === id ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
+                        <span className={`referral-jd-checkbox${jdFilter.includes(id) ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
                         <span>{jd.title}</span>
                       </span>
                       {jd.createdAt ? <time>{formatDate(jd.createdAt)}</time> : null}

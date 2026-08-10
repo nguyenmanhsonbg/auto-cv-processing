@@ -4576,11 +4576,6 @@ dd {
   content: "";
 }
 
-.extension-tab svg {
-  width: 9.6px;
-  height: 12.8px;
-}
-
 .extension-tab span {
   display: inline-block;
   min-width: max-content;
@@ -6802,6 +6797,7 @@ dd {
   right: 0;
   left: 0;
   display: grid;
+  min-width: 320px;
   max-height: 280px;
   overflow-y: auto;
   border: 1px solid #c5cdd9;
@@ -6813,7 +6809,7 @@ dd {
 
 .referral-jd-option {
   display: flex;
-  min-height: 42px;
+  min-height: 33px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -6822,7 +6818,7 @@ dd {
   padding: 0 8px;
   color: #536074;
   background: transparent;
-  font: 400 14px/20px Inter, sans-serif;
+  font: 400 13px/20px Inter, sans-serif;
   text-align: left;
 }
 
@@ -6840,9 +6836,8 @@ dd {
 }
 
 .referral-jd-option-label > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: normal;
 }
 
 .referral-jd-checkbox {
@@ -7164,14 +7159,25 @@ dd {
 }
 
 .referral-table-wrap {
-  overflow: hidden;
-  scrollbar-width: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #b8c3d1 transparent;
   border: 1px solid #dbe3eb;
   border-radius: 7px;
 }
 
 .referral-table-wrap::-webkit-scrollbar {
-  display: none;
+  height: 6px;
+}
+
+.referral-table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.referral-table-wrap::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #b8c3d1;
 }
 
 .referral-application-table {
@@ -8328,8 +8334,8 @@ dd {
 }
 
 .extension-tab svg {
-  width: 16px;
-  height: 16px;
+  width: 17.59px;
+  height: 17.59px;
 }
 
 .workspace-grid {
