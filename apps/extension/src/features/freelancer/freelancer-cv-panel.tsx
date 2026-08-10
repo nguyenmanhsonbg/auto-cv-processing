@@ -53,13 +53,7 @@ export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormO
         ...current,
       }));
     } catch (err) {
-      setError(
-        err instanceof ApiClientError && err.code === 'FREELANCER_NOT_FOUND'
-          ? 'Chưa tải lên CV nào'
-          : err instanceof ApiClientError
-            ? err.message
-            : 'Không thể tải danh sách CV của bạn.',
-      );
+      setError(err instanceof ApiClientError ? err.message : 'Không thể tải danh sách CV của bạn.');
     } finally {
       setLoading(false);
     }
@@ -192,9 +186,6 @@ export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormO
       {error ? (
         <div className="freelancer-cv-empty freelancer-cv-error">
           <p>{error}</p>
-          {error !== 'Chưa tải lên CV nào' ? (
-            <button type="button" className="secondary-button" onClick={() => void loadData()}>Thử lại</button>
-          ) : null}
         </div>
       ) : null}
       {!loading && !error && visibleApplications.length === 0 ? (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -26,16 +26,41 @@ export function LoginPage() {
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+    },
   });
+
+  const resetLoginForm = () => {
+    reset({ email: '', password: '' });
+    setError('');
+    setShowPassword(false);
+  };
+
+  useEffect(() => {
+    resetLoginForm();
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        resetLoginForm();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [reset]);
 
   const onSubmit = async (data: LoginForm) => {
     try {
       setError('');
       const res = await apiClient.post<{ accessToken: string; refreshToken: string }>('/auth/login', data);
       apiClient.setTokens(res);
+      resetLoginForm();
       navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -55,7 +80,10 @@ export function LoginPage() {
             type="button"
             variant="outline"
             className="w-full"
-            onClick={() => { window.location.href = '/api/auth/google'; }}
+            onClick={() => {
+              resetLoginForm();
+              window.location.href = '/api/auth/google';
+            }}
           >
             <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -71,7 +99,13 @@ export function LoginPage() {
           {/* Secondary: password login (collapsed by default) */}
           <button
             type="button"
-            onClick={() => setShowPassword((v) => !v)}
+            onClick={() => {
+              if (showPassword) {
+                resetLoginForm();
+                return;
+              }
+              setShowPassword(true);
+            }}
             className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground w-full justify-center transition-colors"
           >
             {showPassword ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -79,7 +113,7 @@ export function LoginPage() {
           </button>
 
           {showPassword && (
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" autoComplete="off">
               {error && (
                 <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">
                   {error}
@@ -90,6 +124,7 @@ export function LoginPage() {
                 <Input
                   id="email"
                   type="email"
+                  autoComplete="username"
                   placeholder="you@example.com"
                   {...register('email')}
                 />
@@ -102,6 +137,7 @@ export function LoginPage() {
                 <Input
                   id="password"
                   type="password"
+                  autoComplete="current-password"
                   placeholder="Enter your password"
                   {...register('password')}
                 />
