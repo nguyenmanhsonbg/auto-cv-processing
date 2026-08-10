@@ -543,7 +543,19 @@ export function SessionDetailPage() {
             const stepClass = (step: number) => cn("px-2 py-0.5 rounded-full text-xs font-medium", surveyStep === step ? "bg-primary text-primary-foreground" : surveyStep > step ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground");
             return (
               <div className="rounded-lg border bg-card">
-                <div className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors rounded-lg" onClick={() => setSurveyExpanded((v) => !v)}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Toggle pre-interview survey"
+                  aria-expanded={surveyExpanded}
+                  className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors rounded-lg"
+                  onClick={() => setSurveyExpanded((v) => !v)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    setSurveyExpanded((v) => !v);
+                  }}
+                >
                   <div className="flex items-center gap-2 text-sm font-semibold">
                     <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
                     Pre-Interview Survey
@@ -621,7 +633,21 @@ export function SessionDetailPage() {
                     {surveyQuestions.length > 0 && (
                       <div className="space-y-2">
                         {surveyQuestions.map((sq) => (
-                          <div key={sq.id} className="rounded-md border px-3 py-2 space-y-1.5 cursor-pointer hover:bg-muted/30 transition-colors" onClick={() => setExpandedSurveyId(expandedSurveyId === sq.id ? null : sq.id)}>
+                          <div
+                            key={sq.id}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={sq.question}
+                            aria-expanded={expandedSurveyId === sq.id}
+                            className="rounded-md border px-3 py-2 space-y-1.5 cursor-pointer hover:bg-muted/30 transition-colors"
+                            onClick={() => setExpandedSurveyId(expandedSurveyId === sq.id ? null : sq.id)}
+                            onKeyDown={(event) => {
+                              if (event.target !== event.currentTarget) return;
+                              if (event.key !== 'Enter' && event.key !== ' ') return;
+                              event.preventDefault();
+                              setExpandedSurveyId(expandedSurveyId === sq.id ? null : sq.id);
+                            }}
+                          >
                             <div className="flex items-start gap-2">
                               <p className="leading-snug text-sm flex-1 min-w-0">{sq.question}</p>
                               <div className="flex items-center gap-1.5 shrink-0">
@@ -643,9 +669,9 @@ export function SessionDetailPage() {
                             {sq.purpose && <p className="text-xs text-muted-foreground italic">{sq.purpose}</p>}
                             {sq.answer && <p className="text-xs text-green-800 bg-green-50 border border-green-100 rounded px-2 py-1">{sq.answer}</p>}
                             {expandedSurveyId === sq.id && sq.choices?.length > 0 && (
-                              <div className="pt-1 space-y-1" onClick={(e) => e.stopPropagation()}>
+                              <div className="pt-1 space-y-1">
                                 {sq.choices.map((choice: string) => (
-                                  <button key={choice} className={cn("w-full text-left text-xs px-2 py-1.5 rounded border transition-colors", sq.answer === choice ? "bg-green-50 border-green-300 text-green-800 font-medium" : "hover:bg-muted/60 border-transparent hover:border-border", surveyAnswerSaving === sq.id && "opacity-50 pointer-events-none")} onClick={() => handleSaveSurveyAnswer(sq.id, choice)}>
+                                  <button type="button" key={choice} className={cn("w-full text-left text-xs px-2 py-1.5 rounded border transition-colors", sq.answer === choice ? "bg-green-50 border-green-300 text-green-800 font-medium" : "hover:bg-muted/60 border-transparent hover:border-border", surveyAnswerSaving === sq.id && "opacity-50 pointer-events-none")} onClick={(event) => { event.stopPropagation(); handleSaveSurveyAnswer(sq.id, choice); }}>
                                     {surveyAnswerSaving === sq.id && sq.answer !== choice && <Loader2 className="inline h-3 w-3 mr-1 animate-spin" />}
                                     {choice}
                                   </button>
@@ -666,7 +692,20 @@ export function SessionDetailPage() {
           {/* Collapsible Questions tree - hidden from HR */}
           {!isHr && (
           <div className="rounded-lg border bg-card">
-            <div className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-muted/40 transition-colors rounded-lg cursor-pointer" onClick={() => setQuestionsExpanded((v) => !v)}>
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Toggle questions"
+              aria-expanded={questionsExpanded}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-muted/40 transition-colors rounded-lg cursor-pointer"
+              onClick={() => setQuestionsExpanded((v) => !v)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                setQuestionsExpanded((v) => !v);
+              }}
+            >
               <span className="flex items-center gap-2">
                 <Layers className="h-4 w-4 text-muted-foreground" />
                 Questions ({total})
@@ -731,8 +770,10 @@ export function SessionDetailPage() {
                 className="h-7 text-sm"
               />
             ) : (
-              <p
-                className={cn("text-sm font-medium rounded px-1 -mx-1", !isHr && "cursor-pointer hover:bg-muted")}
+              <button
+                type="button"
+                disabled={isHr}
+                className={cn("w-full border-0 bg-transparent text-left text-sm font-medium rounded px-1 -mx-1 disabled:cursor-default disabled:opacity-100", !isHr && "cursor-pointer hover:bg-muted")}
                 onClick={() => {
                   if (!isHr) {
                     setEditTemplatePositionValue(session.templatePosition || "");
@@ -741,7 +782,7 @@ export function SessionDetailPage() {
                 }}
               >
                 {session.templatePosition || <span className="text-muted-foreground">—</span>}
-              </p>
+              </button>
             )}
           </div>
 
@@ -761,8 +802,10 @@ export function SessionDetailPage() {
                 className="h-7 text-sm"
               />
             ) : (
-              <p
-                className={cn("text-sm font-medium rounded px-1 -mx-1", !isHr && "cursor-pointer hover:bg-muted")}
+              <button
+                type="button"
+                disabled={isHr}
+                className={cn("w-full border-0 bg-transparent text-left text-sm font-medium rounded px-1 -mx-1 disabled:cursor-default disabled:opacity-100", !isHr && "cursor-pointer hover:bg-muted")}
                 onClick={() => {
                   if (!isHr) {
                     setEditTargetLevelValue(session.targetLevel || "");
@@ -771,7 +814,7 @@ export function SessionDetailPage() {
                 }}
               >
                 {session.targetLevel || <span className="text-muted-foreground">—</span>}
-              </p>
+              </button>
             )}
           </div>
 
@@ -798,7 +841,8 @@ export function SessionDetailPage() {
                     className="h-7 text-xs"
                   />
                 ) : (
-                  <p
+                  <button
+                    type="button"
                     className="text-xs font-medium rounded px-1 -mx-1 cursor-pointer hover:bg-muted"
                     onClick={() => {
                       const dateValue = session.scheduledAt
@@ -813,7 +857,7 @@ export function SessionDetailPage() {
                     ) : (
                       <span className="text-muted-foreground">Click to set date/time</span>
                     )}
-                  </p>
+                  </button>
                 )}
               </div>
 
@@ -835,11 +879,22 @@ export function SessionDetailPage() {
                     className="h-7 text-xs"
                   />
                 ) : (
-                  <p
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    aria-label={session.meetingLink ? "Edit meeting link" : "Set meeting link"}
                     className="text-xs font-medium rounded px-1 -mx-1 cursor-pointer hover:bg-muted break-all"
                     onClick={() => {
                       setEditMeetingLinkValue(session.meetingLink || "");
                       setEditingMeetingLink(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setEditMeetingLinkValue(session.meetingLink || "");
+                        setEditingMeetingLink(true);
+                      }
                     }}
                   >
                     {session.meetingLink ? (
@@ -855,7 +910,7 @@ export function SessionDetailPage() {
                     ) : (
                       <span className="text-muted-foreground">Click to set meeting link</span>
                     )}
-                  </p>
+                  </div>
                 )}
               </div>
 
@@ -1048,7 +1103,7 @@ export function SessionDetailPage() {
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Rating</p>
               <div className="flex flex-wrap gap-2">
                 {[1, 2, 3, 4, 5].map((r) => (
-                  <button key={r} onClick={() => setDetailRating((prev) => (prev === r ? null : r))} className={cn("text-sm px-3 py-1.5 rounded-full border transition-all font-medium", detailRating === r ? RATING_COLORS[r] : "bg-background text-muted-foreground border-border hover:border-primary/50")}>
+                  <button type="button" key={r} onClick={() => setDetailRating((prev) => (prev === r ? null : r))} className={cn("text-sm px-3 py-1.5 rounded-full border transition-all font-medium", detailRating === r ? RATING_COLORS[r] : "bg-background text-muted-foreground border-border hover:border-primary/50")}>
                     {r} — {getRatingLabels(detailSq?.question?.category ?? "")[r]}
                   </button>
                 ))}
@@ -1112,6 +1167,10 @@ export function SessionDetailPage() {
                           <div
                             key={questionId}
                             className={cn("flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors", activateSelectedIds.has(questionId) ? "border-primary bg-primary/5" : "border-input bg-background opacity-60")}
+                            role="button"
+                            tabIndex={0}
+                            aria-pressed={activateSelectedIds.has(questionId)}
+                            aria-label={`Select suggested question ${question?.text ?? ''}`}
                             onClick={() =>
                               setActivateSelectedIds((prev) => {
                                 const next = new Set(prev);
@@ -1119,6 +1178,15 @@ export function SessionDetailPage() {
                                 return next;
                               })
                             }
+                            onKeyDown={(event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return;
+                              event.preventDefault();
+                              setActivateSelectedIds((prev) => {
+                                const next = new Set(prev);
+                                next.has(questionId) ? next.delete(questionId) : next.add(questionId);
+                                return next;
+                              });
+                            }}
                           >
                             <div className={cn("mt-0.5 h-4 w-4 shrink-0 rounded border flex items-center justify-center", activateSelectedIds.has(questionId) ? "bg-primary border-primary" : "border-input")}>
                               {activateSelectedIds.has(questionId) && (
@@ -1178,6 +1246,10 @@ export function SessionDetailPage() {
                   <div
                     key={q.id}
                     className="flex items-start gap-3 rounded-lg border p-3 hover:bg-muted/50 cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selectedBankQuestionIds.has(q.id)}
+                    aria-label={`Select question ${q.text}`}
                     onClick={() =>
                       setSelectedBankQuestionIds((prev) => {
                         const next = new Set(prev);
@@ -1185,6 +1257,15 @@ export function SessionDetailPage() {
                         return next;
                       })
                     }
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      setSelectedBankQuestionIds((prev) => {
+                        const next = new Set(prev);
+                        next.has(q.id) ? next.delete(q.id) : next.add(q.id);
+                        return next;
+                      });
+                    }}
                   >
                     <input type="checkbox" className="mt-1" readOnly checked={selectedBankQuestionIds.has(q.id)} />
                     <div className="flex-1 min-w-0">

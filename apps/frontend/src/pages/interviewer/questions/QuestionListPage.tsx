@@ -575,16 +575,16 @@ export function QuestionListPage() {
                 </TableCell>
                 <TableCell>
                   {isAdmin && (
-                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1">
                       {q.isCustomized && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-600" title="Reset to default" onClick={() => handleReset(q.id)}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-600" title="Reset to default" onClick={(e) => { e.stopPropagation(); handleReset(q.id); }}>
                           <RotateCcw className="h-4 w-4" />
                         </Button>
                       )}
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(q)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); openEditDialog(q); }}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(q.id)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); handleDelete(q.id); }}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -953,23 +953,25 @@ export function QuestionListPage() {
                 {/* Hidden Test Cases — collapsible */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <div
+                    <button
+                      type="button"
                       className="flex items-center gap-1 cursor-pointer select-none"
+                      aria-expanded={hiddenExpanded}
                       onClick={() => setHiddenExpanded((v) => !v)}
                     >
                       {hiddenExpanded
                         ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                         : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
-                      <Label className="cursor-pointer">
+                      <span className="cursor-pointer">
                         Hidden Test Cases
                         {form.hiddenTestCases.length > 0 && (
                           <span className="ml-1.5 text-xs text-muted-foreground font-normal">
                             ({form.hiddenTestCases.length})
                           </span>
                         )}
-                      </Label>
+                      </span>
                       <span className="text-xs text-muted-foreground ml-1">— not shown to candidate</span>
-                    </div>
+                    </button>
                     <Button
                       type="button"
                       variant="outline"

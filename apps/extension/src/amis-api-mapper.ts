@@ -194,7 +194,7 @@ function htmlToText(value: string | null | undefined) {
 
 function cleanText(value: string | null | undefined) {
   return removeHorizontalWhitespaceBeforeNewlines((value ?? '')
-    .replace(/\u00a0/g, ' '))
+    .replaceAll('\u00a0', ' '))
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();

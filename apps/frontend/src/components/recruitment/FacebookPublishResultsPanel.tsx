@@ -73,7 +73,6 @@ function getFacebookChannelStatus(progress: FacebookPublishProgress | null) {
 }
 
 function getGroupStatus(
-  group: FacebookPublishPlan['targets'][number],
   progress: FacebookPublishProgress | null,
   result: FacebookPublishResultPayload | undefined,
 ) {
@@ -87,17 +86,10 @@ function getGroupStatus(
     return { label: 'Đăng lỗi', className: 'border-red-200 bg-red-50 text-red-700' };
   }
 
-  const active = progress?.status === 'POSTING' || progress?.status === 'REPORTING';
-  const isActive = active && (
-    progress?.target?.targetId === group.targetId
-      || progress?.target?.targetName === group.targetName
-  );
   if (progress?.status === 'PARTIAL_SUCCESS' || progress?.status === 'ERROR') {
     return { label: 'Đăng lỗi', className: 'border-red-200 bg-red-50 text-red-700' };
   }
-  return isActive
-    ? { label: 'Đang đăng', className: 'border-amber-200 bg-amber-50 text-amber-700' }
-    : { label: 'Đang đăng', className: 'border-amber-200 bg-amber-50 text-amber-700' };
+  return { label: 'Đang đăng', className: 'border-amber-200 bg-amber-50 text-amber-700' };
 }
 
 export function FacebookPublishResultsPanel({
@@ -154,7 +146,7 @@ export function FacebookPublishResultsPanel({
           <div className="mt-2 max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-100">
             {targets.length > 0 ? targets.map((group) => {
               const groupResult = progressByTarget.get(targetKey(group));
-              const groupStatus = getGroupStatus(group, progress, groupResult);
+              const groupStatus = getGroupStatus(progress, groupResult);
               return (
                 <div key={targetKey(group)} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
                   <span className="min-w-0 truncate text-slate-700" title={group.targetName}>{group.targetName}</span>

@@ -38,13 +38,19 @@ interface FormErrors {
   closeAt?: string;
 }
 
+function trimSlugHyphenBoundaries(value: string) {
+  let normalized = value;
+  while (normalized.startsWith('-')) normalized = normalized.slice(1);
+  while (normalized.endsWith('-')) normalized = normalized.slice(0, -1);
+  return normalized;
+}
+
 function slugify(value: string) {
-  return value
+  return trimSlugHyphenBoundaries(value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^a-z0-9]+/g, '-'))
     .replace(/-{2,}/g, '-');
 }
 

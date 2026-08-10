@@ -627,6 +627,7 @@ function CategoriesTreeTab() {
               {/* Category row */}
               <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors">
                 <button
+                  type="button"
                   onClick={() => toggleExpand(cat.id)}
                   className="shrink-0 text-muted-foreground hover:text-foreground"
                 >
@@ -1167,7 +1168,7 @@ function LevelsTab() {
               <TableCell>{l.displayName}</TableCell>
               <TableCell className="text-sm text-muted-foreground">#{l.orderIndex}</TableCell>
               <TableCell>
-                <button onClick={() => toggleActive(l)}>
+                <button type="button" onClick={() => toggleActive(l)}>
                   {l.isActive
                     ? <Badge className="bg-green-100 text-green-800 cursor-pointer">Active</Badge>
                     : <Badge variant="secondary" className="cursor-pointer">Inactive</Badge>}
@@ -1457,7 +1458,7 @@ function PromptsTab() {
                           <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Opus — Most Capable</div>
                           {availableModels.filter(m => m.family === 'opus').map(m => (
                             <SelectItem key={m.key} value={m.key}>
-                              {m.key.replace('claude-', 'Claude ').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                              {m.key.replace('claude-', 'Claude ').replaceAll('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             </SelectItem>
                           ))}
                         </>
@@ -1468,7 +1469,7 @@ function PromptsTab() {
                           <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Sonnet — Balanced Performance</div>
                           {availableModels.filter(m => m.family === 'sonnet').map(m => (
                             <SelectItem key={m.key} value={m.key}>
-                              {m.key.replace('claude-', 'Claude ').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                              {m.key.replace('claude-', 'Claude ').replaceAll('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             </SelectItem>
                           ))}
                         </>
@@ -1479,7 +1480,7 @@ function PromptsTab() {
                           <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Haiku — Fast & Efficient</div>
                           {availableModels.filter(m => m.family === 'haiku').map(m => (
                             <SelectItem key={m.key} value={m.key}>
-                              {m.key.replace('claude-', 'Claude ').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                              {m.key.replace('claude-', 'Claude ').replaceAll('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             </SelectItem>
                           ))}
                         </>
@@ -1607,7 +1608,7 @@ function ModelsTab() {
               <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">{label}</div>
               {items.map((m) => (
                 <SelectItem key={m.key} value={m.key}>
-                  {m.key.replace('claude-', 'Claude ').replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                  {m.key.replace('claude-', 'Claude ').replaceAll('-', ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
                 </SelectItem>
               ))}
             </div>

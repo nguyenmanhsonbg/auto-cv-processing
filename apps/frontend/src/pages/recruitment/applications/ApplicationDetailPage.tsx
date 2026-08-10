@@ -1093,9 +1093,10 @@ export function ApplicationDetailPage() {
                     {/* Copied link banner */}
                     {lastGeneratedUrl && (
                       <div className="p-4 rounded-lg border bg-blue-500/5 border-blue-500/10 space-y-2">
-                        <label className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Link khảo sát vừa tạo (Chỉ hiển thị một lần)</label>
+                        <label htmlFor="generated-survey-url" className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Link khảo sát vừa tạo (Chỉ hiển thị một lần)</label>
                         <div className="flex items-center space-x-2">
                           <input
+                            id="generated-survey-url"
                             type="text"
                             readOnly
                             value={lastGeneratedUrl}

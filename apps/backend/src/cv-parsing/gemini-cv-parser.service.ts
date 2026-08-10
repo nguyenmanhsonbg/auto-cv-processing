@@ -19,7 +19,7 @@ const GEMINI_MODEL_ALIASES: Record<string, string> = {
   'gemini 3 flash': 'gemini-3-flash',
   'gemini 3.1 flash lite': 'gemini-3.1-flash-lite',
 };
-const NULL_CHARACTER = String.fromCharCode(0);
+const NULL_CHARACTER = String.fromCodePoint(0);
 
 function isJsonWhitespace(character: string | undefined) {
   return character === ' ' || character === '\t' || character === '\r' || character === '\n';

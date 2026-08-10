@@ -313,7 +313,16 @@ export function SessionSurveyPage() {
                       'flex items-start gap-3 p-3 rounded-md border cursor-pointer transition-colors',
                       selectedIds.has(questionId) ? 'border-primary bg-primary/5' : 'border-input bg-background opacity-60',
                     )}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selectedIds.has(questionId)}
+                    aria-label={`Select suggested question ${question?.text ?? ''}`}
                     onClick={() => toggleSelection(questionId)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      toggleSelection(questionId);
+                    }}
                   >
                     <div className={cn(
                       'mt-0.5 h-4 w-4 shrink-0 rounded border flex items-center justify-center',

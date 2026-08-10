@@ -25,6 +25,7 @@ export function SortableHeader({ label, field, sortBy, sortOrder, onSort, classN
 
   return (
     <button
+      type="button"
       className={cn('flex items-center gap-1 hover:text-foreground transition-colors whitespace-nowrap', isActive ? 'text-foreground' : 'text-muted-foreground', className)}
       onClick={handleClick}
     >

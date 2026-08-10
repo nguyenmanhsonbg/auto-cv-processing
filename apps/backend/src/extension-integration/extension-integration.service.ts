@@ -1560,7 +1560,7 @@ export class ExtensionIntegrationService {
   }
 
   private getApplicationUploadIdPrefix(applicationId: string) {
-    return applicationId.replace(/-/g, '').slice(0, 8).toLowerCase();
+    return applicationId.replaceAll('-', '').slice(0, 8).toLowerCase();
   }
 
   private extractApplicationIdPrefixFromAmisAttachmentName(attachmentCvName?: string | null) {
@@ -2585,7 +2585,7 @@ export class ExtensionIntegrationService {
   }
 
   private removeVietnameseMarks(value: string) {
-    return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+    return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replaceAll('đ', 'd').replaceAll('Đ', 'D');
   }
 
   private findSingleOrganizationUnitId(items: SyncAmisCareerItemDto[]) {

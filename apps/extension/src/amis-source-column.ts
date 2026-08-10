@@ -14,7 +14,7 @@ const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 
 function isEmailTokenCharacter(character: string | undefined) {
   if (!character) return false;
-  const code = character.charCodeAt(0);
+  const code = character.codePointAt(0) ?? -1;
   return (code >= 48 && code <= 57)
     || (code >= 65 && code <= 90)
     || (code >= 97 && code <= 122)

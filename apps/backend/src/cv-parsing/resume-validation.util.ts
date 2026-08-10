@@ -327,7 +327,7 @@ function trimEmailToken(token: string) {
 
 function isEmailTokenCharacter(character: string | undefined) {
   if (!character) return false;
-  const code = character.charCodeAt(0);
+  const code = character.codePointAt(0) ?? -1;
   return (code >= 48 && code <= 57)
     || (code >= 65 && code <= 90)
     || (code >= 97 && code <= 122)
@@ -345,7 +345,7 @@ function isResumeEmailCandidate(value: string) {
   const topLevelDomain = value.slice(dotIndex + 1);
   if (topLevelDomain.length < 2) return false;
   if ([...topLevelDomain].some((character) => {
-    const code = character.charCodeAt(0);
+    const code = character.codePointAt(0) ?? -1;
     return !((code >= 65 && code <= 90) || (code >= 97 && code <= 122));
   })) return false;
 

@@ -5,7 +5,7 @@ export function hashText(value: string): string {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
     const wrappedHash = (
-      (hash * 31 + value.charCodeAt(index)) % UINT32_MODULUS
+      (hash * 31 + (value.codePointAt(index) ?? 0)) % UINT32_MODULUS
       + UINT32_MODULUS
     ) % UINT32_MODULUS;
     const unsignedHash = Math.trunc(wrappedHash);

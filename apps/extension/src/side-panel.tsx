@@ -4213,7 +4213,7 @@ function SidePanel() {
             ) : null}
             <label>
               <span className="facebook-group-field-label">
-                Tên nhóm
+                Tên nhóm{' '}
                 <span className="facebook-group-required-mark" aria-hidden="true">*</span>
               </span>
               <div className="facebook-group-input-wrap">
@@ -4250,7 +4250,7 @@ function SidePanel() {
             </label>
             <label>
               <span className="facebook-group-field-label">
-                Link URL
+                Link URL{' '}
                 <span className="facebook-group-required-mark" aria-hidden="true">*</span>
               </span>
               <div className="facebook-group-input-wrap">
@@ -6298,11 +6298,11 @@ return (
         {state === 'AUTH_REQUIRED' ? (
           <form className="auth-form extension-auth-form" onSubmit={submitLogin}>
             <label>
-              Email
+              Email{' '}
               <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" />
             </label>
             <label>
-              Password
+              Password{' '}
               <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" />
             </label>
             <label className="remember-me-control">
@@ -6641,7 +6641,7 @@ return (
                 ) : null}
                 <label>
                   <span className="facebook-group-field-label">
-                    Tên nhóm
+                    Tên nhóm{' '}
                     <span className="facebook-group-required-mark" aria-hidden="true">*</span>
                   </span>
                   <input
@@ -8298,8 +8298,8 @@ function normalizeAmisSourceChannel(value?: string | null) {
   return normalizeOptionalText(value)
     ?.normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
+    .replaceAll('đ', 'd')
+    .replaceAll('Đ', 'D')
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '')
     ?? null;
@@ -8350,8 +8350,8 @@ function normalizeAmisStageName(value?: string | null) {
   return normalizeOptionalText(value)
     ?.normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/Đ/g, 'D')
-    .replace(/đ/g, 'd')
+    .replaceAll('Đ', 'D')
+    .replaceAll('đ', 'd')
     .toUpperCase()
     .trim() ?? null;
 }
@@ -8654,7 +8654,7 @@ function arrayBufferToBase64(value: ArrayBuffer) {
   let binary = '';
 
   for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+    binary += String.fromCodePoint(...bytes.subarray(index, index + chunkSize));
   }
 
   return btoa(binary);
@@ -8675,7 +8675,7 @@ function buildAmisUploadCvFileName(
     .replace(/[^a-zA-Z0-9]+/g, '-'))
     .slice(0, 48)
     .toLowerCase() || 'candidate';
-  const shortApplicationId = application.applicationId.replace(/-/g, '').slice(0, 8);
+  const shortApplicationId = application.applicationId.replaceAll('-', '').slice(0, 8);
 
   return `${safeIdentity}-${shortApplicationId}${extension.toLowerCase()}`;
 }

@@ -1040,8 +1040,8 @@ export class FacebookPublishingService {
     return (value ?? '')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/đ/g, 'd')
-      .replace(/Đ/g, 'D')
+      .replaceAll('đ', 'd')
+      .replaceAll('Đ', 'D')
       .toLowerCase()
       .replace(/\s+/g, ' ')
       .trim();
@@ -1516,8 +1516,8 @@ export class FacebookPublishingService {
     return value
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\u0111/g, 'd')
-      .replace(/\u0110/g, 'D')
+      .replaceAll('\u0111', 'd')
+      .replaceAll('\u0110', 'D')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, ' ')
       .trim();

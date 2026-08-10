@@ -473,7 +473,7 @@ export class CvSimilarityService {
   }
 
   private tokenize(text: string): string[] {
-    return text.match(/(?:\.[\p{L}\p{N}]+|[\p{L}\p{N}]+(?:[+#]+|(?:[.-][\p{L}\p{N}]+)*)?)/gu) ?? [];
+    return text.match(/(?:\.[\p{L}\p{N}]+|[\p{L}\p{N}]+(?:[+#]+|(?:[.-][\p{L}\p{N}]+)+)?)/gu) ?? [];
   }
 
   private toTfIdfVector(

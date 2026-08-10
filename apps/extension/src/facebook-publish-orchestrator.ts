@@ -1277,8 +1277,8 @@ function normalizeFacebookAutomationText(value: string | null | undefined) {
   return (value ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
@@ -2636,7 +2636,7 @@ function decodeFacebookPublishResponseBody(response: FacebookPublishGraphqlRespo
   if (!response.body) return null;
   if (!response.base64Encoded) return response.body;
   const binary = atob(response.body);
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const bytes = Uint8Array.from(binary, (character) => character.codePointAt(0) ?? 0);
   return new TextDecoder().decode(bytes);
 }
 
@@ -3085,8 +3085,8 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
@@ -3347,8 +3347,8 @@ async function prepareFacebookPostInPage(
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
@@ -4183,8 +4183,8 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
@@ -4360,8 +4360,8 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
@@ -4576,8 +4576,8 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
@@ -4837,8 +4837,8 @@ async function recoverFacebookPendingPostUrlInPage(
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
@@ -5164,11 +5164,11 @@ async function recoverFacebookPendingPostUrlInPage(
     const textarea = document.createElement('textarea');
     textarea.innerHTML = value;
     return textarea.value
-      .replace(/\\\//g, '/')
-      .replace(/\\"/g, '"')
-      .replace(/\\u0025/g, '%')
+      .replaceAll('\\/', '/')
+      .replaceAll('\\"', '"')
+      .replaceAll('\\u0025', '%')
       .replace(/\\u002F/gi, '/')
-      .replace(/\\u0026/g, '&');
+      .replaceAll('\\u0026', '&');
   };
   const buildSerializedPostUrl = (groupId: string, postId: string, pathType: FacebookGroupPostPathType) => {
     const normalizedGroupId = decodeURIComponent(groupId).trim();
@@ -5213,9 +5213,9 @@ async function recoverFacebookPendingPostUrlInPage(
     return null;
   };
   const decodeFacebookScriptText = (value: string) => decodeSerializedFacebookHtml(value)
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
     .replace(/\\n|\\r|\\t/g, ' ')
-    .replace(/\\\\/g, '\\');
+    .replaceAll('\\\\', '\\');
   const getScriptChunkContentScore = (value: string) => {
     if (samples.length === 0) return 0;
     const contentMatch = getSubmittedContentMatchForText(value);
@@ -5985,8 +5985,8 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
@@ -6264,8 +6264,8 @@ async function checkFacebookPostReviewStatusInPage(
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
@@ -6641,8 +6641,8 @@ async function waitForFacebookSubmissionInPage(
   const normalize = (value: string) => value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0111/g, 'd')
-    .replace(/\u0110/g, 'D')
+    .replaceAll('\u0111', 'd')
+    .replaceAll('\u0110', 'D')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();

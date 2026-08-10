@@ -142,7 +142,7 @@ export async function extractAmisJobFromDetailApi(
 
   function cleanText(value: unknown) {
     return typeof value === 'string' || typeof value === 'number'
-      ? String(value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+      ? String(value).replaceAll('\u00a0', ' ').replace(/\s+/g, ' ').trim()
       : '';
   }
 
@@ -153,7 +153,7 @@ export async function extractAmisJobFromDetailApi(
     const container = document.createElement('div');
     container.innerHTML = html;
     return removeHorizontalWhitespaceBeforeNewlines((container.innerText || container.textContent || '')
-      .replace(/\r/g, ''))
+      .replaceAll('\r', ''))
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }

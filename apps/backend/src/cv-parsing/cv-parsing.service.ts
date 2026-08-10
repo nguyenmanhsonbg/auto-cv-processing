@@ -29,7 +29,7 @@ import { GeminiCvParserService } from './gemini-cv-parser.service';
 import { validateResumeSignals } from './resume-validation.util';
 
 const DEFAULT_PARSER_VERSION = 'file-parser-v1';
-const NULL_CHARACTER = String.fromCharCode(0);
+const NULL_CHARACTER = String.fromCodePoint(0);
 
 export interface ParseCleanCvInput {
   applicationId: string;

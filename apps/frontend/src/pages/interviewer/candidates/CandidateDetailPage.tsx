@@ -416,15 +416,15 @@ export function CandidateDetailPage() {
             {candidate.resumeUrl && (
               <div className="flex gap-2 items-center col-span-full">
                 <span className="text-muted-foreground w-32">Resume</span>
-                <button onClick={() => handleDownload(candidate.resumeUrl!, 'resume.pdf')} className="flex items-center gap-1 text-blue-600 underline text-sm"><Download className="h-3.5 w-3.5" />Download PDF</button>
-                <button onClick={() => handleViewPdf(candidate.resumeUrl!)} className="flex items-center gap-1 text-blue-600 underline text-sm"><Eye className="h-3.5 w-3.5" />View PDF</button>
+                <button type="button" onClick={() => handleDownload(candidate.resumeUrl!, 'resume.pdf')} className="flex items-center gap-1 text-blue-600 underline text-sm"><Download className="h-3.5 w-3.5" />Download PDF</button>
+                <button type="button" onClick={() => handleViewPdf(candidate.resumeUrl!)} className="flex items-center gap-1 text-blue-600 underline text-sm"><Eye className="h-3.5 w-3.5" />View PDF</button>
               </div>
             )}
             {candidate.profileXlsxUrl && (
               <div className="flex gap-2 items-center col-span-full">
                 <span className="text-muted-foreground w-32">Profile XLSX</span>
-                <button onClick={() => handleDownload(candidate.profileXlsxUrl!, 'profile.xlsx')} className="flex items-center gap-1 text-blue-600 underline text-sm"><Download className="h-3.5 w-3.5" />Download XLSX</button>
-                <button onClick={() => handleViewXlsx(candidate.profileXlsxUrl!)} className="flex items-center gap-1 text-blue-600 underline text-sm"><Eye className="h-3.5 w-3.5" />View XLSX</button>
+                <button type="button" onClick={() => handleDownload(candidate.profileXlsxUrl!, 'profile.xlsx')} className="flex items-center gap-1 text-blue-600 underline text-sm"><Download className="h-3.5 w-3.5" />Download XLSX</button>
+                <button type="button" onClick={() => handleViewXlsx(candidate.profileXlsxUrl!)} className="flex items-center gap-1 text-blue-600 underline text-sm"><Eye className="h-3.5 w-3.5" />View XLSX</button>
               </div>
             )}
           </div>
@@ -546,6 +546,7 @@ export function CandidateDetailPage() {
                 <div className="flex gap-2 flex-wrap">
                   {xlsxSheets.map((sheet, i) => (
                     <button
+                      type="button"
                       key={sheet.name}
                       onClick={() => setXlsxActiveSheet(i)}
                       className={`px-3 py-1 rounded text-sm border transition-colors ${
@@ -731,10 +732,7 @@ function SectionScoreBadge({ score }: { score: ProfileSectionScore }) {
     score.score >= 6 ? 'text-blue-700 bg-blue-50 border-blue-200' :
     score.score >= 4 ? 'text-orange-700 bg-orange-50 border-orange-200' :
                        'text-red-700 bg-red-50 border-red-200';
-  const dot =
-    score.score >= 8 ? '●' :
-    score.score >= 6 ? '●' :
-    score.score >= 4 ? '●' : '●';
+  const dot = '●';
   return (
     <span className={`text-xs font-normal px-2 py-0.5 rounded border ${colorClass}`}>
       {dot} {score.score}/10 {score.label}
@@ -769,6 +767,7 @@ function ProjectRow({ project }: { project: ParsedProject & { description?: stri
   return (
     <div className="border-l-2 border-muted pl-3 ml-2">
       <button
+        type="button"
         className="w-full flex items-center gap-2 py-1.5 text-left hover:bg-muted/30 rounded px-1 transition-colors"
         onClick={() => setOpen((v) => !v)}
       >
@@ -816,6 +815,7 @@ function CompanyRow({ entry }: { entry: WorkExperience }) {
   return (
     <div className="rounded-lg border bg-card">
       <button
+        type="button"
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/20 transition-colors rounded-lg"
         onClick={() => setOpen((v) => !v)}
       >
@@ -869,6 +869,7 @@ function ExperienceByLanguage({ data }: { data: Record<string, number> }) {
   return (
     <div>
       <button
+        type="button"
         className="flex items-center gap-1.5 font-semibold mb-1 hover:text-foreground/80 transition-colors"
         onClick={() => setOpen((v) => !v)}
       >
@@ -928,7 +929,7 @@ function AiAnalysisCard({ validation }: { validation: NonNullable<Candidate['par
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-3">
-          🤖 AI Profile Analysis
+          🤖 AI Profile Analysis{' '}
           <span className={`text-sm font-normal px-2 py-0.5 rounded border ${overallColor}`}>
             Overall: {validation.completenessScore}/100 · {overallLabel}
           </span>

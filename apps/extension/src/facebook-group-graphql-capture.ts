@@ -850,7 +850,7 @@ function decodeResponseBody(response: NetworkGetResponseBodyResult) {
   if (!response.body) return null;
   if (!response.base64Encoded) return response.body;
   const binary = atob(response.body);
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const bytes = Uint8Array.from(binary, (character) => character.codePointAt(0) ?? 0);
   return new TextDecoder().decode(bytes);
 }
 

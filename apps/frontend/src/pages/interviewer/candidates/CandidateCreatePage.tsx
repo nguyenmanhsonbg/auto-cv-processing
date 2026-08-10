@@ -224,6 +224,7 @@ export function CandidateCreatePage() {
                     </span>
                   </div>
                   <button
+                    type="button"
                     onClick={() => removeFile(i)}
                     className="shrink-0 text-muted-foreground hover:text-destructive"
                     aria-label="Remove file"
@@ -242,6 +243,7 @@ export function CandidateCreatePage() {
           {!isDone && (
             <div className="flex gap-3">
               <Button
+                type="button"
                 onClick={handleUpload}
                 disabled={uploading || files.length === 0}
               >
@@ -250,7 +252,7 @@ export function CandidateCreatePage() {
                   : <><Upload className="h-4 w-4 mr-2" />Upload & Create</>
                 }
               </Button>
-              <Button variant="outline" onClick={() => navigate('/candidates')} disabled={uploading}>
+              <Button type="button" variant="outline" onClick={() => navigate('/candidates')} disabled={uploading}>
                 Cancel
               </Button>
             </div>
@@ -288,13 +290,14 @@ export function CandidateCreatePage() {
             )}
 
             <div className="flex gap-3">
-              <Button onClick={() => navigate(`/candidates/${result.slug || result.candidateId}`)}>
+              <Button type="button" onClick={() => navigate(`/candidates/${result.slug || result.candidateId}`)}>
                 View Candidate
               </Button>
-              <Button variant="outline" onClick={() => navigate('/candidates')}>
+              <Button type="button" variant="outline" onClick={() => navigate('/candidates')}>
                 Back to Candidates
               </Button>
               <Button
+                type="button"
                 variant="ghost"
                 onClick={() => {
                   setFiles([]);

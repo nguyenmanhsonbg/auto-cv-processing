@@ -469,6 +469,10 @@ export function QuestionTree({
                               return (
                                 <div
                                   key={sq.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-label={truncated}
+                                  aria-pressed={isSelected}
                                   className={cn(
                                     'group flex items-center gap-2 px-2 py-1 rounded cursor-pointer border-l-2',
                                     isSelected
@@ -478,6 +482,11 @@ export function QuestionTree({
                                       : 'border-l-transparent hover:bg-muted/50',
                                   )}
                                   onClick={() => onSelect(sq.id)}
+                                  onKeyDown={(event) => {
+                                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                                    event.preventDefault();
+                                    onSelect(sq.id);
+                                  }}
                                 >
                                   <Checkbox
                                     checked={sq.isActive}

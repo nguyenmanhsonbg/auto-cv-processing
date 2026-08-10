@@ -332,7 +332,7 @@ export class VcsPortalJdMapper {
     }
 
     return this.decodeHtmlEntities(result)
-      .replace(/\r/g, '\n')
+      .replaceAll('\r', '\n')
       .replace(/[ \t]+/g, ' ')
       .replace(/\n[ \t]+/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
@@ -349,7 +349,7 @@ export class VcsPortalJdMapper {
       .replace(/&#39;/gi, "'")
       .replace(/&#(\d+);/g, (_match, code: string) => {
         const parsed = Number(code);
-        return Number.isFinite(parsed) ? String.fromCharCode(parsed) : '';
+        return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : '';
       });
   }
 
@@ -409,8 +409,8 @@ export class VcsPortalJdMapper {
     return value
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/đ/g, 'd')
-      .replace(/Đ/g, 'D');
+      .replaceAll('đ', 'd')
+      .replaceAll('Đ', 'D');
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

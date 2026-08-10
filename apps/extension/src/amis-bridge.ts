@@ -2106,7 +2106,7 @@ function decodeBase64ToUint8Array(value: string) {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+    bytes[index] = binary.codePointAt(index) ?? 0;
   }
 
   return bytes;
@@ -2533,16 +2533,16 @@ function textToParagraphHtml(value: string) {
 
 function escapeHtml(value: string) {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 function cleanText(value: unknown) {
   return String(value ?? '')
-    .replace(/\u00a0/g, ' ')
+    .replaceAll('\u00a0', ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -2551,8 +2551,8 @@ function normalizeAmisUiText(value: unknown) {
   return cleanText(value)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
+    .replaceAll('đ', 'd')
+    .replaceAll('Đ', 'D')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '');
 }

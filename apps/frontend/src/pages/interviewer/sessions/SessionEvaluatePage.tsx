@@ -585,7 +585,18 @@ export function SessionEvaluatePage() {
                             onBlur={() => setEditingComment(null)}
                           />
                         ) : (
-                          <div className="flex items-start gap-1 cursor-pointer group min-h-[36px]" onClick={() => setEditingComment(`must:${sub}`)}>
+                          <div
+                            className="flex items-start gap-1 cursor-pointer group min-h-[36px]"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Edit comment for ${sub}`}
+                            onClick={() => setEditingComment(`must:${sub}`)}
+                            onKeyDown={(event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return;
+                              event.preventDefault();
+                              setEditingComment(`must:${sub}`);
+                            }}
+                          >
                             <span className="text-sm flex-1 whitespace-pre-wrap">{commentVal || <span className="text-muted-foreground">Add comment...</span>}</span>
                             <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" />
                           </div>
@@ -677,7 +688,18 @@ export function SessionEvaluatePage() {
                             onBlur={() => setEditingComment(null)}
                           />
                         ) : (
-                          <div className="flex items-start gap-1 cursor-pointer group min-h-[36px]" onClick={() => setEditingComment(`should:${sub}`)}>
+                          <div
+                            className="flex items-start gap-1 cursor-pointer group min-h-[36px]"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Edit comment for ${sub}`}
+                            onClick={() => setEditingComment(`should:${sub}`)}
+                            onKeyDown={(event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return;
+                              event.preventDefault();
+                              setEditingComment(`should:${sub}`);
+                            }}
+                          >
                             <span className="text-sm flex-1 whitespace-pre-wrap">{commentVal || <span className="text-muted-foreground">Add comment...</span>}</span>
                             <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" />
                           </div>
@@ -771,7 +793,18 @@ export function SessionEvaluatePage() {
                             onBlur={() => setEditingComment(null)}
                           />
                         ) : (
-                          <div className="flex items-start gap-1 cursor-pointer group min-h-[36px]" onClick={() => setEditingComment(`soft:${sub}`)}>
+                          <div
+                            className="flex items-start gap-1 cursor-pointer group min-h-[36px]"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Edit comment for ${sub}`}
+                            onClick={() => setEditingComment(`soft:${sub}`)}
+                            onKeyDown={(event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return;
+                              event.preventDefault();
+                              setEditingComment(`soft:${sub}`);
+                            }}
+                          >
                             <span className="text-sm flex-1 whitespace-pre-wrap">{commentVal || <span className="text-muted-foreground">Add comment...</span>}</span>
                             <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" />
                           </div>
@@ -883,7 +916,18 @@ export function SessionEvaluatePage() {
                             onBlur={() => setEditingComment(null)}
                           />
                         ) : (
-                          <div className="flex items-start gap-1 cursor-pointer group min-h-[36px]" onClick={() => setEditingComment(`pers:${cat}`)}>
+                          <div
+                            className="flex items-start gap-1 cursor-pointer group min-h-[36px]"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Edit comment for ${cat}`}
+                            onClick={() => setEditingComment(`pers:${cat}`)}
+                            onKeyDown={(event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return;
+                              event.preventDefault();
+                              setEditingComment(`pers:${cat}`);
+                            }}
+                          >
                             <span className="text-sm flex-1 whitespace-pre-wrap">{noteVal || <span className="text-muted-foreground">Add comment...</span>}</span>
                             <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" />
                           </div>
@@ -1080,7 +1124,15 @@ export function SessionEvaluatePage() {
               ) : (
                 <div
                   className="flex items-start gap-1 cursor-pointer group min-h-[36px] rounded-md border px-3 py-2"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Edit explanation"
                   onClick={() => setEditingComment('explanation')}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    setEditingComment('explanation');
+                  }}
                 >
                   <span className="text-sm flex-1 whitespace-pre-wrap">
                     {watch('zoneExplanation') || <span className="text-muted-foreground">Explain evaluation result...</span>}
@@ -1130,7 +1182,15 @@ export function SessionEvaluatePage() {
               ) : (
                 <div
                   className="flex items-start gap-1 cursor-pointer group min-h-[36px] rounded-md border px-3 py-2"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Edit overall notes"
                   onClick={() => setEditingComment('overallNotes')}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    setEditingComment('overallNotes');
+                  }}
                 >
                   <span className="text-sm flex-1 whitespace-pre-wrap">
                     {watch('overallNotes') || <span className="text-muted-foreground">Final notes and summary...</span>}

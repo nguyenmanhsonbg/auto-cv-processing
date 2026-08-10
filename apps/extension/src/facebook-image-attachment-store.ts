@@ -91,7 +91,7 @@ export async function saveFacebookImageAttachments(
   }
 
   const scopeKey = buildFacebookImageAttachmentScopeKey(scope);
-  if (!scopeKey.replace(/\|/g, '')) {
+  if (!scopeKey.replaceAll('|', '')) {
     throw new Error('Không thể lưu ảnh vì chưa xác định được bài đăng hiện tại.');
   }
 
@@ -148,7 +148,7 @@ export async function beginFacebookImagePublish(
   targets: FacebookPublishTarget[],
 ) {
   const scopeKey = buildFacebookImageAttachmentScopeKey(scope);
-  if (!scopeKey.replace(/\|/g, '')) return;
+  if (!scopeKey.replaceAll('|', '')) return;
 
   let existingLocal = await findLocalRecordForScope(scope);
   const existing = await findRecordForScope(scope);

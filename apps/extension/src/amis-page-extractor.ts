@@ -465,7 +465,7 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
 
   function trimText(value: string, maxLength: number) {
     return removeHorizontalWhitespaceBeforeNewlines(value
-      .replace(/\u00a0/g, ' ')
+      .replaceAll('\u00a0', ' ')
     )
       .replace(/\n{3,}/g, '\n\n')
       .replace(/[ \t]{2,}/g, ' ')
@@ -478,8 +478,8 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     return value
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/đ/g, 'd')
-      .replace(/Đ/g, 'D')
+      .replaceAll('đ', 'd')
+      .replaceAll('Đ', 'D')
       .toLowerCase()
       .replace(/\s+/g, ' ')
       .trim();

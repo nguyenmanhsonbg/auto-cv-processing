@@ -97,7 +97,10 @@ function formatArrayItem(item: unknown) {
 }
 
 function cleanDisplayText(value: string) {
-  const normalized = value.replace(/\u0000/g, '').trim();
+  const normalized = [...value]
+    .filter((character) => character.codePointAt(0) !== 0)
+    .join('')
+    .trim();
   if (!normalized) return null;
   if (/^\[?\s*redacted\s*\]?$/i.test(normalized)) return null;
   return normalized;
@@ -146,9 +149,23 @@ function splitDetailText(value: string) {
     chunks.flatMap((chunk) => {
       if (chunk.length < 220) return [chunk];
 
-      const sentences = chunk.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g)
-        ?.map((item) => item.trim())
-        .filter(Boolean);
+      const sentences: string[] = [];
+      let sentenceStart = 0;
+      for (let index = 0; index < chunk.length; index += 1) {
+        const character = chunk[index] ?? '';
+        const nextCharacter = chunk[index + 1];
+        if (!'.!?'.includes(character)) continue;
+        if (nextCharacter && nextCharacter.trim() !== '') continue;
+
+        const sentence = chunk.slice(sentenceStart, index + 1).trim();
+        if (sentence) sentences.push(sentence);
+        sentenceStart = index + 1;
+        while (sentenceStart < chunk.length && (chunk[sentenceStart] ?? '').trim() === '') {
+          sentenceStart += 1;
+        }
+      }
+      const remaining = chunk.slice(sentenceStart).trim();
+      if (remaining) sentences.push(remaining);
 
       return sentences && sentences.length > 1 ? sentences : [chunk];
     }),

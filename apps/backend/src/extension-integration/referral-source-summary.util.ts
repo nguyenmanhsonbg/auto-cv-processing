@@ -165,8 +165,8 @@ function normalizeRoundName(value: string | null | undefined) {
   return (value ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/Đ/g, 'D')
-    .replace(/đ/g, 'd')
+    .replaceAll('Đ', 'D')
+    .replaceAll('đ', 'd')
     .toUpperCase()
     .trim();
 }
