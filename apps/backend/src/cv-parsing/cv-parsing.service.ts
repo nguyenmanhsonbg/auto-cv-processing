@@ -639,7 +639,7 @@ export class CvParsingService {
   private listExtractedFields(parsedData: Record<string, unknown>) {
     return Object.keys(parsedData)
       .filter((key) => key !== 'rawText')
-      .sort();
+      .sort((left, right) => left.localeCompare(right));
   }
 
   private normalizeParserMode(value?: string | null) {

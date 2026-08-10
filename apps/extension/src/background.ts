@@ -12,6 +12,7 @@ import {
 import { saveLastAutoSyncState } from './amis-auto-sync-store';
 import { saveLastAmisCapture } from './amis-capture-store';
 import { extractAmisJobFromPage } from './amis-page-extractor';
+import { hashText } from './hash-text';
 import {
   ApiClientError,
   claimNextExtensionTask,
@@ -1140,6 +1141,7 @@ function buildAutoSyncState(
 }
 
 function buildCareerSyncSignature(capture: AmisCareerCapture) {
+  const compareText = (left: string, right: string) => left.localeCompare(right);
   return capture.items
     .map((item) => [
       item.amisCareerId,
@@ -1148,7 +1150,7 @@ function buildCareerSyncSignature(capture: AmisCareerCapture) {
       item.usageStatus ?? '',
       item.isActive ?? '',
     ].join(':'))
-    .sort()
+    .sort(compareText)
     .join('|');
 }
 
@@ -1159,11 +1161,12 @@ function buildAutoSyncKey(
   facebookContent: string,
   jobDescriptionId?: string | null,
 ) {
+  const compareText = (left: string, right: string) => left.localeCompare(right);
   return [
     amisRecruitmentId,
     jobDescriptionId ?? '',
-    [...channels].sort().join(','),
-    [...facebookTargetIds].sort().join(','),
+    [...channels].sort(compareText).join(','),
+    [...facebookTargetIds].sort(compareText).join(','),
     hashText(facebookContent),
   ].join(':');
 }
@@ -1181,14 +1184,6 @@ function hydrateFacebookContentOverride(content: string, planContent: string) {
 function extractFacebookApplyUrl(content: string) {
   const match = content.match(/(?:https?:\/\/|\/jobs\/)[^\s)]+/i);
   return match?.[0] ?? null;
-}
-
-function hashText(value: string) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash).toString(36);
 }
 
 async function enrichCaptureFromDom(
@@ -1300,7 +1295,7 @@ function buildApplicationsSyncSignature(capture: AmisApplicationsCapture) {
       item.attachmentCvId ?? '',
       item.applyDate ?? '',
     ].join(':'))
-    .sort()
+    .sort((left, right) => left.localeCompare(right))
     .join('|');
 }
 

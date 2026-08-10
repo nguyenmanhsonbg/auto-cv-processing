@@ -4,6 +4,7 @@ import { extractAmisJobFromDetailApi } from './amis-detail-api-extractor';
 import { extractAmisJobFromPage } from './amis-page-extractor';
 import { getLastAutoSyncState } from './amis-auto-sync-store';
 import { getLastAmisCapture } from './amis-capture-store';
+import { hashText } from './hash-text';
 import { ensureAmisHooksInActiveTab } from './amis-hook-installer';
 import {
   clearAmisTemplateContextForTab,
@@ -9208,14 +9209,6 @@ function getFacebookPlanKey(plan: FacebookPublishPlan) {
       attachment.size,
     ].join('/')).join('|') ?? '',
   ].join(':');
-}
-
-function hashText(value: string) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash).toString(36);
 }
 
 function hydrateFacebookContentOverride(content: string, planContent: string) {

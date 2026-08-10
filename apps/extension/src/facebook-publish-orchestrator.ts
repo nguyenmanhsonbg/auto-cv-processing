@@ -2,6 +2,7 @@ import { ApiClientError, reportFacebookPublishResult } from './api-client';
 import { getAccessToken } from './auth-store';
 import { summarizeFacebookPublishResults } from './facebook-channel-status';
 import { FACEBOOK_MAX_IMAGE_ATTACHMENTS } from './config';
+import { hashText } from './hash-text';
 import { secureRandomFraction } from './secure-random';
 import {
   buildFacebookGroupPostUrl,
@@ -6598,14 +6599,6 @@ async function waitForFacebookSubmissionInPage(
     const normalized = normalize(value ?? '');
     if (normalized.length <= maxLength) return normalized || 'none';
     return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
-  };
-  const hashText = (value: string) => {
-    let hash = 0;
-    for (let index = 0; index < value.length; index += 1) {
-      hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
-    }
-
-    return Math.abs(hash).toString(36);
   };
   const rectValue = (element: Element | null | undefined) => {
     if (!element) return null;

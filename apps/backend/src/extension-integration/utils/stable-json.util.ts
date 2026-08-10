@@ -61,7 +61,7 @@ function toStableJsonValue(
     try {
       const record = value as Record<string, unknown>;
       return Object.keys(record)
-        .sort()
+        .sort((left, right) => left.localeCompare(right))
         .reduce<{ [key: string]: StableJsonValue }>((accumulator, key) => {
           const stableItem = toStableJsonValue(record[key], seen);
           if (stableItem !== undefined) {
