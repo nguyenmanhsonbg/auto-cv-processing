@@ -9,7 +9,6 @@ import {
 const SANITIZER_NAME = 'ghostscript-http-pdf-sanitizer';
 const PDF_MIME_TYPE = 'application/pdf';
 const DEFAULT_GHOSTSCRIPT_TIMEOUT_MS = 60_000;
-const DEFAULT_SERVICE_URL = 'http://cv-sanitizer:8080';
 
 interface SanitizeServiceResponse {
   status?: string;
@@ -108,8 +107,28 @@ export class GhostscriptHttpPdfSanitizer implements CleanCvSanitizer {
     return response.outputFilePath ?? null;
   }
 
-  private getServiceUrl() {
-    return (process.env.CV_SANITIZER_SERVICE_URL || DEFAULT_SERVICE_URL).trim();
+  private getServiceUrl(): string | null {
+    const configuredUrl = process.env.CV_SANITIZER_SERVICE_URL?.trim();
+    if (!configuredUrl) {
+      return null;
+    }
+
+    try {
+      const parsedUrl = new URL(configuredUrl);
+      const allowedProtocols = new Set(['http:', 'https:']);
+      if (!allowedProtocols.has(parsedUrl.protocol)) {
+        return null;
+      }
+
+      const isProduction = process.env.NODE_ENV?.trim().toLowerCase() === 'production';
+      if (isProduction && parsedUrl.protocol !== 'https:') {
+        return null;
+      }
+
+      return configuredUrl.replace(/\/+$/, '');
+    } catch {
+      return null;
+    }
   }
 
   private getTimeoutMs() {

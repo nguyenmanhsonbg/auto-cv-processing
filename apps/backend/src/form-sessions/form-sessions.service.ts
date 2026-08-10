@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository, In } from 'typeorm';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { join } from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -433,9 +433,17 @@ export class FormSessionsService {
         }
 
         // Shuffle and take 5 questions for legacy/default postings.
-        selectedQuestionnaireItems = this.toQuestionnaireItemsFromBank(questions
-          .sort(() => 0.5 - Math.random())
-          .slice(0, 5));
+        const shuffledQuestions = [...questions];
+        for (let index = shuffledQuestions.length - 1; index > 0; index -= 1) {
+          const swapIndex = randomInt(index + 1);
+          [shuffledQuestions[index], shuffledQuestions[swapIndex]] = [
+            shuffledQuestions[swapIndex],
+            shuffledQuestions[index],
+          ];
+        }
+        selectedQuestionnaireItems = this.toQuestionnaireItemsFromBank(
+          shuffledQuestions.slice(0, 5),
+        );
       }
 
       if (!jobPosting.formQuestionSetId && selectedQuestionnaireItems.length > 0) {

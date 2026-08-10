@@ -3,6 +3,7 @@
 const fs = require('fs/promises');
 const { spawn } = require('child_process');
 
+const GHOSTSCRIPT_COMMAND = '/usr/bin/gs';
 const CONTROL_DIR = '/control';
 const INPUT_PATH = '/input/input.pdf';
 const OUTPUT_PATH = '/output/output.pdf';
@@ -59,7 +60,7 @@ function runGhostscript(timeoutMs) {
       INPUT_PATH,
     ];
 
-    const child = spawn('gs', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(GHOSTSCRIPT_COMMAND, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     let timedOut = false;

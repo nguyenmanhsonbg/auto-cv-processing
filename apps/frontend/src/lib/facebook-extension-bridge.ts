@@ -6,6 +6,7 @@ import type {
   FacebookPublishTarget,
   VerifyFacebookGroupPayload,
 } from '@/lib/recruitment-api';
+import { secureRandomUUID } from '@/lib/secure-random';
 
 const FRONTEND_SOURCE = 'vcs-recruitment-frontend';
 const EXTENSION_SOURCE = 'vcs-recruitment-extension';
@@ -180,9 +181,5 @@ function readErrorMessage(payload: unknown) {
 }
 
 function newRequestId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `facebook-bridge-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return secureRandomUUID();
 }

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
+import { randomUUID } from 'crypto';
 import { extname } from 'path';
 import { CandidateEntity } from './entities/candidate.entity';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -19,8 +20,7 @@ import { AiModule } from '../ai/ai.module';
       storage: diskStorage({
         destination: process.env.UPLOAD_DIR || './uploads',
         filename: (_req, file, cb) => {
-          const uniqueSuffix =
-            Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const uniqueSuffix = `${Date.now()}-${randomUUID()}`;
           cb(null, uniqueSuffix + extname(file.originalname));
         },
       }),

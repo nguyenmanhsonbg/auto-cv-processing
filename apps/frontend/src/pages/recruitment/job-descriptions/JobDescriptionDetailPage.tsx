@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { secureRandomUUID } from '@/lib/secure-random';
 import {
   Table,
   TableBody,
@@ -62,11 +63,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function newIdempotencyKey(prefix: string) {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${secureRandomUUID()}`;
 }
 
 function getJobDescriptionId(item?: JobDescriptionRecord | null) {

@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const { mkdir, stat } = require('fs/promises');
 const path = require('path');
 
+const GHOSTSCRIPT_COMMAND = '/usr/bin/gs';
 const PDF_MIME_TYPE = 'application/pdf';
 const PORT = Number(process.env.PORT || 8080);
 const MAX_BODY_BYTES = 16 * 1024;
@@ -128,7 +129,7 @@ function runGhostscript(sourcePath, outputPath, timeoutMs) {
   ];
 
   return new Promise((resolve, reject) => {
-    const child = spawn('gs', args, {
+    const child = spawn(GHOSTSCRIPT_COMMAND, args, {
       stdio: ['ignore', 'ignore', 'ignore'],
       windowsHide: true,
     });

@@ -2,6 +2,7 @@ import { ApiClientError, reportFacebookPublishResult } from './api-client';
 import { getAccessToken } from './auth-store';
 import { summarizeFacebookPublishResults } from './facebook-channel-status';
 import { FACEBOOK_MAX_IMAGE_ATTACHMENTS } from './config';
+import { secureRandomFraction } from './secure-random';
 import {
   buildFacebookGroupPostUrl,
   parseFacebookGroupPostUrl,
@@ -2900,7 +2901,7 @@ function debuggerDetach(target: ChromeDebuggee) {
 function randomDelay(minMs: number, maxMs: number) {
   const min = Math.max(0, minMs);
   const max = Math.max(min, maxMs);
-  return Math.round(min + Math.random() * (max - min));
+  return Math.round(min + secureRandomFraction() * (max - min));
 }
 
 function sleep(ms: number) {
@@ -3751,7 +3752,7 @@ async function prepareFacebookPostInPage(
       const openedSurface = await waitForPostSurface(2_500);
       if (openedSurface) return { surface: openedSurface, composerSeen };
 
-      await sleepInPage(800 + Math.random() * 1_200);
+      await sleepInPage(800 + secureRandomFraction() * 1_200);
     }
 
     return { surface: null, composerSeen };
@@ -4116,7 +4117,7 @@ async function prepareFacebookPostInPage(
       message: 'Could not insert Facebook post content into the verified composer.',
     };
   }
-  await sleepInPage(2_500 + Math.random() * 3_500);
+  await sleepInPage(2_500 + secureRandomFraction() * 3_500);
 
   if (imageAttachments.length > 0) {
     const attached = await attachImagesToComposer(surface, imageAttachments);

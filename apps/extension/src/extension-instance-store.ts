@@ -1,3 +1,5 @@
+import { secureRandomUUID } from './secure-random';
+
 const INSTALL_ID_KEY = 'vcs_extension_install_id';
 const INSTANCE_ID_KEY = 'vcs_extension_instance_id';
 
@@ -81,9 +83,5 @@ function detectBrowser() {
 }
 
 function newId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `ext-install-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return secureRandomUUID();
 }

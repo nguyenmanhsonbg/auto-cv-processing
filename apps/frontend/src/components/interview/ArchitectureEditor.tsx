@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus, Trash2 } from 'lucide-react';
+import { secureRandomFraction } from '@/lib/secure-random';
 import { cn } from '@/lib/utils';
 import type {
   ArchitectureAnswer,
@@ -90,8 +91,8 @@ export function ArchitectureEditor({ value, onChange, readOnly }: ArchitectureEd
     const newNode: ArchitectureNode = {
       id: genId(),
       label: 'Component',
-      x: 250 + Math.random() * 100,
-      y: 180 + Math.random() * 80,
+      x: 250 + secureRandomFraction() * 100,
+      y: 180 + secureRandomFraction() * 80,
       color: DEFAULT_COLOR,
     };
     const newNodes = [...nodes, newNode];

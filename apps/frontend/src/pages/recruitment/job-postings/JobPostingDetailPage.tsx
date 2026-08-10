@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { secureRandomUUID } from '@/lib/secure-random';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -110,11 +111,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function newIdempotencyKey(prefix: string) {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${secureRandomUUID()}`;
 }
 
 function getJobPostingId(item?: JobPostingRecord | null) {

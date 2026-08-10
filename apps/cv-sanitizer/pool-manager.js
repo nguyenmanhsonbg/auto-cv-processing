@@ -6,6 +6,7 @@ const http = require('http');
 const path = require('path');
 const { spawn } = require('child_process');
 
+const DOCKER_COMMAND = '/usr/bin/docker';
 const WORKER_LABEL = 'vcs.component=cv-sanitizer-worker';
 const INPUT_PATH = '/input/input.pdf';
 const OUTPUT_PATH = '/output/output.pdf';
@@ -126,7 +127,7 @@ function runCommand(command, args, options = {}) {
 }
 
 async function docker(args, options = {}) {
-  const result = await runCommand('docker', args, options);
+  const result = await runCommand(DOCKER_COMMAND, args, options);
 
   if (result.exitCode !== 0 && !options.allowFailure) {
     throw new Error(`docker ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
@@ -276,7 +277,7 @@ async function cleanupControlRoot() {
 
 function readFromContainer(worker, containerPath, allowFailure = false) {
   return new Promise((resolve, reject) => {
-    const child = spawn('docker', ['exec', worker.containerName, 'cat', containerPath], {
+    const child = spawn(DOCKER_COMMAND, ['exec', worker.containerName, 'cat', containerPath], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });

@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { secureRandomUUID } from '@/lib/secure-random';
 import {
   Select,
   SelectContent,
@@ -115,11 +116,7 @@ function relationLabel(
 }
 
 function newIdempotencyKey() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `jd-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return secureRandomUUID();
 }
 
 export function JobDescriptionListPage() {

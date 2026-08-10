@@ -15,6 +15,7 @@ import {
   type PublicApplyResponse,
   type PublicJobPostingDetail,
 } from '@/lib/recruitment-public-api';
+import { secureRandomUUID } from '@/lib/secure-random';
 import {
   CvUploadField,
   validateCvFile,
@@ -67,11 +68,7 @@ const INITIAL_FORM: ApplyFormState = {
 };
 
 function createIdempotencyKey() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return `apply_${crypto.randomUUID()}`;
-  }
-
-  return `apply_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  return `apply_${secureRandomUUID()}`;
 }
 
 function isEmail(value: string) {
