@@ -1,18 +1,26 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional, IsEnum, IsUUID, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '@interview-assistant/shared';
 
 export class LoginDto {
-  @ApiProperty({ example: 'admin@vcs.com' })
+  @ApiProperty({ example: 'admin@vcs.com or FL000001' })
   @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
-  @IsEmail()
-  email: string;
+  @IsString()
+  @MinLength(3)
+  login: string;
 
   @ApiProperty({ example: 'password123' })
   @IsString()
   @MinLength(6)
   password: string;
+}
+
+export class RequestInternalPasswordDto {
+  @ApiProperty({ example: 'employee@viettel.com.vn' })
+  @Transform(({ value }) => typeof value === 'string' ? value.trim().toLowerCase() : value)
+  @IsEmail()
+  email: string;
 }
 
 export class RefreshTokenDto {
@@ -28,6 +36,54 @@ export class LogoutDto {
   @IsString()
   @MinLength(20)
   refreshToken?: string;
+}
+
+export class ChangePasswordDto {
+  @ApiProperty({ example: 'currentPassword123' })
+  @IsString()
+  @MinLength(6)
+  currentPassword: string;
+
+  @ApiProperty({ example: 'newPassword123' })
+  @IsString()
+  @MinLength(6)
+  newPassword: string;
+
+  @ApiProperty({ example: 'newPassword123' })
+  @IsString()
+  @MinLength(6)
+  confirmPassword: string;
+}
+
+export class RequestPasswordResetDto {
+  @IsString()
+  @MinLength(1)
+  login: string;
+}
+
+export class VerifyPasswordResetDto {
+  @IsUUID()
+  challengeId: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/)
+  otp: string;
+}
+
+export class CompletePasswordResetDto {
+  @IsString()
+  @MinLength(20)
+  resetToken: string;
+
+  @ApiProperty({ example: 'NewPassword@123' })
+  @IsString()
+  @MinLength(6)
+  newPassword: string;
+
+  @ApiProperty({ example: 'NewPassword@123' })
+  @IsString()
+  @MinLength(6)
+  confirmPassword: string;
 }
 
 export class RegisterDto {
@@ -73,5 +129,3 @@ export class UpdateUserDto {
   @IsEnum(UserRole)
   role?: UserRole;
 }
-
-

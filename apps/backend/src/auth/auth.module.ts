@@ -11,10 +11,14 @@ import { FreelancerEntity } from '../freelancers/entities/freelancer.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
+import { InternalEntity } from '../internals/entities/internal.entity';
+import { NotificationModule } from '../notification/notification.module';
+import { PasswordResetRequestEntity } from './entities/password-reset-request.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity, RefreshTokenEntity, FreelancerEntity]),
+    TypeOrmModule.forFeature([UserEntity, RefreshTokenEntity, FreelancerEntity, InternalEntity, PasswordResetRequestEntity]),
+    NotificationModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

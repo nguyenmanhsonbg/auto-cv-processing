@@ -6,6 +6,7 @@ import {
   Get,
   Param,
   Post,
+  Patch,
   Put,
   Query,
   Request,
@@ -18,7 +19,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Roles } from './decorators/roles.decorator';
-import { CreateUserDto, LoginDto, LogoutDto, RefreshTokenDto, UpdateUserDto } from './dto/login.dto';
+import { ChangePasswordDto, CompletePasswordResetDto, CreateUserDto, LoginDto, LogoutDto, RefreshTokenDto, RequestInternalPasswordDto, RequestPasswordResetDto, UpdateUserDto, VerifyPasswordResetDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
@@ -34,9 +35,34 @@ export class AuthController {
   @Post('login')
   @UseGuards(LocalAuthGuard)
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
-  @ApiOperation({ summary: 'Login with email and password' })
+  @ApiOperation({ summary: 'Login with email or freelancer identifier and password' })
   async login(@Request() req: any, @Body() _dto: LoginDto) {
     return this.authService.login(req.user);
+  }
+
+  @Post('internal/request-password')
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  @ApiOperation({ summary: 'Send a generated password to an active internal employee' })
+  async requestInternalPassword(@Body() dto: RequestInternalPasswordDto) {
+    return this.authService.requestInternalPassword(dto.email);
+  }
+
+  @Post('password-reset/request')
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  async requestPasswordReset(@Body() dto: RequestPasswordResetDto) {
+    return this.authService.requestPasswordReset(dto.login);
+  }
+
+  @Post('password-reset/verify')
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  async verifyPasswordReset(@Body() dto: VerifyPasswordResetDto) {
+    return this.authService.verifyPasswordReset(dto.challengeId, dto.otp);
+  }
+
+  @Post('password-reset/complete')
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  async completePasswordReset(@Body() dto: CompletePasswordResetDto) {
+    return this.authService.completePasswordReset(dto);
   }
 
   @Post('refresh')
@@ -59,6 +85,14 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current user profile' })
   async getProfile(@Request() req: any) {
     return this.authService.findById(req.user.id);
+  }
+
+  @Patch('password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change the current user password' })
+  async changePassword(@Request() req: any, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(req.user.id, dto);
   }
 
   // ── User assignment dropdown (any authenticated user) ──

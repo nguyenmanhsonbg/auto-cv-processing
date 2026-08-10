@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateInternalDto {
   @ApiProperty({ example: 'Nguyen Van A' })
@@ -13,9 +13,6 @@ export class CreateInternalDto {
   @MinLength(1)
   @MaxLength(255)
   @IsEmail()
-  @Matches(/^[^\s@]+@viettel\.com\.vn$/i, {
-    message: 'Internal email must use the @viettel.com.vn domain.',
-  })
   email!: string;
 
   @ApiProperty({ example: '0988123456' })

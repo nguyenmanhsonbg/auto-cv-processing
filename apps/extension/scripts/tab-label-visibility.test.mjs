@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
-const styles = await readFile(resolve(scriptDirectory, '../src/styles.css'), 'utf8');
+const styles = await readFile(resolve(scriptDirectory, '../src/app/styles.css'), 'utf8');
 
 assert.match(
   styles,

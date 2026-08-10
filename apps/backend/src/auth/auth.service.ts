@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, UnauthorizedException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'crypto';
@@ -8,9 +8,12 @@ import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
-import { RegisterDto, CreateUserDto, UpdateUserDto } from './dto/login.dto';
+import { ChangePasswordDto, CompletePasswordResetDto, RegisterDto, CreateUserDto, UpdateUserDto } from './dto/login.dto';
 import { UserRole, PaginatedResponse } from '@interview-assistant/shared';
 import { FreelancerEntity } from '../freelancers/entities/freelancer.entity';
+import { InternalEntity } from '../internals/entities/internal.entity';
+import { MailService } from '../notification/mail.service';
+import { PasswordResetRequestEntity } from './entities/password-reset-request.entity';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -21,8 +24,13 @@ export class AuthService implements OnModuleInit {
     private refreshTokenRepo: Repository<RefreshTokenEntity>,
     @InjectRepository(FreelancerEntity)
     private freelancerRepo: Repository<FreelancerEntity>,
+    @InjectRepository(InternalEntity)
+    private internalRepo: Repository<InternalEntity>,
+    @InjectRepository(PasswordResetRequestEntity)
+    private passwordResetRepo: Repository<PasswordResetRequestEntity>,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private mailService: MailService,
   ) {}
 
   async onModuleInit() {
@@ -30,9 +38,19 @@ export class AuthService implements OnModuleInit {
     await this.seedDevelopmentUsers();
   }
 
-  async validateUser(email: string, password: string) {
-    const normalizedEmail = typeof email === 'string' ? email.trim() : '';
-    const user = await this.userRepo.findOne({ where: { email: normalizedEmail } });
+  async validateUser(login: string, password: string) {
+    const normalizedLogin = typeof login === 'string' ? login.trim() : '';
+    if (!normalizedLogin) return null;
+
+    let user = await this.userRepo.findOne({ where: { email: normalizedLogin } });
+    if (!user) {
+      const freelancer = await this.freelancerRepo.findOne({
+        where: { identifier: normalizedLogin.toUpperCase() },
+        relations: { user: true },
+      });
+      user = freelancer?.user ?? null;
+    }
+
     if (user && (await bcrypt.compare(password, user.password))) {
       await this.assertUserCanAuthenticate(user);
       const { password: _, ...result } = user;
@@ -109,6 +127,178 @@ export class AuthService implements OnModuleInit {
       refreshToken,
       user: { id: user.id, email: user.email, role: user.role },
     };
+  }
+
+  async requestInternalPassword(email: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const internal = await this.internalRepo.findOne({
+      where: { email: normalizedEmail, isActive: true },
+      relations: { user: true },
+    });
+    if (!internal) {
+      throw new BadRequestException({
+        code: 'INTERNAL_EMAIL_NOT_FOUND',
+        message: 'Email nhân sự nội bộ chưa tồn tại hoặc đã bị vô hiệu hóa.',
+      });
+    }
+
+    const generatedPassword = this.generateInternalPassword();
+    const manager = this.userRepo.manager;
+
+    await manager.transaction(async (transactionManager) => {
+      let user = internal.user;
+      if (user && user.role !== UserRole.INTERNAL) {
+        throw new BadRequestException({
+          code: 'INTERNAL_ACCOUNT_CONFLICT',
+          message: 'Email này đã được liên kết với loại tài khoản khác.',
+        });
+      }
+
+      if (!user) {
+        const existingUser = await transactionManager.findOne(UserEntity, {
+          where: { email: normalizedEmail },
+        });
+        if (existingUser && existingUser.role !== UserRole.INTERNAL) {
+          throw new BadRequestException({
+            code: 'INTERNAL_ACCOUNT_CONFLICT',
+            message: 'Email này đã được liên kết với loại tài khoản khác.',
+          });
+        }
+        user = existingUser ?? transactionManager.create(UserEntity, {
+          email: normalizedEmail,
+          name: internal.name?.trim() || normalizedEmail,
+          role: UserRole.INTERNAL,
+          password: '',
+        });
+      }
+
+      user.password = await bcrypt.hash(generatedPassword, 10);
+      user.role = UserRole.INTERNAL;
+
+      const sent = await this.mailService.sendMail(
+        normalizedEmail,
+        'Mật khẩu đăng nhập Extension Tuyển dụng VCS',
+        this.buildInternalPasswordEmail(internal.name, generatedPassword),
+        `Xin chào ${internal.name?.trim() || 'bạn'},\n\nMật khẩu đăng nhập Extension của bạn là: ${generatedPassword}\n\nVui lòng bảo mật thông tin này.`,
+      );
+      if (!sent) {
+        throw new BadRequestException({
+          code: 'INTERNAL_PASSWORD_EMAIL_FAILED',
+          message: 'Không thể gửi email mật khẩu. Vui lòng kiểm tra cấu hình SMTP và thử lại sau.',
+        });
+      }
+
+      user = await transactionManager.save(UserEntity, user);
+      if (!internal.userId || internal.userId !== user.id) {
+        internal.userId = user.id;
+        await transactionManager.save(InternalEntity, internal);
+      }
+      await transactionManager
+        .createQueryBuilder()
+        .update(RefreshTokenEntity)
+        .set({ revokedAt: new Date() })
+        .where('user_id = :userId', { userId: user.id })
+        .andWhere('revoked_at IS NULL')
+        .execute();
+    });
+
+    return { message: 'Mật khẩu đã được gửi tới email nội bộ của bạn.' };
+  }
+
+  async requestPasswordReset(login: string) {
+    const normalizedLogin = login.trim();
+    const user = await this.findUserForPasswordReset(normalizedLogin);
+    if (!user) {
+      const internal = await this.internalRepo.findOne({
+        where: { email: normalizedLogin.toLowerCase(), isActive: true },
+        relations: { user: true },
+      });
+      if (internal) {
+        throw new BadRequestException({
+          code: 'INTERNAL_PASSWORD_REQUIRED',
+          message: 'Nhân sự nội bộ chưa có tài khoản đăng nhập. Vui lòng chọn “Là nhân sự nội bộ” để lấy mật khẩu lần đầu.',
+        });
+      }
+      throw new BadRequestException({ code: 'INVALID_LOGIN', message: 'Tên đăng nhập không hợp lệ. Vui lòng kiểm tra lại.' });
+    }
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const request = this.passwordResetRepo.create({
+      userId: user.id,
+      otpHash: await bcrypt.hash(otp, 10),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      attempts: 0,
+      verifiedAt: null,
+      resetTokenHash: null,
+      resetTokenExpiresAt: null,
+    });
+    await this.passwordResetRepo.save(request);
+    const sent = await this.mailService.sendMail(
+      user.email,
+      'Mã xác nhận khôi phục mật khẩu Tuyển dụng VCS',
+      `<p>Xin chào ${user.name},</p><p>Mã xác nhận khôi phục mật khẩu của bạn là:</p><h2>${otp}</h2><p>Mã có hiệu lực trong 15 phút.</p>`,
+      `Mã xác nhận khôi phục mật khẩu của bạn là: ${otp}. Mã có hiệu lực trong 15 phút.`,
+    );
+    if (!sent) throw new BadRequestException({ code: 'PASSWORD_RESET_EMAIL_FAILED', message: 'Không thể gửi mã xác nhận. Vui lòng thử lại sau.' });
+    return { challengeId: request.id, email: this.maskEmail(user.email), message: 'Mã xác nhận đã được gửi tới Gmail của bạn.' };
+  }
+
+  async verifyPasswordReset(challengeId: string, otp: string) {
+    const request = await this.passwordResetRepo.findOne({ where: { id: challengeId } });
+    if (!request || request.expiresAt.getTime() < Date.now() || request.attempts >= 5) {
+      throw new BadRequestException({ code: 'INVALID_OTP', message: 'OTP không đúng. Vui lòng kiểm tra lại.' });
+    }
+    request.attempts += 1;
+    if (!(await bcrypt.compare(otp, request.otpHash))) {
+      await this.passwordResetRepo.save(request);
+      throw new BadRequestException({ code: 'INVALID_OTP', message: 'OTP không đúng. Vui lòng kiểm tra lại.' });
+    }
+    const resetToken = randomBytes(32).toString('hex');
+    request.verifiedAt = new Date();
+    request.resetTokenHash = this.hashToken(resetToken);
+    request.resetTokenExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    await this.passwordResetRepo.save(request);
+    return { resetToken, message: 'Xác nhận OTP thành công.' };
+  }
+
+  async completePasswordReset(input: CompletePasswordResetDto) {
+    if (input.newPassword !== input.confirmPassword) throw new BadRequestException('Mật khẩu mới không khớp.');
+    if (!this.isStrongPassword(input.newPassword)) throw new BadRequestException('Mật khẩu mới không hợp lệ. Vui lòng nhập lại.');
+    const request = await this.passwordResetRepo.findOne({ where: { resetTokenHash: this.hashToken(input.resetToken) } });
+    if (!request || !request.verifiedAt || !request.resetTokenExpiresAt || request.resetTokenExpiresAt.getTime() < Date.now()) {
+      throw new BadRequestException({ code: 'INVALID_RESET_TOKEN', message: 'Phiên khôi phục mật khẩu đã hết hạn.' });
+    }
+    const user = await this.userRepo.findOne({ where: { id: request.userId } });
+    if (!user) throw new BadRequestException('Không tìm thấy tài khoản.');
+    user.password = await bcrypt.hash(input.newPassword, 10);
+    await this.userRepo.save(user);
+    await this.refreshTokenRepo.update({ userId: user.id, revokedAt: IsNull() }, { revokedAt: new Date() });
+    await this.passwordResetRepo.delete(request.id);
+    return { message: 'Đổi mật khẩu thành công.' };
+  }
+
+  private async findUserForPasswordReset(login: string) {
+    const byEmail = await this.userRepo.findOne({ where: { email: login.toLowerCase() } });
+    if (byEmail) return byEmail;
+    const freelancer = await this.freelancerRepo.findOne({ where: { identifier: login.toUpperCase() }, relations: { user: true } });
+    if (freelancer?.user) return freelancer.user;
+    const internal = await this.internalRepo.findOne({
+      where: { email: login.toLowerCase(), isActive: true },
+      relations: { user: true },
+    });
+    return internal?.user ?? null;
+  }
+
+  private hashToken(value: string) { return createHash('sha256').update(value).digest('hex'); }
+
+  private maskEmail(email: string) {
+    const [name, domain] = email.split('@');
+    return `${name.slice(0, 1)}${'*'.repeat(Math.max(2, name.length - 1))}@${domain}`;
+  }
+
+  private isStrongPassword(value: string) {
+    return value.length >= 8 && value.length <= 16 && /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value) && /[^A-Za-z0-9]/.test(value);
   }
 
   async refresh(refreshToken: string) {
@@ -232,6 +422,22 @@ export class AuthService implements OnModuleInit {
 
     const { password: _, ...result } = user;
     return result;
+  }
+
+  async changePassword(userId: string, input: ChangePasswordDto) {
+    if (input.newPassword !== input.confirmPassword) {
+      throw new BadRequestException('Mật khẩu mới không khớp.');
+    }
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('Không tìm thấy tài khoản.');
+    if (!(await bcrypt.compare(input.currentPassword, user.password))) {
+      throw new BadRequestException('Mật khẩu hiện tại không đúng.');
+    }
+
+    user.password = await bcrypt.hash(input.newPassword, 10);
+    await this.userRepo.save(user);
+    return { message: 'Đổi mật khẩu thành công.' };
   }
 
   // ── User assignment dropdown (all authenticated users) ──
@@ -359,12 +565,25 @@ export class AuthService implements OnModuleInit {
   }
 
   private assertRoleCanUseGenericUserManagement(role?: UserRole) {
-    if (role === UserRole.FREELANCER) {
+    if (role === UserRole.FREELANCER || role === UserRole.INTERNAL) {
       this.throwFreelancerManagedElsewhere();
     }
   }
 
   private async assertUserCanAuthenticate(user: { id: string; role: UserRole }) {
+    if (user.role === UserRole.INTERNAL) {
+      const internal = await this.internalRepo.findOne({
+        where: { userId: user.id, isActive: true },
+      });
+      if (!internal) {
+        throw new UnauthorizedException({
+          code: 'INTERNAL_ACCOUNT_INACTIVE',
+          message: 'Internal account is inactive or unavailable.',
+        });
+      }
+      return;
+    }
+
     if (user.role !== UserRole.FREELANCER) return;
 
     const freelancer = await this.freelancerRepo.findOne({
@@ -387,5 +606,21 @@ export class AuthService implements OnModuleInit {
       code: 'FREELANCER_MANAGED_ELSEWHERE',
       message: 'Freelancer accounts must be created and managed via the freelancers service.',
     });
+  }
+
+  private generateInternalPassword() {
+    return randomBytes(9).toString('base64url').slice(0, 12);
+  }
+
+  private buildInternalPasswordEmail(name: string | null, password: string) {
+    const displayName = name?.trim() || 'bạn';
+    return `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937">
+        <p>Xin chào ${displayName},</p>
+        <p>Mật khẩu đăng nhập Extension Tuyển dụng VCS của bạn là:</p>
+        <p style="font-size: 22px; font-weight: 700; letter-spacing: 2px">${password}</p>
+        <p>Vui lòng không chia sẻ mật khẩu này với người khác.</p>
+      </div>
+    `;
   }
 }

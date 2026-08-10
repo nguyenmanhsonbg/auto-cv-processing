@@ -3,6 +3,7 @@ export enum UserRole {
   INTERVIEWER = 'INTERVIEWER',
   HR = 'HR',
   FREELANCER = 'FREELANCER',
+  INTERNAL = 'INTERNAL',
 }
 
 export interface User {

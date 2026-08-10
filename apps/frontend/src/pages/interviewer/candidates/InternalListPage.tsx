@@ -42,7 +42,7 @@ import type { RecruitmentPagination } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_PAGE_SIZE = 20;
-const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@viettel\.com\.vn$/i;
+const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
 type StatusFilterValue = 'all' | 'active' | 'inactive';
 
@@ -158,7 +158,7 @@ export function InternalListPage() {
       return;
     }
     if (!INTERNAL_EMAIL_PATTERN.test(email)) {
-      setCreateError('Email phải có đuôi @viettel.com.vn.');
+      setCreateError('Email không hợp lệ.');
       return;
     }
     if (!phone) {
@@ -223,7 +223,7 @@ export function InternalListPage() {
           <p className="text-sm text-muted-foreground">Candidates</p>
           <h1 className="text-2xl font-semibold">Internals</h1>
           <p className="text-sm text-muted-foreground">
-            HR/Admin-only workspace. Internal records use a Viettel email and have no login account.
+            HR/Admin-only workspace. Internal records use an email and have no login account.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -359,13 +359,13 @@ export function InternalListPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="internal-email">Viettel email</Label>
+                    <Label htmlFor="internal-email">Email</Label>
               <Input
                 id="internal-email"
                 type="email"
                 value={createEmail}
                 onChange={(event) => setCreateEmail(event.target.value)}
-                placeholder="name@viettel.com.vn"
+                      placeholder="name@example.com"
                 disabled={submitting}
               />
             </div>
