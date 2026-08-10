@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
+    "test:cov": "node scripts/test-coverage.cjs",
     "migration:generate": "typeorm migration:generate -d dist/config/typeorm.config.js",
     "migration:run": "typeorm migration:run -d dist/config/typeorm.config.js",
     "migration:revert": "typeorm migration:revert -d dist/config/typeorm.config.js"
