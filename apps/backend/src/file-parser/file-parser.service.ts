@@ -15,7 +15,7 @@ function isAsciiDigit(character: string | undefined) {
   return code >= 48 && code <= 57;
 }
 
-function parseExperienceCell(raw: string) {
+function stripExperienceSuffix(raw: string) {
   let value = raw.trim();
   const lowerValue = value.toLowerCase();
   for (const suffix of ['years', 'year', 'y']) {
@@ -23,20 +23,28 @@ function parseExperienceCell(raw: string) {
     value = value.slice(0, -suffix.length).trimEnd();
     break;
   }
+  return value;
+}
 
+function findExperienceNumberStart(value: string) {
   const numberEnd = value.length;
   let numberStart = numberEnd;
   while (numberStart > 0 && isAsciiDigit(value[numberStart - 1])) numberStart -= 1;
+  if (numberStart === numberEnd) return null;
 
   const decimalPointIndex = numberStart - 1;
-  if (numberStart < numberEnd && value[decimalPointIndex] === '.') {
-    let integerStart = decimalPointIndex;
-    while (integerStart > 0 && isAsciiDigit(value[integerStart - 1])) integerStart -= 1;
-    if (integerStart === decimalPointIndex) return null;
-    numberStart = integerStart;
-  }
+  if (value[decimalPointIndex] !== '.') return numberStart;
 
-  if (numberStart === numberEnd) return null;
+  let integerStart = decimalPointIndex;
+  while (integerStart > 0 && isAsciiDigit(value[integerStart - 1])) integerStart -= 1;
+  return integerStart === decimalPointIndex ? null : integerStart;
+}
+
+function parseExperienceCell(raw: string) {
+  const value = stripExperienceSuffix(raw);
+  const numberEnd = value.length;
+  const numberStart = findExperienceNumberStart(value);
+  if (numberStart === null) return null;
   const separator = value[numberStart - 1];
   if (!separator || (separator !== ':' && !isParserWhitespace(separator))) return null;
 

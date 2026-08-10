@@ -7631,6 +7631,63 @@ function buildFacebookGroupSyncDetails(result: DiscoverFacebookGroupsResponse): 
   return { accepted, removed, reactivated, filtered, skipped, errors };
 }
 
+const FACEBOOK_GROUP_ACTIVITY_MARKERS = [
+  'lần hoạt động gần nhất',
+  'đã tham gia gần đây',
+  'đã tham gia',
+];
+const FACEBOOK_GROUP_NAME_SEPARATORS = ['-', '–', '—', '|', '·', ':'];
+
+function trimFacebookGroupActivitySuffix(value: string): string | null {
+  const lower = value.toLowerCase();
+  for (const marker of FACEBOOK_GROUP_ACTIVITY_MARKERS) {
+    const markerIndex = lower.indexOf(marker);
+    if (markerIndex < 0) continue;
+    const openingParenthesis = lower.lastIndexOf('(', markerIndex);
+    const closingParenthesis = lower.lastIndexOf(')', markerIndex);
+    const cutIndex = openingParenthesis > closingParenthesis ? openingParenthesis : markerIndex;
+    let normalized = value.slice(0, cutIndex).trim();
+    while (FACEBOOK_GROUP_NAME_SEPARATORS.includes(normalized.at(-1) ?? '')) {
+      normalized = normalized.slice(0, -1).trimEnd();
+    }
+    return normalized;
+  }
+  return null;
+}
+
+function stripFacebookGroupYearSuffix(value: string) {
+  const yearMarker = 'năm trước';
+  const yearMarkerIndex = value.toLowerCase().indexOf(yearMarker);
+  if (yearMarkerIndex < 0) return value;
+
+  const beforeYearMarker = value.slice(0, yearMarkerIndex).trim();
+  const separatorIndex = FACEBOOK_GROUP_NAME_SEPARATORS.reduce(
+    (lastIndex, separator) => Math.max(lastIndex, beforeYearMarker.lastIndexOf(separator)),
+    -1,
+  );
+  if (separatorIndex < 0) return value;
+
+  const numberText = beforeYearMarker.slice(separatorIndex + 1).trim();
+  const isNumber = numberText.length > 0
+    && [...numberText].every((character) => character >= '0' && character <= '9');
+  return isNumber ? beforeYearMarker.slice(0, separatorIndex).trim() : value;
+}
+
+function stripFacebookGroupNameNoise(value: string) {
+  let normalized = value.replace(/\s+/g, ' ').trim();
+  while (true) {
+    const trimmedValue = trimFacebookGroupActivitySuffix(normalized);
+    if (trimmedValue === null) break;
+    normalized = trimmedValue;
+  }
+
+  const allGroupsSuffix = ' xem tất cả';
+  if (normalized.toLowerCase().endsWith(allGroupsSuffix)) {
+    normalized = normalized.slice(0, -allGroupsSuffix.length).trim();
+  }
+  return stripFacebookGroupYearSuffix(normalized);
+}
+
 async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunResult> {
   const sleepMs = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -7690,55 +7747,6 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     'xem thêm',
     'more',
   ]);
-
-  const stripNameNoise = (value: string) => {
-    let normalized = normalizeText(value) ?? '';
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const marker of ['lần hoạt động gần nhất', 'đã tham gia gần đây', 'đã tham gia']) {
-        const lower = normalized.toLowerCase();
-        const markerIndex = lower.indexOf(marker);
-        if (markerIndex < 0) continue;
-        const openingParenthesis = lower.lastIndexOf('(', markerIndex);
-        const closingParenthesis = lower.lastIndexOf(')', markerIndex);
-        const cutIndex = openingParenthesis > closingParenthesis
-          ? openingParenthesis
-          : markerIndex;
-        normalized = normalized.slice(0, cutIndex).trim();
-        while (['-', '–', '—', '|', '·', ':'].includes(normalized.at(-1) ?? '')) {
-          normalized = normalized.slice(0, -1).trimEnd();
-        }
-        changed = true;
-        break;
-      }
-    }
-
-    const lower = normalized.toLowerCase();
-    const allGroupsSuffix = ' xem tất cả';
-    if (lower.endsWith(allGroupsSuffix)) {
-      normalized = normalized.slice(0, -allGroupsSuffix.length).trim();
-    }
-
-    const yearMarker = 'năm trước';
-    const yearMarkerIndex = normalized.toLowerCase().indexOf(yearMarker);
-    if (yearMarkerIndex >= 0) {
-      const beforeYearMarker = normalized.slice(0, yearMarkerIndex).trim();
-      const separators = ['-', '–', '—', '|', '·', ':'];
-      const separatorIndex = separators.reduce(
-        (lastIndex, separator) => Math.max(lastIndex, beforeYearMarker.lastIndexOf(separator)),
-        -1,
-      );
-      const numberText = separatorIndex >= 0
-        ? beforeYearMarker.slice(separatorIndex + 1).trim()
-        : '';
-      const isNumber = numberText.length > 0
-        && [...numberText].every((character) => character >= '0' && character <= '9');
-      if (isNumber) normalized = beforeYearMarker.slice(0, separatorIndex).trim();
-    }
-
-    return normalized;
-  };
 
   const ignoredGroupPathSegments = new Set([
     'help',
@@ -7898,7 +7906,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   };
 
   const sanitizeName = (rawName: string) => {
-    return stripNameNoise(rawName);
+    return stripFacebookGroupNameNoise(rawName);
   };
 
   const getNameFromAnchor = (anchor: HTMLAnchorElement, fallbackTargetExternalId?: string) => {

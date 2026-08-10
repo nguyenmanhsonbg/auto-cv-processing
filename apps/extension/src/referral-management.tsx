@@ -77,6 +77,28 @@ function isInternalReferralEmail(value: string) {
   const atIndex = value.lastIndexOf('@');
   return value.slice(atIndex + 1).toLowerCase() === 'viettel.com.vn';
 }
+
+function getCreateFormErrors(
+  source: ReferralManagementSource,
+  name: string,
+  normalizedEmail: string,
+  phone: string,
+) {
+  if (!name.trim()) return { nameFieldError: 'Họ và tên là bắt buộc, không được để trống.' };
+  if (!isValidReferralEmail(normalizedEmail)) return { emailFieldError: 'Email không hợp lệ. Vui lòng kiểm tra lại.' };
+  if (source === 'INTERNAL' && !isInternalReferralEmail(normalizedEmail)) {
+    return { emailFieldError: 'Email Nội bộ phải có đuôi @viettel.com.vn.' };
+  }
+  if (!phone.trim()) {
+    return {
+      formError: source === 'FREELANCER'
+        ? 'Vui lòng nhập số điện thoại Freelancer.'
+        : 'Vui lòng nhập số điện thoại nhân sự nội bộ.',
+    };
+  }
+  return null;
+}
+
 const REFERRAL_PAGE_SIZE = 5;
 const REFERRAL_ALL_ROUNDS_OPTION: ReferralRoundOption = {
   value: 'ALL',
@@ -160,6 +182,558 @@ function ReferralFilterDropdown({
   );
 }
 
+interface ReferralManagementToolbarProps {
+  source: ReferralManagementSource;
+  title: string;
+  search: string;
+  onSearchChange: (value: string) => void;
+  onClearSearch: () => void;
+  onCreate: () => void;
+  cvStatusFilter: CvStatusFilter;
+  cvRoundOptions: ReferralRoundOption[];
+  roundsLoading: boolean;
+  onCvStatusChange: (value: string) => void;
+  jdFilter: JdFilter;
+  availableJds: Array<[string, { title: string; createdAt?: string }]>;
+  jdDropdownRef: React.RefObject<HTMLDivElement>;
+  isJdFilterOpen: boolean;
+  onToggleJdFilter: () => void;
+  onJdFilterChange: (value: JdFilter) => void;
+  accountStatusFilter: AccountStatusFilter;
+  onAccountStatusChange: (value: string) => void;
+}
+
+function ReferralManagementToolbar({
+  source,
+  title,
+  search,
+  onSearchChange,
+  onClearSearch,
+  onCreate,
+  cvStatusFilter,
+  cvRoundOptions,
+  roundsLoading,
+  onCvStatusChange,
+  jdFilter,
+  availableJds,
+  jdDropdownRef,
+  isJdFilterOpen,
+  onToggleJdFilter,
+  onJdFilterChange,
+  accountStatusFilter,
+  onAccountStatusChange,
+}: ReferralManagementToolbarProps) {
+  const selectedJdLabel = jdFilter === 'ALL'
+    ? 'Tất cả JD'
+    : availableJds.find(([id]) => id === jdFilter)?.[1].title ?? 'Tất cả JD';
+
+  return (
+    <div className={'referral-toolbar' + (source === 'INTERNAL' ? ' is-internal' : '')}>
+      <label className="referral-search-field">
+        <span className="referral-search-icon" aria-hidden="true"><SearchIcon /></span>
+        <input
+          value={search}
+          maxLength={64}
+          onChange={(event) => onSearchChange(event.target.value.trim())}
+          placeholder={source === 'FREELANCER' ? 'Tìm kiếm tên, Mã Freelancer' : 'Tìm kiếm tên, email, số điện thoại'}
+          aria-label={'Tìm kiếm ' + title}
+        />
+        {search ? (
+          <button
+            type="button"
+            className="referral-search-clear-button"
+            aria-label="Xóa nội dung tìm kiếm"
+            title="Xóa nội dung tìm kiếm"
+            onClick={onClearSearch}
+          >
+            <SearchClearIcon />
+          </button>
+        ) : null}
+      </label>
+      {source === 'FREELANCER' ? (
+        <button type="button" className="referral-primary-button" onClick={onCreate}>
+          Thêm nhân sự
+        </button>
+      ) : null}
+      <div className={'referral-filter-row' + (source === 'INTERNAL' ? ' is-internal' : '')}>
+        <ReferralFilterDropdown
+          label="Tình trạng CV"
+          value={cvStatusFilter}
+          disabled={source === 'FREELANCER' && roundsLoading}
+          options={cvRoundOptions.map((option) => ({ value: option.value, label: option.label }))}
+          onChange={onCvStatusChange}
+        />
+        <label className="referral-jd-filter-label">
+          <span>Lọc theo JD</span>
+          <div ref={jdDropdownRef} className="referral-jd-dropdown">
+            <button
+              type="button"
+              className="referral-jd-select-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={isJdFilterOpen}
+              onClick={onToggleJdFilter}
+            >
+              <span>{selectedJdLabel}</span>
+              <ReferralChevronDownIcon />
+            </button>
+            {isJdFilterOpen ? (
+              <div className="referral-jd-options" role="listbox" aria-label="Danh sách JD">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={jdFilter === 'ALL'}
+                  className={'referral-jd-option' + (jdFilter === 'ALL' ? ' is-selected' : '')}
+                  onClick={() => onJdFilterChange('ALL')}
+                >
+                  <span className="referral-jd-option-label">
+                    <span className={'referral-jd-checkbox' + (jdFilter === 'ALL' ? ' is-checked' : '')} aria-hidden="true">✓</span>
+                    <span>Tất cả JD</span>
+                  </span>
+                </button>
+                {availableJds.map(([id, jd]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="option"
+                    aria-selected={jdFilter === id}
+                    className={'referral-jd-option' + (jdFilter === id ? ' is-selected' : '')}
+                    onClick={() => onJdFilterChange(id)}
+                  >
+                    <span className="referral-jd-option-label">
+                      <span className={'referral-jd-checkbox' + (jdFilter === id ? ' is-checked' : '')} aria-hidden="true">✓</span>
+                      <span>{jd.title}</span>
+                    </span>
+                    {jd.createdAt ? <time>{formatDate(jd.createdAt)}</time> : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </label>
+        {source === 'FREELANCER' ? (
+          <ReferralFilterDropdown
+            label="Tình trạng tài khoản"
+            value={accountStatusFilter}
+            options={[
+              { value: 'ALL', label: 'Tất cả' },
+              { value: 'ACTIVE', label: 'Hoạt động' },
+              { value: 'INACTIVE', label: 'Đã khóa' },
+            ]}
+            onChange={onAccountStatusChange}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+interface ReferralPeopleListProps {
+  visiblePeople: Array<{ person: ReferralManagementPerson; applications: ReferralManagementApplication[] }>;
+  source: ReferralManagementSource;
+  copiedIdentifier: string | null;
+  onCopyIdentifier: (identifier: string) => void;
+  onRequestStatusChange: (person: ReferralManagementPerson) => void;
+  expandedIds: Record<string, boolean>;
+  onToggleExpanded: (sourceId: string) => void;
+}
+
+function ReferralPeopleList({
+  visiblePeople,
+  source,
+  copiedIdentifier,
+  onCopyIdentifier,
+  onRequestStatusChange,
+  expandedIds,
+  onToggleExpanded,
+}: ReferralPeopleListProps) {
+  return (
+    <div className="referral-people-list">
+      {visiblePeople.map(({ person, applications }) => {
+        const isExpanded = Boolean(expandedIds[person.sourceId]);
+        const metrics = person.metrics;
+        return (
+          <article className={'referral-person-card' + (person.isActive ? '' : ' is-inactive')} key={person.sourceId}>
+            <div className="referral-person-heading">
+              <div className="referral-person-identity">
+                <div className="referral-person-name-row">
+                  <h3>{person.name || null}</h3>
+                  {!person.isActive ? <span className="referral-active-badge is-inactive">Đã khóa</span> : null}
+                </div>
+                {person.identifier ? (
+                  <div className="referral-person-identifier-row">
+                    <span className="referral-identifier">
+                      <span>{person.identifier}</span>
+                      <button
+                        type="button"
+                        className={'referral-copy-button' + (copiedIdentifier === person.identifier ? ' is-copied' : '')}
+                        onClick={() => onCopyIdentifier(person.identifier as string)}
+                        title="Sao chép mã Freelancer"
+                        aria-label="Sao chép mã Freelancer"
+                      >
+                        {copiedIdentifier === person.identifier ? 'Đã copy' : <CopyIcon />}
+                      </button>
+                    </span>
+                  </div>
+                ) : null}
+                <div className="referral-person-meta">
+                  <span>{[person.email, person.phone].filter(Boolean).join(' • ')}</span>
+                </div>
+              </div>
+              {source === 'FREELANCER' ? (
+                <div className="referral-person-actions">
+                  <button
+                    type="button"
+                    className="referral-status-icon-button"
+                    onClick={() => onRequestStatusChange(person)}
+                    title={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
+                    aria-label={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
+                  >
+                    {person.isActive ? <UnlockIcon /> : <LockIcon />}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="referral-metrics-grid">
+              <Metric label="TỔNG CV GỬI" value={metrics.total} />
+              <Metric label="ĐANG XỬ LÝ" value={metrics.processing} />
+              <Metric label="ĐÃ ĐẬU" value={metrics.passed} isPositive />
+              <Metric label="TỈ LỆ ĐẬU" value={metrics.passRate + '%'} isPositive />
+            </div>
+
+            <button
+              type="button"
+              className="referral-detail-toggle"
+              onClick={() => onToggleExpanded(person.sourceId)}
+              aria-expanded={isExpanded}
+            >
+              <span>Chi tiết</span>
+              <DetailChevronIcon isOpen={isExpanded} />
+            </button>
+
+            {isExpanded ? <ApplicationTable applications={applications} source={source} /> : null}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+interface ReferralPaginationProps {
+  page: number;
+  visiblePeopleCount: number;
+  visibleTotal: number;
+  visibleTotalPages: number;
+  onPrevious: () => void;
+  onNext: () => void;
+  onPageChange: (page: number) => void;
+}
+
+function ReferralPagination({
+  page,
+  visiblePeopleCount,
+  visibleTotal,
+  visibleTotalPages,
+  onPrevious,
+  onNext,
+  onPageChange,
+}: ReferralPaginationProps) {
+  return (
+    <div className="referral-pagination">
+      <span>
+        Hiển thị {visiblePeopleCount ? (page - 1) * REFERRAL_PAGE_SIZE + 1 : 0}
+        {' - '}
+        {visiblePeopleCount ? (page - 1) * REFERRAL_PAGE_SIZE + visiblePeopleCount : 0}
+        {' của '}
+        {visibleTotal} kết quả
+      </span>
+      <div>
+        <button type="button" aria-label="Trang trước" disabled={page <= 1} onClick={onPrevious}>‹</button>
+        {buildReferralPaginationPages(page, visibleTotalPages).map((paginationPage, index) => (
+          paginationPage === 'ellipsis' ? (
+            <span key={'ellipsis-' + index} className="referral-pagination-ellipsis" aria-hidden="true">…</span>
+          ) : (
+            <button
+              key={paginationPage}
+              type="button"
+              className={paginationPage === page ? 'is-active' : ''}
+              aria-current={paginationPage === page ? 'page' : undefined}
+              onClick={() => onPageChange(paginationPage)}
+            >
+              {paginationPage}
+            </button>
+          )
+        ))}
+        <button type="button" aria-label="Trang sau" disabled={page >= visibleTotalPages} onClick={onNext}>›</button>
+      </div>
+    </div>
+  );
+}
+
+interface ReferralPeopleContentProps {
+  loading: boolean;
+  error: string | null;
+  people: ReferralManagementPerson[];
+  filteredPeople: unknown[];
+  visiblePeople: Array<{ person: ReferralManagementPerson; applications: ReferralManagementApplication[] }>;
+  hasActiveFilter: boolean;
+  noMatchingPeopleText: string;
+  emptyText: string;
+  source: ReferralManagementSource;
+  copiedIdentifier: string | null;
+  onCopyIdentifier: (identifier: string) => void;
+  onRequestStatusChange: (person: ReferralManagementPerson) => void;
+  expandedIds: Record<string, boolean>;
+  onToggleExpanded: (sourceId: string) => void;
+  page: number;
+  visibleTotal: number;
+  visibleTotalPages: number;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
+  onPageChange: (page: number) => void;
+}
+
+function ReferralPeopleContent({
+  loading,
+  error,
+  people,
+  filteredPeople,
+  visiblePeople,
+  hasActiveFilter,
+  noMatchingPeopleText,
+  emptyText,
+  source,
+  copiedIdentifier,
+  onCopyIdentifier,
+  onRequestStatusChange,
+  expandedIds,
+  onToggleExpanded,
+  page,
+  visibleTotal,
+  visibleTotalPages,
+  onPreviousPage,
+  onNextPage,
+  onPageChange,
+}: ReferralPeopleContentProps) {
+  if (loading) return <div className="referral-state">Đang tải danh sách...</div>;
+  if (error) return <div className="referral-state is-error">{error}</div>;
+
+  return (
+    <>
+      {filteredPeople.length === 0 ? (
+        <div className="referral-state referral-empty-state">
+          {people.length || hasActiveFilter ? noMatchingPeopleText : emptyText}
+        </div>
+      ) : null}
+      {visiblePeople.length > 0 ? (
+        <ReferralPeopleList
+          visiblePeople={visiblePeople}
+          source={source}
+          copiedIdentifier={copiedIdentifier}
+          onCopyIdentifier={onCopyIdentifier}
+          onRequestStatusChange={onRequestStatusChange}
+          expandedIds={expandedIds}
+          onToggleExpanded={onToggleExpanded}
+        />
+      ) : null}
+      {visibleTotalPages > 1 ? (
+        <ReferralPagination
+          page={page}
+          visiblePeopleCount={visiblePeople.length}
+          visibleTotal={visibleTotal}
+          visibleTotalPages={visibleTotalPages}
+          onPrevious={onPreviousPage}
+          onNext={onNextPage}
+          onPageChange={onPageChange}
+        />
+      ) : null}
+    </>
+  );
+}
+
+interface ReferralManagementModalsProps {
+  modal: ModalMode;
+  source: ReferralManagementSource;
+  title: string;
+  onClose: () => void;
+  onSubmit: React.FormEventHandler<HTMLFormElement>;
+  name: string;
+  setName: React.Dispatch<React.SetStateAction<string>>;
+  email: string;
+  setEmail: React.Dispatch<React.SetStateAction<string>>;
+  phone: string;
+  setPhone: React.Dispatch<React.SetStateAction<string>>;
+  formError: string | null;
+  nameFieldError: string | null;
+  emailFieldError: string | null;
+  setNameFieldError: React.Dispatch<React.SetStateAction<string | null>>;
+  setEmailFieldError: React.Dispatch<React.SetStateAction<string | null>>;
+  saving: boolean;
+  createdFreelancer: CreatedFreelancerResult | null;
+  onCopyCredentials: (result: CreatedFreelancerResult) => void;
+  selectedPerson: ReferralManagementPerson | null;
+  onConfirmStatusChange: () => void;
+}
+
+function ReferralManagementModals({
+  modal,
+  source,
+  title,
+  onClose,
+  onSubmit,
+  name,
+  setName,
+  email,
+  setEmail,
+  phone,
+  setPhone,
+  formError,
+  nameFieldError,
+  emailFieldError,
+  setNameFieldError,
+  setEmailFieldError,
+  saving,
+  createdFreelancer,
+  onCopyCredentials,
+  selectedPerson,
+  onConfirmStatusChange,
+}: ReferralManagementModalsProps) {
+  return (
+    <>
+      {modal === 'CREATE' ? (
+        <div className="referral-modal-backdrop" role="presentation">
+          <section className="referral-modal" role="dialog" aria-modal="true" aria-labelledby="referral-create-title">
+            <div className="referral-modal-header">
+              <h2 id="referral-create-title">Thêm {title} mới</h2>
+              <button type="button" onClick={onClose} aria-label="Đóng">×</button>
+            </div>
+            <form onSubmit={onSubmit} noValidate>
+              {source === 'FREELANCER' ? (
+                <>
+                  <label>
+                    <span>HỌ VÀ TÊN <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={name} maxLength={255} onChange={(event) => { setName(event.target.value); setNameFieldError(null); }} placeholder="Nhập tên Freelancer mới..." />
+                      {name ? <button type="button" className="referral-input-clear-button" onClick={() => { setName(''); setNameFieldError(null); }} aria-label="Xóa họ và tên"><SearchClearIcon /></button> : null}
+                    </div>
+                    {nameFieldError ? <div className="referral-field-error">{nameFieldError}</div> : null}
+                  </label>
+                  <label>
+                    <span>EMAIL <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={email} maxLength={255} onChange={(event) => { setEmail(event.target.value); setEmailFieldError(null); }} type="email" placeholder="freelancer@gmail.com" />
+                      {email ? <button type="button" className="referral-input-clear-button" onClick={() => { setEmail(''); setEmailFieldError(null); }} aria-label="Xóa email"><SearchClearIcon /></button> : null}
+                    </div>
+                    {emailFieldError ? <div className="referral-field-error">{emailFieldError}</div> : null}
+                  </label>
+                  <label>
+                    <span>SỐ ĐIỆN THOẠI <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={phone} maxLength={50} onChange={(event) => setPhone(event.target.value)} placeholder="0988098797" />
+                      {phone ? <button type="button" className="referral-input-clear-button" onClick={() => setPhone('')} aria-label="Xóa số điện thoại"><SearchClearIcon /></button> : null}
+                    </div>
+                  </label>
+                  <div className="referral-identifier-preview">
+                    <div className="referral-identifier-preview-text">MÃ ĐỊNH DANH SẼ ĐƯỢC CẤP</div>
+                    <div className="referral-identifier-preview-text">FL-2026-004</div>
+                    <div className="referral-identifier-preview-text">Gửi mã định danh này cho Freelancer để họ dùng khi nộp CV và đăng nhập theo dõi.</div>
+                    <div className="referral-identifier-preview-text">Mật khẩu sẽ được gửi đến email được nhập.</div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label>
+                    <span>HỌ VÀ TÊN <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={name} maxLength={255} onChange={(event) => { setName(event.target.value); setNameFieldError(null); }} placeholder="Nhập họ và tên nhân sự..." />
+                      {name ? <button type="button" className="referral-input-clear-button" onClick={() => { setName(''); setNameFieldError(null); }} aria-label="Xóa họ và tên nội bộ"><SearchClearIcon /></button> : null}
+                    </div>
+                    {nameFieldError ? <div className="referral-field-error">{nameFieldError}</div> : null}
+                  </label>
+                  <label>
+                    <span>EMAIL NỘI BỘ <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={email} maxLength={255} onChange={(event) => { setEmail(event.target.value); setEmailFieldError(null); }} type="email" placeholder="ten.nguoi@viettel.com.vn" />
+                      {email ? <button type="button" className="referral-input-clear-button" onClick={() => { setEmail(''); setEmailFieldError(null); }} aria-label="Xóa email Nội bộ"><SearchClearIcon /></button> : null}
+                    </div>
+                    {emailFieldError ? <div className="referral-field-error">{emailFieldError}</div> : null}
+                  </label>
+                  <label>
+                    <span>SỐ ĐIỆN THOẠI <em>*</em></span>
+                    <div className="referral-input-with-clear">
+                      <input value={phone} maxLength={50} onChange={(event) => setPhone(event.target.value)} placeholder="0988123456" />
+                      {phone ? <button type="button" className="referral-input-clear-button" onClick={() => setPhone('')} aria-label="Xóa số điện thoại nội bộ"><SearchClearIcon /></button> : null}
+                    </div>
+                  </label>
+                </>
+              )}
+              {formError ? <p className="referral-form-error">{formError}</p> : null}
+              <div className="referral-modal-actions">
+                <button type="button" className="referral-secondary-button" onClick={onClose}>Hủy</button>
+                <button type="submit" className="referral-primary-button" disabled={saving || !email.trim() || !name.trim() || !phone.trim()}>
+                  {saving ? 'Đang lưu...' : 'Thêm mới'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {modal === 'CREDENTIALS' && createdFreelancer ? (
+        <div className="referral-modal-backdrop" role="presentation">
+          <section className="referral-modal" role="dialog" aria-modal="true" aria-labelledby="referral-credentials-title">
+            <div className="referral-modal-header">
+              <h2 id="referral-credentials-title">Đã thêm Freelancer</h2>
+              <button type="button" onClick={onClose} aria-label="Đóng">×</button>
+            </div>
+            <div className="referral-credentials-body">
+              <p>Gửi thông tin dưới đây cho Freelancer để đăng nhập và theo dõi CV.</p>
+              <div><span>Mã định danh</span><strong>{createdFreelancer.identifier}</strong></div>
+              <div><span>Mật khẩu khởi tạo</span><strong>{createdFreelancer.initialPassword}</strong></div>
+              <button type="button" className="referral-primary-button" onClick={() => onCopyCredentials(createdFreelancer)}>
+                Sao chép thông tin
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {modal === 'STATUS' && selectedPerson ? (
+        <div className="referral-modal-backdrop" role="presentation">
+          <section className="referral-modal referral-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="referral-status-title">
+            <div className="referral-modal-header">
+              <h2 id="referral-status-title">
+                {selectedPerson.isActive ? 'Xác nhận khoá tài khoản Freelancer' : 'Xác nhận mở khoá tài khoản Freelancer'}
+              </h2>
+              <button type="button" onClick={onClose} aria-label="Đóng">×</button>
+            </div>
+            <div className="referral-confirm-body">
+              <WarningIcon />
+              <h3>{selectedPerson.isActive ? 'Bạn có chắc muốn vô hiệu hóa nhân sự này không?' : 'Bạn có muốn kích hoạt lại nhân sự này không?'}</h3>
+              <p>
+                {selectedPerson.isActive ? (
+                  <>
+                    <strong className="referral-status-subject">{source === 'FREELANCER' ? 'Freelancer' : 'Nhân sự nội bộ'}</strong>{' '}
+                    bị khóa tài khoản, không thể đăng nhập vào hệ thống.
+                  </>
+                ) : 'Nhân sự này sẽ có thể tiếp tục được chọn làm nguồn giới thiệu.'}
+              </p>
+              <strong className="referral-confirm-person">{selectedPerson.name || selectedPerson.email}</strong>
+            </div>
+            {formError ? <p className="referral-form-error">{formError}</p> : null}
+            <div className="referral-modal-actions">
+              <button type="button" className="referral-secondary-button" onClick={onClose}>Hủy</button>
+              <button type="button" className="referral-primary-button" disabled={saving} onClick={onConfirmStatusChange}>
+                {saving ? 'Đang lưu...' : 'Xác nhận'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function ReferralManagementPanel({
   source,
   accessToken,
@@ -196,7 +770,7 @@ export function ReferralManagementPanel({
   const [createdFreelancer, setCreatedFreelancer] = useState<CreatedFreelancerResult | null>(null);
   const [copiedIdentifier, setCopiedIdentifier] = useState<string | null>(null);
   const onNotifyRef = useRef(onNotify);
-  const jdDropdownRef = useRef<HTMLDivElement | null>(null);
+  const jdDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     onNotifyRef.current = onNotify;
@@ -474,40 +1048,12 @@ export function ReferralManagementPanel({
     setEmailFieldError(null);
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (source === 'FREELANCER') {
-      if (!name.trim()) {
-        setNameFieldError('Họ và tên là bắt buộc, không được để trống.');
-        return;
-      }
-      if (!normalizedEmail) {
-        setEmailFieldError('Email không hợp lệ. Vui lòng kiểm tra lại.');
-        return;
-      }
-      if (!isValidReferralEmail(normalizedEmail)) {
-        setEmailFieldError('Email không hợp lệ. Vui lòng kiểm tra lại.');
-        return;
-      }
-      if (!phone.trim()) {
-        setFormError('Vui lòng nhập số điện thoại Freelancer.');
-        return;
-      }
-    } else {
-      if (!name.trim()) {
-        setNameFieldError('Họ và tên là bắt buộc, không được để trống.');
-        return;
-      }
-      if (!normalizedEmail || !isValidReferralEmail(normalizedEmail)) {
-        setEmailFieldError('Email không hợp lệ. Vui lòng kiểm tra lại.');
-        return;
-      }
-      if (!isInternalReferralEmail(normalizedEmail)) {
-        setEmailFieldError('Email Nội bộ phải có đuôi @viettel.com.vn.');
-        return;
-      }
-      if (!phone.trim()) {
-        setFormError('Vui lòng nhập số điện thoại nhân sự nội bộ.');
-        return;
-      }
+    const validationErrors = getCreateFormErrors(source, name, normalizedEmail, phone);
+    if (validationErrors) {
+      setNameFieldError(validationErrors.nameFieldError ?? null);
+      setEmailFieldError(validationErrors.emailFieldError ?? null);
+      setFormError(validationErrors.formError ?? null);
+      return;
     }
 
     setSaving(true);
@@ -600,380 +1146,92 @@ export function ReferralManagementPanel({
 
   return (
     <div className="referral-management-panel">
-      <div className={`referral-toolbar${source === 'INTERNAL' ? ' is-internal' : ''}`}>
-        <label className="referral-search-field">
-          <span className="referral-search-icon" aria-hidden="true"><SearchIcon /></span>
-          <input
-            value={search}
-            maxLength={64}
-            onChange={(event) => {
-              setSearch(event.target.value.trim());
-              setPage(1);
-            }}
-            placeholder={source === 'FREELANCER' ? 'Tìm kiếm tên, Mã Freelancer' : 'Tìm kiếm tên, email, số điện thoại'}
-            aria-label={`Tìm kiếm ${title}`}
-          />
-          {search ? (
-            <button
-              type="button"
-              className="referral-search-clear-button"
-              aria-label="Xóa nội dung tìm kiếm"
-              title="Xóa nội dung tìm kiếm"
-              onClick={() => {
-                setSearch('');
-                setPage(1);
-              }}
-            >
-              <SearchClearIcon />
-            </button>
-          ) : null}
-        </label>
-        {source === 'FREELANCER' ? (
-          <button type="button" className="referral-primary-button" onClick={openCreateModal}>
-            Thêm nhân sự
-          </button>
-        ) : null}
-        <div className={`referral-filter-row${source === 'INTERNAL' ? ' is-internal' : ''}`}>
-          <ReferralFilterDropdown
-            label="Tình trạng CV"
-            value={cvStatusFilter}
-            disabled={source === 'FREELANCER' && roundsLoading}
-            options={cvRoundOptions.map((option) => ({ value: option.value, label: option.label }))}
-            onChange={(value) => {
-              setCvStatusFilter(value as CvStatusFilter);
-              setPage(1);
-            }}
-          />
-          <label className="referral-jd-filter-label">
-            <span>Lọc theo JD</span>
-            <div ref={jdDropdownRef} className="referral-jd-dropdown">
-              <button
-                type="button"
-                className="referral-jd-select-trigger"
-                aria-haspopup="listbox"
-                aria-expanded={isJdFilterOpen}
-                onClick={() => setIsJdFilterOpen((current) => !current)}
-              >
-                <span>{jdFilter === 'ALL' ? 'Tất cả JD' : availableJds.find(([id]) => id === jdFilter)?.[1].title ?? 'Tất cả JD'}</span>
-                <ReferralChevronDownIcon />
-              </button>
-              {isJdFilterOpen ? (
-                <div className="referral-jd-options" role="listbox" aria-label="Danh sách JD">
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={jdFilter === 'ALL'}
-                    className={`referral-jd-option${jdFilter === 'ALL' ? ' is-selected' : ''}`}
-                    onClick={() => {
-                      setJdFilter('ALL');
-                      setPage(1);
-                      setIsJdFilterOpen(false);
-                    }}
-                  >
-                    <span className="referral-jd-option-label">
-                      <span className={`referral-jd-checkbox${jdFilter === 'ALL' ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
-                      <span>Tất cả JD</span>
-                    </span>
-                  </button>
-                  {availableJds.map(([id, jd]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      role="option"
-                      aria-selected={jdFilter === id}
-                      className={`referral-jd-option${jdFilter === id ? ' is-selected' : ''}`}
-                      onClick={() => {
-                        setJdFilter(id);
-                        setPage(1);
-                        setIsJdFilterOpen(false);
-                      }}
-                    >
-                      <span className="referral-jd-option-label">
-                        <span className={`referral-jd-checkbox${jdFilter === id ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
-                        <span>{jd.title}</span>
-                      </span>
-                      {jd.createdAt ? <time>{formatDate(jd.createdAt)}</time> : null}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </label>
-          {source === 'FREELANCER' ? (
-            <ReferralFilterDropdown
-              label="Tình trạng tài khoản"
-              value={accountStatusFilter}
-              options={[
-                { value: 'ALL', label: 'Tất cả' },
-                { value: 'ACTIVE', label: 'Hoạt động' },
-                { value: 'INACTIVE', label: 'Đã khóa' },
-              ]}
-              onChange={(value) => {
-                setAccountStatusFilter(value as AccountStatusFilter);
-                setPage(1);
-              }}
-            />
-          ) : null}
-        </div>
-      </div>
+      <ReferralManagementToolbar
+        source={source}
+        title={title}
+        search={search}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
+        onClearSearch={() => {
+          setSearch('');
+          setPage(1);
+        }}
+        onCreate={openCreateModal}
+        cvStatusFilter={cvStatusFilter}
+        cvRoundOptions={cvRoundOptions}
+        roundsLoading={roundsLoading}
+        onCvStatusChange={(value) => {
+          setCvStatusFilter(value as CvStatusFilter);
+          setPage(1);
+        }}
+        jdFilter={jdFilter}
+        availableJds={availableJds}
+        jdDropdownRef={jdDropdownRef}
+        isJdFilterOpen={isJdFilterOpen}
+        onToggleJdFilter={() => setIsJdFilterOpen((current) => !current)}
+        onJdFilterChange={(value) => {
+          setJdFilter(value);
+          setPage(1);
+          setIsJdFilterOpen(false);
+        }}
+        accountStatusFilter={accountStatusFilter}
+        onAccountStatusChange={(value) => {
+          setAccountStatusFilter(value as AccountStatusFilter);
+          setPage(1);
+        }}
+      />
 
-      {loading ? <div className="referral-state">Đang tải danh sách...</div> : null}
-      {!loading && error ? <div className="referral-state is-error">{error}</div> : null}
-      {!loading && !error && filteredPeople.length === 0 ? (
-        <div className="referral-state referral-empty-state">
-          {people.length || hasActiveFilter ? noMatchingPeopleText : emptyText}
-        </div>
-      ) : null}
+      <ReferralPeopleContent
+        loading={loading}
+        error={error}
+        people={people}
+        filteredPeople={filteredPeople}
+        visiblePeople={visiblePeople}
+        hasActiveFilter={hasActiveFilter}
+        noMatchingPeopleText={noMatchingPeopleText}
+        emptyText={emptyText}
+        source={source}
+        copiedIdentifier={copiedIdentifier}
+        onCopyIdentifier={(identifier) => void copyIdentifier(identifier)}
+        onRequestStatusChange={requestStatusChange}
+        expandedIds={expandedIds}
+        onToggleExpanded={(sourceId) => setExpandedIds((current) => ({
+          ...current,
+          [sourceId]: !current[sourceId],
+        }))}
+        page={page}
+        visibleTotal={visibleTotal}
+        visibleTotalPages={visibleTotalPages}
+        onPreviousPage={() => setPage((current) => Math.max(1, current - 1))}
+        onNextPage={() => setPage((current) => Math.min(visibleTotalPages, current + 1))}
+        onPageChange={setPage}
+      />
 
-      {!loading && !error && visiblePeople.length > 0 ? (
-        <div className="referral-people-list">
-          {visiblePeople.map(({ person, applications }) => {
-            const isExpanded = Boolean(expandedIds[person.sourceId]);
-            const metrics = person.metrics;
-            return (
-              <article className={`referral-person-card${person.isActive ? '' : ' is-inactive'}`} key={person.sourceId}>
-                <div className="referral-person-heading">
-                  <div className="referral-person-identity">
-                    <div className="referral-person-name-row">
-                      <h3>{person.name || null}</h3>
-                      {!person.isActive ? <span className="referral-active-badge is-inactive">Đã khoá</span> : null}
-                    </div>
-                    {person.identifier ? (
-                      <div className="referral-person-identifier-row">
-                        <span className="referral-identifier">
-                          <span>{person.identifier}</span>
-                          <button
-                            type="button"
-                            className={`referral-copy-button${copiedIdentifier === person.identifier ? ' is-copied' : ''}`}
-                            onClick={() => void copyIdentifier(person.identifier as string)}
-                            title="Sao chép mã Freelancer"
-                            aria-label="Sao chép mã Freelancer"
-                          >
-                            {copiedIdentifier === person.identifier ? 'Đã copy' : <CopyIcon />}
-                          </button>
-                        </span>
-                      </div>
-                    ) : null}
-                    <div className="referral-person-meta">
-                      <span>{[person.email, person.phone].filter(Boolean).join(' • ')}</span>
-                    </div>
-                  </div>
-                  {source === 'FREELANCER' ? (
-                    <div className="referral-person-actions">
-                      <button
-                        type="button"
-                        className="referral-status-icon-button"
-                        onClick={() => requestStatusChange(person)}
-                        title={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
-                        aria-label={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
-                      >
-                        {person.isActive ? <UnlockIcon /> : <LockIcon />}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="referral-metrics-grid">
-                  <Metric label="TỔNG CV GỬI" value={metrics.total} />
-                  <Metric label="ĐANG XỬ LÝ" value={metrics.processing} />
-                  <Metric label="ĐÃ ĐẬU" value={metrics.passed} isPositive />
-                  <Metric label="TỈ LỆ ĐẬU" value={`${metrics.passRate}%`} isPositive />
-                </div>
-
-                <button
-                  type="button"
-                  className="referral-detail-toggle"
-                  onClick={() => setExpandedIds((current) => ({ ...current, [person.sourceId]: !isExpanded }))}
-                  aria-expanded={isExpanded}
-                >
-                  <span>Chi tiết</span>
-                  <DetailChevronIcon isOpen={isExpanded} />
-                </button>
-
-                {isExpanded ? <ApplicationTable applications={applications} source={source} /> : null}
-              </article>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {visibleTotalPages > 1 ? (
-        <div className="referral-pagination">
-          <span>
-            Hiển thị {visiblePeople.length ? (page - 1) * REFERRAL_PAGE_SIZE + 1 : 0}
-            {' - '}
-            {visiblePeople.length ? (page - 1) * REFERRAL_PAGE_SIZE + visiblePeople.length : 0}
-            {' của '}
-            {visibleTotal} kết quả
-          </span>
-          <div>
-            <button
-              type="button"
-              aria-label="Trang trước"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-            >
-              ‹
-            </button>
-            {buildReferralPaginationPages(page, visibleTotalPages).map((paginationPage, index) => (
-              paginationPage === 'ellipsis' ? (
-                <span key={`ellipsis-${index}`} className="referral-pagination-ellipsis" aria-hidden="true">…</span>
-              ) : (
-                <button
-                  key={paginationPage}
-                  type="button"
-                  className={paginationPage === page ? 'is-active' : ''}
-                  aria-current={paginationPage === page ? 'page' : undefined}
-                  onClick={() => setPage(paginationPage)}
-                >
-                  {paginationPage}
-                </button>
-              )
-            ))}
-            <button
-              type="button"
-              aria-label="Trang sau"
-              disabled={page >= visibleTotalPages}
-              onClick={() => setPage((current) => Math.min(visibleTotalPages, current + 1))}
-            >
-              ›
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {modal === 'CREATE' ? (
-        <div className="referral-modal-backdrop" role="presentation">
-          <section className="referral-modal" role="dialog" aria-modal="true" aria-labelledby="referral-create-title">
-            <div className="referral-modal-header">
-              <h2 id="referral-create-title">Thêm {title} mới</h2>
-              <button type="button" onClick={closeModal} aria-label="Đóng">×</button>
-            </div>
-            <form onSubmit={submitCreate} noValidate>
-              {source === 'FREELANCER' ? (
-                <>
-                  <label>
-                    <span>HỌ VÀ TÊN <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={name} maxLength={255} onChange={(event) => { setName(event.target.value); setNameFieldError(null); }} placeholder="Nhập tên Freelancer mới..." />
-                      {name ? <button type="button" className="referral-input-clear-button" onClick={() => { setName(''); setNameFieldError(null); }} aria-label="Xóa họ và tên"><SearchClearIcon /></button> : null}
-                    </div>
-                    {nameFieldError ? <div className="referral-field-error">{nameFieldError}</div> : null}
-                  </label>
-                  <label>
-                    <span>EMAIL <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={email} maxLength={255} onChange={(event) => { setEmail(event.target.value); setEmailFieldError(null); }} type="email" placeholder="freelancer@gmail.com" />
-                      {email ? <button type="button" className="referral-input-clear-button" onClick={() => { setEmail(''); setEmailFieldError(null); }} aria-label="Xóa email"><SearchClearIcon /></button> : null}
-                    </div>
-                    {emailFieldError ? <div className="referral-field-error">{emailFieldError}</div> : null}
-                  </label>
-                  <label>
-                    <span>SỐ ĐIỆN THOẠI <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={phone} maxLength={50} onChange={(event) => setPhone(event.target.value)} placeholder="0988098797" />
-                      {phone ? <button type="button" className="referral-input-clear-button" onClick={() => setPhone('')} aria-label="Xóa số điện thoại"><SearchClearIcon /></button> : null}
-                    </div>
-                  </label>
-                  <div className="referral-identifier-preview">
-                    <div className="referral-identifier-preview-text">MÃ ĐỊNH DANH SẼ ĐƯỢC CẤP</div>
-                    <div className="referral-identifier-preview-text">FL-2026-004</div>
-                    <div className="referral-identifier-preview-text">Gửi mã định danh này cho Freelancer để họ dùng khi nộp CV và đăng nhập theo dõi.</div>
-                    <div className="referral-identifier-preview-text">Mật khẩu sẽ được gửi đến email được nhập.</div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <label>
-                    <span>HỌ VÀ TÊN <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={name} maxLength={255} onChange={(event) => { setName(event.target.value); setNameFieldError(null); }} placeholder="Nhập họ và tên nhân sự..." />
-                      {name ? <button type="button" className="referral-input-clear-button" onClick={() => { setName(''); setNameFieldError(null); }} aria-label="Xóa họ và tên nội bộ"><SearchClearIcon /></button> : null}
-                    </div>
-                    {nameFieldError ? <div className="referral-field-error">{nameFieldError}</div> : null}
-                  </label>
-                  <label>
-                    <span>EMAIL NỘI BỘ <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={email} maxLength={255} onChange={(event) => { setEmail(event.target.value); setEmailFieldError(null); }} type="email" placeholder="ten.nguoi@viettel.com.vn" />
-                      {email ? <button type="button" className="referral-input-clear-button" onClick={() => { setEmail(''); setEmailFieldError(null); }} aria-label="Xóa email Nội bộ"><SearchClearIcon /></button> : null}
-                    </div>
-                    {emailFieldError ? <div className="referral-field-error">{emailFieldError}</div> : null}
-                  </label>
-                  <label>
-                    <span>SỐ ĐIỆN THOẠI <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={phone} maxLength={50} onChange={(event) => setPhone(event.target.value)} placeholder="0988123456" />
-                      {phone ? <button type="button" className="referral-input-clear-button" onClick={() => setPhone('')} aria-label="Xóa số điện thoại nội bộ"><SearchClearIcon /></button> : null}
-                    </div>
-                  </label>
-                </>
-              )}
-              {formError ? <p className="referral-form-error">{formError}</p> : null}
-              <div className="referral-modal-actions">
-                <button type="button" className="referral-secondary-button" onClick={closeModal}>Hủy</button>
-                <button
-                  type="submit"
-                  className="referral-primary-button"
-                  disabled={saving || !email.trim() || !name.trim() || !phone.trim()}
-                >
-                  {saving ? 'Đang lưu...' : 'Thêm mới'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
-
-      {modal === 'CREDENTIALS' && createdFreelancer ? (
-        <div className="referral-modal-backdrop" role="presentation">
-          <section className="referral-modal" role="dialog" aria-modal="true" aria-labelledby="referral-credentials-title">
-            <div className="referral-modal-header">
-              <h2 id="referral-credentials-title">Đã thêm Freelancer</h2>
-              <button type="button" onClick={closeModal} aria-label="Đóng">×</button>
-            </div>
-            <div className="referral-credentials-body">
-              <p>Gửi thông tin dưới đây cho Freelancer để đăng nhập và theo dõi CV.</p>
-              <div><span>Mã định danh</span><strong>{createdFreelancer.identifier}</strong></div>
-              <div><span>Mật khẩu khởi tạo</span><strong>{createdFreelancer.initialPassword}</strong></div>
-              <button type="button" className="referral-primary-button" onClick={() => void copyCredentials(createdFreelancer)}>
-                Sao chép thông tin
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
-      {modal === 'STATUS' && selectedPerson ? (
-        <div className="referral-modal-backdrop" role="presentation">
-          <section className="referral-modal referral-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="referral-status-title">
-            <div className="referral-modal-header">
-              <h2 id="referral-status-title">
-                {selectedPerson.isActive ? 'Xác nhận khoá tài khoản Freelancer' : 'Xác nhận mở khoá tài khoản Freelancer'}
-              </h2>
-              <button type="button" onClick={closeModal} aria-label="Đóng">×</button>
-            </div>
-            <div className="referral-confirm-body">
-              <WarningIcon />
-              <h3>{selectedPerson.isActive ? 'Bạn có chắc muốn vô hiệu hóa nhân sự này không?' : 'Bạn có muốn kích hoạt lại nhân sự này không?'}</h3>
-              <p>
-                {selectedPerson.isActive ? (
-                  <>
-                    <strong className="referral-status-subject">{source === 'FREELANCER' ? 'Freelancer' : 'Nhân sự nội bộ'}</strong>{' '}
-                    bị khóa tài khoản, không thể đăng nhập vào hệ thống.
-                  </>
-                ) : 'Nhân sự này sẽ có thể tiếp tục được chọn làm nguồn giới thiệu.'}
-              </p>
-              <strong className="referral-confirm-person">{selectedPerson.name || selectedPerson.email}</strong>
-            </div>
-            {formError ? <p className="referral-form-error">{formError}</p> : null}
-            <div className="referral-modal-actions">
-              <button type="button" className="referral-secondary-button" onClick={closeModal}>Hủy</button>
-              <button type="button" className="referral-primary-button" disabled={saving} onClick={() => void confirmStatusChange()}>{saving ? 'Đang lưu...' : 'Xác nhận'}</button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <ReferralManagementModals
+        modal={modal}
+        source={source}
+        title={title}
+        onClose={closeModal}
+        onSubmit={submitCreate}
+        name={name}
+        setName={setName}
+        email={email}
+        setEmail={setEmail}
+        phone={phone}
+        setPhone={setPhone}
+        formError={formError}
+        nameFieldError={nameFieldError}
+        emailFieldError={emailFieldError}
+        setNameFieldError={setNameFieldError}
+        setEmailFieldError={setEmailFieldError}
+        saving={saving}
+        createdFreelancer={createdFreelancer}
+        onCopyCredentials={(result) => void copyCredentials(result)}
+        selectedPerson={selectedPerson}
+        onConfirmStatusChange={() => void confirmStatusChange()}
+      />
     </div>
   );
 }
@@ -1010,54 +1268,58 @@ function StatusPill({ application }: { application: ReferralManagementApplicatio
   return <span className={`referral-status-pill ${className}`}><i />{label}</span>;
 }
 
-function buildReferralRoundOptions(
-  entries: Array<{ id?: string | null; name: string; sortOrder?: number | null }>,
-  includeLegacyStageOptions: boolean,
-): ReferralRoundOption[] {
-  const groupedRounds = new Map<string, ReferralRoundOption>();
+type ReferralRoundEntry = {
+  id?: string | null;
+  name: string;
+  sortOrder?: number | null;
+};
 
-  for (const entry of entries) {
-    const label = entry.name.trim();
-    const normalizedName = normalizeAmisStageName(label);
-    if (!label || !normalizedName) continue;
+function addReferralRoundEntry(
+  groupedRounds: Map<string, ReferralRoundOption>,
+  entry: ReferralRoundEntry,
+) {
+  const label = entry.name.trim();
+  const normalizedName = normalizeAmisStageName(label);
+  if (!label || !normalizedName) return;
 
-    const existing = groupedRounds.get(normalizedName);
-    const roundId = entry.id?.trim();
-    const sortOrder = Number.isFinite(entry.sortOrder) ? entry.sortOrder as number : Number.MAX_SAFE_INTEGER;
-    if (existing) {
-      if (roundId && !existing.roundIds.includes(roundId)) existing.roundIds.push(roundId);
-      existing.sortOrder = Math.min(existing.sortOrder, sortOrder);
-      continue;
-    }
-
-    groupedRounds.set(normalizedName, {
-      value: `ROUND:${normalizedName}`,
-      label,
-      kind: normalizedName === 'DA TUYEN' ? 'HIRED' : normalizedName === 'LOAI' ? 'REJECTED' : 'ROUND',
-      roundIds: roundId ? [roundId] : [],
-      normalizedName,
-      sortOrder,
-    });
+  const existing = groupedRounds.get(normalizedName);
+  const roundId = entry.id?.trim();
+  const sortOrder = Number.isFinite(entry.sortOrder) ? entry.sortOrder as number : Number.MAX_SAFE_INTEGER;
+  if (existing) {
+    if (roundId && !existing.roundIds.includes(roundId)) existing.roundIds.push(roundId);
+    existing.sortOrder = Math.min(existing.sortOrder, sortOrder);
+    return;
   }
 
-  if (groupedRounds.size === 0 && includeLegacyStageOptions) {
-    [
-      { name: '\u1ee8ng tuy\u1ec3n', normalizedName: 'UNG TUYEN' },
-      { name: 'Thi tuy\u1ec3n', normalizedName: 'THI TUYEN' },
-      { name: 'Ph\u1ecfng v\u1ea5n', normalizedName: 'PHONG VAN' },
-      { name: 'Offer', normalizedName: 'OFFER' },
-    ].forEach((entry, index) => {
-      groupedRounds.set(entry.normalizedName, {
-        value: `ROUND:${entry.normalizedName}`,
-        label: entry.name,
-        kind: 'LEGACY_STAGE',
-        roundIds: [],
-        normalizedName: entry.normalizedName,
-        sortOrder: index,
-      });
-    });
-  }
+  groupedRounds.set(normalizedName, {
+    value: 'ROUND:' + normalizedName,
+    label,
+    kind: normalizedName === 'DA TUYEN' ? 'HIRED' : normalizedName === 'LOAI' ? 'REJECTED' : 'ROUND',
+    roundIds: roundId ? [roundId] : [],
+    normalizedName,
+    sortOrder,
+  });
+}
 
+function addLegacyReferralRoundOptions(groupedRounds: Map<string, ReferralRoundOption>) {
+  [
+    { name: '\u1ee8ng tuy\u1ec3n', normalizedName: 'UNG TUYEN' },
+    { name: 'Thi tuy\u1ec3n', normalizedName: 'THI TUYEN' },
+    { name: 'Ph\u1ecfng v\u1ea5n', normalizedName: 'PHONG VAN' },
+    { name: 'Offer', normalizedName: 'OFFER' },
+  ].forEach((entry, index) => {
+    groupedRounds.set(entry.normalizedName, {
+      value: 'ROUND:' + entry.normalizedName,
+      label: entry.name,
+      kind: 'LEGACY_STAGE',
+      roundIds: [],
+      normalizedName: entry.normalizedName,
+      sortOrder: index,
+    });
+  });
+}
+
+function addRequiredReferralStatusOptions(groupedRounds: Map<string, ReferralRoundOption>) {
   if (!groupedRounds.has('DA TUYEN')) {
     groupedRounds.set('DA TUYEN', {
       value: 'STATUS:HIRED',
@@ -1078,6 +1340,21 @@ function buildReferralRoundOptions(
       sortOrder: Number.MAX_SAFE_INTEGER,
     });
   }
+}
+
+function buildReferralRoundOptions(
+  entries: Array<{ id?: string | null; name: string; sortOrder?: number | null }>,
+  includeLegacyStageOptions: boolean,
+): ReferralRoundOption[] {
+  const groupedRounds = new Map<string, ReferralRoundOption>();
+
+  entries.forEach((entry) => addReferralRoundEntry(groupedRounds, entry));
+
+  if (groupedRounds.size === 0 && includeLegacyStageOptions) {
+    addLegacyReferralRoundOptions(groupedRounds);
+  }
+
+  addRequiredReferralStatusOptions(groupedRounds);
 
   return [
     REFERRAL_ALL_ROUNDS_OPTION,

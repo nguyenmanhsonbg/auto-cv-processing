@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react"; // session detail
+import { useEffect, useState, useCallback, type KeyboardEvent } from "react"; // session detail
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api-client";
 import { getSocket, joinSession, disconnectSocket, WebSocketEvents } from "@/lib/socket";
@@ -39,6 +39,112 @@ const NEXT_STATUS: Record<string, { label: string; next: string; variant: "defau
   IN_PROGRESS: { label: "Complete Session", next: "COMPLETED", variant: "outline" },
   COMPLETED: { label: "Mark as Evaluated", next: "EVALUATED", variant: "outline" },
 };
+
+function SuggestedQuestionRow({
+  questionId,
+  reasoning,
+  question,
+  selected,
+  onToggle,
+}: {
+  questionId: string;
+  reasoning?: string;
+  question: any;
+  selected: boolean;
+  onToggle: (questionId: string) => void;
+}) {
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onToggle(questionId);
+  };
+
+  return (
+    <div
+      className={cn("flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors", selected ? "border-primary bg-primary/5" : "border-input bg-background opacity-60")}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={"Select suggested question " + (question?.text ?? "")}
+      onClick={() => onToggle(questionId)}
+      onKeyDown={handleKeyDown}
+    >
+      <div className={cn("mt-0.5 h-4 w-4 shrink-0 rounded border flex items-center justify-center", selected ? "bg-primary border-primary" : "border-input")}>
+        {selected && (
+          <svg className="h-3 w-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        )}
+      </div>
+      <div className="flex-1 min-w-0 space-y-0.5">
+        <p className="text-sm leading-snug">{question?.text}</p>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          {question?.difficulty && <span className="text-xs text-muted-foreground">Difficulty: {question.difficulty}</span>}
+          {reasoning && <span className="text-xs text-blue-600 italic">— {reasoning}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SuggestedQuestionsList({
+  suggestions,
+  questionsMap,
+  selectedIds,
+  onToggle,
+}: {
+  suggestions: any[];
+  questionsMap: Map<string, any>;
+  selectedIds: Set<string>;
+  onToggle: (questionId: string) => void;
+}) {
+  const suggestedWithDetails = suggestions
+    .map((suggestion: any) => ({ ...suggestion, question: questionsMap.get(suggestion.questionId) }))
+    .filter((suggestion: any) => suggestion.question);
+  const grouped: Record<string, any[]> = {};
+
+  for (const item of suggestedWithDetails) {
+    const key = item.question?.subcategory || "Other";
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(item);
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">{suggestions.length} question(s) suggested</span>
+        <span className="font-medium">{selectedIds.size} selected</span>
+      </div>
+
+      {Object.entries(grouped).map(([subcategory, items]) => (
+        <div key={subcategory} className="rounded-lg border bg-card">
+          <div className="px-3 py-2 border-b bg-muted/30 flex items-center justify-between">
+            <span className="text-xs font-semibold">{subcategory}</span>
+            <span className="text-xs text-muted-foreground">{items.length} question(s)</span>
+          </div>
+          <div className="p-2 space-y-1.5">
+            {items.map(({ questionId, reasoning, question }: any) => (
+              <SuggestedQuestionRow
+                key={questionId}
+                questionId={questionId}
+                reasoning={reasoning}
+                question={question}
+                selected={selectedIds.has(questionId)}
+                onToggle={onToggle}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {suggestedWithDetails.length === 0 && (
+        <div className="text-center py-8 text-sm text-muted-foreground">
+          No suggestions found. Click "Re-suggest" to run AI again.
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function SessionDetailPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -88,6 +194,14 @@ export function SessionDetailPage() {
   const [activateSubmitting, setActivateSubmitting] = useState(false);
   const [activateQuestionsLoading, setActivateQuestionsLoading] = useState(false);
   const [dialogQuestionsMap, setDialogQuestionsMap] = useState<Map<string, any>>(new Map());
+
+  const toggleActivateQuestion = useCallback((questionId: string) => {
+    setActivateSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(questionId) ? next.delete(questionId) : next.add(questionId);
+      return next;
+    });
+  }, []);
 
   const fetchSession = useCallback(async () => {
     try {
@@ -1136,82 +1250,12 @@ export function SessionDetailPage() {
               <span className="text-sm text-muted-foreground">Loading questions…</span>
             </div>
           ) : (
-            (() => {
-              const suggestions = session?.surveySuggestions ?? [];
-              const suggestedWithDetails = suggestions
-                .map((s: any) => ({ ...s, question: dialogQuestionsMap.get(s.questionId) }))
-                .filter((s: any) => s.question);
-
-              const grouped: Record<string, any[]> = {};
-              for (const item of suggestedWithDetails) {
-                const key = item.question?.subcategory || "Other";
-                if (!grouped[key]) grouped[key] = [];
-                grouped[key].push(item);
-              }
-
-              return (
-                <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{suggestions.length} question(s) suggested</span>
-                    <span className="font-medium">{activateSelectedIds.size} selected</span>
-                  </div>
-
-                  {Object.entries(grouped).map(([subcategory, items]) => (
-                    <div key={subcategory} className="rounded-lg border bg-card">
-                      <div className="px-3 py-2 border-b bg-muted/30 flex items-center justify-between">
-                        <span className="text-xs font-semibold">{subcategory}</span>
-                        <span className="text-xs text-muted-foreground">{items.length} question(s)</span>
-                      </div>
-                      <div className="p-2 space-y-1.5">
-                        {items.map(({ questionId, reasoning, question }: any) => (
-                          <div
-                            key={questionId}
-                            className={cn("flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors", activateSelectedIds.has(questionId) ? "border-primary bg-primary/5" : "border-input bg-background opacity-60")}
-                            role="button"
-                            tabIndex={0}
-                            aria-pressed={activateSelectedIds.has(questionId)}
-                            aria-label={`Select suggested question ${question?.text ?? ''}`}
-                            onClick={() =>
-                              setActivateSelectedIds((prev) => {
-                                const next = new Set(prev);
-                                next.has(questionId) ? next.delete(questionId) : next.add(questionId);
-                                return next;
-                              })
-                            }
-                            onKeyDown={(event) => {
-                              if (event.key !== 'Enter' && event.key !== ' ') return;
-                              event.preventDefault();
-                              setActivateSelectedIds((prev) => {
-                                const next = new Set(prev);
-                                next.has(questionId) ? next.delete(questionId) : next.add(questionId);
-                                return next;
-                              });
-                            }}
-                          >
-                            <div className={cn("mt-0.5 h-4 w-4 shrink-0 rounded border flex items-center justify-center", activateSelectedIds.has(questionId) ? "bg-primary border-primary" : "border-input")}>
-                              {activateSelectedIds.has(questionId) && (
-                                <svg className="h-3 w-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                </svg>
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0 space-y-0.5">
-                              <p className="text-sm leading-snug">{question?.text}</p>
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                {question?.difficulty && <span className="text-xs text-muted-foreground">Difficulty: {question.difficulty}</span>}
-                                {reasoning && <span className="text-xs text-blue-600 italic">— {reasoning}</span>}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-
-                  {suggestedWithDetails.length === 0 && <div className="text-center py-8 text-sm text-muted-foreground">No suggestions found. Click "Re-suggest" to run AI again.</div>}
-                </div>
-              );
-            })()
+            <SuggestedQuestionsList
+              suggestions={session?.surveySuggestions ?? []}
+              questionsMap={dialogQuestionsMap}
+              selectedIds={activateSelectedIds}
+              onToggle={toggleActivateQuestion}
+            />
           )}
 
           <DialogFooter className="flex-wrap gap-2 pt-2 border-t">
