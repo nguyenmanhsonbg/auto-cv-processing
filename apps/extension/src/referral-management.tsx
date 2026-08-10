@@ -53,8 +53,30 @@ interface ReferralManagementProps {
   ) => Promise<ReferralRoundLoadResult[]>;
 }
 
-const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@viettel\.com\.vn$/i;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function isValidReferralEmail(value: string) {
+  if (!value) return false;
+  let atIndex = -1;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] ?? '';
+    if (character.trim() === '' || character === '@') {
+      if (character === '@' && atIndex < 0) {
+        atIndex = index;
+        continue;
+      }
+      return false;
+    }
+  }
+  if (atIndex <= 0 || atIndex !== value.lastIndexOf('@') || atIndex === value.length - 1) return false;
+  const domain = value.slice(atIndex + 1);
+  const dotIndex = domain.lastIndexOf('.');
+  return dotIndex > 0 && dotIndex < domain.length - 1;
+}
+
+function isInternalReferralEmail(value: string) {
+  if (!isValidReferralEmail(value)) return false;
+  const atIndex = value.lastIndexOf('@');
+  return value.slice(atIndex + 1).toLowerCase() === 'viettel.com.vn';
+}
 const REFERRAL_PAGE_SIZE = 5;
 const REFERRAL_ALL_ROUNDS_OPTION: ReferralRoundOption = {
   value: 'ALL',
@@ -461,7 +483,7 @@ export function ReferralManagementPanel({
         setEmailFieldError('Email không hợp lệ. Vui lòng kiểm tra lại.');
         return;
       }
-      if (!EMAIL_PATTERN.test(normalizedEmail)) {
+      if (!isValidReferralEmail(normalizedEmail)) {
         setEmailFieldError('Email không hợp lệ. Vui lòng kiểm tra lại.');
         return;
       }
@@ -474,11 +496,11 @@ export function ReferralManagementPanel({
         setNameFieldError('Họ và tên là bắt buộc, không được để trống.');
         return;
       }
-      if (!normalizedEmail || !EMAIL_PATTERN.test(normalizedEmail)) {
+      if (!normalizedEmail || !isValidReferralEmail(normalizedEmail)) {
         setEmailFieldError('Email không hợp lệ. Vui lòng kiểm tra lại.');
         return;
       }
-      if (!INTERNAL_EMAIL_PATTERN.test(normalizedEmail)) {
+      if (!isInternalReferralEmail(normalizedEmail)) {
         setEmailFieldError('Email Nội bộ phải có đuôi @viettel.com.vn.');
         return;
       }

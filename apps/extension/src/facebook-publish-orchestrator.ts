@@ -2981,11 +2981,23 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
       const numericId = parsed.searchParams.get('id')?.trim();
       const normalizedPath = trimTrailingSlashes(parsed.pathname).toLowerCase();
       const facebookExternalId = numericId || (normalizedPath ? `profile:${normalizedPath}` : null);
+      const stripProfileDescriptor = (value: string) => {
+        const normalized = value.replace(/\s+/g, ' ').trim();
+        const lower = normalized.toLowerCase();
+        for (const descriptor of ['profile', 'hồ sơ', 'trang cá nhân']) {
+          const suffix = ` ${descriptor}`;
+          if (!lower.endsWith(suffix)) continue;
+          let result = normalized.slice(0, -suffix.length).trim();
+          const resultLower = result.toLowerCase();
+          if (resultLower.endsWith("'s") || resultLower.endsWith('’s')) {
+            result = result.slice(0, -2).trim();
+          }
+          return result;
+        }
+        return normalized;
+      };
       const displayName = [profileLink.text, ...profileLink.labels]
-        .map((value) => value
-          .replace(/\s+/g, ' ')
-          .replace(/\s+(?:'s|’s)?\s*(?:profile|hồ sơ|trang cá nhân)$/i, '')
-          .trim())
+        .map((value) => stripProfileDescriptor(value))
         .find((value) => value.length >= 2
           && value.length <= 80
           && !/^(your|my)\s+(profile|account)$/i.test(value)
@@ -3014,13 +3026,33 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
 }
 
 function readFacebookProfileIdentityInPage(): FacebookProfileIdentityProbe {
+  const stripFacebookTitleSuffix = (value: string) => {
+    let normalized = value.replace(/\s+/g, ' ').trim();
+    for (const separator of ['|', '•', '-']) {
+      const separatorIndex = normalized.lastIndexOf(separator);
+      if (separatorIndex < 0) continue;
+      const suffix = normalized.slice(separatorIndex + 1).trim().toLowerCase();
+      if (suffix.startsWith('facebook')) {
+        normalized = normalized.slice(0, separatorIndex).trim();
+        break;
+      }
+    }
+    const facebookSuffix = ' on facebook';
+    if (normalized.toLowerCase().endsWith(facebookSuffix)) {
+      normalized = normalized.slice(0, -facebookSuffix.length).trim();
+    }
+    for (const prefix of ['đồng thời gian của ', 'đồng thời của ', 'timeline of ']) {
+      if (normalized.toLowerCase().startsWith(prefix)) {
+        normalized = normalized.slice(prefix.length).trim();
+        break;
+      }
+    }
+    return normalized;
+  };
   const normalize = (value: string | null | undefined) => {
     const normalized = value
-      ?.replace(/\s+/g, ' ')
-      .replace(/\s*[|•-]\s*Facebook.*$/i, '')
-      .replace(/\s+on Facebook$/i, '')
-      .replace(/^(?:\u0110\u00f2ng th\u1eddi gian c\u1ee7a|Timeline of)\s+/i, '')
-      .trim() ?? '';
+      ? stripFacebookTitleSuffix(value)
+      : '';
     if (!normalized || normalized.length > 100) return null;
     const comparable = normalized
       .normalize('NFD')
@@ -3795,9 +3827,7 @@ async function prepareFacebookPostInPage(
       },
     };
   };
-  const surfaceContains = (surfaceRoot: Document | Element, element: Element) => (
-    surfaceRoot instanceof Document ? surfaceRoot.contains(element) : surfaceRoot.contains(element)
-  );
+  const surfaceContains = (surfaceRoot: Document | Element, element: Element) => surfaceRoot.contains(element);
   const MEDIA_SELECTOR = 'img[src^="blob:"], img[src^="data:"], img[src*="fbcdn"], video, [role="img"]';
   const getMediaElements = (root: Document | Element) => queryAll(root, MEDIA_SELECTOR)
     .filter((element) => isVisible(element))
@@ -4938,9 +4968,20 @@ async function recoverFacebookPendingPostUrlInPage(
     }))];
   };
   const samples = makeSearchSamples();
+  const splitTitleBySeparators = (value: string) => {
+    const parts: string[] = [];
+    let start = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      if (!'-:|'.includes(value[index] ?? '')) continue;
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+    parts.push(value.slice(start).trim());
+    return parts;
+  };
   const titleSamples = [...new Set([
     normalize(input.title ?? ''),
-    ...normalize(input.title ?? '').split(/\s*[-:|]\s*/).map((part) => part.trim()),
+    ...splitTitleBySeparators(normalize(input.title ?? '')),
   ].filter((sample) => sample.length >= 8))];
   const contentPreviewSamples = [...new Set(
     normalize(input.contentPreview ?? '')
@@ -5172,7 +5213,7 @@ async function recoverFacebookPendingPostUrlInPage(
     return null;
   };
   const decodeFacebookScriptText = (value: string) => decodeSerializedFacebookHtml(value)
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
     .replace(/\\n|\\r|\\t/g, ' ')
     .replace(/\\\\/g, '\\');
   const getScriptChunkContentScore = (value: string) => {
@@ -5267,9 +5308,7 @@ async function recoverFacebookPendingPostUrlInPage(
   };
   const hasTimestampText = (value: string, recentOnly: boolean) => {
     const boundary = '(?=\\s|$|[.,;:!?\\)]|\\u2022)';
-    const relativeWords = recentOnly
-      ? 'vua xong|just now|now|moments ago|a few seconds ago|few seconds ago|seconds ago|mot chut truoc|hom qua|yesterday|hom nay|today'
-      : 'vua xong|just now|now|moments ago|a few seconds ago|few seconds ago|seconds ago|mot chut truoc|hom qua|yesterday|hom nay|today';
+    const relativeWords = 'vua xong|just now|now|moments ago|a few seconds ago|few seconds ago|seconds ago|mot chut truoc|hom qua|yesterday|hom nay|today';
     const relativeUnits = recentOnly
       ? 's|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut|h|hr|hrs|hour|hours|gio|d|day|days|w|week|weeks|tuan|mo|month|months|thang|y|yr|year|years|nam'
       : 's|sec|secs|second|seconds|giay|m|min|mins|minute|minutes|phut|h|hr|hrs|hour|hours|gio|d|day|days|ngay|w|week|weeks|tuan|mo|month|months|thang|y|yr|year|years|nam';
@@ -6274,9 +6313,20 @@ async function checkFacebookPostReviewStatusInPage(
     });
   };
   const samples = [...new Set(makeSearchSamples())];
+  const splitTitleBySeparators = (value: string) => {
+    const parts: string[] = [];
+    let start = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      if (!'-:|'.includes(value[index] ?? '')) continue;
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+    parts.push(value.slice(start).trim());
+    return parts;
+  };
   const titleSamples = [...new Set([
     normalize(input.title ?? ''),
-    ...normalize(input.title ?? '').split(/\s*[-:|]\s*/).map((part) => part.trim()),
+    ...splitTitleBySeparators(normalize(input.title ?? '')),
   ].filter((sample) => sample.length >= 8))];
   const contentPreviewSamples = [...new Set(
     normalize(input.contentPreview ?? '')

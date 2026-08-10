@@ -5371,11 +5371,15 @@ function SidePanel() {
                               className={`channel-subselection-item${!group.selectable ? ' is-disabled' : ''}`}
                               title={!group.selectable ? group.disabledReason ?? undefined : undefined}
                             >
-                              <label className="channel-group-select">
+                              <label
+                                className="channel-group-select"
+                                aria-label={`Chọn nhóm ${group.name}`}
+                              >
                                 <input
                                   type="checkbox"
                                   checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
                                   disabled={!group.id || !group.selectable}
+                                  aria-label={`Chọn nhóm ${group.name}`}
                                   onChange={() => toggleFacebookGroupSelection(group.id)}
                                 />
                                   <span className="channel-group-copy">
@@ -7466,8 +7470,8 @@ function getFacebookGroupUrlValidationError(
 
 function sortFacebookGroupsByDiscovery(groups: FacebookPublishTarget[]) {
   return [...groups].sort((left, right) => {
-    const leftTime = left.lastDiscoveredAt ? Date.parse(left.lastDiscoveredAt) : NaN;
-    const rightTime = right.lastDiscoveredAt ? Date.parse(right.lastDiscoveredAt) : NaN;
+    const leftTime = left.lastDiscoveredAt ? Date.parse(left.lastDiscoveredAt) : Number.NaN;
+    const rightTime = right.lastDiscoveredAt ? Date.parse(right.lastDiscoveredAt) : Number.NaN;
 
     const hasLeftTime = Number.isFinite(leftTime);
     const hasRightTime = Number.isFinite(rightTime);
@@ -7687,17 +7691,54 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     'more',
   ]);
 
-  const nameNoiseSuffixes: RegExp[] = [
-    /\s*(?:[-–—|·:•]?\s*)?lần hoạt động gần nhất:?.*/i,
-    /\s*(?:[-–—|·:•]?\s*)?đã tham gia gần đây.*$/i,
-    /\s*(?:[-–—|·:•]?\s*)?đã tham gia.*$/i,
-    /\s*xem tất cả$/i,
-    /\s*-?\s*đã tham gia gần đây.*$/i,
-    /\s*\(.*lần hoạt động gần nhất.*\)/i,
-    /\s*[-–—|·:•]?\s*LẦN HOẠT ĐỘNG GẦN NHẤT.*$/i,
-    /\s*[-–—|·:•]?\s*ĐÃ THAM GIA GẦN ĐÂY.*$/i,
-    /\s*[-–—|·:•]?\s*[\w.-]+\s*-\s*\d+\s*năm trước.*$/i,
-  ];
+  const stripNameNoise = (value: string) => {
+    let normalized = normalizeText(value) ?? '';
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const marker of ['lần hoạt động gần nhất', 'đã tham gia gần đây', 'đã tham gia']) {
+        const lower = normalized.toLowerCase();
+        const markerIndex = lower.indexOf(marker);
+        if (markerIndex < 0) continue;
+        const openingParenthesis = lower.lastIndexOf('(', markerIndex);
+        const closingParenthesis = lower.lastIndexOf(')', markerIndex);
+        const cutIndex = openingParenthesis > closingParenthesis
+          ? openingParenthesis
+          : markerIndex;
+        normalized = normalized.slice(0, cutIndex).trim();
+        while (['-', '–', '—', '|', '·', ':'].includes(normalized.at(-1) ?? '')) {
+          normalized = normalized.slice(0, -1).trimEnd();
+        }
+        changed = true;
+        break;
+      }
+    }
+
+    const lower = normalized.toLowerCase();
+    const allGroupsSuffix = ' xem tất cả';
+    if (lower.endsWith(allGroupsSuffix)) {
+      normalized = normalized.slice(0, -allGroupsSuffix.length).trim();
+    }
+
+    const yearMarker = 'năm trước';
+    const yearMarkerIndex = normalized.toLowerCase().indexOf(yearMarker);
+    if (yearMarkerIndex >= 0) {
+      const beforeYearMarker = normalized.slice(0, yearMarkerIndex).trim();
+      const separators = ['-', '–', '—', '|', '·', ':'];
+      const separatorIndex = separators.reduce(
+        (lastIndex, separator) => Math.max(lastIndex, beforeYearMarker.lastIndexOf(separator)),
+        -1,
+      );
+      const numberText = separatorIndex >= 0
+        ? beforeYearMarker.slice(separatorIndex + 1).trim()
+        : '';
+      const isNumber = numberText.length > 0
+        && [...numberText].every((character) => character >= '0' && character <= '9');
+      if (isNumber) normalized = beforeYearMarker.slice(0, separatorIndex).trim();
+    }
+
+    return normalized;
+  };
 
   const ignoredGroupPathSegments = new Set([
     'help',
@@ -7857,11 +7898,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   };
 
   const sanitizeName = (rawName: string) => {
-    let normalized = normalizeText(rawName) ?? '';
-    for (const suffix of nameNoiseSuffixes) {
-      normalized = normalized.replace(suffix, '').trim();
-    }
-    return normalized;
+    return stripNameNoise(rawName);
   };
 
   const getNameFromAnchor = (anchor: HTMLAnchorElement, fallbackTargetExternalId?: string) => {
@@ -8014,10 +8051,15 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   const normalizeCanonicalTitle = (raw: string | null | undefined) => {
     const normalized = normalizeText(raw);
     if (!normalized) return null;
-    return normalized
-      .replace(/\s*[|-]\s*(facebook|meta).*/i, '')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
+    for (const separator of ['|', '-']) {
+      const separatorIndex = normalized.lastIndexOf(separator);
+      if (separatorIndex < 0) continue;
+      const suffix = normalized.slice(separatorIndex + 1).trim().toLowerCase();
+      if (suffix.startsWith('facebook') || suffix.startsWith('meta')) {
+        return normalized.slice(0, separatorIndex).trim();
+      }
+    }
+    return normalized;
   };
 
   const parseGroupPageCanonicalName = async (groupUrl: string, fallback: string) => {
@@ -8560,13 +8602,19 @@ function normalizeStatus(value?: string | null) {
   return value?.toUpperCase().trim() ?? '';
 }
 
+function trimHyphenBoundaries(value: string) {
+  let normalized = value;
+  while (normalized.startsWith('-')) normalized = normalized.slice(1);
+  while (normalized.endsWith('-')) normalized = normalized.slice(0, -1);
+  return normalized;
+}
+
 function slugifyForDisplay(value: string) {
-  return value
+  return trimHyphenBoundaries(value
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^a-z0-9]+/g, '-'))
     || 'job-posting';
 }
 
@@ -8621,11 +8669,10 @@ function buildAmisUploadCvFileName(
     || application.candidateName
     || application.candidateId
     || 'candidate';
-  const safeIdentity = identity
+  const safeIdentity = trimHyphenBoundaries(identity
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-'))
     .slice(0, 48)
     .toLowerCase() || 'candidate';
   const shortApplicationId = application.applicationId.replace(/-/g, '').slice(0, 8);

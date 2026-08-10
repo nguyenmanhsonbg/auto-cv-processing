@@ -341,6 +341,9 @@ export function QuestionBankTree({
                             return (
                               <div
                                 key={q.id}
+                                role="button"
+                                tabIndex={isExisting ? -1 : 0}
+                                aria-disabled={isExisting}
                                 className={cn(
                                   'flex items-start gap-2 px-2 py-1 rounded',
                                   isExisting
@@ -350,6 +353,12 @@ export function QuestionBankTree({
                                 )}
                                 onClick={() => {
                                   if (!isExisting) onToggle(q.id);
+                                }}
+                                onKeyDown={(event) => {
+                                  if (isExisting) return;
+                                  if (event.key !== 'Enter' && event.key !== ' ') return;
+                                  event.preventDefault();
+                                  onToggle(q.id);
                                 }}
                               >
                                 <Checkbox

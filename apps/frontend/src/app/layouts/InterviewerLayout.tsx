@@ -165,6 +165,7 @@ function SidebarContent() {
           <>
             <Separator className="my-1" />
             <button
+              type="button"
               title={collapsed ? 'Recruitment' : undefined}
               onClick={() => {
                 const next = !recruitmentExpanded;
@@ -218,6 +219,7 @@ function SidebarContent() {
             <Separator className="my-1" />
             {/* Settings header row */}
             <button
+              type="button"
               title={collapsed ? 'Settings' : undefined}
               onClick={() => {
                 const next = !settingsExpanded;

@@ -139,6 +139,7 @@ export function CategoryRatings({ sessionId, sessionQuestions, onRefresh, catego
                     {[1, 2, 3, 4, 5].map((r) => (
                       <button
                         key={r}
+                        type="button"
                         title={getRatingLabels(category)[r]}
                         disabled={isSaving}
                         onClick={() => handleRate(category, sub, sqIds, r)}
