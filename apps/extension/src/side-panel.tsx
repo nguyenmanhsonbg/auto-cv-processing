@@ -37,7 +37,6 @@ import {
   syncAmisApplications,
   syncAndPublishAmisJob,
   syncFacebookGroups,
-  syncVcsPortalJobDescriptions,
   updateAmisApplicationStage,
   updateFacebookGroup,
   updateFacebookPublishHistoryStatusCheck,
@@ -126,7 +125,6 @@ type ExtensionToastState = {
   message: string;
 };
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
-type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv' | 'freelancer' | 'internal';
 type CvWorkspaceView = 'overview' | 'list';
 type CvStatusFilter = 'ALL' | 'PASSED' | 'REVIEW' | 'FAILED';
@@ -163,7 +161,6 @@ type FacebookImageAttachmentState = 'IDLE' | 'READING' | 'READY' | 'ERROR';
 const FACEBOOK_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
 const FACEBOOK_IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const FACEBOOK_IMAGE_ALLOWED_TYPES = new Set(FACEBOOK_IMAGE_ACCEPT.split(','));
-type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 
 interface FacebookHistoryGroup {
   id: string | null;
@@ -535,13 +532,11 @@ function SidePanel() {
   const [jobDescriptionFillState, setJobDescriptionFillState] = useState<JobDescriptionFillState>('IDLE');
   const [jobDescriptionFillMessage, setJobDescriptionFillMessage] = useState<string | null>(null);
   const [fillingJobDescriptionId, setFillingJobDescriptionId] = useState<string | null>(null);
-  const [vcsPortalSyncState, setVcsPortalSyncState] = useState<VcsPortalSyncState>('IDLE');
-  const [vcsPortalSyncResult, setVcsPortalSyncResult] = useState<SyncVcsPortalJdsResponse | null>(null);
-  const [, setVcsPortalSyncMessage] = useState<string | null>(null);
+  const [vcsPortalSyncResult] = useState<SyncVcsPortalJdsResponse | null>(null);
   const [selectedJobDescription, setSelectedJobDescription] = useState<JobDescriptionSummary | null>(null);
   const [lockedAmisJobDescriptionId, setLockedAmisJobDescriptionId] = useState<string | null>(null);
-  const [careerQuestionState, setCareerQuestionState] = useState<CareerQuestionState>('IDLE');
-  const [careerQuestionMessage, setCareerQuestionMessage] = useState<string | null>(null);
+  const [, setCareerQuestionState] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
+  const [, setCareerQuestionMessage] = useState<string | null>(null);
   const [jobDescriptionQuestionContext, setJobDescriptionQuestionContext] = useState<JobDescriptionQuestionSetContext | null>(null);
   const [selectedJobQuestionIds, setSelectedJobQuestionIds] = useState<Set<string>>(new Set());
   const [applicationsState, setApplicationsState] = useState<ApplicationsState>('IDLE');
@@ -1611,37 +1606,6 @@ function SidePanel() {
 
       setJobDescriptionError(toErrorMessage(err));
       setJobDescriptionStatus('ERROR');
-    }
-  }
-
-  async function syncPortalJobDescriptions() {
-    if (!token || vcsPortalSyncState === 'SYNCING') return;
-
-    setVcsPortalSyncState('SYNCING');
-    setVcsPortalSyncMessage(null);
-    setVcsPortalSyncResult(null);
-
-    try {
-      const response = await syncVcsPortalJobDescriptions(token);
-      setVcsPortalSyncResult(response);
-      setVcsPortalSyncState(response.failedCount > 0 ? 'ERROR' : 'SUCCESS');
-      setVcsPortalSyncMessage(
-        response.failedCount > 0
-          ? `${response.failedCount} Portal item(s) failed. Synced ${response.createdCount + response.updatedCount + response.unchangedCount} item(s).`
-          : `Portal sync complete. Synced ${response.fetchedCount} item(s).`,
-      );
-      await loadJobDescriptions(token, 1);
-    } catch (err) {
-      if (err instanceof ApiClientError && err.status === 401) {
-        await clearAccessToken();
-        setToken(null);
-        setUser(null);
-        setState('AUTH_REQUIRED');
-        return;
-      }
-
-      setVcsPortalSyncState('ERROR');
-      setVcsPortalSyncMessage(toErrorMessage(err));
     }
   }
 

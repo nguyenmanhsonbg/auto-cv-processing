@@ -79,39 +79,65 @@ export function mapAmisSaveRecruitmentResponse(
   const data = envelope.Data;
   if (!envelope.Success || !data || typeof data !== 'object') return null;
 
-  const recruitmentData = data as AmisRecruitmentData;
+  const mapped = mapRecruitmentData(data as AmisRecruitmentData);
+  const missingFields = findMissingRecruitmentFields(mapped.recruitmentId, mapped.snapshot);
 
-  const recruitmentId = recruitmentData.RecruitmentID === undefined || recruitmentData.RecruitmentID === null
-    ? ''
-    : String(recruitmentData.RecruitmentID).trim();
-  const summaryText = truncateText(cleanText(recruitmentData.Summary), 500);
-  const descriptionText = htmlToText(recruitmentData.Description) || summaryText;
-  const requirementText = htmlToText(recruitmentData.Requirement);
-  const benefitText = htmlToText(recruitmentData.Benifit);
-  const location = extractLocation(recruitmentData);
-  const deadline = recruitmentData.RegistrationExpiryDate ?? recruitmentData.CloseDate ?? recruitmentData.ExpectedTime ?? undefined;
+  return {
+    status: 'AMIS_PAGE_DETECTED',
+    detected: true,
+    source: 'AMIS_SAVE_RECRUITMENT_API',
+    confidence: missingFields.length === 0 ? 'HIGH' : 'LOW',
+    url: pageUrl,
+    ...(mapped.recruitmentId ? { amisRecruitmentId: mapped.recruitmentId } : {}),
+    snapshot: mapped.snapshot,
+    missingFields,
+    warnings: buildWarnings(missingFields),
+    evidence: buildRecruitmentEvidence(requestUrl, pageUrl, pageTitle, envelope, mapped.fieldSources),
+  };
+}
 
+function mapRecruitmentData(data: AmisRecruitmentData) {
+  const recruitmentId = data.RecruitmentID == null ? '' : String(data.RecruitmentID).trim();
+  const summaryText = truncateText(cleanText(data.Summary), 500);
+  const descriptionText = htmlToText(data.Description) || summaryText;
+  const requirementText = htmlToText(data.Requirement);
+  const benefitText = htmlToText(data.Benifit);
+  const location = extractLocation(data);
+  const deadline = data.RegistrationExpiryDate ?? data.CloseDate ?? data.ExpectedTime ?? undefined;
   const snapshot: AmisJobSnapshot = {
-    title: cleanText(recruitmentData.TitleWebsite)
-      || cleanText(recruitmentData.Title)
-      || cleanText(recruitmentData.JobPositionName),
+    title: cleanText(data.TitleWebsite) || cleanText(data.Title) || cleanText(data.JobPositionName),
     ...(summaryText ? { summary: summaryText } : {}),
     description: descriptionText,
-    requirements: {
-      rawText: requirementText,
-    },
+    requirements: { rawText: requirementText },
     ...(benefitText ? { benefits: { rawText: benefitText } } : {}),
     ...(location ? { location } : {}),
     ...(deadline ? { deadline } : {}),
   };
+  return {
+    recruitmentId,
+    snapshot,
+    fieldSources: buildRecruitmentFieldSources(recruitmentId, snapshot, summaryText, benefitText, location, deadline),
+  };
+}
 
-  const missingFields: string[] = [];
-  if (!recruitmentId) missingFields.push('AMIS recruitment id');
-  if (!snapshot.title) missingFields.push('title');
-  if (!snapshot.description) missingFields.push('description');
-  if (!snapshot.requirements.rawText) missingFields.push('requirements');
+function findMissingRecruitmentFields(recruitmentId: string, snapshot: AmisJobSnapshot) {
+  return [
+    !recruitmentId ? 'AMIS recruitment id' : null,
+    !snapshot.title ? 'title' : null,
+    !snapshot.description ? 'description' : null,
+    !snapshot.requirements.rawText ? 'requirements' : null,
+  ].filter((field): field is string => Boolean(field));
+}
 
-  const fieldSources = {
+function buildRecruitmentFieldSources(
+  recruitmentId: string,
+  snapshot: AmisJobSnapshot,
+  summaryText: string,
+  benefitText: string,
+  location?: string,
+  deadline?: string,
+) {
+  return {
     ...(recruitmentId ? { amisRecruitmentId: 'SaveRecruitment.Data.RecruitmentID' } : {}),
     ...(snapshot.title ? { title: 'SaveRecruitment.Data.TitleWebsite|Title|JobPositionName' } : {}),
     ...(summaryText ? { summary: 'SaveRecruitment.Data.Summary' } : {}),
@@ -121,29 +147,26 @@ export function mapAmisSaveRecruitmentResponse(
     ...(location ? { location: 'SaveRecruitment.Data.RecruitmentWorkLocations' } : {}),
     ...(deadline ? { deadline: 'SaveRecruitment.Data.RegistrationExpiryDate|CloseDate|ExpectedTime' } : {}),
   };
+}
 
+function buildRecruitmentEvidence(
+  requestUrl: string,
+  pageUrl: string,
+  pageTitle: string | undefined,
+  envelope: AmisSaveRecruitmentResponse,
+  fieldSources: Record<string, string>,
+) {
   return {
-    status: 'AMIS_PAGE_DETECTED',
-    detected: true,
-    source: 'AMIS_SAVE_RECRUITMENT_API',
-    confidence: missingFields.length === 0 ? 'HIGH' : 'LOW',
-    url: pageUrl,
-    ...(recruitmentId ? { amisRecruitmentId: recruitmentId } : {}),
-    snapshot,
-    missingFields,
-    warnings: buildWarnings(missingFields),
-    evidence: {
-      host: new URL(pageUrl).hostname,
-      ...(pageTitle ? { title: pageTitle } : {}),
-      markers: [
-        'host:amisapp.misa.vn',
-        'api:SaveRecruitment',
-        `request:${new URL(requestUrl).pathname}`,
-        ...(envelope.TraceID ? ['trace-id-present'] : []),
-        ...(envelope.ServerTime ? ['server-time-present'] : []),
-      ],
-      fieldSources,
-    },
+    host: new URL(pageUrl).hostname,
+    ...(pageTitle ? { title: pageTitle } : {}),
+    markers: [
+      'host:amisapp.misa.vn',
+      'api:SaveRecruitment',
+      `request:${new URL(requestUrl).pathname}`,
+      ...(envelope.TraceID ? ['trace-id-present'] : []),
+      ...(envelope.ServerTime ? ['server-time-present'] : []),
+    ],
+    fieldSources,
   };
 }
 
@@ -246,90 +269,76 @@ function looksLikeCandidateRowArray(rows: unknown[]) {
 function mapApplicationRow(row: unknown): AmisApplicationItem | null {
   if (!isObject(row)) return null;
 
-  const recruitmentId = cleanText(readFirst(row, ['RecruitmentID', 'recruitmentId']));
-  const recruitmentRoundId = cleanText(readFirst(row, ['RecruitmentRoundID', 'recruitmentRoundId']));
-  const candidateId = cleanText(readFirst(row, ['CandidateID', 'candidateId']));
-  const candidateName = cleanText(readFirst(row, ['CandidateName', 'candidateName', 'Name', 'name']));
-  const email = cleanText(readFirst(row, ['Email', 'email']));
-  const mobile = cleanText(readFirst(row, ['Mobile', 'Phone', 'phone', 'mobile']));
-  const channelName = cleanText(readFirst(row, [
-    'ChannelName',
-    'channelName',
-    'RecruitmentChannelName',
-    'recruitmentChannelName',
-    'SourceCandidateName',
-    'sourceCandidateName',
-    'SourceName',
-    'sourceName',
-  ]));
-  const attractivePersonnelName = cleanText(readFirst(row, [
-    'AttractivePersonnel',
-    'attractivePersonnel',
-    'AttractivePersonnelName',
-    'attractivePersonnelName',
-  ]));
-  const attractivePersonnelId = cleanText(readFirst(row, [
-    'AttractivePersonnelID',
-    'attractivePersonnelId',
-    'AttractivePersonnelId',
-  ]));
-  const reasonRemoved = cleanText(readFirst(row, [
-    'ReasonRemoved',
-    'ReasonRemovedName',
-    'reasonRemoved',
-    'reasonRemovedName',
-  ]));
-
-  if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) return null;
-  if (!email && !mobile) return null;
-
-  const status = readNumber(row, ['Status', 'status']);
+  const fields = readApplicationRowFields(row);
+  if (!fields.recruitmentId || !fields.recruitmentRoundId || !fields.candidateId || !fields.candidateName) return null;
+  if (!fields.email && !fields.mobile) return null;
 
   return {
-    recruitmentId,
-    recruitmentRoundId,
-    candidateId,
-    candidateName,
-    ...(cleanText(readFirst(row, ['CandidateConvertID', 'candidateConvertId'])) ? {
-      candidateConvertId: cleanText(readFirst(row, ['CandidateConvertID', 'candidateConvertId'])),
-    } : {}),
-    ...(email ? { email } : {}),
-    ...(mobile ? { mobile } : {}),
-    ...(cleanText(readFirst(row, ['Birthday', 'birthday'])) ? { birthday: cleanText(readFirst(row, ['Birthday', 'birthday'])) } : {}),
-    ...(cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])) ? {
-      recruitmentRoundName: cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])),
-    } : {}),
-    ...(reasonRemoved ? { reasonRemoved } : {}),
-    ...(attractivePersonnelName ? { attractivePersonnelName } : {}),
-    ...(attractivePersonnelId ? { attractivePersonnelId } : {}),
-    ...(status !== undefined ? { status } : {}),
-    ...(readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']) !== undefined ? {
-      recruitmentChannelId: readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']),
-    } : {}),
-    ...(channelName ? { channelName } : {}),
-    ...(cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])) ? {
-      applyDate: cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])),
-    } : {}),
-    ...(cleanText(readFirst(row, ['RecruitmentTitle', 'recruitmentTitle'])) ? {
-      recruitmentTitle: cleanText(readFirst(row, ['RecruitmentTitle', 'recruitmentTitle'])),
-    } : {}),
-    ...(cleanText(readFirst(row, ['AttachmentCVID', 'attachmentCvId'])) ? {
-      attachmentCvId: cleanText(readFirst(row, ['AttachmentCVID', 'attachmentCvId'])),
-    } : {}),
-    ...(cleanText(readFirst(row, ['AttachmentCVName', 'attachmentCvName'])) ? {
-      attachmentCvName: cleanText(readFirst(row, ['AttachmentCVName', 'attachmentCvName'])),
-    } : {}),
-    ...(cleanText(readFirst(row, ['EducationDegreeName', 'educationDegreeName'])) ? {
-      educationDegreeName: cleanText(readFirst(row, ['EducationDegreeName', 'educationDegreeName'])),
-    } : {}),
-    ...(cleanText(readFirst(row, ['EducationMajorName', 'educationMajorName'])) ? {
-      educationMajorName: cleanText(readFirst(row, ['EducationMajorName', 'educationMajorName'])),
-    } : {}),
-    ...(cleanText(readFirst(row, ['WorkPlaceRecent', 'workPlaceRecent'])) ? {
-      workPlaceRecent: cleanText(readFirst(row, ['WorkPlaceRecent', 'workPlaceRecent'])),
-    } : {}),
+    recruitmentId: fields.recruitmentId,
+    recruitmentRoundId: fields.recruitmentRoundId,
+    candidateId: fields.candidateId,
+    candidateName: fields.candidateName,
+    ...omitUndefined({
+      candidateConvertId: fields.candidateConvertId,
+      email: fields.email,
+      mobile: fields.mobile,
+      birthday: fields.birthday,
+      recruitmentRoundName: fields.recruitmentRoundName,
+      reasonRemoved: fields.reasonRemoved,
+      attractivePersonnelName: fields.attractivePersonnelName,
+      attractivePersonnelId: fields.attractivePersonnelId,
+      status: fields.status,
+      recruitmentChannelId: fields.recruitmentChannelId,
+      channelName: fields.channelName,
+      applyDate: fields.applyDate,
+      recruitmentTitle: fields.recruitmentTitle,
+      attachmentCvId: fields.attachmentCvId,
+      attachmentCvName: fields.attachmentCvName,
+      educationDegreeName: fields.educationDegreeName,
+      educationMajorName: fields.educationMajorName,
+      workPlaceRecent: fields.workPlaceRecent,
+    }),
     rawSnapshot: sanitizeApplicationSnapshot(row),
   };
+}
+
+function readApplicationRowFields(row: Record<string, unknown>) {
+  return {
+    recruitmentId: readCleanText(row, ['RecruitmentID', 'recruitmentId']),
+    recruitmentRoundId: readCleanText(row, ['RecruitmentRoundID', 'recruitmentRoundId']),
+    candidateId: readCleanText(row, ['CandidateID', 'candidateId']),
+    candidateName: readCleanText(row, ['CandidateName', 'candidateName', 'Name', 'name']),
+    email: readCleanText(row, ['Email', 'email']),
+    mobile: readCleanText(row, ['Mobile', 'Phone', 'phone', 'mobile']),
+    candidateConvertId: readCleanText(row, ['CandidateConvertID', 'candidateConvertId']),
+    birthday: readCleanText(row, ['Birthday', 'birthday']),
+    recruitmentRoundName: readCleanText(row, ['RecruitmentRoundName', 'recruitmentRoundName']),
+    reasonRemoved: readCleanText(row, ['ReasonRemoved', 'ReasonRemovedName', 'reasonRemoved', 'reasonRemovedName']),
+    attractivePersonnelName: readCleanText(row, ['AttractivePersonnel', 'attractivePersonnel', 'AttractivePersonnelName', 'attractivePersonnelName']),
+    attractivePersonnelId: readCleanText(row, ['AttractivePersonnelID', 'attractivePersonnelId', 'AttractivePersonnelId']),
+    status: readNumber(row, ['Status', 'status']),
+    recruitmentChannelId: readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']),
+    channelName: readCleanText(row, [
+      'ChannelName', 'channelName', 'RecruitmentChannelName', 'recruitmentChannelName',
+      'SourceCandidateName', 'sourceCandidateName', 'SourceName', 'sourceName',
+    ]),
+    applyDate: readCleanText(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate']),
+    recruitmentTitle: readCleanText(row, ['RecruitmentTitle', 'recruitmentTitle']),
+    attachmentCvId: readCleanText(row, ['AttachmentCVID', 'attachmentCvId']),
+    attachmentCvName: readCleanText(row, ['AttachmentCVName', 'attachmentCvName']),
+    educationDegreeName: readCleanText(row, ['EducationDegreeName', 'educationDegreeName']),
+    educationMajorName: readCleanText(row, ['EducationMajorName', 'educationMajorName']),
+    workPlaceRecent: readCleanText(row, ['WorkPlaceRecent', 'workPlaceRecent']),
+  };
+}
+
+function readCleanText(data: Record<string, unknown>, keys: string[]) {
+  const value = cleanText(readFirst(data, keys));
+  return value || undefined;
+}
+
+function omitUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
 }
 
 function extractRows(value: unknown): unknown[] {

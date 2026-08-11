@@ -68,101 +68,111 @@ export class InterviewWebSocketGateway
   handleConnection(client: Socket) {
     const sessionId = client.handshake.query.sessionId as string;
     const role = client.handshake.query.role as string;
-    const name = (client.handshake.query.name as string) || 'Interviewer';
-
     if (!sessionId) return;
 
     if (role === 'candidate') {
-      const accessToken = client.handshake.query.accessToken as string;
-      if (!accessToken) {
-        this.logger.warn(`Candidate rejected for session:${sessionId} — missing accessToken`);
-        client.disconnect(true);
-        return;
-      }
-      // Validate async; disconnect if invalid. Join the room optimistically so the
-      // client doesn't miss early events, then kick if the token is wrong.
-      client.join(`session:${sessionId}`);
-      void this.sessionRepo
-        .findOne({ where: { accessToken, id: sessionId } })
-        .then((session) => {
-          if (!session) {
-            this.logger.warn(`Candidate rejected for session:${sessionId} — invalid accessToken`);
-            client.disconnect(true);
-          }
-        });
+      const accepted = this.handleCandidateConnection(client, sessionId);
+      if (accepted) this.registerCandidateConnection(client, sessionId);
     } else {
-      client.join(`session:${sessionId}`);
-      // Late-joiner catch-up: re-emit in-progress AI generation events to this specific socket
-      void this.sessionRepo
-        .findOne({ where: { id: sessionId }, select: ['id', 'isSurveyGenerating', 'isSurveySuggestGenerating'] })
-        .then((s) => {
-          if (!s) return;
-          if (s.isSurveyGenerating)
-            client.emit(WebSocketEvents.SURVEY_GENERATING, { sessionId });
-          if (s.isSurveySuggestGenerating)
-            client.emit(WebSocketEvents.SURVEY_SUGGEST_GENERATING, { sessionId });
-        });
-    }
-
-    if (role === 'candidate') {
-      const ip =
-        (client.handshake.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-        client.handshake.address;
-      const userAgent = client.handshake.headers['user-agent'] || '';
-      const info: ClientInfo = { ip, userAgent, connectedAt: new Date() };
-
-      if (!this.candidateSocketMap.has(sessionId)) {
-        this.candidateSocketMap.set(sessionId, new Map());
-      }
-      const sessionCandidates = this.candidateSocketMap.get(sessionId)!;
-
-      // Kick any previously connected tabs/devices for this session
-      if (sessionCandidates.size > 0) {
-        for (const [oldSocketId] of sessionCandidates) {
-          this.server.to(oldSocketId).emit(WebSocketEvents.CANDIDATE_SESSION_KICKED, {
-            sessionId,
-            reason: 'Another device or tab joined this session.',
-          });
-          const oldSocket = this.server.sockets?.sockets?.get(oldSocketId);
-          if (oldSocket) oldSocket.disconnect(true);
-        }
-        sessionCandidates.clear();
-        void this.antiCheatEventRepo.save({ sessionId, type: 'MULTI_DEVICE_DETECTED', metadata: { ip, userAgent } });
-        this.server.to(`session:${sessionId}`).emit(WebSocketEvents.CANDIDATE_MULTI_DEVICE_DETECTED, {
-          sessionId,
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      sessionCandidates.set(client.id, info);
-      client.to(`session:${sessionId}`).emit(WebSocketEvents.CANDIDATE_CONNECTED, {
-        sessionId,
-        ip,
-        userAgent,
-        connectedAt: info.connectedAt.toISOString(),
-      });
-      this.logger.log(`Candidate connected to session:${sessionId} from ${ip}`);
-    } else if (role === 'interviewer') {
-      const email = (client.handshake.query.email as string) || '';
-      if (!this.interviewerMap.has(sessionId)) {
-        this.interviewerMap.set(sessionId, new Map());
-      }
-      const info: InterviewerInfo = {
-        socketId: client.id,
-        name,
-        email,
-        joinedAt: new Date().toISOString(),
-      };
-      this.interviewerMap.get(sessionId)!.set(client.id, info);
-      this.broadcastInterviewers(sessionId);
-      this.logger.log(`Interviewer "${name}" joined session:${sessionId}`);
-    } else {
-      this.logger.log(`Client ${client.id} joined session:${sessionId}`);
+      this.handleNonCandidateConnection(client, sessionId, role);
     }
 
     // Store sessionId on socket for disconnect cleanup
     (client as any)._sessionId = sessionId;
     (client as any)._role = role;
+  }
+
+  private handleCandidateConnection(client: Socket, sessionId: string) {
+    const accessToken = client.handshake.query.accessToken as string;
+    if (!accessToken) {
+      this.logger.warn(`Candidate rejected for session:${sessionId} — missing accessToken`);
+      client.disconnect(true);
+      return false;
+    }
+    // Validate async; disconnect if invalid. Join optimistically so early events are not missed.
+    client.join(`session:${sessionId}`);
+    void this.sessionRepo.findOne({ where: { accessToken, id: sessionId } }).then((session) => {
+      if (!session) {
+        this.logger.warn(`Candidate rejected for session:${sessionId} — invalid accessToken`);
+        client.disconnect(true);
+      }
+    });
+    return true;
+  }
+
+  private handleNonCandidateConnection(client: Socket, sessionId: string, role: string) {
+    client.join(`session:${sessionId}`);
+    this.emitLateJoinCatchup(client, sessionId);
+    if (role === 'interviewer') this.registerInterviewerConnection(client, sessionId);
+    else this.logger.log(`Client ${client.id} joined session:${sessionId}`);
+  }
+
+  private emitLateJoinCatchup(client: Socket, sessionId: string) {
+    void this.sessionRepo
+      .findOne({ where: { id: sessionId }, select: ['id', 'isSurveyGenerating', 'isSurveySuggestGenerating'] })
+      .then((session) => {
+        if (!session) return;
+        if (session.isSurveyGenerating) client.emit(WebSocketEvents.SURVEY_GENERATING, { sessionId });
+        if (session.isSurveySuggestGenerating) {
+          client.emit(WebSocketEvents.SURVEY_SUGGEST_GENERATING, { sessionId });
+        }
+      });
+  }
+
+  private registerCandidateConnection(client: Socket, sessionId: string) {
+    const ip = (client.handshake.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      || client.handshake.address;
+    const userAgent = client.handshake.headers['user-agent'] || '';
+    const info: ClientInfo = { ip, userAgent, connectedAt: new Date() };
+    const sessionCandidates = this.candidateSocketMap.get(sessionId) ?? new Map<string, ClientInfo>();
+    this.candidateSocketMap.set(sessionId, sessionCandidates);
+    this.kickPreviousCandidates(sessionId, sessionCandidates, ip, userAgent);
+    sessionCandidates.set(client.id, info);
+    client.to(`session:${sessionId}`).emit(WebSocketEvents.CANDIDATE_CONNECTED, {
+      sessionId,
+      ip,
+      userAgent,
+      connectedAt: info.connectedAt.toISOString(),
+    });
+    this.logger.log(`Candidate connected to session:${sessionId} from ${ip}`);
+  }
+
+  private kickPreviousCandidates(
+    sessionId: string,
+    sessionCandidates: Map<string, ClientInfo>,
+    ip: string,
+    userAgent: string,
+  ) {
+    if (sessionCandidates.size === 0) return;
+    for (const [oldSocketId] of sessionCandidates) {
+      this.server.to(oldSocketId).emit(WebSocketEvents.CANDIDATE_SESSION_KICKED, {
+        sessionId,
+        reason: 'Another device or tab joined this session.',
+      });
+      const oldSocket = this.server.sockets?.sockets?.get(oldSocketId);
+      if (oldSocket) oldSocket.disconnect(true);
+    }
+    sessionCandidates.clear();
+    void this.antiCheatEventRepo.save({ sessionId, type: 'MULTI_DEVICE_DETECTED', metadata: { ip, userAgent } });
+    this.server.to(`session:${sessionId}`).emit(WebSocketEvents.CANDIDATE_MULTI_DEVICE_DETECTED, {
+      sessionId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private registerInterviewerConnection(client: Socket, sessionId: string) {
+    const name = (client.handshake.query.name as string) || 'Interviewer';
+    const email = (client.handshake.query.email as string) || '';
+    const interviewers = this.interviewerMap.get(sessionId) ?? new Map<string, InterviewerInfo>();
+    this.interviewerMap.set(sessionId, interviewers);
+    interviewers.set(client.id, {
+      socketId: client.id,
+      name,
+      email,
+      joinedAt: new Date().toISOString(),
+    });
+    this.broadcastInterviewers(sessionId);
+    this.logger.log(`Interviewer "${name}" joined session:${sessionId}`);
   }
 
   handleDisconnect(client: Socket) {

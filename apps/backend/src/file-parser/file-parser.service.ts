@@ -153,86 +153,117 @@ export class FileParserService {
   }
 
   private extractXlsxData(sheet: any): Record<string, unknown> {
-    const data: Record<string, unknown> = {};
-    const rows: string[][] = [];
+    const data = this.extractXlsxStructuredData(this.readXlsxRows(sheet));
+    const rawText = this.buildXlsxRawText(data);
+    if (rawText) data['rawText'] = rawText;
+    return data;
+  }
 
-    sheet.eachRow((row: any, rowNumber: number) => {
+  private readXlsxRows(sheet: any): string[][] {
+    const rows: string[][] = [];
+    sheet.eachRow((row: any) => {
       const values: string[] = [];
-      row.eachCell((cell: any) => {
-        values.push(String(cell.value ?? ''));
-      });
+      row.eachCell((cell: any) => values.push(String(cell.value ?? '')));
       rows.push(values);
     });
+    return rows;
+  }
 
-    // Extract structured fields from the Template sheet format
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const label = row[0]?.toLowerCase() ?? '';
-
-      if (label.includes('họ tên') || label.includes('ho ten')) {
-        data['name'] = row[1] || row[2];
-      } else if (label.includes('sdt') || label.includes('số điện thoại')) {
-        data['phone'] = row[1] || row[2];
-      } else if (label.includes('email')) {
-        data['email'] = row[1] || row[2];
-      } else if (label.includes('tổng số năm') || label.includes('kinh nghiệm')) {
-        const expMap: Record<string, number> = {};
-        for (const cell of row.slice(1)) {
-          const raw = String(cell ?? '').trim();
-          if (!raw) continue;
-          // Handles: "JavaScript: 3", "Python 2 years", "Go 1y"
-          const experience = parseExperienceCell(raw);
-          if (experience) {
-            expMap[experience.language] = experience.years;
-          }
-        }
-        if (Object.keys(expMap).length > 0) data['experienceByLanguage'] = expMap;
-      } else if (label.includes('techstack')) {
-        data['techstack'] = row.slice(1).filter(Boolean).join(', ');
-      } else if (label.includes('kiến trúc')) {
-        data['architecture'] = row[1] || row[2];
-      } else if (label.includes('quy mô')) {
-        data['scale'] = row[1] || row[2];
-      } else if (label.includes('cấp độ') || label.includes('cap do') || label.includes('level')) {
-        data['xlsxLevel'] = row[1] || row[2];
-      } else if (label.includes('năm sinh') || label.includes('nam sinh') || label.includes('birth')) {
-        const yr = Number.parseInt(String(row[1] || row[2] || ''), 10);
-        if (!Number.isNaN(yr) && yr > 1950 && yr < 2010) data['birthYear'] = yr;
-      } else if (label.includes('học vấn') || label.includes('hoc van') || label.includes('education') || label.includes('trình độ')) {
-        data['xlsxEducation'] = row[1] || row[2];
-      } else if (label.includes('công ty') || label.includes('cong ty') || label.includes('company') || label.includes('nơi làm')) {
-        const companyEntry = [row[1], row[2], row[3]].filter(Boolean).join(' - ');
-        if (companyEntry) {
-          const companies = (data['xlsxCompanies'] as string[]) ?? [];
-          companies.push(companyEntry);
-          data['xlsxCompanies'] = companies;
-        }
-      }
-    }
-
-    // Build rawText so XLSX data flows into the AI as a first-class text corpus
-    const textLines: string[] = ['[XLSX Profile Data]'];
-    if (data['name'])               textLines.push(`Họ tên: ${data['name']}`);
-    if (data['birthYear'])          textLines.push(`Năm sinh: ${data['birthYear']}`);
-    if (data['phone'])              textLines.push(`SĐT: ${data['phone']}`);
-    if (data['email'])              textLines.push(`Email: ${data['email']}`);
-    if (data['xlsxLevel'])          textLines.push(`Cấp độ: ${data['xlsxLevel']}`);
-    if (data['xlsxEducation'])      textLines.push(`Học vấn: ${data['xlsxEducation']}`);
-    if (data['architecture'])       textLines.push(`Kiến trúc: ${data['architecture']}`);
-    if (data['scale'])              textLines.push(`Quy mô: ${data['scale']}`);
-    if (data['techstack'])          textLines.push(`Techstack: ${data['techstack']}`);
-    if (data['experienceByLanguage']) {
-      const expStr = Object.entries(data['experienceByLanguage'] as Record<string, number>)
-        .map(([lang, yrs]) => `${lang}: ${yrs} năm`).join(', ');
-      textLines.push(`Kinh nghiệm: ${expStr}`);
-    }
-    if (Array.isArray(data['xlsxCompanies']) && (data['xlsxCompanies'] as string[]).length > 0) {
-      textLines.push('Công ty đã làm việc:');
-      for (const c of data['xlsxCompanies'] as string[]) textLines.push(`  - ${c}`);
-    }
-    if (textLines.length > 1) data['rawText'] = textLines.join('\n');
-
+  private extractXlsxStructuredData(rows: string[][]): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (const row of rows) this.applyXlsxRow(data, row);
     return data;
+  }
+
+  private applyXlsxRow(data: Record<string, unknown>, row: string[]) {
+    const label = row[0]?.toLowerCase() ?? '';
+    const value = row[1] || row[2];
+
+    if (label.includes('họ tên') || label.includes('ho ten')) data['name'] = value;
+    else if (label.includes('sdt') || label.includes('số điện thoại')) data['phone'] = value;
+    else if (label.includes('email')) data['email'] = value;
+    else if (label.includes('tổng số năm') || label.includes('kinh nghiệm')) this.applyExperienceRow(data, row);
+    else if (label.includes('techstack')) data['techstack'] = row.slice(1).filter(Boolean).join(', ');
+    else if (label.includes('kiến trúc')) data['architecture'] = value;
+    else if (label.includes('quy mô')) data['scale'] = value;
+    else if (label.includes('cấp độ') || label.includes('cap do') || label.includes('level')) data['xlsxLevel'] = value;
+    else if (label.includes('năm sinh') || label.includes('nam sinh') || label.includes('birth')) this.applyBirthYear(data, value);
+    else if (this.isEducationLabel(label)) data['xlsxEducation'] = value;
+    else if (this.isCompanyLabel(label)) this.appendCompany(data, row);
+  }
+
+  private applyExperienceRow(data: Record<string, unknown>, row: string[]) {
+    const experienceByLanguage: Record<string, number> = {};
+    for (const cell of row.slice(1)) {
+      const raw = String(cell ?? '').trim();
+      if (!raw) continue;
+      const experience = parseExperienceCell(raw);
+      if (experience) experienceByLanguage[experience.language] = experience.years;
+    }
+    if (Object.keys(experienceByLanguage).length > 0) data['experienceByLanguage'] = experienceByLanguage;
+  }
+
+  private applyBirthYear(data: Record<string, unknown>, value: string | undefined) {
+    const year = Number.parseInt(String(value ?? ''), 10);
+    if (!Number.isNaN(year) && year > 1950 && year < 2010) data['birthYear'] = year;
+  }
+
+  private isEducationLabel(label: string) {
+    return label.includes('học vấn')
+      || label.includes('hoc van')
+      || label.includes('education')
+      || label.includes('trình độ');
+  }
+
+  private isCompanyLabel(label: string) {
+    return label.includes('công ty')
+      || label.includes('cong ty')
+      || label.includes('company')
+      || label.includes('nơi làm');
+  }
+
+  private appendCompany(data: Record<string, unknown>, row: string[]) {
+    const companyEntry = [row[1], row[2], row[3]].filter(Boolean).join(' - ');
+    if (!companyEntry) return;
+    const companies = (data['xlsxCompanies'] as string[]) ?? [];
+    companies.push(companyEntry);
+    data['xlsxCompanies'] = companies;
+  }
+
+  private buildXlsxRawText(data: Record<string, unknown>) {
+    const textLines: string[] = ['[XLSX Profile Data]'];
+    const fields: Array<[string, string]> = [
+      ['name', 'Họ tên'],
+      ['birthYear', 'Năm sinh'],
+      ['phone', 'SĐT'],
+      ['email', 'Email'],
+      ['xlsxLevel', 'Cấp độ'],
+      ['xlsxEducation', 'Học vấn'],
+      ['architecture', 'Kiến trúc'],
+      ['scale', 'Quy mô'],
+      ['techstack', 'Techstack'],
+    ];
+    for (const [key, label] of fields) {
+      if (data[key]) textLines.push(`${label}: ${data[key]}`);
+    }
+
+    this.appendExperienceText(textLines, data['experienceByLanguage']);
+    this.appendCompanyText(textLines, data['xlsxCompanies']);
+    return textLines.length > 1 ? textLines.join('\n') : '';
+  }
+
+  private appendExperienceText(textLines: string[], value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+    const experience = Object.entries(value as Record<string, number>)
+      .map(([language, years]) => `${language}: ${years} năm`)
+      .join(', ');
+    if (experience) textLines.push(`Kinh nghiệm: ${experience}`);
+  }
+
+  private appendCompanyText(textLines: string[], value: unknown) {
+    if (!Array.isArray(value) || value.length === 0) return;
+    textLines.push('Công ty đã làm việc:');
+    for (const company of value) textLines.push(`  - ${company}`);
   }
 
   private async parseDocx(filePath: string): Promise<Record<string, unknown>> {

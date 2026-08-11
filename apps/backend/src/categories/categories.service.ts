@@ -216,23 +216,37 @@ export class CategoriesService implements OnModuleInit {
 
     for (const catData of defaultData) {
       const category = catByName.get(catData.name)!;
-      for (let index = 0; index < catData.subs.length; index++) {
-        const subSeed = catData.subs[index];
-        const subName = typeof subSeed === 'string' ? subSeed : subSeed.name;
-        const competencyType = typeof subSeed === 'string' ? undefined : subSeed.competencyType;
-        const existing = subByKey.get(`${category.id}::${subName}`);
-        if (!existing) {
-          subsToSave.push(this.subRepo.create({ categoryId: category.id, name: subName, orderIndex: index, competencyType }));
-          subsCreated++;
-        } else if (!existing.isCustomized) {
-          existing.orderIndex = index;
-          if (competencyType !== undefined) existing.competencyType = competencyType;
-          subsToSave.push(existing);
-        }
+      for (const [index, subSeed] of catData.subs.entries()) {
+        const prepared = this.prepareSeedSubcategory(category, subSeed, index, subByKey);
+        if (!prepared) continue;
+        subsToSave.push(prepared.entity);
+        if (prepared.created) subsCreated++;
       }
     }
 
     if (subsToSave.length) await this.subRepo.save(subsToSave);
     return subsCreated;
+  }
+
+  private prepareSeedSubcategory(
+    category: CategoryEntity,
+    subSeed: CategorySeedValue,
+    orderIndex: number,
+    subByKey: Map<string, SubCategoryEntity>,
+  ): { entity: SubCategoryEntity; created: boolean } | null {
+    const subName = typeof subSeed === 'string' ? subSeed : subSeed.name;
+    const competencyType = typeof subSeed === 'string' ? undefined : subSeed.competencyType;
+    const existing = subByKey.get(`${category.id}::${subName}`);
+    if (!existing) {
+      return {
+        entity: this.subRepo.create({ categoryId: category.id, name: subName, orderIndex, competencyType }),
+        created: true,
+      };
+    }
+    if (existing.isCustomized) return null;
+
+    existing.orderIndex = orderIndex;
+    if (competencyType !== undefined) existing.competencyType = competencyType;
+    return { entity: existing, created: false };
   }
 }

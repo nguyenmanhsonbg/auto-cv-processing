@@ -553,7 +553,7 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
   try {
     await waitForTabComplete(tab.id);
     status = await enrichFacebookAccountIdentity(
-      await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []),
+      await runFacebookLoginProbe(tab.id),
       tab.id,
     );
     if (status.ready) {
@@ -584,7 +584,7 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
       await sleep(2_000);
       await waitForTabComplete(tab.id);
       status = await enrichFacebookAccountIdentity(
-        await runScript<[], FacebookLoginCheckResult>(tab.id, checkFacebookLoginInPage, []),
+        await runFacebookLoginProbe(tab.id),
         tab.id,
       );
       if (status.ready) {
@@ -2481,6 +2481,25 @@ function shortenAutomationMessage(message: string, maxLength = 360) {
   return normalized.length <= maxLength ? normalized : `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
+const FACEBOOK_LOGIN_PROBE_ATTEMPTS = 3;
+const FACEBOOK_LOGIN_PROBE_RETRY_DELAY_MS = 300;
+
+async function runFacebookLoginProbe(tabId: number): Promise<FacebookLoginCheckResult> {
+  for (let attempt = 0; attempt < FACEBOOK_LOGIN_PROBE_ATTEMPTS; attempt += 1) {
+    const result = await runScript<[], FacebookLoginCheckResult>(tabId, checkFacebookLoginInPage, []);
+    if (result !== null && result !== undefined) {
+      return result;
+    }
+
+    if (attempt < FACEBOOK_LOGIN_PROBE_ATTEMPTS - 1) {
+      await sleep(FACEBOOK_LOGIN_PROBE_RETRY_DELAY_MS);
+      await waitForTabComplete(tabId);
+    }
+  }
+
+  throw new Error('Facebook login check did not return a result.');
+}
+
 async function runScript<Args extends unknown[], Result>(
   tabId: number,
   func: (...args: Args) => Result | Promise<Result>,
@@ -2991,7 +3010,9 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
     if (profileLink) {
       const parsed = new URL(profileLink.href);
       const numericId = parsed.searchParams.get('id')?.trim();
-      const normalizedPath = trimTrailingSlashes(parsed.pathname).toLowerCase();
+      // This function is injected into the Facebook page, so it cannot access
+      // helpers from the extension module scope.
+      const normalizedPath = parsed.pathname.replace(/\/+$/, '').toLowerCase();
       const facebookExternalId = numericId || (normalizedPath ? `profile:${normalizedPath}` : null);
       const stripProfileDescriptor = (value: string) => {
         const normalized = value.replace(/\s+/g, ' ').trim();

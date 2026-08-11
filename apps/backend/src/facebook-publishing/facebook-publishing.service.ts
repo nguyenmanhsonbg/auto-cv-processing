@@ -683,46 +683,7 @@ export class FacebookPublishingService {
       const reconciliationApplied = completePayload && payloadIsConsistent;
 
       if (reconciliationApplied) {
-        const activeTargets = await this.targetsRepo.find({
-          where: {
-            ownerUserId: input.ownerUserId,
-            type: FacebookPublishTargetType.GROUP,
-            active: true,
-          },
-        });
-        const discoveredIds = new Set(
-          result.items
-            .map((item) => item.targetExternalId?.trim().toLowerCase())
-            .filter((value): value is string => Boolean(value)),
-        );
-        const removableTargets = activeTargets.filter((target) => (
-          !target.manualIncluded
-          && this.isTargetInAccountScope(
-            target.ownerExtensionInstanceId,
-            input.ownerExtensionInstanceId,
-            target.facebookAccountId,
-            input.facebookAccountId,
-          )
-        ));
-
-        for (const target of removableTargets) {
-          const externalId = target.externalId?.trim().toLowerCase();
-          if (!externalId || discoveredIds.has(externalId)) continue;
-
-          target.active = false;
-          target.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
-          target.eligibilityReason = 'Group was not returned by the latest Facebook joined-groups scan.';
-          await this.targetsRepo.save(target);
-          result.removed += 1;
-          result.items.push({
-            action: 'deactivated',
-            targetName: target.name,
-            targetUrl: target.url ?? `https://www.facebook.com/groups/${externalId}`,
-            targetExternalId: target.externalId,
-            targetId: target.id,
-            reason: 'Group was not returned by the latest completed scan.',
-          });
-        }
+        await this.reconcileMissingExtensionGroups(input, result);
       }
 
       const completedAt = new Date();
@@ -748,6 +709,64 @@ export class FacebookPublishingService {
       await this.groupSyncStatesRepo.save(syncState);
       throw error;
     }
+  }
+
+  private async reconcileMissingExtensionGroups(
+    input: DiscoverFacebookGroupsInput,
+    result: DiscoverFacebookGroupsResponseDto,
+  ) {
+    const activeTargets = await this.targetsRepo.find({
+      where: {
+        ownerUserId: input.ownerUserId,
+        type: FacebookPublishTargetType.GROUP,
+        active: true,
+      },
+    });
+    const discoveredIds = this.getDiscoveredGroupIds(result);
+    const removableTargets = activeTargets.filter((target) => (
+      !target.manualIncluded
+      && this.isTargetInAccountScope(
+        target.ownerExtensionInstanceId,
+        input.ownerExtensionInstanceId,
+        target.facebookAccountId,
+        input.facebookAccountId,
+      )
+    ));
+
+    for (const target of removableTargets) {
+      await this.deactivateMissingGroup(target, discoveredIds, result);
+    }
+  }
+
+  private getDiscoveredGroupIds(result: DiscoverFacebookGroupsResponseDto) {
+    return new Set(
+      result.items
+        .map((item) => item.targetExternalId?.trim().toLowerCase())
+        .filter((value): value is string => Boolean(value)),
+    );
+  }
+
+  private async deactivateMissingGroup(
+    target: FacebookPublishTargetEntity,
+    discoveredIds: Set<string>,
+    result: DiscoverFacebookGroupsResponseDto,
+  ) {
+    const externalId = target.externalId?.trim().toLowerCase();
+    if (!externalId || discoveredIds.has(externalId)) return;
+
+    target.active = false;
+    target.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
+    target.eligibilityReason = 'Group was not returned by the latest Facebook joined-groups scan.';
+    await this.targetsRepo.save(target);
+    result.removed += 1;
+    result.items.push({
+      action: 'deactivated',
+      targetName: target.name,
+      targetUrl: target.url ?? `https://www.facebook.com/groups/${externalId}`,
+      targetExternalId: target.externalId,
+      targetId: target.id,
+      reason: 'Group was not returned by the latest completed scan.',
+    });
   }
 
   async updateExtensionGroup(input: UpdateFacebookGroupInput): Promise<ResolvedFacebookPublishTarget> {

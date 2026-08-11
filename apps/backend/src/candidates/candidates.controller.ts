@@ -352,23 +352,11 @@ export class CandidatesController {
 
     for (const [index, file] of files.entries()) {
       const fileName = file.originalname;
-      const ext = path.extname(fileName).toLowerCase();
 
       try {
         emit(index, fileName, 'parsing');
         const parsed = await this.fileParserService.parseFile(file.path);
-        const rawText: string = (parsed as any).rawText ?? '';
-        if (rawText) result.rawTexts.push(rawText);
-        if (!(parsed as any).error) {
-          const { rawText: _r, error: _e, ...fields } = parsed as Record<string, unknown> & { rawText: string };
-          result.regexFieldSets.push(fields);
-        }
-        if (!result.firstNewFileForFallback && !(parsed as any).rawText) {
-          result.firstNewFileForFallback = file;
-        }
-
-        if (ext === '.xlsx' || ext === '.xls') result.profileXlsxUrl = `/uploads/${file.filename}`;
-        else result.resumeUrl = `/uploads/${file.filename}`;
+        this.mergeUploadedFileResult(result, file, parsed as Record<string, unknown>);
       } catch (err: unknown) {
         const error = err instanceof Error ? err.message : String(err);
         emit(index, fileName, 'error', { error });
@@ -377,6 +365,29 @@ export class CandidatesController {
     }
 
     return result;
+  }
+
+  private mergeUploadedFileResult(
+    result: ParsedUploadFiles,
+    file: Express.Multer.File,
+    parsed: Record<string, unknown>,
+  ) {
+    const rawText = typeof parsed.rawText === 'string' ? parsed.rawText : '';
+    if (rawText) result.rawTexts.push(rawText);
+    if (!parsed.error) result.regexFieldSets.push(this.withoutParserMetadata(parsed));
+    if (!result.firstNewFileForFallback && !parsed.rawText) result.firstNewFileForFallback = file;
+
+    const fileUrl = `/uploads/${file.filename}`;
+    if (['.xlsx', '.xls'].includes(path.extname(file.originalname).toLowerCase())) {
+      result.profileXlsxUrl = fileUrl;
+    } else {
+      result.resumeUrl = fileUrl;
+    }
+  }
+
+  private withoutParserMetadata(parsed: Record<string, unknown>) {
+    const { rawText: _rawText, error: _error, ...fields } = parsed;
+    return fields;
   }
 
   private async parseComplementaryFiles(files: StoredCandidateFile[]) {
@@ -426,25 +437,33 @@ export class CandidatesController {
     const regexFieldSets: Array<Record<string, unknown>> = [];
 
     for (const { url, isXlsx } of files) {
-      if (!url) continue;
-      try {
-        const parsed = await this.fileParserService.parseFile(url.replace(/^\//, ''));
-        const rawText: string = (parsed as any).rawText ?? '';
-        if (rawText) {
-          if (isXlsx) rawTexts.unshift(rawText);
-          else rawTexts.push(rawText);
-        }
-        if (!(parsed as any).error) {
-          const { rawText: _r, error: _e, ...fields } = parsed as Record<string, unknown> & { rawText: string };
-          if (isXlsx) regexFieldSets.unshift(fields);
-          else regexFieldSets.push(fields);
-        }
-      } catch {
-        // Silently skip unreadable files
-      }
+      const parsed = await this.parseStoredCandidateFile(url);
+      if (!parsed) continue;
+      this.addParsedStoredValue(rawTexts, parsed.rawText, isXlsx);
+      if (parsed.fields) this.addParsedStoredValue(regexFieldSets, parsed.fields, isXlsx);
     }
 
     return { rawTexts, regexFieldSets };
+  }
+
+  private async parseStoredCandidateFile(url: string | null) {
+    if (!url) return null;
+    try {
+      const parsed = await this.fileParserService.parseFile(url.replace(/^\//, '')) as Record<string, unknown>;
+      return {
+        rawText: typeof parsed.rawText === 'string' ? parsed.rawText : '',
+        fields: parsed.error ? null : this.withoutParserMetadata(parsed),
+      };
+    } catch {
+      // Silently skip unreadable files
+      return null;
+    }
+  }
+
+  private addParsedStoredValue<T>(values: T[], value: T | null, addToFront: boolean) {
+    if (!value) return;
+    if (addToFront) values.unshift(value);
+    else values.push(value);
   }
 }
 

@@ -432,61 +432,13 @@ export class SessionsService {
     const saved = await this.sessionRepo.save(session);
 
     const isHR = role === 'HR';
-
-    if (isHR) {
-      // HR: auto-assign questions based on position's categories + selected target level.
-      // All data is loaded in exactly 2 more queries (categories + questions) — no N+1.
-      // Position name already resolved above.
-
-      // 2. Fetch all categories applicable to this position in one query
-      const categoryNames = selectedAmisCareer
-        ? this.resolveQuestionCategoryNamesForAmisCareer(selectedAmisCareer)
-        : (await this.categoriesService.findAllCategories(resolvedPositionName)).map((c) => c.name);
-
-      // 3. Resolve the level hierarchy: "higher level includes all lower levels".
-      //    Load all levels and keep those with orderIndex ≤ selected level's orderIndex.
-      let applicableLevelNames: string[] | undefined;
-      if (dto.targetLevel) {
-        const allLevels = await this.levelsService.findAll();
-        const selectedLevel = allLevels.find((l) => l.name === dto.targetLevel);
-        if (selectedLevel) {
-          // Include current level and all levels below it (lower orderIndex = lower seniority)
-          applicableLevelNames = allLevels
-            .filter((l) => l.orderIndex <= selectedLevel.orderIndex)
-            .map((l) => l.name);
-        }
-      }
-
-      // 4. Single batch query: fetch all questions across all relevant categories + levels at once
-      const autoQuestions = categoryNames.length
-        ? await this.questionsService.findAll({
-            isActive: true,
-            categories: categoryNames,
-            ...(applicableLevelNames?.length ? { targetLevels: applicableLevelNames } : {}),
-          })
-        : [];
-
-      if (autoQuestions.length > 0) {
-        const sessionQuestions = autoQuestions.map((q, index) =>
-          this.sessionQuestionRepo.create({
-            sessionId: saved.id,
-            questionId: q.id,
-            orderIndex: index,
-          }),
-        );
-        await this.sessionQuestionRepo.save(sessionQuestions);
-      }
-    } else if (dto.questionIds?.length) {
-      // Non-HR: use manually provided question list
-      const sessionQuestions = dto.questionIds.map((questionId, index) =>
-        this.sessionQuestionRepo.create({
-          sessionId: saved.id,
-          questionId,
-          orderIndex: index,
-        }),
-      );
-      await this.sessionQuestionRepo.save(sessionQuestions);
-    }
+    await this.assignQuestionsForCreatedSession(
+      saved.id,
+      dto,
+      isHR,
+      selectedAmisCareer,
+      resolvedPositionName,
+    );
 
     // Fire-and-forget: auto-generate survey questions in background
     this.generateSurvey(saved.id).catch((err) =>
@@ -495,6 +447,59 @@ export class SessionsService {
 
     // For HR users, return session without question details (questions are hidden per HR restrictions)
     return this.findOne(saved.id, isHR ? { userId: createdById, isAdmin: false, excludeQuestions: true } : undefined);
+  }
+
+  private async assignQuestionsForCreatedSession(
+    sessionId: string,
+    dto: CreateSessionDto,
+    isHR: boolean,
+    selectedAmisCareer: AmisCareerEntity,
+    resolvedPositionName: string,
+  ) {
+    if (isHR) {
+      await this.assignHrSessionQuestions(sessionId, dto, selectedAmisCareer, resolvedPositionName);
+      return;
+    }
+    if (dto.questionIds?.length) await this.saveSessionQuestions(sessionId, dto.questionIds);
+  }
+
+  private async assignHrSessionQuestions(
+    sessionId: string,
+    dto: CreateSessionDto,
+    selectedAmisCareer: AmisCareerEntity,
+    resolvedPositionName: string,
+  ) {
+    const categoryNames = selectedAmisCareer
+      ? this.resolveQuestionCategoryNamesForAmisCareer(selectedAmisCareer)
+      : (await this.categoriesService.findAllCategories(resolvedPositionName)).map((c) => c.name);
+    const applicableLevelNames = await this.resolveApplicableLevelNames(dto.targetLevel);
+    const autoQuestions = categoryNames.length
+      ? await this.questionsService.findAll({
+          isActive: true,
+          categories: categoryNames,
+          ...(applicableLevelNames?.length ? { targetLevels: applicableLevelNames } : {}),
+        })
+      : [];
+    if (autoQuestions.length) {
+      await this.saveSessionQuestions(sessionId, autoQuestions.map((question) => question.id));
+    }
+  }
+
+  private async resolveApplicableLevelNames(targetLevel?: string) {
+    if (!targetLevel) return undefined;
+    const allLevels = await this.levelsService.findAll();
+    const selectedLevel = allLevels.find((level) => level.name === targetLevel);
+    if (!selectedLevel) return undefined;
+    return allLevels
+      .filter((level) => level.orderIndex <= selectedLevel.orderIndex)
+      .map((level) => level.name);
+  }
+
+  private async saveSessionQuestions(sessionId: string, questionIds: string[]) {
+    const sessionQuestions = questionIds.map((questionId, index) =>
+      this.sessionQuestionRepo.create({ sessionId, questionId, orderIndex: index }),
+    );
+    await this.sessionQuestionRepo.save(sessionQuestions);
   }
 
   private async resolveActiveAmisCareer(amisCareerId: string): Promise<AmisCareerEntity> {
@@ -774,44 +779,37 @@ export class SessionsService {
 
   async update(id: string, dto: UpdateSessionDto, scope?: { userId: string; isAdmin: boolean }): Promise<SessionEntity> {
     const session = await this.findOne(id, scope);
-
-    if (dto.status) {
-      session.status = dto.status;
-      if (dto.status === SessionStatus.IN_PROGRESS && !session.startedAt) {
-        session.startedAt = new Date();
-      }
-      if (dto.status === SessionStatus.COMPLETED && !session.completedAt) {
-        session.completedAt = new Date();
-      }
-    }
-    if (dto.targetLevel) session.targetLevel = dto.targetLevel;
-    if (dto.templatePosition) session.templatePosition = dto.templatePosition;
-    if (dto.categoryRatings !== undefined) session.categoryRatings = dto.categoryRatings;
-    if (dto.sequentialMode !== undefined) session.sequentialMode = dto.sequentialMode;
-    if (dto.scheduledAt !== undefined) {
-      session.scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : (null as any);
-    }
-    if (dto.meetingPlatform !== undefined) session.meetingPlatform = dto.meetingPlatform;
-    if (dto.meetingLink !== undefined) {
-      session.meetingLink = (dto.meetingLink || null) as any;
-    }
+    this.applySessionUpdate(session, dto);
 
     await this.sessionRepo.save(session);
 
     // Update linked questions if provided
-    if (dto.questionIds) {
-      await this.sessionQuestionRepo.delete({ sessionId: id });
-      const sessionQuestions = dto.questionIds.map((questionId, index) =>
-        this.sessionQuestionRepo.create({
-          sessionId: id,
-          questionId,
-          orderIndex: index,
-        }),
-      );
-      await this.sessionQuestionRepo.save(sessionQuestions);
-    }
+    await this.updateSessionQuestions(id, dto.questionIds);
 
     return this.findOne(id);
+  }
+
+  private applySessionUpdate(session: SessionEntity, dto: UpdateSessionDto) {
+    if (dto.status) this.applySessionStatus(session, dto.status);
+    if (dto.targetLevel) session.targetLevel = dto.targetLevel;
+    if (dto.templatePosition) session.templatePosition = dto.templatePosition;
+    if (dto.categoryRatings !== undefined) session.categoryRatings = dto.categoryRatings;
+    if (dto.sequentialMode !== undefined) session.sequentialMode = dto.sequentialMode;
+    if (dto.scheduledAt !== undefined) session.scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : (null as any);
+    if (dto.meetingPlatform !== undefined) session.meetingPlatform = dto.meetingPlatform;
+    if (dto.meetingLink !== undefined) session.meetingLink = (dto.meetingLink || null) as any;
+  }
+
+  private applySessionStatus(session: SessionEntity, status: SessionStatus) {
+    session.status = status;
+    if (status === SessionStatus.IN_PROGRESS && !session.startedAt) session.startedAt = new Date();
+    if (status === SessionStatus.COMPLETED && !session.completedAt) session.completedAt = new Date();
+  }
+
+  private async updateSessionQuestions(sessionId: string, questionIds?: string[]) {
+    if (!questionIds) return;
+    await this.sessionQuestionRepo.delete({ sessionId });
+    await this.saveSessionQuestions(sessionId, questionIds);
   }
 
   async remove(id: string, scope?: { userId: string; isAdmin: boolean }): Promise<void> {

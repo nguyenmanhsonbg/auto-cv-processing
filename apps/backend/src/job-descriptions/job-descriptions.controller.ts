@@ -206,33 +206,29 @@ export class JobDescriptionsController {
     fieldName: string,
     required: boolean,
   ): Record<string, unknown> | null {
-    if (value == null || value === '') {
-      if (required) throw new BadRequestException(`${fieldName} is required`);
-      return null;
-    }
-
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        if (required) throw new BadRequestException(`${fieldName} is required`);
-        return null;
-      }
-
-      if (trimmed.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          if (this.isRecord(parsed)) return parsed;
-        } catch {
-          throw new BadRequestException(`${fieldName} contains invalid JSON`);
-        }
-      }
-
-      return { text: trimmed };
-    }
-
+    if (value == null || value === '') return this.missingStructuredValue(fieldName, required);
+    if (typeof value === 'string') return this.normalizeStructuredText(value, fieldName, required);
     if (this.isRecord(value)) return value;
 
     throw new BadRequestException(`${fieldName} must be a JSON object or text`);
+  }
+
+  private missingStructuredValue(fieldName: string, required: boolean) {
+    if (required) throw new BadRequestException(`${fieldName} is required`);
+    return null;
+  }
+
+  private normalizeStructuredText(value: string, fieldName: string, required: boolean) {
+    const trimmed = value.trim();
+    if (!trimmed) return this.missingStructuredValue(fieldName, required);
+    if (!trimmed.startsWith('{')) return { text: trimmed };
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return this.isRecord(parsed) ? parsed : { text: trimmed };
+    } catch {
+      throw new BadRequestException(`${fieldName} contains invalid JSON`);
+    }
   }
 
   private normalizeText(

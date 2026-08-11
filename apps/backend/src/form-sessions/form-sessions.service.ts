@@ -365,86 +365,8 @@ export class FormSessionsService {
         throw new BadRequestException('Job posting not found for this application');
       }
 
-      // Resolve createdById user before optional posting snapshot repair.
-      let finalCreatedById = createdById || null;
-      if (!finalCreatedById) {
-        const firstUser = await manager.getRepository(UserEntity).findOne({
-          where: {},
-          order: { createdAt: 'ASC' },
-        });
-        if (firstUser) {
-          finalCreatedById = firstUser.id;
-        } else {
-          throw new BadRequestException('No users available in database to attribute creation.');
-        }
-      }
-
-      let selectedQuestionnaireItems = this.toQuestionnaireItemsFromQuestionSet(
-        jobPosting.formQuestionSet,
-      );
-
-      if (selectedQuestionnaireItems.length === 0) {
-        selectedQuestionnaireItems = await this.getConfiguredQuestionnaireItemsForJob(
-          manager,
-          jobPosting.formQuestionIds,
-        );
-      }
-
-      if (jobPosting.formQuestionIds?.length && selectedQuestionnaireItems.length === 0) {
-        this.logger.warn(
-          `Job posting ${jobPosting.id} has stale configured questionnaire ids; falling back to current JD questions.`,
-        );
-      }
-
-      if (selectedQuestionnaireItems.length === 0) {
-        selectedQuestionnaireItems = await this.getPortalQuestionnaireItemsForJobDescription(
-          manager,
-          jobPosting.jobDescriptionId,
-        );
-
-        if (
-          selectedQuestionnaireItems.length === 0
-          && jobPosting.jobDescription?.sourceSystem === VCS_PORTAL_SOURCE_SYSTEM
-        ) {
-          throw new BadRequestException(
-            'No synced VCS Portal questions are available for this job description.',
-          );
-        }
-      }
-
-      // Fallback for postings without an explicit question selection.
-      if (selectedQuestionnaireItems.length === 0) {
-        const categoryNames = await this.getQuestionCategoriesForJob(jobPosting.title);
-        let questions = await manager.getRepository(QuestionEntity).find({
-          where: { category: In(categoryNames), isActive: true },
-        });
-
-        // Fallback: If no questions match categories, fetch any active questions
-        if (questions.length === 0) {
-          questions = await manager.getRepository(QuestionEntity).find({
-            where: { isActive: true },
-          });
-        }
-
-        if (questions.length === 0) {
-          throw new BadRequestException(
-            'No active questions available in the question bank to generate a questionnaire.',
-          );
-        }
-
-        // Shuffle and take 5 questions for legacy/default postings.
-        const shuffledQuestions = [...questions];
-        for (let index = shuffledQuestions.length - 1; index > 0; index -= 1) {
-          const swapIndex = randomInt(index + 1);
-          [shuffledQuestions[index], shuffledQuestions[swapIndex]] = [
-            shuffledQuestions[swapIndex],
-            shuffledQuestions[index],
-          ];
-        }
-        selectedQuestionnaireItems = this.toQuestionnaireItemsFromBank(
-          shuffledQuestions.slice(0, 5),
-        );
-      }
+      const finalCreatedById = await this.resolveFormSessionCreator(manager, createdById);
+      let selectedQuestionnaireItems = await this.resolveFormQuestionnaireItems(manager, jobPosting);
 
       if (!jobPosting.formQuestionSetId && selectedQuestionnaireItems.length > 0) {
         selectedQuestionnaireItems = await this.createPostingQuestionSetSnapshot(
@@ -572,6 +494,89 @@ export class FormSessionsService {
         })),
       };
     });
+  }
+
+  private async resolveFormSessionCreator(
+    manager: EntityManager,
+    createdById?: string | null,
+  ) {
+    if (createdById) return createdById;
+    const firstUser = await manager.getRepository(UserEntity).findOne({
+      where: {},
+      order: { createdAt: 'ASC' },
+    });
+    if (!firstUser) {
+      throw new BadRequestException('No users available in database to attribute creation.');
+    }
+    return firstUser.id;
+  }
+
+  private async resolveFormQuestionnaireItems(
+    manager: EntityManager,
+    jobPosting: JobPostingEntity,
+  ): Promise<QuestionnaireItemInput[]> {
+    let selected = this.toQuestionnaireItemsFromQuestionSet(jobPosting.formQuestionSet);
+    if (selected.length > 0) return selected;
+
+    selected = await this.getConfiguredQuestionnaireItemsForJob(manager, jobPosting.formQuestionIds);
+    if (jobPosting.formQuestionIds?.length && selected.length === 0) {
+      this.logger.warn(
+        `Job posting ${jobPosting.id} has stale configured questionnaire ids; falling back to current JD questions.`,
+      );
+    }
+    if (selected.length > 0) return selected;
+
+    selected = await this.getPortalQuestionnaireItemsForJobDescription(
+      manager,
+      jobPosting.jobDescriptionId,
+    );
+    this.assertPortalQuestionnaireAvailability(jobPosting, selected);
+    if (selected.length > 0) return selected;
+
+    return this.getFallbackQuestionnaireItems(manager, jobPosting.title);
+  }
+
+  private assertPortalQuestionnaireAvailability(
+    jobPosting: JobPostingEntity,
+    selected: QuestionnaireItemInput[],
+  ) {
+    if (
+      selected.length === 0
+      && jobPosting.jobDescription?.sourceSystem === VCS_PORTAL_SOURCE_SYSTEM
+    ) {
+      throw new BadRequestException(
+        'No synced VCS Portal questions are available for this job description.',
+      );
+    }
+  }
+
+  private async getFallbackQuestionnaireItems(
+    manager: EntityManager,
+    jobTitle: string,
+  ): Promise<QuestionnaireItemInput[]> {
+    const categoryNames = await this.getQuestionCategoriesForJob(jobTitle);
+    let questions = await manager.getRepository(QuestionEntity).find({
+      where: { category: In(categoryNames), isActive: true },
+    });
+    if (questions.length === 0) {
+      questions = await manager.getRepository(QuestionEntity).find({ where: { isActive: true } });
+    }
+    if (questions.length === 0) {
+      throw new BadRequestException(
+        'No active questions available in the question bank to generate a questionnaire.',
+      );
+    }
+
+    return this.toQuestionnaireItemsFromBank(this.shuffleQuestions(questions).slice(0, 5));
+  }
+
+  private shuffleQuestions(questions: QuestionEntity[]) {
+    const shuffled = [...questions];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = randomInt(index + 1);
+      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+    }
+    return shuffled;
   }
 
   async getFormSessionByToken(token: string) {

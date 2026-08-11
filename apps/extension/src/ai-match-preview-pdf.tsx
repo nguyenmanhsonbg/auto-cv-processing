@@ -202,7 +202,7 @@ export function AiMatchPreviewPdf({ profile, mapping, screening, candidate }: Pd
   const score = screening?.score ?? mapping?.score;
   const workExperience = data.workExperience ?? [];
   const groupedSkills = data.groupedSkills ? Object.entries(data.groupedSkills) : [];
-  const companyTypeByName = Object.fromEntries((Array.isArray((data as ParsedProfile & { companies?: unknown }).companies) ? (data as ParsedProfile & { companies?: Array<{ name?: string; type?: string }> }).companies : [])?.flatMap((item) => item.name && item.type ? [[item.name, item.type]] : []) ?? []);
+  const companyTypeByName = buildCompanyTypeByName(data);
   const languages = (data as ParsedProfile & { languages?: unknown }).languages;
   const strengths = [...(validation?.highlights ?? []), ...(screening?.strengths ?? []).map((item) => item.title ?? '')].filter(Boolean);
   const weaknesses = [...(validation?.concerns ?? []), ...(screening?.gaps ?? []).map((item) => item.title ?? '')].filter(Boolean);
@@ -210,169 +210,275 @@ export function AiMatchPreviewPdf({ profile, mapping, screening, candidate }: Pd
   return <Document title={`AI Match - ${candidate?.fullName ?? 'Candidate'}`} author="VCS Interview Assistant">
     <Page size="A4" style={styles.page}>
       <Text style={styles.title}>AI Match Preview</Text>
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Candidate Information</Text>
-        <View style={styles.row}>
-          <View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Name</Text><Text style={styles.value}>{candidate?.fullName ?? data.name ?? '-'}</Text></View>
-          <View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Email</Text><Text style={styles.value}>{candidate?.email ?? data.email ?? '-'}</Text></View>
-        </View>
-        <View style={styles.row}>
-          <View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Phone</Text><Text style={styles.value}>{candidate?.phone ?? data.phone ?? '-'}</Text></View>
-          <View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Level</Text><Text style={styles.value}>{data.level ?? '-'}</Text></View>
-        </View>
-      </View>
+      <CandidateInformationSection data={data} candidate={candidate} />
+      <InterestedInformationSection signals={signals} />
 
-      <View style={styles.sectionCard} wrap={false}>
-        <Text style={styles.sectionTitle}>Interested Information</Text>
-        <SignalPdfRow label="Education" ok={signals.university?.ok} value={signals.university?.name} evidence={signals.university?.evidence} />
-        <SignalPdfRow label="Company Type" ok={signals.companyType?.ok} value={signals.companyType?.companies?.join(', ')} evidence={signals.companyType?.evidence} />
-        <SignalPdfRow label="Advanced Skills" ok={signals.advancedSkills?.ok} value={signals.advancedSkills?.items?.map((item) => item.skill).join(', ')} evidence={signals.advancedSkills?.items?.map((item) => item.evidence).filter(Boolean).join(' | ') || signals.advancedSkills?.evidence} />
-        <SignalPdfRow label="Technical Challenges" ok={signals.technicalChallenges?.ok} value={signals.technicalChallenges?.items?.map((item) => `${item.challenge}${item.projectSize ? ` (${item.projectSize})` : ''}`).join(', ')} evidence={signals.technicalChallenges?.items?.map((item) => item.evidence).filter(Boolean).join(' | ') || signals.technicalChallenges?.evidence} />
-        <SignalPdfRow label="Senior Roles" ok={signals.seniorRoles?.ok} value={signals.seniorRoles?.items?.map((item) => `${item.role}${item.projectSize ? ` (${item.projectSize})` : ''}`).join(', ')} evidence={signals.seniorRoles?.items?.map((item) => item.evidence).filter(Boolean).join(' | ') || signals.seniorRoles?.evidence} />
-      </View>
+      <WorkExperienceSection workExperience={workExperience} companyTypeByName={companyTypeByName} />
+      <SideProjectsSection projects={data.projects} />
+      <EducationSkillsSection data={data} groupedSkills={groupedSkills} languages={languages} />
 
-      <View style={styles.sectionCard}>
-        <View>
-          <Text style={styles.sectionTitle}>Work Experience</Text>
-          {workExperience[0] ? <WorkCard entry={workExperience[0]} companyType={companyTypeByName[workExperience[0].company]} /> : <Text style={styles.muted}>No work experience extracted.</Text>}
-        </View>
-        {workExperience.slice(1).map((entry, index) => <WorkCard key={`work-${index + 1}`} entry={entry} companyType={companyTypeByName[entry.company]} />)}
-      </View>
+      <ValidationSection validation={validation} />
 
-      {data.projects?.length ? <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Side Projects</Text>
-        {data.projects.map((project, index) => <ProjectCard key={`side-${index}`} project={project} />)}
-      </View> : null}
+      <MatchSection score={score} screening={screening} mapping={mapping} />
+      <StrengthsWeaknessesSection strengths={strengths} weaknesses={weaknesses} screening={screening} />
 
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Education &amp; Skills</Text>
-        {data.education && <Text style={{ marginBottom: 6 }}>Education: {data.education}</Text>}
-        {data.totalYearsExperience != null && <Text style={{ marginBottom: 6 }}>Total Experience: {experienceYears(data.totalYearsExperience)} years</Text>}
-        {groupedSkills.map(([group, items]) => <Text key={group} style={styles.tagLine}>{group}: {list(items).join(', ')}</Text>)}
-        {list(data.skills).length > 0 && groupedSkills.length === 0 && <Text style={styles.tagLine}>Skills: {list(data.skills).join(', ')}</Text>}
-        {list(data.certifications).length > 0 && <Text style={styles.tagLine}>Certifications: {list(data.certifications).join(', ')}</Text>}
-        {data.experienceByLanguage && typeof data.experienceByLanguage === 'object' && !Array.isArray(data.experienceByLanguage) && <Text style={styles.tagLine}>Experience by Language: {Object.entries(data.experienceByLanguage).map(([language, years]) => `${language} ${years}y`).join(', ')}</Text>}
-        {list(languages).length > 0 && <Text style={styles.tagLine}>Languages: {list(languages).join(', ')}</Text>}
-      </View>
-
-      {validation && <View style={styles.sectionCard}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7, borderBottomWidth: 1, borderBottomColor: '#cbd5e1', paddingBottom: 4 }}>
-          <Text style={{ ...styles.sectionTitle, marginBottom: 0, borderBottomWidth: 0, paddingBottom: 0 }}>AI Profile Analysis</Text>
-          <Text style={{
-            fontSize: 8,
-            fontWeight: 700,
-            color: validation.completenessScore >= 80 ? '#15803d' : validation.completenessScore >= 60 ? '#1d4ed8' : '#c2410c',
-            backgroundColor: validation.completenessScore >= 80 ? '#f0fdf4' : validation.completenessScore >= 60 ? '#eff6ff' : '#fff7ed',
-            borderColor: validation.completenessScore >= 80 ? '#bbf7d0' : validation.completenessScore >= 60 ? '#bfdbfe' : '#fed7aa',
-            borderWidth: 1,
-            borderRadius: 3,
-            paddingVertical: 2,
-            paddingHorizontal: 6,
-            marginLeft: 8,
-          }}>
-            Overall: {validation.completenessScore}/100 - {validation.completenessScore >= 80 ? 'Good' : validation.completenessScore >= 60 ? 'Fair' : 'Weak'}
-          </Text>
-        </View>
-        {validation.summary && <Text style={{ marginBottom: 7 }}>{validation.summary}</Text>}
-        {validation.sectionScores?.length ? <Text style={{ ...styles.cardTitle, marginBottom: 5 }}>Category Scores</Text> : null}
-        {validation.sectionScores?.map((item) => <View key={`profile-score-${item.section}`}>{scoreRow(sectionLabel(item.section), item)}</View>)}
-        {validation.highlights?.length ? (
-          <View style={{ marginTop: 6 }}>
-            <Text style={{ ...styles.good, marginBottom: 3 }}>Highlights</Text>
-            {validation.highlights.map((item, index) => (
-              <View key={`highlight-${index}`} style={{ flexDirection: 'row', alignItems: 'flex-start', marginLeft: 4, marginBottom: 2 }}>
-                <Svg width={9} height={9} viewBox="0 0 24 24" style={{ marginRight: 4, marginTop: 1 }}>
-                  <Path d="M20 6L9 17l-5-5" stroke="#15803d" strokeWidth={3.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                </Svg>
-                <Text style={{ flex: 1 }}>{item}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
-        {validation.concerns?.length ? (
-          <View style={{ marginTop: 6 }}>
-            <Text style={{ ...styles.concern, marginBottom: 3 }}>Concerns</Text>
-            {validation.concerns.map((item, index) => (
-              <View key={`concern-${index}`} style={{ flexDirection: 'row', alignItems: 'flex-start', marginLeft: 4, marginBottom: 2 }}>
-                <Svg width={9} height={9} viewBox="0 0 24 24" style={{ marginRight: 4, marginTop: 1 }}>
-                  <Path d="M12 4v9m0 4h.01" stroke="#c2410c" strokeWidth={3.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                </Svg>
-                <Text style={{ flex: 1 }}>{item}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
-      </View>}
-
-      <View style={styles.matchBox} wrap={false}>
-        <Text style={styles.sectionTitle}>CV-JD Match</Text>
-        <Text style={styles.muted}>How well the candidate fits this job description</Text>
-        {score != null ? <View style={styles.matchScoreRow}>
-          <View style={styles.matchTrack}><View style={{ ...styles.matchFill, backgroundColor: matchColor(score), width: `${Math.max(0, Math.min(100, score))}%` }} /></View>
-          <Text style={{ ...styles.matchScoreText, color: matchColor(score) }}>{score} / 100</Text>
-        </View> : <Text style={styles.matchScore}>- / 100</Text>}
-        {screening?.summary && <View style={{ borderWidth: 1, borderColor: '#c7d2fe', backgroundColor: '#eef2ff', borderRadius: 4, padding: 7, marginBottom: 5 }}><Text style={{ ...styles.cardTitle, color: '#312e81' }}>JD Fit Assessment</Text><Text>{screening.summary}</Text></View>}
-        <Text>Recommendation: {recommendation(screening?.recommendation ?? mapping?.recommendation)}</Text>
-        <Text>Screening status: {screening?.status ?? mapping?.status ?? '-'}</Text>
-      </View>
-
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>AI Strengths &amp; Weaknesses</Text>
-        <View style={styles.twoCol}>
-          <View style={styles.col}><Text style={styles.good}>Strengths</Text>{strengths.map((item, index) => <Text key={`strength-${index}`} style={styles.bullet}>- {item}</Text>)}{(screening?.strengths ?? []).map((item, index) => item.evidence ? <Text key={`strength-evidence-${index}`} style={styles.muted}>{item.evidence}</Text> : null)}</View>
-          <View style={styles.col}><Text style={styles.concern}>Weaknesses / Gaps</Text>{weaknesses.map((item, index) => <Text key={`gap-${index}`} style={styles.bullet}>- {item}</Text>)}{(screening?.gaps ?? []).map((item, index) => item.evidence ? <Text key={`gap-evidence-${index}`} style={styles.muted}>{item.evidence}</Text> : null)}</View>
-        </View>
-      </View>
-
-      {(data.anomalyDetection || screening?.risks?.length) && <View style={styles.sectionCard}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7, borderBottomWidth: 1, borderBottomColor: '#cbd5e1', paddingBottom: 4 }}>
-          <Text style={{ ...styles.sectionTitle, marginBottom: 0, borderBottomWidth: 0, paddingBottom: 0 }}>AI Risk &amp; Anomaly Assessment</Text>
-          {data.anomalyDetection && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
-              <Text style={{ color: '#475569', fontSize: 8, marginRight: 4 }}>Risk level:</Text>
-              <Text style={{
-                fontSize: 8,
-                fontWeight: 700,
-                color: '#c2410c',
-                backgroundColor: '#fff7ed',
-                borderColor: '#fed7aa',
-                borderWidth: 1,
-                borderRadius: 3,
-                paddingVertical: 2,
-                paddingHorizontal: 6,
-              }}>
-                {data.anomalyDetection.riskLevel.toUpperCase()}
-              </Text>
-            </View>
-          )}
-        </View>
-        {data.anomalyDetection && <AnomalySection anomaly={data.anomalyDetection} />}
-        {screening?.risks?.map((risk, index) => (
-          <View key={`risk-${index}`} style={styles.card} wrap={false}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: risk.evidence ? 3 : 0 }}>
-              <Text style={{ ...styles.cardTitle, flex: 1, marginBottom: 0, marginRight: 8 }}>{risk.title ?? `Risk ${index + 1}`}</Text>
-              {risk.severity && (
-                <Text style={{
-                  fontSize: 8,
-                  fontWeight: 700,
-                  color: risk.severity.toUpperCase() === 'HIGH' ? '#dc2626' : risk.severity.toUpperCase() === 'MEDIUM' ? '#c2410c' : '#475569',
-                  backgroundColor: risk.severity.toUpperCase() === 'HIGH' ? '#fef2f2' : risk.severity.toUpperCase() === 'MEDIUM' ? '#fff7ed' : '#f8fafc',
-                  borderColor: risk.severity.toUpperCase() === 'HIGH' ? '#fca5a5' : risk.severity.toUpperCase() === 'MEDIUM' ? '#fed7aa' : '#e2e8f0',
-                  borderWidth: 1,
-                  borderRadius: 3,
-                  paddingVertical: 2,
-                  paddingHorizontal: 6,
-                }}>
-                  {risk.severity.toUpperCase()}
-                </Text>
-              )}
-            </View>
-            {risk.evidence && <Text>{risk.evidence}</Text>}
-          </View>
-        ))}
-      </View>}
+      <RiskSection anomaly={data.anomalyDetection} risks={screening?.risks} />
     </Page>
   </Document>;
+}
+
+type PdfData = ReturnType<typeof profilePayload>;
+
+function buildCompanyTypeByName(data: PdfData) {
+  const companies = (data as ParsedProfile & { companies?: unknown }).companies;
+  if (!Array.isArray(companies)) return {};
+  return Object.fromEntries(
+    companies.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const company = item as { name?: string; type?: string };
+      return company.name && company.type ? [[company.name, company.type]] : [];
+    }),
+  );
+}
+
+function CandidateInformationSection({
+  data,
+  candidate,
+}: {
+  data: PdfData;
+  candidate: PdfProps['candidate'];
+}) {
+  const field = (label: string, value: unknown) => (
+    <View style={{ flex: 1, flexDirection: 'row' }}>
+      <Text style={{ ...styles.label, width: 50 }}>{label}</Text>
+      <Text style={styles.value}>{String(value ?? '-')}</Text>
+    </View>
+  );
+  return <View style={styles.sectionCard}>
+    <Text style={styles.sectionTitle}>Candidate Information</Text>
+    <View style={styles.row}>{field('Name', candidate?.fullName ?? data.name)}{field('Email', candidate?.email ?? data.email)}</View>
+    <View style={styles.row}>{field('Phone', candidate?.phone ?? data.phone)}{field('Level', data.level)}</View>
+  </View>;
+}
+
+function InterestedInformationSection({ signals }: { signals: VcsSignals }) {
+  const joinEvidence = (items?: Array<{ evidence?: string | null }>, fallback?: string | null) =>
+    items?.map((item) => item.evidence).filter(Boolean).join(' | ') || fallback;
+  return <View style={styles.sectionCard} wrap={false}>
+    <Text style={styles.sectionTitle}>Interested Information</Text>
+    <SignalPdfRow label="Education" ok={signals.university?.ok} value={signals.university?.name} evidence={signals.university?.evidence} />
+    <SignalPdfRow label="Company Type" ok={signals.companyType?.ok} value={signals.companyType?.companies?.join(', ')} evidence={signals.companyType?.evidence} />
+    <SignalPdfRow label="Advanced Skills" ok={signals.advancedSkills?.ok} value={signals.advancedSkills?.items?.map((item) => item.skill).join(', ')} evidence={joinEvidence(signals.advancedSkills?.items, signals.advancedSkills?.evidence)} />
+    <SignalPdfRow label="Technical Challenges" ok={signals.technicalChallenges?.ok} value={signals.technicalChallenges?.items?.map((item) => `${item.challenge}${item.projectSize ? ` (${item.projectSize})` : ''}`).join(', ')} evidence={joinEvidence(signals.technicalChallenges?.items, signals.technicalChallenges?.evidence)} />
+    <SignalPdfRow label="Senior Roles" ok={signals.seniorRoles?.ok} value={signals.seniorRoles?.items?.map((item) => `${item.role}${item.projectSize ? ` (${item.projectSize})` : ''}`).join(', ')} evidence={joinEvidence(signals.seniorRoles?.items, signals.seniorRoles?.evidence)} />
+  </View>;
+}
+
+function WorkExperienceSection({
+  workExperience,
+  companyTypeByName,
+}: {
+  workExperience: WorkExperience[];
+  companyTypeByName: Record<string, string>;
+}) {
+  return <View style={styles.sectionCard}>
+    <View>
+      <Text style={styles.sectionTitle}>Work Experience</Text>
+      {workExperience[0]
+        ? <WorkCard entry={workExperience[0]} companyType={companyTypeByName[workExperience[0].company]} />
+        : <Text style={styles.muted}>No work experience extracted.</Text>}
+    </View>
+    {workExperience.slice(1).map((entry, index) => (
+      <WorkCard key={`work-${index + 1}`} entry={entry} companyType={companyTypeByName[entry.company]} />
+    ))}
+  </View>;
+}
+
+function SideProjectsSection({ projects }: { projects?: ParsedProfile['projects'] }) {
+  if (!projects?.length) return null;
+  return <View style={styles.sectionCard}>
+    <Text style={styles.sectionTitle}>Side Projects</Text>
+    {projects.map((project, index) => <ProjectCard key={`side-${index}`} project={project} />)}
+  </View>;
+}
+
+function EducationSkillsSection({
+  data,
+  groupedSkills,
+  languages,
+}: {
+  data: PdfData;
+  groupedSkills: [string, unknown][];
+  languages: unknown;
+}) {
+  const skills = list(data.skills);
+  const certifications = list(data.certifications);
+  const experience = data.experienceByLanguage;
+  return <View style={styles.sectionCard}>
+    <Text style={styles.sectionTitle}>Education &amp; Skills</Text>
+    {data.education && <Text style={{ marginBottom: 6 }}>Education: {data.education}</Text>}
+    {data.totalYearsExperience != null && <Text style={{ marginBottom: 6 }}>Total Experience: {experienceYears(data.totalYearsExperience)} years</Text>}
+    {groupedSkills.map(([group, items]) => <Text key={group} style={styles.tagLine}>{group}: {list(items).join(', ')}</Text>)}
+    {skills.length > 0 && groupedSkills.length === 0 && <Text style={styles.tagLine}>Skills: {skills.join(', ')}</Text>}
+    {certifications.length > 0 && <Text style={styles.tagLine}>Certifications: {certifications.join(', ')}</Text>}
+    {isRecordObject(experience) && <Text style={styles.tagLine}>Experience by Language: {Object.entries(experience).map(([language, years]) => `${language} ${years}y`).join(', ')}</Text>}
+    {list(languages).length > 0 && <Text style={styles.tagLine}>Languages: {list(languages).join(', ')}</Text>}
+  </View>;
+}
+
+function ValidationSection({ validation }: { validation?: AiValidation }) {
+  if (!validation) return null;
+  return <View style={styles.sectionCard}>
+    <ValidationHeader validation={validation} />
+    {validation.summary && <Text style={{ marginBottom: 7 }}>{validation.summary}</Text>}
+    {validation.sectionScores?.length ? <Text style={{ ...styles.cardTitle, marginBottom: 5 }}>Category Scores</Text> : null}
+    {validation.sectionScores?.map((item) => <View key={`profile-score-${item.section}`}>{scoreRow(sectionLabel(item.section), item)}</View>)}
+    <ValidationBulletList title="Highlights" items={validation.highlights} tone="good" icon="M20 6L9 17l-5-5" />
+    <ValidationBulletList title="Concerns" items={validation.concerns} tone="concern" icon="M12 4v9m0 4h.01" />
+  </View>;
+}
+
+function ValidationHeader({ validation }: { validation: AiValidation }) {
+  const score = validation.completenessScore;
+  const tone = score >= 80
+    ? { color: '#15803d', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', label: 'Good' }
+    : score >= 60
+      ? { color: '#1d4ed8', backgroundColor: '#eff6ff', borderColor: '#bfdbfe', label: 'Fair' }
+      : { color: '#c2410c', backgroundColor: '#fff7ed', borderColor: '#fed7aa', label: 'Weak' };
+  return <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7, borderBottomWidth: 1, borderBottomColor: '#cbd5e1', paddingBottom: 4 }}>
+    <Text style={{ ...styles.sectionTitle, marginBottom: 0, borderBottomWidth: 0, paddingBottom: 0 }}>AI Profile Analysis</Text>
+    <Text style={{ fontSize: 8, fontWeight: 700, color: tone.color, backgroundColor: tone.backgroundColor, borderColor: tone.borderColor, borderWidth: 1, borderRadius: 3, paddingVertical: 2, paddingHorizontal: 6, marginLeft: 8 }}>
+      Overall: {score}/100 - {tone.label}
+    </Text>
+  </View>;
+}
+
+function ValidationBulletList({
+  title,
+  items,
+  tone,
+  icon,
+}: {
+  title: string;
+  items?: string[];
+  tone: 'good' | 'concern';
+  icon: string;
+}) {
+  if (!items?.length) return null;
+  return <View style={{ marginTop: 6 }}>
+    <Text style={{ ...styles[tone], marginBottom: 3 }}>{title}</Text>
+    {items.map((item, index) => <View key={`${title}-${index}`} style={{ flexDirection: 'row', alignItems: 'flex-start', marginLeft: 4, marginBottom: 2 }}>
+      <Svg width={9} height={9} viewBox="0 0 24 24" style={{ marginRight: 4, marginTop: 1 }}>
+        <Path d={icon} stroke={tone === 'good' ? '#15803d' : '#c2410c'} strokeWidth={3.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+      <Text style={{ flex: 1 }}>{item}</Text>
+    </View>)}
+  </View>;
+}
+
+function MatchSection({
+  score,
+  screening,
+  mapping,
+}: {
+  score?: number | null;
+  screening?: ApplicationAiScreeningSummary | null;
+  mapping?: ApplicationMappingSummary | null;
+}) {
+  return <View style={styles.matchBox} wrap={false}>
+    <Text style={styles.sectionTitle}>CV-JD Match</Text>
+    <Text style={styles.muted}>How well the candidate fits this job description</Text>
+    {score != null ? <View style={styles.matchScoreRow}>
+      <View style={styles.matchTrack}><View style={{ ...styles.matchFill, backgroundColor: matchColor(score), width: `${Math.max(0, Math.min(100, score))}%` }} /></View>
+      <Text style={{ ...styles.matchScoreText, color: matchColor(score) }}>{score} / 100</Text>
+    </View> : <Text style={styles.matchScore}>- / 100</Text>}
+    {screening?.summary && <View style={{ borderWidth: 1, borderColor: '#c7d2fe', backgroundColor: '#eef2ff', borderRadius: 4, padding: 7, marginBottom: 5 }}><Text style={{ ...styles.cardTitle, color: '#312e81' }}>JD Fit Assessment</Text><Text>{screening.summary}</Text></View>}
+    <Text>Recommendation: {recommendation(screening?.recommendation ?? mapping?.recommendation)}</Text>
+    <Text>Screening status: {screening?.status ?? mapping?.status ?? '-'}</Text>
+  </View>;
+}
+
+function StrengthsWeaknessesSection({
+  strengths,
+  weaknesses,
+  screening,
+}: {
+  strengths: string[];
+  weaknesses: string[];
+  screening?: ApplicationAiScreeningSummary | null;
+}) {
+  return <View style={styles.sectionCard}>
+    <Text style={styles.sectionTitle}>AI Strengths &amp; Weaknesses</Text>
+    <View style={styles.twoCol}>
+      <StrengthColumn title="Strengths" items={strengths} evidence={screening?.strengths} tone="good" itemKey="strength" />
+      <StrengthColumn title="Weaknesses / Gaps" items={weaknesses} evidence={screening?.gaps} tone="concern" itemKey="gap" />
+    </View>
+  </View>;
+}
+
+function StrengthColumn({
+  title,
+  items,
+  evidence,
+  tone,
+  itemKey,
+}: {
+  title: string;
+  items: string[];
+  evidence?: Array<{ evidence?: string | null }>;
+  tone: 'good' | 'concern';
+  itemKey: string;
+}) {
+  return <View style={styles.col}>
+    <Text style={styles[tone]}>{title}</Text>
+    {items.map((item, index) => <Text key={`${itemKey}-${index}`} style={styles.bullet}>- {item}</Text>)}
+    {evidence?.map((item, index) => item.evidence ? <Text key={`${itemKey}-evidence-${index}`} style={styles.muted}>{item.evidence}</Text> : null)}
+  </View>;
+}
+
+function RiskSection({
+  anomaly,
+  risks,
+}: {
+  anomaly?: ProfileAnomalyDetection | null;
+  risks?: ApplicationAiScreeningSummary['risks'];
+}) {
+  if (!anomaly && !risks?.length) return null;
+  return <View style={styles.sectionCard}>
+    <RiskHeader anomaly={anomaly} />
+    {anomaly && <AnomalySection anomaly={anomaly} />}
+    {risks?.map((risk, index) => <RiskCard key={`risk-${index}`} risk={risk} index={index} />)}
+  </View>;
+}
+
+function RiskHeader({ anomaly }: { anomaly?: ProfileAnomalyDetection | null }) {
+  return <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7, borderBottomWidth: 1, borderBottomColor: '#cbd5e1', paddingBottom: 4 }}>
+    <Text style={{ ...styles.sectionTitle, marginBottom: 0, borderBottomWidth: 0, paddingBottom: 0 }}>AI Risk &amp; Anomaly Assessment</Text>
+    {anomaly && <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
+      <Text style={{ color: '#475569', fontSize: 8, marginRight: 4 }}>Risk level:</Text>
+      <Text style={{ fontSize: 8, fontWeight: 700, color: '#c2410c', backgroundColor: '#fff7ed', borderColor: '#fed7aa', borderWidth: 1, borderRadius: 3, paddingVertical: 2, paddingHorizontal: 6 }}>{anomaly.riskLevel.toUpperCase()}</Text>
+    </View>}
+  </View>;
+}
+
+function RiskCard({ risk, index }: { risk: NonNullable<ApplicationAiScreeningSummary['risks']>[number]; index: number }) {
+  const severity = risk.severity?.toUpperCase();
+  const colors = severity === 'HIGH'
+    ? { color: '#dc2626', backgroundColor: '#fef2f2', borderColor: '#fca5a5' }
+    : severity === 'MEDIUM'
+      ? { color: '#c2410c', backgroundColor: '#fff7ed', borderColor: '#fed7aa' }
+      : { color: '#475569', backgroundColor: '#f8fafc', borderColor: '#e2e8f0' };
+  return <View style={styles.card} wrap={false}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: risk.evidence ? 3 : 0 }}>
+      <Text style={{ ...styles.cardTitle, flex: 1, marginBottom: 0, marginRight: 8 }}>{risk.title ?? `Risk ${index + 1}`}</Text>
+      {severity && <Text style={{ ...colors, fontSize: 8, fontWeight: 700, borderWidth: 1, borderRadius: 3, paddingVertical: 2, paddingHorizontal: 6 }}>{severity}</Text>}
+    </View>
+    {risk.evidence && <Text>{risk.evidence}</Text>}
+  </View>;
+}
+
+function isRecordObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function AnomalySection({ anomaly }: { anomaly: ProfileAnomalyDetection }) {

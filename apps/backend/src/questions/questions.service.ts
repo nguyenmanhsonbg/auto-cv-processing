@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { Injectable, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Brackets } from 'typeorm';
+import { Repository, Brackets, SelectQueryBuilder } from 'typeorm';
 import { parse } from 'yaml';
 import { QuestionEntity } from './entities/question.entity';
 import { CreateQuestionDto } from './dto/create-question.dto';
@@ -11,6 +11,19 @@ import {
   QuestionType,
   PaginatedResponse,
 } from '@interview-assistant/shared';
+
+type QuestionPageParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  category?: string;
+  subcategory?: string;
+  targetLevel?: string;
+  type?: QuestionType;
+  isActive?: boolean;
+  sortBy?: string;
+  sortOrder?: 'ASC' | 'DESC';
+};
 
 @Injectable()
 export class QuestionsService implements OnModuleInit {
@@ -83,63 +96,78 @@ export class QuestionsService implements OnModuleInit {
     return qb.getMany();
   }
 
-  async findPaginated(params: {
-    page?: number; limit?: number; search?: string; category?: string; subcategory?: string;
-    targetLevel?: string; type?: QuestionType; isActive?: boolean; sortBy?: string; sortOrder?: 'ASC' | 'DESC';
-  }): Promise<PaginatedResponse<QuestionEntity>> {
+  async findPaginated(params: QuestionPageParams): Promise<PaginatedResponse<QuestionEntity>> {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(2000, Math.max(1, params.limit ?? 20));
     const skip = (page - 1) * limit;
-    const sortOrder = params.sortOrder === 'DESC' ? 'DESC' : 'ASC';
+    const qb = this.questionRepo.createQueryBuilder('question');
+    this.applyPaginatedFilters(qb, params);
+    this.applyPaginatedSort(qb, params);
+
+    const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  private applyPaginatedFilters(
+    qb: SelectQueryBuilder<QuestionEntity>,
+    params: QuestionPageParams,
+  ) {
+    this.applySearchFilter(qb, params.search);
+    this.applyListFilter(qb, params.category, 'question.category', 'categories');
+    this.applyListFilter(qb, params.subcategory, 'question.subcategory', 'subcategories');
+    this.applyTargetLevelFilter(qb, params.targetLevel);
+    this.applyQuestionTypeFilter(qb, params.type);
+    if (params.isActive !== undefined) {
+      qb.andWhere('question.isActive = :isActive', { isActive: params.isActive });
+    }
+  }
+
+  private applySearchFilter(qb: SelectQueryBuilder<QuestionEntity>, search?: string) {
+    if (search) qb.andWhere('question.text ILIKE :search', { search: `%${search}%` });
+  }
+
+  private applyListFilter(
+    qb: SelectQueryBuilder<QuestionEntity>,
+    value: string | undefined,
+    column: string,
+    parameter: string,
+  ) {
+    const values = value?.split(',').filter(Boolean) ?? [];
+    if (values.length > 0) qb.andWhere(`${column} IN (:...${parameter})`, { [parameter]: values });
+  }
+
+  private applyTargetLevelFilter(qb: SelectQueryBuilder<QuestionEntity>, targetLevel?: string) {
+    const levels = targetLevel?.split(',').filter(Boolean) ?? [];
+    if (levels.length === 1) {
+      qb.andWhere(':tlevel = ANY(question.targetLevels)', { tlevel: levels[0] });
+    } else if (levels.length > 1) {
+      qb.andWhere(new Brackets((sub) => {
+        levels.forEach((level, index) => sub.orWhere(
+          `:tlevel${index} = ANY(question.targetLevels)`,
+          { [`tlevel${index}`]: level },
+        ));
+      }));
+    }
+  }
+
+  private applyQuestionTypeFilter(qb: SelectQueryBuilder<QuestionEntity>, type?: QuestionType) {
+    const types = type?.split(',').filter(Boolean) ?? [];
+    if (types.length > 0) qb.andWhere('question.type IN (:...types)', { types });
+  }
+
+  private applyPaginatedSort(qb: SelectQueryBuilder<QuestionEntity>, params: QuestionPageParams) {
     const allowedSorts: Record<string, string> = {
       text: 'question.text', category: 'question.category', subcategory: 'question.subcategory',
       type: 'question.type', difficulty: 'question.difficulty', createdAt: 'question.createdAt',
     };
-    const sortCol = allowedSorts[params.sortBy ?? ''] ?? null;
-
-    const qb = this.questionRepo.createQueryBuilder('question');
-
-    if (params.search) {
-      qb.andWhere('question.text ILIKE :search', { search: `%${params.search}%` });
-    }
-    if (params.category) {
-      const cats = params.category.split(',').filter(Boolean);
-      if (cats.length > 0) qb.andWhere('question.category IN (:...categories)', { categories: cats });
-    }
-    if (params.subcategory) {
-      const subs = params.subcategory.split(',').filter(Boolean);
-      if (subs.length > 0) qb.andWhere('question.subcategory IN (:...subcategories)', { subcategories: subs });
-    }
-    if (params.targetLevel) {
-      const levels = params.targetLevel.split(',').filter(Boolean);
-      if (levels.length === 1) {
-        qb.andWhere(':tlevel = ANY(question.targetLevels)', { tlevel: levels[0] });
-      } else if (levels.length > 1) {
-        qb.andWhere(
-          new Brackets((sub) => {
-            levels.forEach((lv, idx) => sub.orWhere(`:tlevel${idx} = ANY(question.targetLevels)`, { [`tlevel${idx}`]: lv }));
-          }),
-        );
-      }
-    }
-    if (params.type) {
-      const types = params.type.split(',').filter(Boolean);
-      if (types.length > 0) qb.andWhere('question.type IN (:...types)', { types });
-    }
-    if (params.isActive !== undefined) {
-      qb.andWhere('question.isActive = :isActive', { isActive: params.isActive });
-    }
-
+    const sortCol = allowedSorts[params.sortBy ?? ''];
     if (sortCol) {
-      qb.orderBy(sortCol, sortOrder);
-    } else {
-      qb.orderBy('question.category', 'ASC')
-        .addOrderBy('question.subcategory', 'ASC')
-        .addOrderBy('question.difficulty', 'ASC');
+      qb.orderBy(sortCol, params.sortOrder === 'DESC' ? 'DESC' : 'ASC');
+      return;
     }
-
-    const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+    qb.orderBy('question.category', 'ASC')
+      .addOrderBy('question.subcategory', 'ASC')
+      .addOrderBy('question.difficulty', 'ASC');
   }
 
   async findOne(id: string): Promise<QuestionEntity> {
@@ -192,37 +220,51 @@ export class QuestionsService implements OnModuleInit {
 
     // Load all existing rows in one query and index by code + text
     const allExisting = await this.questionRepo.find();
-    const byCode = new Map<string, QuestionEntity>();
-    const byText = new Map<string, QuestionEntity>();
-    for (const row of allExisting) {
-      if (row.code) byCode.set(row.code, row);
-      byText.set(row.text, row);
-    }
+    const { byCode, byText } = this.indexExistingQuestions(allExisting);
 
     const toSave: QuestionEntity[] = [];
     let created = 0;
     for (const q of questions) {
-      const found = (q.code && byCode.get(q.code)) || byText.get(q.text!) || null;
-
-      if (found) {
-        if (!found.isCustomized) {
-          if (q.code && !found.code) found.code = q.code;
-          found.text = q.text ?? found.text;
-          found.expectedAnswer = q.expectedAnswer ?? found.expectedAnswer;
-          found.scoringGuide = q.scoringGuide ?? found.scoringGuide;
-          found.difficulty = q.difficulty ?? found.difficulty;
-          found.targetLevels = q.targetLevels ?? found.targetLevels;
-          found.category = q.category ?? found.category;
-          found.subcategory = q.subcategory ?? found.subcategory;
-          toSave.push(found);
-        }
-      } else {
-        toSave.push(this.questionRepo.create(q));
-        created++;
-      }
+      const result = this.prepareSeedQuestion(q, byCode, byText);
+      if (result.entity) toSave.push(result.entity);
+      if (result.created) created++;
     }
     if (toSave.length) await this.questionRepo.save(toSave);
     return { created };
+  }
+
+  private indexExistingQuestions(rows: QuestionEntity[]) {
+    const byCode = new Map<string, QuestionEntity>();
+    const byText = new Map<string, QuestionEntity>();
+    for (const row of rows) {
+      if (row.code) byCode.set(row.code, row);
+      byText.set(row.text, row);
+    }
+    return { byCode, byText };
+  }
+
+  private prepareSeedQuestion(
+    seed: Partial<QuestionEntity>,
+    byCode: Map<string, QuestionEntity>,
+    byText: Map<string, QuestionEntity>,
+  ): { entity: QuestionEntity | null; created: boolean } {
+    const found = (seed.code && byCode.get(seed.code)) || byText.get(seed.text!) || null;
+    if (!found) return { entity: this.questionRepo.create(seed), created: true };
+    if (found.isCustomized) return { entity: null, created: false };
+
+    this.applySeedQuestionFields(found, seed);
+    return { entity: found, created: false };
+  }
+
+  private applySeedQuestionFields(question: QuestionEntity, seed: Partial<QuestionEntity>) {
+    if (seed.code && !question.code) question.code = seed.code;
+    question.text = seed.text ?? question.text;
+    question.expectedAnswer = seed.expectedAnswer ?? question.expectedAnswer;
+    question.scoringGuide = seed.scoringGuide ?? question.scoringGuide;
+    question.difficulty = seed.difficulty ?? question.difficulty;
+    question.targetLevels = seed.targetLevels ?? question.targetLevels;
+    question.category = seed.category ?? question.category;
+    question.subcategory = seed.subcategory ?? question.subcategory;
   }
 }
 
