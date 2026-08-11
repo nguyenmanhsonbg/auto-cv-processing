@@ -14,6 +14,7 @@ import { FreelancerEntity } from '../freelancers/entities/freelancer.entity';
 import { InternalEntity } from '../internals/entities/internal.entity';
 import { MailService } from '../notification/mail.service';
 import { PasswordResetRequestEntity } from './entities/password-reset-request.entity';
+import { generatePasswordResetOtp } from './otp.util';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -223,7 +224,7 @@ export class AuthService implements OnModuleInit {
       throw new BadRequestException({ code: 'INVALID_LOGIN', message: 'Tên đăng nhập không hợp lệ. Vui lòng kiểm tra lại.' });
     }
 
-    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const otp = generatePasswordResetOtp();
     const request = this.passwordResetRepo.create({
       userId: user.id,
       otpHash: await bcrypt.hash(otp, 10),

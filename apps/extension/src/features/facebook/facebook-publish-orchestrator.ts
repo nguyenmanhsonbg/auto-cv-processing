@@ -3012,7 +3012,8 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
       const numericId = parsed.searchParams.get('id')?.trim();
       // This function is injected into the Facebook page, so it cannot access
       // helpers from the extension module scope.
-      const normalizedPath = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+      let normalizedPath = parsed.pathname.toLowerCase();
+      while (normalizedPath.endsWith('/')) normalizedPath = normalizedPath.slice(0, -1);
       const facebookExternalId = numericId || (normalizedPath ? `profile:${normalizedPath}` : null);
       const stripProfileDescriptor = (value: string) => {
         const normalized = value.replace(/\s+/g, ' ').trim();

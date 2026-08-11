@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { isEmailAddress } from '@interview-assistant/shared';
 import { Eye, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,7 +43,6 @@ import type { RecruitmentPagination } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_PAGE_SIZE = 20;
-const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
 type StatusFilterValue = 'all' | 'active' | 'inactive';
 
@@ -157,7 +157,7 @@ export function InternalListPage() {
       setCreateError('Name is required.');
       return;
     }
-    if (!INTERNAL_EMAIL_PATTERN.test(email)) {
+    if (!isEmailAddress(email)) {
       setCreateError('Email không hợp lệ.');
       return;
     }

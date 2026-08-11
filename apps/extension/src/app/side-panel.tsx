@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { isEmailAddress } from '@interview-assistant/shared';
 import { extractAmisJobFromDetailApi } from '@/integrations/amis/amis-detail-api-extractor';
 import { extractAmisJobFromPage } from '@/integrations/amis/amis-page-extractor';
 import { getLastAutoSyncState } from '@/stores/amis-auto-sync-store';
@@ -1569,7 +1570,7 @@ function SidePanel() {
     setError(null);
     setInternalPasswordMessage(null);
     const normalizedEmail = internalEmail.trim().toLowerCase();
-    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(normalizedEmail)) {
+    if (!isEmailAddress(normalizedEmail)) {
       setError('Vui lòng nhập đúng email nhân sự nội bộ.');
       return;
     }

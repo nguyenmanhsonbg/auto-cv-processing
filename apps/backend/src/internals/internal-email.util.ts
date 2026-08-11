@@ -1,9 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
-
-export const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+import { isEmailAddress } from '@interview-assistant/shared';
 
 export function isInternalEmail(value?: string | null) {
-  return INTERNAL_EMAIL_PATTERN.test(value?.trim() ?? '');
+  const normalized = value?.trim() ?? '';
+  const atIndex = normalized.lastIndexOf('@');
+  return isEmailAddress(normalized)
+    && normalized.slice(atIndex + 1).toLowerCase() === 'viettel.com.vn';
 }
 
 export function normalizeInternalEmail(

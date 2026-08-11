@@ -108,8 +108,8 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
       ) : step === 'METHOD' ? (
         <>
           <div className="extension-forgot-method-heading"><h2>Chọn phương thức khôi phục mật khẩu</h2><p>Bạn muốn nhận mã xác nhận bằng phương thức nào?</p></div>
-          <label className="extension-forgot-method"><input type="radio" checked={method === 'PHONE'} onChange={() => { setMethod('PHONE'); setError(null); }} /><span><strong>Gửi mã xác nhận qua SĐT</strong><small>Mã xác nhận sẽ được gửi qua SĐT người dùng. Vui lòng truy cập và lấy mã xác nhận.</small></span></label>
-          <label className="extension-forgot-method"><input type="radio" checked={method === 'EMAIL'} onChange={() => { setMethod('EMAIL'); setError(null); }} /><span><strong>Gửi mã xác nhận qua Gmail</strong><small>Mã xác nhận sẽ được gửi qua Gmail người dùng. Vui lòng truy cập và lấy mã xác nhận.</small></span></label>
+          <label className="extension-forgot-method" htmlFor="forgot-method-phone"><input id="forgot-method-phone" type="radio" aria-label="Gửi mã xác nhận qua SĐT" checked={method === 'PHONE'} onChange={() => { setMethod('PHONE'); setError(null); }} /><span><strong>Gửi mã xác nhận qua SĐT</strong><small>Mã xác nhận sẽ được gửi qua SĐT người dùng. Vui lòng truy cập và lấy mã xác nhận.</small></span></label>
+          <label className="extension-forgot-method" htmlFor="forgot-method-email"><input id="forgot-method-email" type="radio" aria-label="Gửi mã xác nhận qua Gmail" checked={method === 'EMAIL'} onChange={() => { setMethod('EMAIL'); setError(null); }} /><span><strong>Gửi mã xác nhận qua Gmail</strong><small>Mã xác nhận sẽ được gửi qua Gmail người dùng. Vui lòng truy cập và lấy mã xác nhận.</small></span></label>
           {error ? <p className="extension-login-error">{error}</p> : null}
           <div className="extension-forgot-actions"><button type="button" className="secondary-button" onClick={() => setStep('IDENTIFIER')}>Quay lại</button><button type="button" className="confirm-button" onClick={() => void confirmMethod()} disabled={loading}>{loading ? 'Đang gửi...' : 'Xác nhận'}</button></div>
         </>

@@ -21,4 +21,9 @@ describe('normalizeInternalEmail', () => {
   it('treats an empty optional value as no Internal source', () => {
     expect(normalizeInternalEmail('   ', { optional: true })).toBeNull();
   });
+
+  it('rejects control characters that are not valid email input', () => {
+    expect(() => normalizeInternalEmail('user\u0000@viettel.com.vn'))
+      .toThrow(BadRequestException);
+  });
 });

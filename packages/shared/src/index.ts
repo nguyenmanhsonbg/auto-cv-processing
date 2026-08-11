@@ -6,3 +6,4 @@ export * from './types/evaluation';
 export * from './types/submission';
 export * from './types/websocket-events';
 export * from './types/pagination';
+export * from './email-validation';
