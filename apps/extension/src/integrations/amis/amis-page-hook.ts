@@ -552,42 +552,15 @@ function mapAmisCandidateStageRequest(
     'RecruitmentRoundId',
     'recruitmentRoundId',
   ]));
-  const candidateIds = new Set<string>();
-  const rawCandidateIds = readFirstValue(request, [
+  const candidateIds = readAmisCandidateStageIds(readFirstValue(request, [
     'CandidateIDs',
     'CandidateIds',
     'candidateIds',
-  ]);
-  if (typeof rawCandidateIds === 'string' || typeof rawCandidateIds === 'number') {
-    for (const candidateId of String(rawCandidateIds).split(/[;,]/)) {
-      const normalizedCandidateId = cleanText(candidateId);
-      if (normalizedCandidateId) candidateIds.add(normalizedCandidateId);
-    }
-  } else if (Array.isArray(rawCandidateIds)) {
-    for (const candidateId of rawCandidateIds) {
-      const normalizedCandidateId = cleanText(candidateId);
-      if (normalizedCandidateId) candidateIds.add(normalizedCandidateId);
-    }
-  }
-
-  const roundTimes = readFirstValue(request, [
-    'RecruitmentRoundTimes',
-    'recruitmentRoundTimes',
-  ]);
-  const roundTimeByCandidateId = new Map<string, Record<string, unknown>>();
-  if (Array.isArray(roundTimes)) {
-    for (const value of roundTimes) {
-      if (!isObject(value)) continue;
-      const candidateId = cleanText(readFirst(value, [
-        'CandidateID',
-        'CandidateId',
-        'candidateId',
-      ]));
-      if (!candidateId) continue;
-      candidateIds.add(candidateId);
-      roundTimeByCandidateId.set(candidateId, value);
-    }
-  }
+  ]));
+  const roundTimeByCandidateId = readAmisCandidateStageRoundTimes(
+    readFirstValue(request, ['RecruitmentRoundTimes', 'recruitmentRoundTimes']),
+    candidateIds,
+  );
 
   if (!amisRecruitmentId || candidateIds.size === 0) return [];
 
@@ -616,6 +589,38 @@ function mapAmisCandidateStageRequest(
       isTransitionEvent: true,
     };
   });
+}
+
+function readAmisCandidateStageIds(value: unknown) {
+  const candidateIds = new Set<string>();
+  const values = typeof value === 'string' || typeof value === 'number'
+    ? String(value).split(/[;,]/)
+    : Array.isArray(value) ? value : [];
+
+  for (const candidateId of values) {
+    const normalizedCandidateId = cleanText(candidateId);
+    if (normalizedCandidateId) candidateIds.add(normalizedCandidateId);
+  }
+
+  return candidateIds;
+}
+
+function readAmisCandidateStageRoundTimes(
+  value: unknown,
+  candidateIds: Set<string>,
+) {
+  const roundTimeByCandidateId = new Map<string, Record<string, unknown>>();
+  if (!Array.isArray(value)) return roundTimeByCandidateId;
+
+  for (const item of value) {
+    if (!isObject(item)) continue;
+    const candidateId = cleanText(readFirst(item, ['CandidateID', 'CandidateId', 'candidateId']));
+    if (!candidateId) continue;
+    candidateIds.add(candidateId);
+    roundTimeByCandidateId.set(candidateId, item);
+  }
+
+  return roundTimeByCandidateId;
 }
 
 function parseRequestJson(value: unknown) {

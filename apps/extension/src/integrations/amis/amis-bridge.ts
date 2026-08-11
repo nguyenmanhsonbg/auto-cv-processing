@@ -928,81 +928,66 @@ function looksLikeCandidateRowArray(rows: unknown[]) {
   );
 }
 
+function readApplicationRowIdentity(row: Record<string, unknown>) {
+  return {
+    recruitmentId: cleanText(readFirst(row, ['RecruitmentID', 'recruitmentId'])),
+    recruitmentRoundId: cleanText(readFirst(row, ['RecruitmentRoundID', 'recruitmentRoundId'])),
+    candidateId: cleanText(readFirst(row, ['CandidateID', 'candidateId'])),
+    candidateName: cleanText(readFirst(row, ['CandidateName', 'candidateName', 'Name', 'name'])),
+    email: cleanText(readFirst(row, ['Email', 'email'])),
+    mobile: cleanText(readFirst(row, ['Mobile', 'Phone', 'phone', 'mobile'])),
+  };
+}
+
+function readApplicationRowTextFields(row: Record<string, unknown>) {
+  const definitions = [
+    ['candidateConvertId', ['CandidateConvertID', 'candidateConvertId']],
+    ['birthday', ['Birthday', 'birthday']],
+    ['recruitmentRoundName', ['RecruitmentRoundName', 'recruitmentRoundName']],
+    ['reasonRemoved', ['ReasonRemoved', 'ReasonRemovedName', 'reasonRemoved', 'reasonRemovedName']],
+    ['attractivePersonnelName', ['AttractivePersonnel', 'attractivePersonnel', 'AttractivePersonnelName', 'attractivePersonnelName']],
+    ['attractivePersonnelId', ['AttractivePersonnelID', 'attractivePersonnelId', 'AttractivePersonnelId']],
+    ['channelName', ['ChannelName', 'channelName', 'RecruitmentChannelName', 'recruitmentChannelName', 'SourceCandidateName', 'sourceCandidateName', 'SourceName', 'sourceName']],
+    ['applyDate', ['ApplyDate', 'ApplyDateOnly', 'applyDate']],
+    ['recruitmentTitle', ['RecruitmentTitle', 'recruitmentTitle']],
+    ['attachmentCvId', ['AttachmentCVID', 'attachmentCvId']],
+    ['attachmentCvName', ['AttachmentCVName', 'attachmentCvName']],
+  ] as const;
+  const fields: Record<string, string> = {};
+  for (const [name, keys] of definitions) {
+    const value = cleanText(readFirst(row, keys));
+    if (value) fields[name] = value;
+  }
+  return fields;
+}
+
+function readApplicationRowNumberFields(row: Record<string, unknown>) {
+  const fields: Record<string, number> = {};
+  const status = readNumber(row, ['Status', 'status']);
+  const recruitmentChannelId = readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']);
+  if (status !== undefined) fields.status = status;
+  if (recruitmentChannelId !== undefined) fields.recruitmentChannelId = recruitmentChannelId;
+  return fields;
+}
+
 function mapApplicationRow(row: unknown): AmisApplicationItem | null {
   if (!isObject(row)) return null;
 
-  const recruitmentId = cleanText(readFirst(row, ['RecruitmentID', 'recruitmentId']));
-  const recruitmentRoundId = cleanText(readFirst(row, ['RecruitmentRoundID', 'recruitmentRoundId']));
-  const candidateId = cleanText(readFirst(row, ['CandidateID', 'candidateId']));
-  const candidateName = cleanText(readFirst(row, ['CandidateName', 'candidateName', 'Name', 'name']));
-  const email = cleanText(readFirst(row, ['Email', 'email']));
-  const mobile = cleanText(readFirst(row, ['Mobile', 'Phone', 'phone', 'mobile']));
-  const channelName = cleanText(readFirst(row, [
-    'ChannelName',
-    'channelName',
-    'RecruitmentChannelName',
-    'recruitmentChannelName',
-    'SourceCandidateName',
-    'sourceCandidateName',
-    'SourceName',
-    'sourceName',
-  ]));
-  const attractivePersonnelName = cleanText(readFirst(row, [
-    'AttractivePersonnel',
-    'attractivePersonnel',
-    'AttractivePersonnelName',
-    'attractivePersonnelName',
-  ]));
-  const attractivePersonnelId = cleanText(readFirst(row, [
-    'AttractivePersonnelID',
-    'attractivePersonnelId',
-    'AttractivePersonnelId',
-  ]));
-  const reasonRemoved = cleanText(readFirst(row, [
-    'ReasonRemoved',
-    'ReasonRemovedName',
-    'reasonRemoved',
-    'reasonRemovedName',
-  ]));
-  if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) return null;
-  if (!email && !mobile) return null;
-
-  const status = readNumber(row, ['Status', 'status']);
+  const identity = readApplicationRowIdentity(row);
+  if (
+    !identity.recruitmentId
+    || !identity.recruitmentRoundId
+    || !identity.candidateId
+    || !identity.candidateName
+    || (!identity.email && !identity.mobile)
+  ) {
+    return null;
+  }
 
   return {
-    recruitmentId,
-    recruitmentRoundId,
-    candidateId,
-    candidateName,
-    ...(cleanText(readFirst(row, ['CandidateConvertID', 'candidateConvertId'])) ? {
-      candidateConvertId: cleanText(readFirst(row, ['CandidateConvertID', 'candidateConvertId'])),
-    } : {}),
-    ...(email ? { email } : {}),
-    ...(mobile ? { mobile } : {}),
-    ...(cleanText(readFirst(row, ['Birthday', 'birthday'])) ? { birthday: cleanText(readFirst(row, ['Birthday', 'birthday'])) } : {}),
-    ...(cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])) ? {
-      recruitmentRoundName: cleanText(readFirst(row, ['RecruitmentRoundName', 'recruitmentRoundName'])),
-    } : {}),
-    ...(reasonRemoved ? { reasonRemoved } : {}),
-    ...(attractivePersonnelName ? { attractivePersonnelName } : {}),
-    ...(attractivePersonnelId ? { attractivePersonnelId } : {}),
-    ...(status !== undefined ? { status } : {}),
-    ...(readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']) !== undefined ? {
-      recruitmentChannelId: readNumber(row, ['RecruitmentChannelID', 'recruitmentChannelId']),
-    } : {}),
-    ...(channelName ? { channelName } : {}),
-    ...(cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])) ? {
-      applyDate: cleanText(readFirst(row, ['ApplyDate', 'ApplyDateOnly', 'applyDate'])),
-    } : {}),
-    ...(cleanText(readFirst(row, ['RecruitmentTitle', 'recruitmentTitle'])) ? {
-      recruitmentTitle: cleanText(readFirst(row, ['RecruitmentTitle', 'recruitmentTitle'])),
-    } : {}),
-    ...(cleanText(readFirst(row, ['AttachmentCVID', 'attachmentCvId'])) ? {
-      attachmentCvId: cleanText(readFirst(row, ['AttachmentCVID', 'attachmentCvId'])),
-    } : {}),
-    ...(cleanText(readFirst(row, ['AttachmentCVName', 'attachmentCvName'])) ? {
-      attachmentCvName: cleanText(readFirst(row, ['AttachmentCVName', 'attachmentCvName'])),
-    } : {}),
+    ...identity,
+    ...readApplicationRowTextFields(row),
+    ...readApplicationRowNumberFields(row),
     rawSnapshot: sanitizeApplicationSnapshot(row),
   };
 }
@@ -1193,52 +1178,59 @@ function resetAmisDropdownSelectionDiagnostics(diagnostics: AmisDropdownSelectio
   diagnostics.confirmedFieldValue = '';
 }
 
-async function selectAmisDropdownOption(params: SelectAmisDropdownOptionParams) {
-  const { fieldLabel, optionText, optionId, diagnostics } = params;
-  const targetKey = normalizeAmisUiText(optionText);
-  let field = await waitForAmisDropdownField(fieldLabel, diagnostics, 10000);
-  if (!field) {
-    const code = diagnostics.fieldFound
-      ? 'AMIS_SOURCE_CONTROL_NOT_FOUND'
-      : 'AMIS_SOURCE_FIELD_NOT_FOUND';
+function throwMissingAmisDropdownField(
+  fieldLabel: string,
+  diagnostics: AmisDropdownSelectionDiagnostics,
+): never {
+  const code = diagnostics.fieldFound
+    ? 'AMIS_SOURCE_CONTROL_NOT_FOUND'
+    : 'AMIS_SOURCE_FIELD_NOT_FOUND';
+  throwAmisDropdownSelectionError(
+    code,
+    diagnostics.fieldFound
+      ? `Found the AMIS "${fieldLabel}" label but could not locate its dropdown control.`
+      : `AMIS field "${fieldLabel}" was not found. Open the "Thêm ứng viên" form first.`,
+    diagnostics,
+  );
+}
+
+async function selectAmisNativeDropdownOption(
+  fieldLabel: string,
+  field: AmisDropdownField,
+  optionText: string,
+  optionId: string | undefined,
+  targetKey: string,
+  diagnostics: AmisDropdownSelectionDiagnostics,
+) {
+  const nativeSelect = field.nativeSelect;
+  if (!nativeSelect) return null;
+
+  const option = await waitForAmisNativeSelectOption(nativeSelect, targetKey, optionId, 5000);
+  if (!option) {
     throwAmisDropdownSelectionError(
-      code,
-      diagnostics.fieldFound
-        ? `Found the AMIS "${fieldLabel}" label but could not locate its dropdown control.`
-        : `AMIS field "${fieldLabel}" was not found. Open the "Thêm ứng viên" form first.`,
+      'AMIS_SOURCE_OPTION_NOT_FOUND',
+      `AMIS source "${optionText}" is not available for the current unit.`,
       diagnostics,
     );
   }
 
-  const currentValue = readAmisDropdownFieldValue(field);
-  diagnostics.confirmedFieldValue = currentValue;
-  if (normalizeAmisUiText(currentValue) === targetKey) {
-    return { optionText: currentValue || optionText, optionId: '' };
-  }
+  diagnostics.sourceOptionFound = true;
+  nativeSelect.value = option.value;
+  nativeSelect.dispatchEvent(new Event('input', { bubbles: true }));
+  nativeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  diagnostics.sourceOptionClicked = true;
+  const confirmedValue = await waitForAmisDropdownValue(fieldLabel, targetKey, diagnostics, 4000);
+  return {
+    optionText: confirmedValue || cleanText(option.textContent) || optionText,
+    optionId: cleanText(option.value),
+  };
+}
 
-  if (field.nativeSelect) {
-    const option = await waitForAmisNativeSelectOption(field.nativeSelect, targetKey, optionId, 5000);
-    if (!option) {
-      throwAmisDropdownSelectionError(
-        'AMIS_SOURCE_OPTION_NOT_FOUND',
-        `AMIS source "${optionText}" is not available for the current unit.`,
-        diagnostics,
-      );
-    }
-
-    diagnostics.sourceOptionFound = true;
-    field.nativeSelect.value = option.value;
-    field.nativeSelect.dispatchEvent(new Event('input', { bubbles: true }));
-    field.nativeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    diagnostics.sourceOptionClicked = true;
-    const confirmedValue = await waitForAmisDropdownValue(fieldLabel, targetKey, diagnostics, 4000);
-    return {
-      optionText: confirmedValue || cleanText(option.textContent) || optionText,
-      optionId: cleanText(option.value),
-    };
-  }
-
-  field = findAmisDropdownField(fieldLabel) ?? field;
+async function openAmisCustomDropdown(
+  fieldLabel: string,
+  field: AmisDropdownField,
+  diagnostics: AmisDropdownSelectionDiagnostics,
+) {
   const popupSnapshot = new Set(getVisibleAmisDropdownPopups());
   let popup = isAmisDropdownExpanded(field)
     ? findPopupLinkedToAmisDropdown(field, popupSnapshot, popupSnapshot)
@@ -1275,6 +1267,28 @@ async function selectAmisDropdownOption(params: SelectAmisDropdownOptionParams) 
     );
   }
 
+  return { field, popup, popupSnapshot };
+}
+
+async function selectAmisCustomDropdownOption(params: {
+  fieldLabel: string;
+  field: AmisDropdownField;
+  popup: HTMLElement;
+  popupSnapshot: Set<HTMLElement>;
+  optionText: string;
+  optionId?: string;
+  targetKey: string;
+  diagnostics: AmisDropdownSelectionDiagnostics;
+}) {
+  const {
+    fieldLabel,
+    optionText,
+    optionId,
+    targetKey,
+    diagnostics,
+  } = params;
+  let { field, popup } = params;
+
   diagnostics.popupFound = true;
   const searchQuery = getAmisDropdownSearchQuery(optionText);
   const searchInput = findAmisDropdownFilterInput(field, popup);
@@ -1286,11 +1300,9 @@ async function selectAmisDropdownOption(params: SelectAmisDropdownOptionParams) 
     await waitForAmisDomUpdate(popup, 800);
   }
 
-  // Filtering can replace the DevExtreme popup node. Re-resolve the field and
-  // popup after the query so option scanning always uses the current DOM.
   field = findAmisDropdownField(fieldLabel) ?? field;
   const refreshedPopups = new Set(getVisibleAmisDropdownPopups());
-  popup = findPopupLinkedToAmisDropdown(field, refreshedPopups, popupSnapshot) ?? popup;
+  popup = findPopupLinkedToAmisDropdown(field, refreshedPopups, params.popupSnapshot) ?? popup;
 
   const option = await waitForAmisDropdownOption({
     popup,
@@ -1316,22 +1328,13 @@ async function selectAmisDropdownOption(params: SelectAmisDropdownOptionParams) 
       throw new Error('The AMIS option was re-rendered before it could be selected.');
     }
     option.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    const clickTarget = option;
-    clickTarget.click();
+    option.click();
     diagnostics.sourceOptionClicked = true;
-
-    // DevExtreme normally handles the bubbling click above. Some AMIS builds
-    // bind the selection handler to the list item pointer sequence instead,
-    // so only replay a real mouse sequence when the first click did not update
-    // the displayed value and the option popup is still open.
     await waitForAmisDomUpdate(field.root, 180);
-    if (
-      normalizeAmisUiText(readAmisDropdownFieldValue(field)) !== targetKey
-      && option.getAttribute('aria-selected') !== 'true'
-      && option.isConnected
-      && getVisibleAmisDropdownPopups().length > 0
-    ) {
-      dispatchAmisPointerClick(clickTarget);
+    const valueWasNotUpdated = normalizeAmisUiText(readAmisDropdownFieldValue(field)) !== targetKey;
+    const optionWasNotSelected = option.getAttribute('aria-selected') !== 'true';
+    if (valueWasNotUpdated && optionWasNotSelected && option.isConnected && getVisibleAmisDropdownPopups().length > 0) {
+      dispatchAmisPointerClick(option);
     }
   } catch {
     throwAmisDropdownSelectionError(
@@ -1346,6 +1349,43 @@ async function selectAmisDropdownOption(params: SelectAmisDropdownOptionParams) 
     optionText: confirmedValue || selectedOptionText,
     optionId: selectedOptionId,
   };
+}
+
+async function selectAmisDropdownOption(params: SelectAmisDropdownOptionParams) {
+  const { fieldLabel, optionText, optionId, diagnostics } = params;
+  const targetKey = normalizeAmisUiText(optionText);
+  const resolvedField = await waitForAmisDropdownField(fieldLabel, diagnostics, 10000);
+  if (!resolvedField) throwMissingAmisDropdownField(fieldLabel, diagnostics);
+
+  const currentValue = readAmisDropdownFieldValue(resolvedField);
+  diagnostics.confirmedFieldValue = currentValue;
+  if (normalizeAmisUiText(currentValue) === targetKey) {
+    return { optionText: currentValue || optionText, optionId: '' };
+  }
+
+  if (resolvedField.nativeSelect) {
+    const selected = await selectAmisNativeDropdownOption(
+      fieldLabel,
+      resolvedField,
+      optionText,
+      optionId,
+      targetKey,
+      diagnostics,
+    );
+    if (selected) return selected;
+  }
+
+  const opened = await openAmisCustomDropdown(fieldLabel, resolvedField, diagnostics);
+  return selectAmisCustomDropdownOption({
+    fieldLabel,
+    field: opened.field,
+    popup: opened.popup,
+    popupSnapshot: opened.popupSnapshot,
+    optionText,
+    optionId,
+    targetKey,
+    diagnostics,
+  });
 }
 
 function throwAmisDropdownSelectionError(
@@ -1466,7 +1506,7 @@ function findAmisCandidateSourceControl(
     .filter((element) => {
       const displayExpression = normalizeAmisUiText(element.getAttribute('displayexpr'));
       const placeholder = element.querySelector<HTMLElement>('[data-dx_placeholder]')
-        ?.getAttribute('data-dx_placeholder');
+        ?.dataset.dx_placeholder;
       return displayExpression === 'sourcecandidatename'
         || normalizeAmisUiText(placeholder).includes('chonnguonungvien');
     })
@@ -2573,14 +2613,14 @@ function normalizeAmisUiText(value: unknown) {
     .replace(/[^a-z0-9]+/g, '');
 }
 
-function readFirst(data: Record<string, unknown>, keys: string[]) {
+function readFirst(data: Record<string, unknown>, keys: readonly string[]) {
   const value = readFirstValue(data, keys);
   if (typeof value === 'string' || typeof value === 'number') return String(value);
 
   return '';
 }
 
-function readFirstValue(data: Record<string, unknown>, keys: string[]) {
+function readFirstValue(data: Record<string, unknown>, keys: readonly string[]) {
   for (const key of keys) {
     const value = data[key];
     if (value === undefined || value === null) continue;

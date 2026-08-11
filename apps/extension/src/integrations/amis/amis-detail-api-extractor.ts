@@ -18,23 +18,10 @@ export async function extractAmisJobFromDetailApi(
       return buildFailure('AMIS recruitment id is empty.');
     }
 
-    const response = await fetch(
-      `/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-info/${encodeURIComponent(normalizedRecruitmentId)}`,
-      { credentials: 'include' },
-    );
-    if (!response.ok) {
-      return buildFailure(`AMIS detail API returned HTTP ${response.status}.`);
-    }
+    const detail = await fetchRecruitmentDetail(normalizedRecruitmentId);
+    if (!detail.recruitment) return buildFailure(detail.failureMessage);
 
-    const envelope = await response.json() as {
-      Success?: boolean;
-      Data?: { Recruitment?: Record<string, unknown> | null } | null;
-      TraceID?: string;
-    };
-    const recruitment = envelope.Data?.Recruitment;
-    if (!envelope.Success || !recruitment) {
-      return buildFailure('AMIS detail API did not return a recruitment.');
-    }
+    const { recruitment, traceId } = detail;
 
     const responseRecruitmentId = cleanText(readValue(recruitment, [
       'RecruitmentID',
@@ -45,36 +32,9 @@ export async function extractAmisJobFromDetailApi(
       return buildFailure('AMIS detail API returned a different recruitment id.');
     }
 
-    const summary = cleanText(readValue(recruitment, ['Summary']));
-    const description = htmlToText(readValue(recruitment, ['Description'])) || summary;
-    const requirements = htmlToText(readValue(recruitment, ['Requirement']));
-    const benefits = htmlToText(readValue(recruitment, ['Benifit', 'Benefit']));
-    const title = cleanText(readValue(recruitment, [
-      'TitleWebsite',
-      'Title',
-      'JobPositionName',
-    ]));
-    const location = extractLocation(readValue(recruitment, ['RecruitmentWorkLocations']));
-    const deadline = normalizeDeadline(readValue(recruitment, [
-      'RegistrationExpiryDate',
-      'CloseDate',
-      'ExpectedTime',
-    ]));
-    const snapshot: AmisJobSnapshot = {
-      title,
-      ...(summary ? { summary: summary.slice(0, 500) } : {}),
-      description,
-      requirements: { rawText: requirements },
-      ...(benefits ? { benefits: { rawText: benefits } } : {}),
-      ...(location ? { location } : {}),
-      ...(deadline ? { deadline } : {}),
-    };
-
-    const resolvedMissingFields = [] as string[];
-    if (!responseRecruitmentId) resolvedMissingFields.push('AMIS recruitment id');
-    if (!snapshot.title) resolvedMissingFields.push('title');
-    if (!snapshot.description) resolvedMissingFields.push('description');
-    if (!snapshot.requirements.rawText) resolvedMissingFields.push('requirements');
+    const snapshotFields = buildSnapshotFields(recruitment);
+    const { snapshot, benefits, location, deadline } = snapshotFields;
+    const resolvedMissingFields = getMissingFields(responseRecruitmentId, snapshot);
 
     return {
       status: 'AMIS_PAGE_DETECTED',
@@ -97,7 +57,7 @@ export async function extractAmisJobFromDetailApi(
         markers: [
           'host:amisapp.misa.vn',
           'api:recruitment/detail-info',
-          ...(envelope.TraceID ? ['trace-id-present'] : []),
+          ...(traceId ? ['trace-id-present'] : []),
         ],
         fieldSources: {
           amisRecruitmentId: 'detail-info.Recruitment.RecruitmentID',
@@ -112,6 +72,75 @@ export async function extractAmisJobFromDetailApi(
     };
   } catch (error) {
     return buildFailure(error instanceof Error ? error.message : 'AMIS detail API extraction failed.');
+  }
+
+  async function fetchRecruitmentDetail(recruitmentId: string) {
+    const response = await fetch(
+      `/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-info/${encodeURIComponent(recruitmentId)}`,
+      { credentials: 'include' },
+    );
+    if (!response.ok) {
+      return {
+        recruitment: null,
+        traceId: undefined,
+        failureMessage: `AMIS detail API returned HTTP ${response.status}.`,
+      };
+    }
+
+    const envelope = await response.json() as {
+      Success?: boolean;
+      Data?: { Recruitment?: Record<string, unknown> | null } | null;
+      TraceID?: string;
+    };
+    const recruitment = envelope.Data?.Recruitment;
+    return {
+      recruitment: envelope.Success && recruitment ? recruitment : null,
+      traceId: envelope.TraceID,
+      failureMessage: 'AMIS detail API did not return a recruitment.',
+    };
+  }
+
+  function buildSnapshotFields(recruitment: Record<string, unknown>) {
+    const summary = cleanText(readValue(recruitment, ['Summary']));
+    const description = htmlToText(readValue(recruitment, ['Description'])) || summary;
+    const requirements = htmlToText(readValue(recruitment, ['Requirement']));
+    const benefits = htmlToText(readValue(recruitment, ['Benifit', 'Benefit']));
+    const title = cleanText(readValue(recruitment, [
+      'TitleWebsite',
+      'Title',
+      'JobPositionName',
+    ]));
+    const location = extractLocation(readValue(recruitment, ['RecruitmentWorkLocations']));
+    const deadline = normalizeDeadline(readValue(recruitment, [
+      'RegistrationExpiryDate',
+      'CloseDate',
+      'ExpectedTime',
+    ]));
+
+    return {
+      title,
+      benefits,
+      location,
+      deadline,
+      snapshot: {
+        title,
+        ...(summary ? { summary: summary.slice(0, 500) } : {}),
+        description,
+        requirements: { rawText: requirements },
+        ...(benefits ? { benefits: { rawText: benefits } } : {}),
+        ...(location ? { location } : {}),
+        ...(deadline ? { deadline } : {}),
+      } satisfies AmisJobSnapshot,
+    };
+  }
+
+  function getMissingFields(responseRecruitmentId: string, snapshot: AmisJobSnapshot) {
+    const fields = [] as string[];
+    if (!responseRecruitmentId) fields.push('AMIS recruitment id');
+    if (!snapshot.title) fields.push('title');
+    if (!snapshot.description) fields.push('description');
+    if (!snapshot.requirements.rawText) fields.push('requirements');
+    return fields;
   }
 
   function buildFailure(message: string): AmisExtractionResult {

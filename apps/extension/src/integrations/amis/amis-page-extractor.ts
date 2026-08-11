@@ -241,12 +241,12 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
       'input[id="id" i]',
     ].join(',');
 
-    for (const element of Array.from(document.querySelectorAll(selector))) {
+    for (const element of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
       const rawValue =
-        element.getAttribute('data-amis-id')
-        ?? element.getAttribute('data-recruitment-id')
-        ?? element.getAttribute('data-job-id')
-        ?? element.getAttribute('data-id')
+        element.dataset.amisId
+        ?? element.dataset.recruitmentId
+        ?? element.dataset.jobId
+        ?? element.dataset.id
         ?? (element instanceof HTMLInputElement ? element.value : null);
       const value = cleanId(rawValue);
       if (value) {
@@ -489,7 +489,7 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     const parts = [element.tagName.toLowerCase()];
     const name = element.getAttribute('name');
     const id = element.getAttribute('id');
-    const dataId = element.getAttribute('data-id');
+    const dataId = element instanceof HTMLElement ? element.dataset.id : undefined;
     const ariaLabel = element.getAttribute('aria-label');
 
     if (id) parts.push(`#${id.slice(0, 60)}`);
