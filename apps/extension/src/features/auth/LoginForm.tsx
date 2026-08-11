@@ -51,33 +51,79 @@ export function LoginForm({
   }
 
   if (internalMode) {
-    if (internalMessage) {
-      return (
+    return internalMessage
+      ? <InternalPasswordSentView email={internalEmail} onCancel={onInternalCancel} />
+      : <InternalPasswordRequestView
+        email={internalEmail}
+        error={error}
+        message={internalMessage}
+        submitting={internalSubmitting}
+        onEmailChange={onInternalEmailChange}
+        onCancel={onInternalCancel}
+        onSubmit={onInternalSubmit}
+      />;
+  }
+
+  return <LoginCredentialsView
+    login={login}
+    password={password}
+    rememberMe={rememberMe}
+    error={error}
+    showPassword={showPassword}
+    onLoginChange={onLoginChange}
+    onPasswordChange={onPasswordChange}
+    onRememberMeChange={onRememberMeChange}
+    onForgotPassword={onForgotPassword}
+    onInternalModeChange={onInternalModeChange}
+    onPasswordVisibilityChange={() => setShowPassword((visible) => !visible)}
+    onSubmit={onSubmit}
+  />;
+}
+
+function InternalPasswordSentView({ email, onCancel }: { email: string; onCancel: () => void }) {
+  return (
         <section className="extension-login-shell">
           <div className="extension-login-card extension-auth-form extension-internal-success">
             <h1>Lấy mật khẩu Extension</h1>
             <InternalPasswordSentIcon />
-            <strong>Mật khẩu đã được gửi đến gmail {internalEmail}</strong>
+            <strong>Mật khẩu đã được gửi đến gmail {email}</strong>
             <p>Vui lòng kiểm tra để lấy mật khẩu đăng nhập và đổi lại mật khẩu mới sau khi đăng nhập lần đầu.</p>
-            <button type="button" className="primary-button" onClick={onInternalCancel}>
+            <button type="button" className="primary-button" onClick={onCancel}>
               QUAY LẠI MÀN HÌNH ĐĂNG NHẬP
             </button>
           </div>
         </section>
-      );
-    }
+  );
+}
 
-    return (
+function InternalPasswordRequestView({
+  email,
+  error,
+  message,
+  submitting,
+  onEmailChange,
+  onCancel,
+  onSubmit,
+}: {
+  email: string;
+  error: string | null;
+  message: string | null;
+  submitting: boolean;
+  onEmailChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onCancel: () => void;
+  onSubmit: FormEventHandler<HTMLFormElement>;
+}) {
+  return (
       <section className="extension-login-shell">
-        <form className="extension-login-card extension-auth-form" onSubmit={onInternalSubmit}>
+        <form className="extension-login-card extension-auth-form" onSubmit={onSubmit}>
           <h1>Lấy mật khẩu Extension</h1>
           <label>
             <span className="extension-field-label">Gmail nội bộ nhân sự <span className="required-mark">*</span></span>
             <span className={`extension-input-shell${error ? ' has-error' : ''}`}>
               <span className="extension-input-icon" aria-hidden="true"><UserIcon /></span>
               <input
-                value={internalEmail}
-                onChange={onInternalEmailChange}
+                value={email}
+                onChange={onEmailChange}
                 type="email"
                 autoComplete="email"
                 placeholder="Nhập gmail nội bộ nhân sự"
@@ -87,18 +133,45 @@ export function LoginForm({
             </span>
           </label>
           {error ? <p className="extension-login-error">{error}</p> : null}
-          {internalMessage ? <p className="extension-login-success">{internalMessage}</p> : null}
+          {message ? <p className="extension-login-success">{message}</p> : null}
           <div className="extension-login-actions extension-login-actions-centered">
-            <button type="button" className="secondary-button" onClick={onInternalCancel}>Hủy</button>
-            <button type="submit" className="confirm-button" disabled={internalSubmitting}>
-              {internalSubmitting ? 'Đang gửi...' : 'Xác nhận'}
+            <button type="button" className="secondary-button" onClick={onCancel}>Hủy</button>
+            <button type="submit" className="confirm-button" disabled={submitting}>
+              {submitting ? 'Đang gửi...' : 'Xác nhận'}
             </button>
           </div>
         </form>
       </section>
-    );
-  }
+  );
+}
 
+function LoginCredentialsView({
+  login,
+  password,
+  rememberMe,
+  error,
+  showPassword,
+  onLoginChange,
+  onPasswordChange,
+  onRememberMeChange,
+  onForgotPassword,
+  onInternalModeChange,
+  onPasswordVisibilityChange,
+  onSubmit,
+}: {
+  login: string;
+  password: string;
+  rememberMe: boolean;
+  error: string | null;
+  showPassword: boolean;
+  onLoginChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onPasswordChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onRememberMeChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onForgotPassword: () => void;
+  onInternalModeChange: () => void;
+  onPasswordVisibilityChange: () => void;
+  onSubmit: FormEventHandler<HTMLFormElement>;
+}) {
   return (
     <section className="extension-login-shell">
       <form className="extension-login-card extension-auth-form" onSubmit={onSubmit}>
@@ -115,7 +188,7 @@ export function LoginForm({
           <span className={`extension-input-shell${error ? ' has-error' : ''}`}>
             <span className="extension-input-icon" aria-hidden="true"><LockIcon /></span>
             <input value={password} onChange={onPasswordChange} type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Nhập mật khẩu" />
-            <button type="button" className="password-toggle" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>
+            <button type="button" className="password-toggle" onClick={onPasswordVisibilityChange} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>
               <EyeIcon hidden={showPassword} />
             </button>
           </span>
@@ -136,7 +209,6 @@ export function LoginForm({
     </section>
   );
 }
-
 function UserIcon() {
   return <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-5.33 0-9 2.67-9 6v2h18v-2c0-3.33-3.67-6-9-6Z" /></svg>;
 }

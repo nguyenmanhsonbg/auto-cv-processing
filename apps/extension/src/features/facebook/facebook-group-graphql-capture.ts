@@ -10,7 +10,7 @@ const FALLBACK_PAGINATION_DOC_ID = '9974006939348139';
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGES = 250;
 const INITIAL_RESPONSE_TIMEOUT_MS = 20_000;
-const ACTIVE_RETRY_RESPONSE_TIMEOUT_MS = 20_000;
+const INITIAL_REQUEST_TEMPLATE_FALLBACK_DELAY_MS = 5_000;
 const PAGINATION_TEMPLATE_TIMEOUT_MS = 12_000;
 const GRAPHQL_PAGE_INTERVAL_MS = 250;
 const GRAPHQL_RETRY_DELAYS_MS = [750, 1_500, 3_000, 6_000];
@@ -140,7 +140,6 @@ export async function collectFacebookGroupsFromGraphql(
   const responses: CapturedGraphqlResponse[] = [];
   let attached = false;
   let focusEmulationEnabled = false;
-  let previousActiveTabId: number | undefined;
 
   const onDebuggerEvent = (
     source: ChromeDebuggee,
@@ -220,127 +219,14 @@ export async function collectFacebookGroupsFromGraphql(
       `Đã scroll tuần tự một container để kích hoạt lazy-load danh sách nhóm (target=${scrollResult.target}, steps=${scrollResult.steps}).`,
     );
 
-    let initialCapture: Awaited<ReturnType<typeof waitForInitialGroupResponse>>;
-    try {
-      initialCapture = await waitForInitialGroupResponse(responses, INITIAL_RESPONSE_TIMEOUT_MS, diagnostics);
-    } catch (error) {
-      if (!options.activateTab && diagnostics.tabActive === false) {
-        const activeTabs = readyTab.windowId === undefined
-          ? await chrome.tabs.query({ currentWindow: true, active: true })
-          : await chrome.tabs.query({ windowId: readyTab.windowId, active: true });
-        previousActiveTabId = activeTabs.find((candidate) => candidate.id !== tabId)?.id;
-        diagnostics.temporaryActivationUsed = true;
-        report(
-          'ACTIVE_RETRY',
-          `GraphQL response was not observed in background; retrying with temporary activation (previousTabId=${previousActiveTabId ?? '(none)'}).`,
-        );
-        await chrome.tabs.update(tabId, { active: true });
-        diagnostics.tabActive = true;
-        await sleep(250);
-        const retryScrollResult = await nudgeFacebookGroupsPagination(tabId);
-        diagnostics.scrollTarget = retryScrollResult.target;
-        initialCapture = await waitForInitialGroupResponse(
-          responses,
-          ACTIVE_RETRY_RESPONSE_TIMEOUT_MS,
-          diagnostics,
-        );
-      } else {
-        throw error;
-      }
-    }
-    const initialResponse = initialCapture.response;
-    let initialPage = initialCapture.page;
-    assertRequestBelongsToAccount(initialResponse.request.postData, expectedFacebookExternalId);
-
-    const initialCursor = readGraphqlCursor(initialResponse.request.postData);
-    let paginationTemplate: CapturedGraphqlRequest | null = (
-      isPaginationQueryName(initialResponse.request.queryName)
-      || (initialCursor !== null && initialCursor !== undefined && initialCursor !== '')
-    ) ? initialResponse.request : null;
-
-    // Some Facebook sessions expose the first parseable group response as a
-    // pagination request after the page's lazy-load pass. Rewind that request
-    // to cursor=null so the first page is not silently skipped.
-    if (initialCursor !== null && initialCursor !== undefined && initialCursor !== '') {
-      const firstPageResponse = await fetchGraphqlPageWithRetry(
-        tabId,
-        initialResponse.request.requestUrl,
-        updateGraphqlVariables(initialResponse.request.postData, null),
-        initialResponse.request.headers,
-        onMessage,
-      );
-      if (firstPageResponse.status < 200 || firstPageResponse.status >= 300) {
-        throw new Error(`Facebook GraphQL trả về HTTP ${firstPageResponse.status} khi lấy trang đầu.`);
-      }
-      initialPage = parseGraphqlPage(firstPageResponse.body);
-    }
-
-    const collected = new Map<string, FacebookGraphqlGroup>();
-    mergeGroups(collected, initialPage.groups);
-    let expectedCount = initialPage.totalCount;
-    let currentPage = initialPage;
-    let pageCount = 1;
-
-    onMessage?.(formatProgress(collected.size, expectedCount, pageCount));
-
-    if (currentPage.hasNextPage && currentPage.endCursor && !paginationTemplate) {
-      await nudgeFacebookGroupsPagination(tabId);
-      const naturalPaginationCapture = await waitForPaginationGroupResponse(
-        responses,
-        PAGINATION_TEMPLATE_TIMEOUT_MS,
-      ).catch(() => null);
-
-      if (naturalPaginationCapture) {
-        paginationTemplate = naturalPaginationCapture.response.request;
-        const nextPage = naturalPaginationCapture.page;
-        mergeGroups(collected, nextPage.groups);
-        expectedCount = expectedCount ?? nextPage.totalCount;
-        currentPage = nextPage;
-        pageCount += 1;
-        onMessage?.(formatProgress(collected.size, expectedCount, pageCount));
-      } else {
-        paginationTemplate = createFallbackPaginationTemplate(initialResponse.request);
-      }
-    }
-
-    while (currentPage.hasNextPage && currentPage.endCursor && paginationTemplate && pageCount < MAX_PAGES) {
-      const nextBody = updateGraphqlVariables(paginationTemplate.postData, currentPage.endCursor);
-      await sleep(GRAPHQL_PAGE_INTERVAL_MS);
-      const nextResponse = await fetchGraphqlPageWithRetry(
-        tabId,
-        paginationTemplate.requestUrl,
-        nextBody,
-        paginationTemplate.headers,
-        onMessage,
-      );
-      if (nextResponse.status < 200 || nextResponse.status >= 300) {
-        throw new Error(`Facebook GraphQL trả về HTTP ${nextResponse.status}.`);
-      }
-
-      const nextPage = parseGraphqlPage(nextResponse.body);
-      mergeGroups(collected, nextPage.groups);
-      expectedCount = expectedCount ?? nextPage.totalCount;
-      if (nextPage.endCursor === currentPage.endCursor) {
-        throw new Error('Facebook GraphQL trả về cursor lặp, dừng để tránh quét vô hạn.');
-      }
-      currentPage = nextPage;
-      pageCount += 1;
-      onMessage?.(formatProgress(collected.size, expectedCount, pageCount));
-    }
-
-    const reachedEnd = !currentPage.hasNextPage;
-    const countMatches = expectedCount === null || collected.size >= expectedCount;
-    const scanComplete = reachedEnd && countMatches && pageCount < MAX_PAGES;
-    if (!scanComplete) {
-      onMessage?.('GraphQL chưa trả đủ danh sách nhóm, giữ nguyên dữ liệu nhóm hiện có.');
-    }
-
-    return {
-      groups: Array.from(collected.values()),
-      scanComplete,
-      expectedCount,
-      source: 'graphql',
-    };
+    return await collectFacebookGraphqlPages(
+      tabId,
+      expectedFacebookExternalId,
+      responses,
+      requests,
+      diagnostics,
+      onMessage,
+    );
   } catch (error) {
     const message = `[FB_GQL_${diagnostics.phase}] ${toErrorMessage(error)}; ${formatDiagnostics(diagnostics)}`;
     console.warn(message);
@@ -357,9 +243,6 @@ export async function collectFacebookGroupsFromGraphql(
       // Listener cleanup is best-effort when the extension context is closing.
     }
     if (attached) await debuggerDetach(target).catch(() => undefined);
-    if (diagnostics.temporaryActivationUsed && previousActiveTabId !== undefined) {
-      await chrome.tabs.update(previousActiveTabId, { active: true }).catch(() => undefined);
-    }
   }
 
   async function handleDebuggerEvent(method: string, params?: Record<string, unknown>) {
@@ -403,7 +286,6 @@ export async function collectFacebookGroupsFromGraphql(
     const request = requestId ? requests.get(requestId) : undefined;
     if (!request) return;
     diagnostics.loadingFinishedCount += 1;
-    requests.delete(requestId as string);
 
     try {
       const response = await debuggerSendCommand<NetworkGetResponseBodyResult>(target, 'Network.getResponseBody', {
@@ -422,6 +304,209 @@ export async function collectFacebookGroupsFromGraphql(
       // next request or the DOM fallback can still complete the scan.
     }
   }
+}
+
+async function waitForInitialFacebookGraphqlResponse(
+  tabId: number,
+  responses: CapturedGraphqlResponse[],
+  requests: Map<string, CapturedGraphqlRequest>,
+  diagnostics: GraphqlCaptureDiagnostics,
+  onMessage: ((message: string) => void) | undefined,
+): Promise<Awaited<ReturnType<typeof waitForInitialGroupResponse>>> {
+  const fallbackDelayMs = Math.min(
+    INITIAL_REQUEST_TEMPLATE_FALLBACK_DELAY_MS,
+    INITIAL_RESPONSE_TIMEOUT_MS,
+  );
+  try {
+    return await waitForInitialGroupResponse(responses, fallbackDelayMs, diagnostics);
+  } catch (error) {
+    const recoveredCapture = await recoverInitialGraphqlResponseFromRequestTemplate(
+      tabId,
+      requests,
+      onMessage,
+    );
+    if (recoveredCapture) return recoveredCapture;
+
+    return await waitForInitialGroupResponse(
+      responses,
+      INITIAL_RESPONSE_TIMEOUT_MS - fallbackDelayMs,
+      diagnostics,
+    ).catch(() => {
+      throw error;
+    });
+  }
+}
+
+async function recoverInitialGraphqlResponseFromRequestTemplate(
+  tabId: number,
+  requests: Map<string, CapturedGraphqlRequest>,
+  onMessage: ((message: string) => void) | undefined,
+): Promise<Awaited<ReturnType<typeof waitForInitialGroupResponse>> | null> {
+  const candidates = Array.from(requests.values())
+    .filter((request) => isPotentialGroupQueryName(request.queryName))
+    .reverse();
+
+  for (const request of candidates) {
+    try {
+      const response = await fetchGraphqlPageWithRetry(
+        tabId,
+        request.requestUrl,
+        request.postData,
+        request.headers,
+        onMessage,
+      );
+      if (response.status < 200 || response.status >= 300) continue;
+
+      return {
+        response: { request, status: response.status, body: response.body },
+        page: parseGraphqlPage(response.body),
+      };
+    } catch {
+      // A stale request template can fail after Facebook replaces the page.
+      // Try the next captured group request before falling back to CDP bodies.
+    }
+  }
+
+  return null;
+}
+interface GraphqlCollectionState {
+  collected: Map<string, FacebookGraphqlGroup>;
+  expectedCount: number | null;
+  currentPage: GraphqlPage;
+  pageCount: number;
+  paginationTemplate: CapturedGraphqlRequest | null;
+}
+
+async function resolveInitialGraphqlPage(
+  tabId: number,
+  initialResponse: CapturedGraphqlResponse,
+  initialPage: GraphqlPage,
+  onMessage: ((message: string) => void) | undefined,
+): Promise<{ page: GraphqlPage; paginationTemplate: CapturedGraphqlRequest | null }> {
+  const initialCursor = readGraphqlCursor(initialResponse.request.postData);
+  const paginationTemplate = isPaginationQueryName(initialResponse.request.queryName)
+    || Boolean(initialCursor)
+    ? initialResponse.request
+    : null;
+  if (!initialCursor) return { page: initialPage, paginationTemplate };
+  const firstPageResponse = await fetchGraphqlPageWithRetry(
+    tabId,
+    initialResponse.request.requestUrl,
+    updateGraphqlVariables(initialResponse.request.postData, null),
+    initialResponse.request.headers,
+    onMessage,
+  );
+  if (firstPageResponse.status < 200 || firstPageResponse.status >= 300) {
+    throw new Error(`Facebook GraphQL trả về HTTP ${firstPageResponse.status} khi lấy trang đầu.`);
+  }
+  return { page: parseGraphqlPage(firstPageResponse.body), paginationTemplate };
+}
+
+async function captureNaturalGraphqlPagination(
+  tabId: number,
+  responses: CapturedGraphqlResponse[],
+  initialResponse: CapturedGraphqlResponse,
+  state: GraphqlCollectionState,
+  onMessage: ((message: string) => void) | undefined,
+) {
+  if (!state.currentPage.hasNextPage || !state.currentPage.endCursor || state.paginationTemplate) return;
+  await nudgeFacebookGroupsPagination(tabId);
+  const capture = await waitForPaginationGroupResponse(responses, PAGINATION_TEMPLATE_TIMEOUT_MS).catch(() => null);
+  if (!capture) {
+    state.paginationTemplate = createFallbackPaginationTemplate(initialResponse.request);
+    return;
+  }
+  state.paginationTemplate = capture.response.request;
+  mergeGroups(state.collected, capture.page.groups);
+  state.expectedCount = state.expectedCount ?? capture.page.totalCount;
+  state.currentPage = capture.page;
+  state.pageCount += 1;
+  onMessage?.(formatProgress(state.collected.size, state.expectedCount, state.pageCount));
+}
+
+async function collectRemainingGraphqlPages(
+  tabId: number,
+  state: GraphqlCollectionState,
+  onMessage: ((message: string) => void) | undefined,
+) {
+  while (state.currentPage.hasNextPage && state.currentPage.endCursor && state.paginationTemplate && state.pageCount < MAX_PAGES) {
+    const nextBody = updateGraphqlVariables(state.paginationTemplate.postData, state.currentPage.endCursor);
+    await sleep(GRAPHQL_PAGE_INTERVAL_MS);
+    const nextResponse = await fetchGraphqlPageWithRetry(
+      tabId,
+      state.paginationTemplate.requestUrl,
+      nextBody,
+      state.paginationTemplate.headers,
+      onMessage,
+    );
+    if (nextResponse.status < 200 || nextResponse.status >= 300) {
+      throw new Error(`Facebook GraphQL trả về HTTP ${nextResponse.status}.`);
+    }
+    const nextPage = parseGraphqlPage(nextResponse.body);
+    if (nextPage.endCursor === state.currentPage.endCursor) {
+      throw new Error('Facebook GraphQL trả về cursor lặp, dừng để tránh quét vô hạn.');
+    }
+    mergeGroups(state.collected, nextPage.groups);
+    state.expectedCount = state.expectedCount ?? nextPage.totalCount;
+    state.currentPage = nextPage;
+    state.pageCount += 1;
+    onMessage?.(formatProgress(state.collected.size, state.expectedCount, state.pageCount));
+  }
+}
+
+async function collectFacebookGraphqlPages(
+  tabId: number,
+  expectedFacebookExternalId: string,
+  responses: CapturedGraphqlResponse[],
+  requests: Map<string, CapturedGraphqlRequest>,
+  diagnostics: GraphqlCaptureDiagnostics,
+  onMessage: ((message: string) => void) | undefined,
+): Promise<FacebookGraphqlCollectionResult> {
+  const initialCapture = await waitForInitialFacebookGraphqlResponse(
+    tabId,
+    responses,
+    requests,
+    diagnostics,
+    onMessage,
+  );
+  const initialResponse = initialCapture.response;
+  assertRequestBelongsToAccount(initialResponse.request.postData, expectedFacebookExternalId);
+  const { page: initialPage, paginationTemplate } = await resolveInitialGraphqlPage(
+    tabId,
+    initialResponse,
+    initialCapture.page,
+    onMessage,
+  );
+  const state: GraphqlCollectionState = {
+    collected: new Map<string, FacebookGraphqlGroup>(),
+    expectedCount: initialPage.totalCount,
+    currentPage: initialPage,
+    pageCount: 1,
+    paginationTemplate,
+  };
+  // The first captured response can already contain a valid page even when
+  // its cursor is non-null and we rewind with a cursor=null request. Keep it;
+  // otherwise one page is silently discarded when the pagination is merged.
+  mergeGroups(state.collected, initialCapture.page.groups);
+  mergeGroups(state.collected, initialPage.groups);
+
+  onMessage?.(formatProgress(state.collected.size, state.expectedCount, state.pageCount));
+  await captureNaturalGraphqlPagination(tabId, responses, initialResponse, state, onMessage);
+  await collectRemainingGraphqlPages(tabId, state, onMessage);
+
+  const reachedEnd = !state.currentPage.hasNextPage;
+  const countMatches = state.expectedCount === null || state.collected.size >= state.expectedCount;
+  const scanComplete = reachedEnd && countMatches && state.pageCount < MAX_PAGES;
+  if (!scanComplete) {
+    onMessage?.('GraphQL chưa trả đủ danh sách nhóm, giữ nguyên dữ liệu nhóm hiện có.');
+  }
+
+  return {
+    groups: Array.from(state.collected.values()),
+    scanComplete,
+    expectedCount: state.expectedCount,
+    source: 'graphql',
+  };
 }
 
 async function fetchGraphqlPageInTab(

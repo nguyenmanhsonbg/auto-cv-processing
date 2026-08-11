@@ -496,6 +496,21 @@ async function failClaimedTask(accessToken: string, task: ExtensionTask, error: 
   }
 }
 
+interface AmisAutoSyncContext {
+  sourceCapture: AmisExtractionResult;
+  capture: AmisExtractionResult & { amisRecruitmentId: string; snapshot: AmisJobSnapshot };
+  sender: ChromeMessageSender;
+  amisRecruitmentId: string;
+  snapshot: AmisJobSnapshot;
+  channels: ExtensionChannel[];
+  facebookAccountId: string | null;
+  facebookTargetIds: string[];
+  selectedJobQuestionContext: Awaited<ReturnType<typeof getSelectedJobQuestionContextForTab>>;
+  selectedJobDescriptionId: string | null;
+  facebookContentForPublish: string;
+  autoSyncKey: string;
+}
+
 async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMessageSender) {
   await saveLastAmisCapture(capture);
   await appendAmisDiagnostic({
@@ -512,24 +527,9 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
   await openPanel(sender);
 
   const enrichedCapture = await enrichCaptureFromDom(capture, sender);
-  if (enrichedCapture !== capture) {
-    await saveLastAmisCapture(enrichedCapture);
-    await appendAmisDiagnostic({
-      type: 'BACKGROUND_RECEIVED_CAPTURE',
-      pageUrl: enrichedCapture.url,
-      timestamp: new Date().toISOString(),
-      details: {
-        domFallbackMerged: true,
-        originalMissingFields: capture.missingFields,
-        mergedMissingFields: enrichedCapture.missingFields,
-      },
-    });
-  }
+  await saveEnrichedAmisCapture(capture, enrichedCapture);
 
-  const amisRecruitmentId = enrichedCapture.amisRecruitmentId;
-  const snapshot = enrichedCapture.snapshot;
-
-  if (!enrichedCapture.detected || !snapshot || !amisRecruitmentId || enrichedCapture.missingFields.length > 0) {
+  if (!isCompleteAmisCapture(enrichedCapture)) {
     await saveLastAutoSyncState(buildAutoSyncState({
       status: 'SKIPPED',
       capture: enrichedCapture,
@@ -547,235 +547,308 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
     ...(sender.tab?.id === undefined ? {} : { sourceTabId: sender.tab.id }),
   }).catch(() => undefined);
 
-  const channels = await getSelectedChannels();
-  const facebookAccountId = channels.includes('FACEBOOK')
-    ? await getActiveFacebookAccountId()
-    : null;
-  const facebookTargetIds = channels.includes('FACEBOOK')
-    ? await getSelectedFacebookGroupIds(facebookAccountId)
-    : [];
-  const selectedJobQuestionContext = await getSelectedJobQuestionContextForTab(sender.tab?.id);
-  const selectedJobDescriptionId = selectedJobQuestionContext?.jobDescriptionId ?? null;
-  const facebookContentDraft = channels.includes('FACEBOOK')
-    ? await getFacebookContentDraft({
-      recruitmentId: amisRecruitmentId,
-      tabId: sender.tab?.id,
-      jobDescriptionId: selectedJobDescriptionId,
-      snapshot: snapshot as AmisJobSnapshot,
-    })
-    : null;
-  const facebookContentForPublish = facebookContentDraft?.content.trim() ?? '';
-  const autoSyncKey = buildAutoSyncKey(
-    amisRecruitmentId as string,
-    channels,
-    facebookTargetIds,
-    facebookContentForPublish,
-    selectedJobDescriptionId,
-  );
-  if (activeAutoSyncKeys.has(autoSyncKey)) {
+  const context = await buildAmisAutoSyncContext(capture, enrichedCapture, sender);
+  if (activeAutoSyncKeys.has(context.autoSyncKey)) {
     await appendAmisDiagnostic({
       type: 'BACKGROUND_RECEIVED_CAPTURE',
       pageUrl: capture.url,
       timestamp: new Date().toISOString(),
       details: {
         duplicateIgnored: true,
-        amisRecruitmentId,
-        channels,
-        facebookTargetIds,
+        amisRecruitmentId: context.amisRecruitmentId,
+        channels: context.channels,
+        facebookTargetIds: context.facebookTargetIds,
       },
     });
     return;
   }
 
-  activeAutoSyncKeys.add(autoSyncKey);
+  activeAutoSyncKeys.add(context.autoSyncKey);
+  try {
+    await runAmisAutoSync(context);
+  } finally {
+    activeAutoSyncKeys.delete(context.autoSyncKey);
+  }
+}
+
+async function saveEnrichedAmisCapture(
+  originalCapture: AmisExtractionResult,
+  enrichedCapture: AmisExtractionResult,
+) {
+  if (enrichedCapture === originalCapture) return;
+  await saveLastAmisCapture(enrichedCapture);
+  await appendAmisDiagnostic({
+    type: 'BACKGROUND_RECEIVED_CAPTURE',
+    pageUrl: enrichedCapture.url,
+    timestamp: new Date().toISOString(),
+    details: {
+      domFallbackMerged: true,
+      originalMissingFields: originalCapture.missingFields,
+      mergedMissingFields: enrichedCapture.missingFields,
+    },
+  });
+}
+
+function isCompleteAmisCapture(capture: AmisExtractionResult): capture is AmisExtractionResult & {
+  amisRecruitmentId: string;
+  snapshot: AmisJobSnapshot;
+} {
+  return Boolean(capture.detected && capture.snapshot && capture.amisRecruitmentId && capture.missingFields.length === 0);
+}
+
+async function buildAmisAutoSyncContext(
+  sourceCapture: AmisExtractionResult,
+  capture: AmisExtractionResult & { amisRecruitmentId: string; snapshot: AmisJobSnapshot },
+  sender: ChromeMessageSender,
+): Promise<AmisAutoSyncContext> {
+  const channels = await getSelectedChannels();
+  const facebookEnabled = channels.includes('FACEBOOK');
+  const facebookAccountId = facebookEnabled ? await getActiveFacebookAccountId() : null;
+  const facebookTargetIds = facebookEnabled ? await getSelectedFacebookGroupIds(facebookAccountId) : [];
+  const selectedJobQuestionContext = await getSelectedJobQuestionContextForTab(sender.tab?.id);
+  const selectedJobDescriptionId = selectedJobQuestionContext?.jobDescriptionId ?? null;
+  const facebookContentDraft = facebookEnabled
+    ? await getFacebookContentDraft({
+      recruitmentId: capture.amisRecruitmentId,
+      tabId: sender.tab?.id,
+      jobDescriptionId: selectedJobDescriptionId,
+      snapshot: capture.snapshot,
+    })
+    : null;
+  const facebookContentForPublish = facebookContentDraft?.content.trim() ?? '';
+
+  return {
+    sourceCapture,
+    capture,
+    sender,
+    amisRecruitmentId: capture.amisRecruitmentId,
+    snapshot: capture.snapshot,
+    channels,
+    facebookAccountId,
+    facebookTargetIds,
+    selectedJobQuestionContext,
+    selectedJobDescriptionId,
+    facebookContentForPublish,
+    autoSyncKey: buildAutoSyncKey(
+      capture.amisRecruitmentId,
+      channels,
+      facebookTargetIds,
+      facebookContentForPublish,
+      selectedJobDescriptionId,
+    ),
+  };
+}
+
+async function runAmisAutoSync(context: AmisAutoSyncContext) {
+  const { capture, channels } = context;
+  await saveLastAutoSyncState(buildAutoSyncState({
+    status: 'SYNCING',
+    capture,
+    channels,
+  }));
+
+  const accessToken = await getAccessToken();
+  if (!accessToken) {
+    await saveLastAutoSyncState(buildAutoSyncState({
+      status: 'AUTH_REQUIRED',
+      capture,
+      channels,
+      error: {
+        code: 'AUTH_REQUIRED',
+        message: 'Sign in to the extension before publishing from AMIS.',
+      },
+    }));
+    return;
+  }
 
   try {
-    await saveLastAutoSyncState(buildAutoSyncState({
-      status: 'SYNCING',
-      capture: enrichedCapture,
-      channels,
-    }));
-
-    const accessToken = await getAccessToken();
-    if (!accessToken) {
-      await saveLastAutoSyncState(buildAutoSyncState({
-        status: 'AUTH_REQUIRED',
-        capture: enrichedCapture,
-        channels,
-        error: {
-          code: 'AUTH_REQUIRED',
-          message: 'Sign in to the extension before publishing from AMIS.',
-        },
-      }));
+    const result = await syncAmisCaptureToBackend(context, accessToken);
+    if (context.channels.includes('FACEBOOK') && result.facebookPublishPlan) {
+      await publishFacebookAutoSync(context, accessToken, result);
       return;
     }
 
-    try {
-      await heartbeatExtensionInstance(accessToken as string);
-      if (!resolveSelectedVcsJobDescriptionId(selectedJobDescriptionId)) {
-        throw new Error('JOB_DESCRIPTION_REQUIRED: Select an existing VCS Job Description before saving an AMIS recruitment.');
-      }
-      const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(sender.tab?.id ?? 0);
-      const result = await syncAndPublishAmisJob(
-        accessToken as string,
-        await buildSyncPayload(
-          { ...enrichedCapture, amisRecruitmentId: amisRecruitmentId as string, snapshot: snapshot as AmisJobSnapshot },
-          channels,
-          facebookTargetIds,
-          selectedQuestionIds,
-          facebookContentForPublish,
-          facebookAccountId,
-          selectedJobQuestionContext,
-        ),
-      );
-
-      if (channels.includes('FACEBOOK') && result.facebookPublishPlan) {
-        const resolvedFacebookPublishPlan = await resolveFacebookPublishPlanContent(
-          result.facebookPublishPlan!,
-          { ...enrichedCapture, amisRecruitmentId: amisRecruitmentId as string, snapshot: snapshot as AmisJobSnapshot },
-          facebookContentForPublish,
-        );
-        const facebookImageScope = {
-          recruitmentId: amisRecruitmentId,
-          jobDescriptionId: selectedJobQuestionContext?.jobDescriptionId ?? null,
-          snapshotFingerprint: buildFacebookDraftSnapshotFingerprint(snapshot as AmisJobSnapshot),
-        };
-        let facebookPublishPlan = resolvedFacebookPublishPlan;
-        try {
-          const imageAttachments = await getFacebookImageAttachments(facebookImageScope);
-          await appendAmisDiagnostic({
-            type: 'FACEBOOK_IMAGE_ATTACHMENTS_RESOLVED',
-            pageUrl: enrichedCapture.url,
-            timestamp: new Date().toISOString(),
-            details: {
-              attachmentCount: imageAttachments.length,
-              recruitmentId: facebookImageScope.recruitmentId,
-              jobDescriptionId: facebookImageScope.jobDescriptionId,
-            },
-          });
-          if (imageAttachments.length > 0) {
-            facebookPublishPlan = {
-              ...resolvedFacebookPublishPlan,
-              attachments: imageAttachments.slice(0, FACEBOOK_MAX_IMAGE_ATTACHMENTS),
-            };
-            await beginFacebookImagePublish(
-              facebookImageScope,
-              resolvedFacebookPublishPlan.jobPostingId,
-              resolvedFacebookPublishPlan.targets,
-            );
-          }
-        } catch (error) {
-          const message = toExtensionErrorMessage(error, 'Facebook image attachments could not be loaded.');
-          await appendAmisDiagnostic({
-            type: 'FACEBOOK_IMAGE_ATTACHMENTS_RESOLVED',
-            pageUrl: enrichedCapture.url,
-            timestamp: new Date().toISOString(),
-            details: {
-              attachmentCount: null,
-              recruitmentId: facebookImageScope.recruitmentId,
-              jobDescriptionId: facebookImageScope.jobDescriptionId,
-              error: message,
-            },
-          });
-          throw new Error(`FB_IMAGE_ATTACHMENT_STORE_FAILED: ${message}`);
-        }
-        const resultForFacebookPublish = {
-          ...result,
-          facebookPublishPlan,
-        };
-
-        await saveLastAutoSyncState(buildAutoSyncState({
-          status: 'SYNCING',
-          capture: enrichedCapture,
-          channels,
-          result: resultForFacebookPublish,
-        }));
-
-        const facebookResults = await publishFacebookPlan(accessToken as string, facebookPublishPlan!, {
-          onProgress: (progress) => {
-            void saveLastFacebookPublishProgress(progress);
-          },
-        });
-        if (facebookPublishPlan.attachments?.length) {
-          try {
-            await syncFacebookImagePublishStatuses(facebookResults.map((publishResult) => {
-              const target = facebookPublishPlan.targets.find((candidate) => (
-                candidate.targetId === publishResult.targetId
-                  || candidate.targetUrl === publishResult.targetUrl
-                  || candidate.targetName === publishResult.targetName
-              ));
-              return {
-                jobPostingId: facebookPublishPlan.jobPostingId,
-                targetId: publishResult.targetId,
-                targetExternalId: target?.targetExternalId ?? null,
-                targetName: publishResult.targetName,
-                targetUrl: publishResult.targetUrl ?? target?.targetUrl ?? null,
-                facebookReviewStatus: publishResult.facebookReviewStatus ?? 'UNKNOWN',
-              };
-            }));
-          } catch {
-            // Facebook results remain authoritative if local attachment cleanup fails.
-          }
-        }
-        const resultWithFacebookStatus = updateFacebookChannelStatus(resultForFacebookPublish, facebookResults);
-        const facebookSummary = summarizeFacebookPublishResults(facebookResults);
-        if (facebookSummary.successCount > 0) {
-          await clearStoredFacebookContentDraft({
-            recruitmentId: amisRecruitmentId,
-            tabId: sender.tab?.id,
-            jobDescriptionId: selectedJobQuestionContext?.jobDescriptionId,
-            snapshot: snapshot as AmisJobSnapshot,
-          });
-        }
-
-        await saveLastAutoSyncState(buildAutoSyncState({
-          status: facebookSummary.successCount > 0 ? 'SUCCESS' : 'ERROR',
-          capture: enrichedCapture,
-          channels,
-          result: resultWithFacebookStatus,
-          error: facebookSummary.successCount > 0
-            ? undefined
-            : {
-                code: 'FACEBOOK_PUBLISH_FAILED',
-                message: facebookSummary.message,
-              },
-        }));
-        return;
-      }
-
-      await saveLastAutoSyncState(buildAutoSyncState({
-        status: 'SUCCESS',
-        capture: enrichedCapture,
-        channels,
-        result,
-      }));
-    } catch (error) {
-      const apiError = error as ApiClientError;
-      if (apiError.status === 401) {
-        await clearAccessToken();
-        await saveLastAutoSyncState(buildAutoSyncState({
-          status: 'AUTH_REQUIRED',
-          capture: enrichedCapture,
-          channels,
-          error: {
-            code: apiError.code,
-            message: apiError.message,
-            status: apiError.status,
-          },
-        }));
-        return;
-      }
-
-      await saveLastAutoSyncState(buildAutoSyncState({
-        status: 'ERROR',
-        capture: enrichedCapture,
-        channels,
-        error: toAutoSyncError(error),
-      }));
-    }
-  } finally {
-    activeAutoSyncKeys.delete(autoSyncKey);
+    await saveLastAutoSyncState(buildAutoSyncState({
+      status: 'SUCCESS',
+      capture,
+      channels,
+      result,
+    }));
+  } catch (error) {
+    await saveAmisAutoSyncError(context, error);
   }
+}
+
+async function syncAmisCaptureToBackend(
+  context: AmisAutoSyncContext,
+  accessToken: string,
+): Promise<Awaited<ReturnType<typeof syncAndPublishAmisJob>>> {
+  await heartbeatExtensionInstance(accessToken);
+  if (!resolveSelectedVcsJobDescriptionId(context.selectedJobDescriptionId)) {
+    throw new Error('JOB_DESCRIPTION_REQUIRED: Select an existing VCS Job Description before saving an AMIS recruitment.');
+  }
+  const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(context.sender.tab?.id ?? 0);
+  return syncAndPublishAmisJob(
+    accessToken,
+    await buildSyncPayload(
+      context.capture,
+      context.channels,
+      context.facebookTargetIds,
+      selectedQuestionIds,
+      context.facebookContentForPublish,
+      context.facebookAccountId,
+      context.selectedJobQuestionContext,
+    ),
+  );
+}
+
+async function publishFacebookAutoSync(
+  context: AmisAutoSyncContext,
+  accessToken: string,
+  result: Awaited<ReturnType<typeof syncAndPublishAmisJob>>,
+) {
+  const resolvedPlan = await resolveFacebookPublishPlanContent(
+    result.facebookPublishPlan!,
+    context.capture,
+    context.facebookContentForPublish,
+  );
+  const facebookImageScope = {
+    recruitmentId: context.amisRecruitmentId,
+    jobDescriptionId: context.selectedJobQuestionContext?.jobDescriptionId ?? null,
+    snapshotFingerprint: buildFacebookDraftSnapshotFingerprint(context.snapshot),
+  };
+  const imageAttachments = await resolveFacebookImageAttachments(context, facebookImageScope);
+  const facebookPublishPlan = imageAttachments.length > 0
+    ? { ...resolvedPlan, attachments: imageAttachments.slice(0, FACEBOOK_MAX_IMAGE_ATTACHMENTS) }
+    : resolvedPlan;
+
+  if (imageAttachments.length > 0) {
+    await beginFacebookImagePublish(facebookImageScope, resolvedPlan.jobPostingId, resolvedPlan.targets);
+  }
+
+  const resultForFacebookPublish = { ...result, facebookPublishPlan };
+  await saveLastAutoSyncState(buildAutoSyncState({
+    status: 'SYNCING',
+    capture: context.capture,
+    channels: context.channels,
+    result: resultForFacebookPublish,
+  }));
+
+  const facebookResults = await publishFacebookPlan(accessToken, facebookPublishPlan, {
+    onProgress: (progress) => {
+      void saveLastFacebookPublishProgress(progress);
+    },
+  });
+  await syncFacebookAttachmentStatusesIfNeeded(facebookPublishPlan, facebookResults);
+
+  const resultWithFacebookStatus = updateFacebookChannelStatus(resultForFacebookPublish, facebookResults);
+  const facebookSummary = summarizeFacebookPublishResults(facebookResults);
+  if (facebookSummary.successCount > 0) {
+    await clearStoredFacebookContentDraft({
+      recruitmentId: context.amisRecruitmentId,
+      tabId: context.sender.tab?.id,
+      jobDescriptionId: context.selectedJobQuestionContext?.jobDescriptionId,
+      snapshot: context.snapshot,
+    });
+  }
+
+  await saveLastAutoSyncState(buildAutoSyncState({
+    status: facebookSummary.successCount > 0 ? 'SUCCESS' : 'ERROR',
+    capture: context.capture,
+    channels: context.channels,
+    result: resultWithFacebookStatus,
+    error: facebookSummary.successCount > 0
+      ? undefined
+      : {
+        code: 'FACEBOOK_PUBLISH_FAILED',
+        message: facebookSummary.message,
+      },
+  }));
+}
+
+async function resolveFacebookImageAttachments(
+  context: AmisAutoSyncContext,
+  facebookImageScope: { recruitmentId: string; jobDescriptionId: string | null; snapshotFingerprint: string },
+) {
+  try {
+    const imageAttachments = await getFacebookImageAttachments(facebookImageScope);
+    await appendAmisDiagnostic({
+      type: 'FACEBOOK_IMAGE_ATTACHMENTS_RESOLVED',
+      pageUrl: context.capture.url,
+      timestamp: new Date().toISOString(),
+      details: {
+        attachmentCount: imageAttachments.length,
+        recruitmentId: facebookImageScope.recruitmentId,
+        jobDescriptionId: facebookImageScope.jobDescriptionId,
+      },
+    });
+    return imageAttachments;
+  } catch (error) {
+    const message = toExtensionErrorMessage(error, 'Facebook image attachments could not be loaded.');
+    await appendAmisDiagnostic({
+      type: 'FACEBOOK_IMAGE_ATTACHMENTS_RESOLVED',
+      pageUrl: context.capture.url,
+      timestamp: new Date().toISOString(),
+      details: {
+        attachmentCount: null,
+        recruitmentId: facebookImageScope.recruitmentId,
+        jobDescriptionId: facebookImageScope.jobDescriptionId,
+        error: message,
+      },
+    });
+    throw new Error(`FB_IMAGE_ATTACHMENT_STORE_FAILED: ${message}`);
+  }
+}
+
+async function syncFacebookAttachmentStatusesIfNeeded(
+  facebookPublishPlan: FacebookPublishPlan,
+  facebookResults: Awaited<ReturnType<typeof publishFacebookPlan>>,
+) {
+  if (!facebookPublishPlan.attachments?.length) return;
+  try {
+    await syncFacebookImagePublishStatuses(facebookResults.map((publishResult) => {
+      const target = facebookPublishPlan.targets.find((candidate) => (
+        candidate.targetId === publishResult.targetId
+          || candidate.targetUrl === publishResult.targetUrl
+          || candidate.targetName === publishResult.targetName
+      ));
+      return {
+        jobPostingId: facebookPublishPlan.jobPostingId,
+        targetId: publishResult.targetId,
+        targetExternalId: target?.targetExternalId ?? null,
+        targetName: publishResult.targetName,
+        targetUrl: publishResult.targetUrl ?? target?.targetUrl ?? null,
+        facebookReviewStatus: publishResult.facebookReviewStatus ?? 'UNKNOWN',
+      };
+    }));
+  } catch {
+    // Facebook results remain authoritative if local attachment cleanup fails.
+  }
+}
+
+async function saveAmisAutoSyncError(context: AmisAutoSyncContext, error: unknown) {
+  const apiError = error as ApiClientError;
+  if (apiError.status === 401) {
+    await clearAccessToken();
+    await saveLastAutoSyncState(buildAutoSyncState({
+      status: 'AUTH_REQUIRED',
+      capture: context.capture,
+      channels: context.channels,
+      error: {
+        code: apiError.code,
+        message: apiError.message,
+        status: apiError.status,
+      },
+    }));
+    return;
+  }
+
+  await saveLastAutoSyncState(buildAutoSyncState({
+    status: 'ERROR',
+    capture: context.capture,
+    channels: context.channels,
+    error: toAutoSyncError(error),
+  }));
 }
 
 async function handleAmisJobStatusUpdated(

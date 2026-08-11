@@ -73,10 +73,12 @@ import {
 } from '@/stores/facebook-image-attachment-store';
 import { getValidFacebookGroupPostUrl } from '@/features/facebook/facebook-post-url';
 import {
+  ensureFacebookLoginInTab,
   ensureFacebookSession,
   publishFacebookPlan,
   refreshFacebookPostReviewStatus,
   verifyFacebookGroupPostingEligibility,
+  type FacebookAccountIdentity,
 } from '@/features/facebook/facebook-publish-orchestrator';
 import {
   collectFacebookGroupsFromGraphql,
@@ -219,6 +221,8 @@ interface DiscoveredFacebookGroupItem {
 interface FacebookGroupsScanRunResult {
   groups: DiscoveredFacebookGroupItem[];
   scanComplete: boolean;
+  expectedCount?: number | null;
+  account?: FacebookAccountIdentity | null;
 }
 
 interface FacebookGroupsSyncResult {
@@ -238,6 +242,7 @@ interface FacebookGroupSyncDetailItem {
 }
 
 interface FacebookGroupSyncDetails {
+  requested: number;
   accepted: FacebookGroupSyncDetailItem[];
   removed: Array<{ name: string; externalId: string | null }>;
   reactivated: Array<{ name: string; externalId: string | null }>;
@@ -394,6 +399,178 @@ function getExtensionUiZoomIndex(zoom: number) {
   return EXTENSION_UI_ZOOM_LEVELS.reduce((nearestIndex, level, index, levels) => (
     Math.abs(level - zoom) < Math.abs(levels[nearestIndex] - zoom) ? index : nearestIndex
   ), 0);
+}
+
+type AmisTabContextResolution =
+  | { kind: 'OUTSIDE' }
+  | { kind: 'JOB_INITIATION' }
+  | {
+    kind: 'AMIS';
+    context: ReturnType<typeof parseAmisRecruitmentContextFromUrl>;
+    pageKind: string | null;
+  };
+
+async function resolveAmisTabContext(activeTab: { id: number; url?: string }): Promise<AmisTabContextResolution> {
+  const activeTabUrl = activeTab.url;
+  if (!activeTabUrl?.startsWith('https://amisapp.misa.vn/')) return { kind: 'OUTSIDE' };
+  if (isAmisJobInitiationPage(activeTabUrl)) return { kind: 'JOB_INITIATION' };
+
+  const context = parseAmisRecruitmentContextFromUrl(activeTabUrl);
+  let pageKind: string | null = null;
+  if (!context.amisRecruitmentId) {
+    const pageContext = await sendMessageToAmisTab(activeTab.id, {
+      type: GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE,
+    });
+    if (isAmisRecruitmentContextResponse(pageContext)) {
+      pageKind = pageContext.pageKind ?? null;
+      if (pageContext.ok) {
+        context.amisRecruitmentId = pageContext.amisRecruitmentId ?? null;
+        context.amisRecruitmentRoundId = pageContext.amisRecruitmentRoundId ?? null;
+        context.sourceUrl = pageContext.sourceUrl ?? null;
+      }
+    }
+  }
+
+  return { kind: 'AMIS', context, pageKind };
+}
+
+async function buildAmisSourceSelectionMessage(
+  tabId: number,
+  applications: ExtensionApplication[],
+) {
+  const sourceChannels = new Set(applications.map((application) => normalizeAmisSourceChannel(application.sourceChannel)));
+  const uniqueSourceChannel = sourceChannels.size === 1 ? [...sourceChannels][0] : null;
+  const amisSourceName = getAmisSourceName(uniqueSourceChannel);
+  const hasVcsPortalSource = sourceChannels.has('VCSPORTAL');
+
+  if (amisSourceName && (applications.length === 1 || uniqueSourceChannel === 'VCSPORTAL')) {
+    try {
+      const sourceResponse = await sendMessageToAmisTab(tabId, {
+        type: SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE,
+        payload: { sourceName: amisSourceName },
+      }, 0);
+      return isConfirmedAmisCandidateSourceSelection(sourceResponse, amisSourceName)
+        ? ` Đã chọn nguồn ứng viên ${amisSourceName} trên AMIS.`
+        : ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn ${amisSourceName}.${formatAmisCandidateSourceSelectionFailure(sourceResponse)}`;
+    } catch (error) {
+      return ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn ${amisSourceName}. ${toErrorMessage(error)}`;
+    }
+  }
+
+  if (applications.length === 1 && uniqueSourceChannel) {
+    return ` Không tìm thấy mapping nguồn AMIS cho "${applications[0].sourceChannel ?? uniqueSourceChannel}"; extension không tự gán nguồn.`;
+  }
+  if (hasVcsPortalSource) {
+    return ' CV đã được đưa vào form, nhưng không tự chọn nguồn VCS Portal vì lượt đồng bộ có nhiều nguồn khác nhau.';
+  }
+  return '';
+}
+
+async function extractPostingSnapshotFromActiveTab(
+  tabId: number,
+  recruitmentId: string,
+  extractFromDetailApi: (tabId: number, recruitmentId: string) => Promise<AmisExtractionResult | undefined>,
+  extractFromDom: (tabId: number) => Promise<AmisExtractionResult | undefined>,
+) {
+  const apiExtraction = await extractFromDetailApi(tabId, recruitmentId);
+  return apiExtraction?.detected && apiExtraction.missingFields.length === 0
+    ? apiExtraction
+    : extractFromDom(tabId);
+}
+
+type AmisSyncPreconditionInput = {
+  hasToken: boolean;
+  hasSnapshot: boolean;
+  hasRecruitmentId: boolean;
+  missingFieldCount: number;
+  isFacebookImageReading: boolean;
+  hasFacebookImageAttachmentError: boolean;
+  shouldPublishFacebook: boolean;
+  facebookTargetCount: number;
+};
+
+function getAmisSyncPreconditionResult(input: AmisSyncPreconditionInput) {
+  if (!input.hasToken || !input.hasSnapshot || !input.hasRecruitmentId || input.missingFieldCount > 0) return 'SKIP';
+  if (input.isFacebookImageReading) return 'Vui lòng chờ ảnh upload được xử lý xong trước khi đăng bài.';
+  if (input.hasFacebookImageAttachmentError) return 'Vui lòng bỏ ảnh lỗi hoặc chọn ảnh hợp lệ trước khi đăng bài.';
+  if (input.shouldPublishFacebook && input.facebookTargetCount === 0) {
+    return 'Select at least one Facebook group before publishing.';
+  }
+  return null;
+}
+
+async function resolveAmisSyncFacebookPublishPlan(
+  response: ExtensionSyncResponse,
+  shouldPublishFacebook: boolean,
+  content: string,
+  startFacebookPublish: (plan: FacebookPublishPlan, contentOverride?: string | null) => Promise<FacebookPublishPlan | null>,
+) {
+  if (!response.facebookPublishPlan || !shouldPublishFacebook) {
+    return { publishedFacebookPlan: null, confirmedFacebookContent: null };
+  }
+
+  const publishedFacebookPlan = await startFacebookPublish(response.facebookPublishPlan, content);
+  return {
+    publishedFacebookPlan,
+    confirmedFacebookContent: publishedFacebookPlan?.content ?? response.facebookPublishPlan.content,
+  };
+}
+
+type FacebookPublishResultItem = FacebookPublishProgress['results'][number];
+
+function getFacebookPublishDisplayTargets(
+  selectedTargets: FacebookGroupUiItem[],
+  resultTargets: FacebookGroupUiItem[],
+  progressResults: FacebookPublishResultItem[],
+) {
+  if (selectedTargets.length > 0) return selectedTargets;
+  if (resultTargets.length > 0) return resultTargets;
+  return progressResults.map((item) => ({
+    key: item.targetId ?? item.targetUrl ?? item.targetName,
+    id: item.targetId ?? null,
+    name: item.targetName,
+    url: item.targetUrl,
+    eligibilityStatus: 'UNKNOWN' as const,
+    eligibilityReason: null,
+    quotaLabel: null,
+    selectable: false,
+    disabledReason: null,
+  }));
+}
+
+function getFacebookPublishResultStatus(
+  progress: FacebookPublishResultItem | undefined,
+  channelStatus: FacebookPublishProgress['status'] | undefined,
+) {
+  const isFailed = progress?.status === 'FAILED'
+    || progress?.status === 'SKIPPED'
+    || channelStatus === 'PARTIAL_SUCCESS'
+    || channelStatus === 'ERROR';
+  if (progress?.status === 'SUCCESS') return { className: 'is-posted', label: 'Đã đăng' };
+  if (isFailed) return { className: 'is-failed', label: 'Đăng lỗi' };
+  return { className: 'is-posting', label: 'Đang đăng' };
+}
+
+function getFacebookPublishChannelStatus(progress: FacebookPublishProgress | null) {
+  if (progress?.status === 'SUCCESS') return { className: 'is-posted', label: 'Đã đăng' };
+  if (progress?.status === 'PARTIAL_SUCCESS' || progress?.status === 'ERROR') {
+    return { className: 'is-failed', label: 'Đăng lỗi' };
+  }
+  return { className: 'is-processing', label: 'Đang đăng' };
+}
+
+function renderFacebookPublishResultRow(
+  group: FacebookGroupUiItem,
+  progress: FacebookPublishResultItem | undefined,
+  channelStatus: FacebookPublishProgress['status'] | undefined,
+) {
+  const status = getFacebookPublishResultStatus(progress, channelStatus);
+  return (
+    <div className="facebook-publish-result-row" key={group.key}>
+      <span className="facebook-publish-result-name" title={group.name}>{group.name}</span>
+      <span className={`facebook-publish-result-state ${status.className}`}>{status.label}</span>
+    </div>
+  );
 }
 
 function SidePanel() {
@@ -573,6 +750,7 @@ function SidePanel() {
   const tokenRef = useRef<string | null>(null);
   const channelsRef = useRef<ExtensionChannel[]>(channels);
   const facebookGroupsRef = useRef<FacebookPublishTarget[]>(facebookGroups);
+  const facebookGroupScanTabIdRef = useRef<number | null>(null);
   const facebookGroupSearchInputRef = useRef<HTMLInputElement | null>(null);
   const facebookSettingsGroupSearchInputRef = useRef<HTMLInputElement | null>(null);
   const extensionToastSequenceRef = useRef(0);
@@ -1040,8 +1218,9 @@ function SidePanel() {
     facebookIneligiblePageCount,
   );
   const facebookIneligibleTotalItems = facebookIneligibleGroups.length;
-  const facebookIneligibleTotalGroupCount = facebookIneligibleTotalItems
-    + (facebookGroupSyncDetails?.accepted.length ?? 0);
+  const facebookIneligibleTotalGroupCount = facebookGroupSyncDetails?.requested
+    ?? (facebookIneligibleTotalItems
+      + (facebookGroupSyncDetails?.accepted.length ?? 0));
   const facebookIneligibleVisibleStart = facebookIneligibleTotalItems === 0
     ? 0
     : ((currentFacebookIneligiblePage - 1) * FACEBOOK_INELIGIBLE_PAGE_SIZE) + 1;
@@ -1819,7 +1998,8 @@ function SidePanel() {
       const activeTab = await getActiveTab();
       if (options.sourceTabId !== undefined && activeTab.id !== options.sourceTabId) return;
 
-      if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+      const resolution = await resolveAmisTabContext(activeTab);
+      if (resolution.kind === 'OUTSIDE') {
         lastAmisJobInitiationResetKeyRef.current = null;
         missedRecruitmentContextCountRef.current = 0;
         setActiveAmisCandidateId(null);
@@ -1827,7 +2007,7 @@ function SidePanel() {
         return;
       }
 
-      if (isAmisJobInitiationPage(activeTab.url)) {
+      if (resolution.kind === 'JOB_INITIATION') {
         missedRecruitmentContextCountRef.current = 0;
         await resetSelectedJobDescriptionForAmisJobInitiation(activeTab);
         setActiveAmisCandidateId(null);
@@ -1836,22 +2016,8 @@ function SidePanel() {
       }
 
       lastAmisJobInitiationResetKeyRef.current = null;
-      const context = parseAmisRecruitmentContextFromUrl(activeTab.url);
+      const { context, pageKind } = resolution;
       setActiveAmisCandidateId(context.amisCandidateId);
-      let pageKind: string | null = null;
-      if (!context.amisRecruitmentId) {
-        const pageContext = await sendMessageToAmisTab(activeTab.id, {
-          type: GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE,
-        });
-        if (isAmisRecruitmentContextResponse(pageContext)) {
-          pageKind = pageContext.pageKind ?? null;
-        }
-        if (isAmisRecruitmentContextResponse(pageContext) && pageContext.ok) {
-          context.amisRecruitmentId = pageContext.amisRecruitmentId ?? null;
-          context.amisRecruitmentRoundId = pageContext.amisRecruitmentRoundId ?? null;
-          context.sourceUrl = pageContext.sourceUrl ?? null;
-        }
-      }
 
       if (!context.amisRecruitmentId) {
         missedRecruitmentContextCountRef.current += 1;
@@ -1863,7 +2029,7 @@ function SidePanel() {
           return;
         }
 
-        if (pageKind === 'LIST' || !isLikelyAmisRecruitmentPage(activeTab.url) || missedRecruitmentContextCountRef.current >= 2) {
+        if (pageKind === 'LIST' || !isLikelyAmisRecruitmentPage(activeTab.url ?? '') || missedRecruitmentContextCountRef.current >= 2) {
           setActiveAmisRecruitmentContext(null, null);
         }
         return;
@@ -2218,36 +2384,7 @@ function SidePanel() {
       }
 
       registerPendingAmisUploads(uploadableApplications);
-      const sourceChannels = new Set(uploadableApplications.map((application) =>
-        normalizeAmisSourceChannel(application.sourceChannel),
-      ));
-      const uniqueSourceChannel = sourceChannels.size === 1
-        ? [...sourceChannels][0]
-        : null;
-      const amisSourceName = getAmisSourceName(uniqueSourceChannel);
-      const hasVcsPortalSource = sourceChannels.has('VCSPORTAL');
-      let sourceSelectionMessage = '';
-
-      if (amisSourceName && (uploadableApplications.length === 1 || uniqueSourceChannel === 'VCSPORTAL')) {
-        try {
-          const sourceResponse = await sendMessageToAmisTab(activeTab.id, {
-            type: SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE,
-            payload: { sourceName: amisSourceName },
-          }, 0);
-          sourceSelectionMessage = isConfirmedAmisCandidateSourceSelection(
-            sourceResponse,
-            amisSourceName,
-          )
-            ? ` Đã chọn nguồn ứng viên ${amisSourceName} trên AMIS.`
-            : ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn ${amisSourceName}.${formatAmisCandidateSourceSelectionFailure(sourceResponse)}`;
-        } catch (error) {
-          sourceSelectionMessage = ` CV đã được đưa vào form, nhưng chưa thể tự chọn nguồn ${amisSourceName}. ${toErrorMessage(error)}`;
-        }
-      } else if (uploadableApplications.length === 1 && uniqueSourceChannel) {
-        sourceSelectionMessage = ` Không tìm thấy mapping nguồn AMIS cho "${uploadableApplications[0].sourceChannel ?? uniqueSourceChannel}"; extension không tự gán nguồn.`;
-      } else if (hasVcsPortalSource) {
-        sourceSelectionMessage = ' CV đã được đưa vào form, nhưng không tự chọn nguồn VCS Portal vì lượt đồng bộ có nhiều nguồn khác nhau.';
-      }
+      const sourceSelectionMessage = await buildAmisSourceSelectionMessage(activeTab.id, uploadableApplications);
 
       setApplicationsMessage(
         `Đã đưa ${response.fileCount ?? cleanCvs.length} CV vào form AMIS.${sourceSelectionMessage} Vui lòng bấm Lưu trên AMIS để hoàn tất.`,
@@ -2369,13 +2506,12 @@ function SidePanel() {
     postingSnapshotRefreshAttemptsRef.current.set(attemptKey, attempts + 1);
 
     try {
-      const apiExtraction = await extractAmisJobFromDetailApiInActiveTab(
+      const extraction = await extractPostingSnapshotFromActiveTab(
         activeTab.id,
         normalizedRecruitmentId,
+        extractAmisJobFromDetailApiInActiveTab,
+        extractAmisJobFromDomInActiveTab,
       );
-      const extraction = apiExtraction?.detected && apiExtraction.missingFields.length === 0
-        ? apiExtraction
-        : await extractAmisJobFromDomInActiveTab(activeTab.id);
       if (
         !extraction ||
         refreshSeq !== postingSnapshotRefreshSeqRef.current ||
@@ -3012,34 +3148,11 @@ function SidePanel() {
 
   async function syncFacebookGroupsFromBrowser(
     accessToken: string,
-    options: { sessionReady?: boolean } = {},
   ): Promise<FacebookGroupsSyncResult> {
     setFacebookGroupSyncDetails(null);
     setFacebookIneligiblePage(1);
     setFacebookGroupDiagnostic(null);
     let activeAccount = facebookAccount;
-    if (!options.sessionReady) {
-      setFacebookGroupLoadState('CHECKING_LOGIN');
-      setFacebookGroupMessage('Đang kiểm tra đăng nhập Facebook ở trình duyệt này.');
-
-      const session = await ensureFacebookSession({
-        onStatus: (event) => {
-          setFacebookGroupLoadState(event.status === 'READY' ? 'LOADING_GROUPS' : event.status);
-          setFacebookGroupMessage(event.message);
-        },
-      });
-      if (!session.account) {
-        throw new Error('Could not identify the logged-in Facebook account. Please refresh Facebook and try again.');
-      }
-      activeAccount = await resolveFacebookAccount(accessToken, session.account);
-      setFacebookAccount(activeAccount);
-      await setActiveFacebookAccountId(activeAccount.id);
-    }
-
-    if (!activeAccount) {
-      throw new Error('Facebook account is not resolved. Please check Facebook login again.');
-    }
-
     setFacebookGroupLoadState('LOADING_GROUPS');
     setFacebookGroupMessage('Đang quét danh sách nhóm đã tham gia trên Facebook...');
 
@@ -3049,8 +3162,19 @@ function SidePanel() {
         if (message.includes('[FB_GQL_')) setFacebookGroupDiagnostic(message);
         setFacebookGroupMessage(message);
       },
-      { ensureSession: false, expectedFacebookExternalId: activeAccount.facebookExternalId },
+      { ensureSession: false, expectedFacebookExternalId: activeAccount?.facebookExternalId },
     );
+
+    if (!activeAccount && scanResult.account) {
+      activeAccount = await resolveFacebookAccount(accessToken, scanResult.account);
+      setFacebookAccount(activeAccount);
+      await setActiveFacebookAccountId(activeAccount.id);
+    }
+
+    if (!activeAccount) {
+      throw new Error('Facebook account is not resolved. Please complete Facebook login and try again.');
+    }
+
     const discoveredGroups = scanResult.groups;
 
     let discoverySummary: string | null = null;
@@ -3208,32 +3332,72 @@ function SidePanel() {
       });
     }
 
-    const tabs = await chrome.tabs?.query({ currentWindow: true }) as Array<ChromeTab & { active?: boolean }> ?? [];
-    const [activeTab] = tabs.filter((candidate) => candidate.active === true);
-    const existingFacebookTab = tabs.find((candidate) => isFacebookPageUrl(candidate.url));
-    const useActiveFacebookTab = isFacebookPageUrl(activeTab?.url);
-    const useExistingFacebookTab = Boolean(existingFacebookTab?.id);
-    const tab = existingFacebookTab
-      ? existingFacebookTab
-      : await chrome.tabs?.create({
-        url: 'about:blank',
-        active: false,
-      });
+    const previousTabId = facebookGroupScanTabIdRef.current;
+    const previousTab = previousTabId !== null && chrome.tabs?.get
+      ? await chrome.tabs.get(previousTabId).catch(() => null)
+      : null;
+    const tab = previousTab ?? await chrome.tabs?.create({ url: 'about:blank', active: false });
     if (!tab?.id) {
       throw new Error('Không thể mở tab danh sách nhóm Facebook.');
     }
+    facebookGroupScanTabIdRef.current = tab.id;
 
+    let closeAfterScan = false;
     try {
-      const graphqlResult = options.expectedFacebookExternalId
+      await chrome.tabs?.update(tab.id, {
+        url: 'https://www.facebook.com/groups/joins/?nav_source=tab',
+        active: false,
+      });
+      await waitForTabComplete(tab.id);
+
+      const account = await ensureFacebookLoginInTab(tab.id, {
+        onStatus: (event) => {
+          if (event.status !== 'READY') onMessage?.(event.message);
+        },
+      });
+      const expectedFacebookExternalId = options.expectedFacebookExternalId ?? account?.facebookExternalId;
+
+      const graphqlResult = expectedFacebookExternalId
         ? await collectFacebookGroupsFromGraphql(
           tab.id,
-          options.expectedFacebookExternalId,
+          expectedFacebookExternalId,
           onMessage,
-          { activateTab: useActiveFacebookTab },
+          { activateTab: false },
         )
         : null;
       if (graphqlResult) {
-        return mapGraphqlScanResult(graphqlResult);
+        let pageScanResult: FacebookGroupsScanRunResult | null = null;
+        try {
+          await waitForTabComplete(tab.id);
+          await sleep(3_000);
+          pageScanResult = await runScriptInTab<FacebookGroupsScanRunResult>(tab.id, collectFacebookGroupsFromPage);
+        } catch (error) {
+          onMessage?.(`[FB_GQL_VALIDATION] Không thể đối chiếu DOM với GraphQL: ${toErrorMessage(error)}`);
+        }
+
+        const mergedGroups = uniqueDiscoveredGroups([
+          ...graphqlResult.groups,
+          ...(pageScanResult?.groups ?? []),
+        ]);
+        // GraphQL is the authoritative source for this scan. DOM extraction is
+        // only a best-effort cross-check because the hidden tab may not expose
+        // the same rendered list as an active Facebook tab.
+        const scanComplete = graphqlResult.scanComplete;
+        if (scanComplete) {
+          onMessage?.(`Đã xác nhận đủ ${mergedGroups.length} nhóm bằng GraphQL.`);
+        } else {
+          onMessage?.(
+            `[FB_GQL_VALIDATION] GraphQL=${graphqlResult.groups.length}/${graphqlResult.expectedCount ?? '?'}; `
+            + `DOM=${pageScanResult?.groups.length ?? 0}/${pageScanResult?.expectedCount ?? '?'}; merged=${mergedGroups.length}; `
+            + `graphqlComplete=${String(graphqlResult.scanComplete)}; domComplete=${String(pageScanResult?.scanComplete === true)}.`,
+          );
+        }
+
+        closeAfterScan = scanComplete;
+        if (!closeAfterScan) {
+          onMessage?.('Quét chưa xác nhận đủ danh sách; tab Facebook được giữ lại để tiếp tục kiểm tra.');
+        }
+        return mapGraphqlScanResult({ ...graphqlResult, groups: mergedGroups, scanComplete }, account);
       }
 
       await chrome.tabs?.update(tab.id, {
@@ -3244,12 +3408,23 @@ function SidePanel() {
       await sleep(1_000);
 
       const scanResult = await runScriptInTab<FacebookGroupsScanRunResult>(tab.id, collectFacebookGroupsFromPage);
+      closeAfterScan = scanResult.scanComplete === true;
+      if (!closeAfterScan) {
+        onMessage?.('Quét trang chưa hoàn tất; tab Facebook được giữ lại để tiếp tục kiểm tra.');
+      }
       return {
         groups: uniqueDiscoveredGroups(scanResult.groups ?? []),
         scanComplete: scanResult.scanComplete === true,
+        expectedCount: scanResult.expectedCount,
+        account,
       };
     } finally {
-      if (!useExistingFacebookTab) await closeTabSafely(tab.id);
+      if (closeAfterScan) {
+        await closeTabSafely(tab.id);
+        if (facebookGroupScanTabIdRef.current === tab.id) {
+          facebookGroupScanTabIdRef.current = null;
+        }
+      }
     }
   }
 
@@ -3408,41 +3583,24 @@ function SidePanel() {
         return;
       }
 
-      let postedCount = 0;
-      let rejectedCount = 0;
-      let deletedCount = 0;
-      let unresolvedCount = 0;
-      let issueCount = 0;
-
-      for (let index = 0; index < itemsToRefresh.length; index += 1) {
-        const item = itemsToRefresh[index];
-        setFacebookHistoryMessage(`Đang kiểm tra ${index + 1}/${itemsToRefresh.length}: ${item.title}`);
-
-        try {
-          const statusCheck = await refreshFacebookPostReviewStatus(item);
-          await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
-          await syncFacebookImageStatusFromHistoryItem(item, statusCheck.facebookReviewStatus);
-          if (statusCheck.facebookReviewStatus === 'POSTED') postedCount += 1;
-          else if (statusCheck.facebookReviewStatus === 'REJECTED') rejectedCount += 1;
-          else if (statusCheck.facebookReviewStatus === 'DELETED') deletedCount += 1;
-          else unresolvedCount += 1;
-        } catch (err) {
-          if (err instanceof ApiClientError && err.status === 401) {
-            await clearAccessToken();
-            setToken(null);
-            setUser(null);
-            setState('AUTH_REQUIRED');
-            setFacebookHistoryMessage('Authentication expired. Sign in again before refreshing Facebook history.');
-            return;
-          }
-
-          issueCount += 1;
-        }
+      const refreshSummary = await refreshFacebookHistoryItems(
+        accessToken,
+        itemsToRefresh,
+        (message) => setFacebookHistoryMessage(message),
+        (item, status) => syncFacebookImageStatusFromHistoryItem(item, status),
+      );
+      if (refreshSummary.authExpired) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        setFacebookHistoryMessage('Authentication expired. Sign in again before refreshing Facebook history.');
+        return;
       }
 
       await loadFacebookPostHistory(group, facebookHistoryFilter, facebookHistoryPage);
       setFacebookHistoryMessage(
-        `Đã kiểm tra ${itemsToRefresh.length} bài. ${postedCount} đã đăng, ${rejectedCount} bị từ chối, ${deletedCount} đã xóa, ${unresolvedCount} chưa xác định/chờ duyệt${issueCount ? `, ${issueCount} lỗi` : ''}.`,
+        `Đã kiểm tra ${itemsToRefresh.length} bài. ${refreshSummary.postedCount} đã đăng, ${refreshSummary.rejectedCount} bị từ chối, ${refreshSummary.deletedCount} đã xóa, ${refreshSummary.unresolvedCount} chưa xác định/chờ duyệt${refreshSummary.issueCount ? `, ${refreshSummary.issueCount} lỗi` : ''}.`,
       );
     } catch (err) {
       setFacebookHistoryMessage(toErrorMessage(err));
@@ -3474,6 +3632,46 @@ function SidePanel() {
     }
 
     return [...new Map(items.map((item) => [item.id, item])).values()];
+  }
+
+  async function refreshFacebookHistoryItems(
+    accessToken: string,
+    items: FacebookPublishHistoryListItem[],
+    onProgress: (message: string) => void,
+    syncImageStatus: (item: FacebookPublishHistoryListItem, status: FacebookReviewStatus) => Promise<void>,
+  ) {
+    const summary = {
+      postedCount: 0,
+      rejectedCount: 0,
+      deletedCount: 0,
+      unresolvedCount: 0,
+      issueCount: 0,
+      authExpired: false,
+    };
+
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      onProgress(`Đang kiểm tra ${index + 1}/${items.length}: ${item.title}`);
+
+      try {
+        const statusCheck = await refreshFacebookPostReviewStatus(item);
+        await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
+        await syncImageStatus(item, statusCheck.facebookReviewStatus);
+        if (statusCheck.facebookReviewStatus === 'POSTED') summary.postedCount += 1;
+        else if (statusCheck.facebookReviewStatus === 'REJECTED') summary.rejectedCount += 1;
+        else if (statusCheck.facebookReviewStatus === 'DELETED') summary.deletedCount += 1;
+        else summary.unresolvedCount += 1;
+      } catch (err) {
+        if (err instanceof ApiClientError && err.status === 401) {
+          summary.authExpired = true;
+          return summary;
+        }
+
+        summary.issueCount += 1;
+      }
+    }
+
+    return summary;
   }
 
   function closeFacebookGroupActionModal() {
@@ -3855,24 +4053,26 @@ function SidePanel() {
   }
 
   async function sync() {
-    if (!token || !snapshot || !amisRecruitmentId || missingFields.length > 0) return;
-    if (isFacebookImageReading) {
-      setError('Vui lòng chờ ảnh upload được xử lý xong trước khi đăng bài.');
-      setState('ERROR');
-      return;
-    }
-    if (hasFacebookImageAttachmentError) {
-      setError('Vui lòng bỏ ảnh lỗi hoặc chọn ảnh hợp lệ trước khi đăng bài.');
-      setState('ERROR');
-      return;
-    }
-    const facebookTargetIds = selectedPostingChannels.includes('FACEBOOK') ? selectedFacebookGroupIds : [];
-    if (selectedPostingChannels.includes('FACEBOOK') && facebookTargetIds.length === 0) {
-      setError('Select at least one Facebook group before publishing.');
-      setState('ERROR');
-      return;
-    }
     const shouldPublishFacebook = selectedPostingChannels.includes('FACEBOOK');
+    const preconditionError = getAmisSyncPreconditionResult({
+      hasToken: Boolean(token),
+      hasSnapshot: Boolean(snapshot),
+      hasRecruitmentId: Boolean(amisRecruitmentId),
+      missingFieldCount: missingFields.length,
+      isFacebookImageReading,
+      hasFacebookImageAttachmentError,
+      shouldPublishFacebook,
+      facebookTargetCount: selectedFacebookGroupIds.length,
+    });
+    if (preconditionError === 'SKIP') return;
+    if (preconditionError) {
+      setError(preconditionError);
+      setState('ERROR');
+      return;
+    }
+
+    const accessToken = token;
+    if (!accessToken || !snapshot || !amisRecruitmentId) return;
     let facebookContentForPublish = shouldPublishFacebook
       ? getEffectiveFacebookContent()
       : '';
@@ -3895,14 +4095,14 @@ function SidePanel() {
     setError(null);
 
     try {
-      const response = await syncAndPublishAmisJob(token, payload);
+      const response = await syncAndPublishAmisJob(accessToken, payload);
       setResult(response);
-      let publishedFacebookPlan: FacebookPublishPlan | null = null;
-      if (response.facebookPublishPlan && shouldPublishFacebook) {
-        publishedFacebookPlan = await startFacebookPublish(response.facebookPublishPlan, facebookContentForPublish);
-      }
-      const confirmedFacebookContent = publishedFacebookPlan?.content
-        ?? response.facebookPublishPlan?.content;
+      const { confirmedFacebookContent } = await resolveAmisSyncFacebookPublishPlan(
+        response,
+        shouldPublishFacebook,
+        facebookContentForPublish,
+        startFacebookPublish,
+      );
       if (confirmedFacebookContent && shouldPublishFacebook) {
         facebookContentRef.current = confirmedFacebookContent;
         if (snapshot) {
@@ -4106,45 +4306,56 @@ function SidePanel() {
     return WORKSPACE_TABS.find((item) => item.id === tab)?.label ?? tab;
   }
 
+  function renderWorkspacePanelHeading(tab: WorkspaceTab, isPinned: boolean, isFlatTab: boolean) {
+    if (isFlatTab) return null;
+    return (
+      <div className="workspace-panel-heading">
+        <div>
+          <p className="workspace-panel-kicker">VCS Recruitment</p>
+          <h2>{tab === 'overview' ? 'VCS Recruitment Posting' : getWorkspaceTabLabel(tab)}</h2>
+        </div>
+        <button
+          type="button"
+          className={`panel-pin-button${isPinned ? ' is-active' : ''}`}
+          title={isPinned ? 'Bỏ ghim màn này' : 'Ghim màn này'}
+          aria-label={isPinned ? 'Bỏ ghim màn này' : 'Ghim màn này'}
+          aria-pressed={isPinned}
+          onClick={() => toggleWorkspacePin(tab)}
+        >
+          <PinIcon filled={isPinned} />
+        </button>
+      </div>
+    );
+  }
+
+  function renderWorkspacePanelContent(tab: WorkspaceTab) {
+    if (tab === 'overview') return renderOverviewPanel();
+    if (tab === 'posting') return renderPostingPanel();
+    if (tab === 'cv') return renderCvPanel();
+    if (tab === 'freelancer' && token) {
+      return (
+        <ReferralManagementPanel
+          source="FREELANCER"
+          accessToken={token}
+          refreshVersion={referralRefreshVersion}
+          onNotify={showExtensionToast}
+          loadRecruitmentRounds={loadReferralRecruitmentRounds}
+        />
+      );
+    }
+    if (tab === 'internal' && token) {
+      return <ReferralManagementPanel source="INTERNAL" accessToken={token} refreshVersion={referralRefreshVersion} onNotify={showExtensionToast} />;
+    }
+    return null;
+  }
+
   function renderWorkspacePanel(tab: WorkspaceTab) {
     const isPinned = pinnedWorkspaceTab === tab;
-    const isFlatTab = tab === 'posting' || tab === 'cv' || tab === 'freelancer' || tab === 'internal';
-
+    const isFlatTab = tab !== 'overview';
     return (
       <section key={tab} className={`workspace-panel workspace-panel-${tab}${isPinned ? ' is-pinned' : ''}${isFlatTab ? ' is-flat' : ''}`}>
-        {!isFlatTab ? (
-          <div className="workspace-panel-heading">
-          <div>
-            <p className="workspace-panel-kicker">VCS Recruitment</p>
-            <h2>{tab === 'overview' ? 'VCS Recruitment Posting' : getWorkspaceTabLabel(tab)}</h2>
-          </div>
-          <button
-            type="button"
-            className={`panel-pin-button${isPinned ? ' is-active' : ''}`}
-            title={isPinned ? 'Bỏ ghim màn này' : 'Ghim màn này'}
-            aria-label={isPinned ? 'Bỏ ghim màn này' : 'Ghim màn này'}
-            aria-pressed={isPinned}
-            onClick={() => toggleWorkspacePin(tab)}
-          >
-            <PinIcon filled={isPinned} />
-          </button>
-          </div>
-        ) : null}
-        {tab === 'overview' ? renderOverviewPanel() : null}
-        {tab === 'posting' ? renderPostingPanel() : null}
-        {tab === 'cv' ? renderCvPanel() : null}
-        {tab === 'freelancer' && token ? (
-          <ReferralManagementPanel
-            source="FREELANCER"
-            accessToken={token}
-            refreshVersion={referralRefreshVersion}
-            onNotify={showExtensionToast}
-            loadRecruitmentRounds={loadReferralRecruitmentRounds}
-          />
-        ) : null}
-        {tab === 'internal' && token ? (
-          <ReferralManagementPanel source="INTERNAL" accessToken={token} refreshVersion={referralRefreshVersion} onNotify={showExtensionToast} />
-        ) : null}
+        {renderWorkspacePanelHeading(tab, isPinned, isFlatTab)}
+        {renderWorkspacePanelContent(tab)}
       </section>
     );
   }
@@ -4331,6 +4542,142 @@ function SidePanel() {
     );
   }
 
+  function renderFacebookHistoryRows(
+    pageItems: FacebookPublishHistoryListItem[],
+    isHistoryBusy: boolean,
+    isLoadingHistory: boolean,
+  ) {
+    if (pageItems.length > 0) {
+      return pageItems.map((item) => {
+        const postUrl = getValidFacebookGroupPostUrl(item.externalPostUrl);
+        return (
+          <tr key={item.id}>
+            <td>{formatDate(item.submittedAt ?? item.createdAt ?? undefined) ?? '-'}</td>
+            <td><span>{item.title}</span></td>
+            <td>
+              <span className={`post-history-status is-${item.facebookReviewStatus.toLowerCase().replace('_', '-')}`}>
+                {getFacebookHistoryStatusLabel(item.facebookReviewStatus)}
+              </span>
+            </td>
+            <td>
+              <div className="post-history-actions">
+                {postUrl ? (
+                  <button
+                    type="button"
+                    className="post-history-action-button is-post-link"
+                    title="Mở bài viết Facebook"
+                    aria-label={`Mở bài viết ${item.title}`}
+                    disabled={isHistoryBusy}
+                    onClick={() => window.open(postUrl, '_blank', 'noopener,noreferrer')}
+                  >
+                    <ExternalLinkIcon />
+                  </button>
+                ) : <span className="post-history-no-action">-</span>}
+              </div>
+            </td>
+          </tr>
+        );
+      });
+    }
+
+    if (isLoadingHistory) {
+      return (
+        <tr>
+          <td colSpan={4}>
+            <div className="post-history-empty">
+              <strong>Đang tải lịch sử</strong>
+              <span>Đang lấy dữ liệu bài đăng Facebook từ backend.</span>
+            </div>
+          </td>
+        </tr>
+      );
+    }
+
+    const hasError = facebookHistoryLoadState === 'ERROR';
+    return (
+      <tr>
+        <td colSpan={4}>
+          <div className="post-history-empty">
+            <strong>{hasError ? 'Không tải được lịch sử' : 'Chưa có dữ liệu lịch sử'}</strong>
+            <span>{hasError ? (facebookHistoryMessage ?? 'Vui lòng thử lại sau.') : 'Các bài đã auto đăng vào group này sẽ hiển thị tại đây.'}</span>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  function renderFacebookHistoryPagination(
+    currentPage: number,
+    pageCount: number,
+    paginationItems: PostHistoryPaginationItem[],
+    isHistoryBusy: boolean,
+  ) {
+    return (
+      <div className="post-history-pagination">
+        <span>
+          Hiển thị <strong>{facebookHistoryData?.total === 0 ? 0 : ((currentPage - 1) * FACEBOOK_HISTORY_PAGE_SIZE) + 1}</strong>
+          {' '}đến <strong>{Math.min(
+            (facebookHistoryData?.total === 0 ? 0 : ((currentPage - 1) * FACEBOOK_HISTORY_PAGE_SIZE) + 1)
+              + (facebookHistoryData?.items.length ?? 0) - 1,
+            facebookHistoryData?.total ?? 0,
+          )}</strong> trong <strong>{facebookHistoryData?.total ?? 0}</strong> kết quả
+        </span>
+        <div>
+          <button
+            type="button"
+            title="Trang đầu"
+            aria-label="Trang đầu"
+            disabled={currentPage <= 1 || isHistoryBusy}
+            onClick={() => void changeFacebookHistoryPage(1)}
+          >
+            <DoubleBackIcon />
+          </button>
+          <button
+            type="button"
+            title="Trang trước"
+            aria-label="Trang trước"
+            disabled={currentPage <= 1 || isHistoryBusy}
+            onClick={() => void changeFacebookHistoryPage(currentPage - 1)}
+          >
+            <BackIcon />
+          </button>
+          {paginationItems.map((item) => (
+            typeof item === 'number' ? (
+              <button
+                key={item}
+                type="button"
+                className={item === currentPage ? 'is-active' : ''}
+                aria-current={item === currentPage ? 'page' : undefined}
+                disabled={isHistoryBusy || item === currentPage}
+                onClick={() => void changeFacebookHistoryPage(item)}
+              >
+                {item}
+              </button>
+            ) : <span key={item} className="post-history-page-ellipsis">...</span>
+          ))}
+          <button
+            type="button"
+            title="Trang sau"
+            aria-label="Trang sau"
+            disabled={currentPage >= pageCount || isHistoryBusy}
+            onClick={() => void changeFacebookHistoryPage(currentPage + 1)}
+          >
+            <ChevronRightIcon />
+          </button>
+          <button
+            type="button"
+            title="Trang cuối"
+            aria-label="Trang cuối"
+            disabled={currentPage >= pageCount || isHistoryBusy}
+            onClick={() => void changeFacebookHistoryPage(pageCount)}
+          >
+            <DoubleChevronRightIcon />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   function renderFacebookPostHistoryModal() {
     if (!selectedFacebookHistoryGroup) return null;
 
@@ -4345,9 +4692,6 @@ function SidePanel() {
     const pageItems = facebookHistoryData?.items ?? [];
     const pageCount = Math.max(1, facebookHistoryData?.totalPages ?? 1);
     const currentPage = Math.min(facebookHistoryPage, pageCount);
-    const totalItems = facebookHistoryData?.total ?? 0;
-    const visibleStart = totalItems === 0 ? 0 : ((currentPage - 1) * FACEBOOK_HISTORY_PAGE_SIZE) + 1;
-    const visibleEnd = Math.min(visibleStart + pageItems.length - 1, totalItems);
     const isLoadingHistory = facebookHistoryLoadState === 'LOADING';
     const isHistoryBusy = isLoadingHistory || isRefreshingFacebookHistoryGroup;
     const paginationItems = buildPostHistoryPaginationItems(currentPage, pageCount);
@@ -4445,118 +4789,11 @@ function SidePanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pageItems.length > 0 ? pageItems.map((item) => {
-                    const postUrl = getValidFacebookGroupPostUrl(item.externalPostUrl);
-                    return (
-                    <tr key={item.id}>
-                      <td>{formatDate(item.submittedAt ?? item.createdAt ?? undefined) ?? '-'}</td>
-                      <td>
-                        <span>{item.title}</span>
-                      </td>
-                      <td>
-                        <span className={`post-history-status is-${item.facebookReviewStatus.toLowerCase().replace('_', '-')}`}>
-                          {getFacebookHistoryStatusLabel(item.facebookReviewStatus)}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="post-history-actions">
-                          {postUrl ? (
-                            <button
-                              type="button"
-                              className="post-history-action-button is-post-link"
-                              title="Mở bài viết Facebook"
-                              aria-label={`Mở bài viết ${item.title}`}
-                              disabled={isHistoryBusy}
-                              onClick={() => window.open(postUrl, '_blank', 'noopener,noreferrer')}
-                            >
-                              <ExternalLinkIcon />
-                            </button>
-                          ) : <span className="post-history-no-action">-</span>}
-                        </div>
-                      </td>
-                    </tr>
-                    );
-                  }) : isLoadingHistory ? (
-                    <tr>
-                      <td colSpan={4}>
-                        <div className="post-history-empty">
-                          <strong>Đang tải lịch sử</strong>
-                          <span>Đang lấy dữ liệu bài đăng Facebook từ backend.</span>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr>
-                      <td colSpan={4}>
-                        <div className="post-history-empty">
-                          <strong>{facebookHistoryLoadState === 'ERROR' ? 'Không tải được lịch sử' : 'Chưa có dữ liệu lịch sử'}</strong>
-                          <span>{facebookHistoryLoadState === 'ERROR' ? (facebookHistoryMessage ?? 'Vui lòng thử lại sau.') : 'Các bài đã auto đăng vào group này sẽ hiển thị tại đây.'}</span>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
+                  {renderFacebookHistoryRows(pageItems, isHistoryBusy, isLoadingHistory)}
                 </tbody>
               </table>
 
-              <div className="post-history-pagination">
-                <span>
-                  Hiển thị <strong>{visibleStart}</strong> đến <strong>{visibleEnd}</strong> trong <strong>{totalItems}</strong> kết quả
-                </span>
-                <div>
-                  <button
-                    type="button"
-                    title="Trang đầu"
-                    aria-label="Trang đầu"
-                    disabled={currentPage <= 1 || isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryPage(1)}
-                  >
-                    <DoubleBackIcon />
-                  </button>
-                  <button
-                    type="button"
-                    title="Trang trước"
-                    aria-label="Trang trước"
-                    disabled={currentPage <= 1 || isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryPage(currentPage - 1)}
-                  >
-                    <BackIcon />
-                  </button>
-                  {paginationItems.map((item) => (
-                    typeof item === 'number' ? (
-                      <button
-                        key={item}
-                        type="button"
-                        className={item === currentPage ? 'is-active' : ''}
-                        aria-current={item === currentPage ? 'page' : undefined}
-                        disabled={isHistoryBusy || item === currentPage}
-                        onClick={() => void changeFacebookHistoryPage(item)}
-                      >
-                        {item}
-                      </button>
-                    ) : (
-                      <span key={item} className="post-history-page-ellipsis">...</span>
-                    )
-                  ))}
-                  <button
-                    type="button"
-                    title="Trang sau"
-                    aria-label="Trang sau"
-                    disabled={currentPage >= pageCount || isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryPage(currentPage + 1)}
-                  >
-                    <ChevronRightIcon />
-                  </button>
-                  <button
-                    type="button"
-                    title="Trang cuối"
-                    aria-label="Trang cuối"
-                    disabled={currentPage >= pageCount || isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryPage(pageCount)}
-                  >
-                    <DoubleChevronRightIcon />
-                  </button>
-          </div>
-        </div>
+              {renderFacebookHistoryPagination(currentPage, pageCount, paginationItems, isHistoryBusy)}
 
       </div>
           </div>
@@ -4806,36 +5043,11 @@ function SidePanel() {
     const selectedTargets = visibleFacebookGroups.filter((group) => (
       Boolean(group.id) && selectedFacebookGroupIds.includes(group.id as string)
     ));
-    const displayTargets = selectedTargets.length > 0
-      ? selectedTargets
-      : resultTargets.length > 0
-        ? resultTargets
-        : progressResults.map((item) => ({
-          key: item.targetId ?? item.targetUrl ?? item.targetName,
-          id: item.targetId ?? null,
-          name: item.targetName,
-          url: item.targetUrl,
-          eligibilityStatus: 'UNKNOWN' as const,
-          eligibilityReason: null,
-          quotaLabel: null,
-          selectable: false,
-          disabledReason: null,
-        }));
+    const displayTargets = getFacebookPublishDisplayTargets(selectedTargets, resultTargets, progressResults);
     const progressByTarget = new Map(
       progressResults.map((item) => [item.targetId ?? item.targetName, item]),
     );
-    const channelStatusLabel = facebookProgress
-      ? facebookProgress.status === 'SUCCESS'
-        ? 'Đã đăng'
-        : facebookProgress.status === 'PARTIAL_SUCCESS' || facebookProgress.status === 'ERROR'
-          ? 'Đăng lỗi'
-          : 'Đang đăng'
-      : 'Đang đăng';
-    const channelStatusClass = facebookProgress?.status === 'SUCCESS'
-      ? 'is-posted'
-      : facebookProgress?.status === 'PARTIAL_SUCCESS' || facebookProgress?.status === 'ERROR'
-        ? 'is-failed'
-        : 'is-processing';
+    const channelStatus = getFacebookPublishChannelStatus(facebookProgress);
 
     return (
       <section className="facebook-publish-results-panel" aria-label="Kết quả đăng Facebook">
@@ -4845,7 +5057,7 @@ function SidePanel() {
         <div className="facebook-publish-results-channel">
           <span className="facebook-publish-results-channel-name">FACEBOOK</span>
           <span className="facebook-publish-results-channel-actions">
-            <span className={`facebook-publish-results-state ${channelStatusClass}`}>{channelStatusLabel}</span>
+            <span className={`facebook-publish-results-state ${channelStatus.className}`}>{channelStatus.label}</span>
             <button
               type="button"
               className="facebook-publish-results-toggle"
@@ -4860,32 +5072,11 @@ function SidePanel() {
         </div>
         {isFacebookResultsExpanded ? (
           <div className="facebook-publish-results-list">
-          {displayTargets.length > 0 ? displayTargets.map((group) => {
-            const progress = progressByTarget.get(group.id ?? group.name);
-            const statusClass = progress?.status === 'SUCCESS'
-              ? 'is-posted'
-              : progress?.status === 'FAILED'
-                || progress?.status === 'SKIPPED'
-                || facebookProgress?.status === 'PARTIAL_SUCCESS'
-                || facebookProgress?.status === 'ERROR'
-                ? 'is-failed'
-                : 'is-posting';
-            const statusLabel = progress?.status === 'SUCCESS'
-              ? 'Đã đăng'
-              : progress?.status === 'FAILED'
-                || progress?.status === 'SKIPPED'
-                || facebookProgress?.status === 'PARTIAL_SUCCESS'
-                || facebookProgress?.status === 'ERROR'
-                ? 'Đăng lỗi'
-                : 'Đang đăng';
-
-            return (
-              <div className="facebook-publish-result-row" key={group.key}>
-                <span className="facebook-publish-result-name" title={group.name}>{group.name}</span>
-                <span className={`facebook-publish-result-state ${statusClass}`}>{statusLabel}</span>
-              </div>
-            );
-          }) : (
+            {displayTargets.length > 0 ? displayTargets.map((group) => renderFacebookPublishResultRow(
+              group,
+              progressByTarget.get(group.id ?? group.name),
+              facebookProgress?.status,
+            )) : (
             <p className="facebook-publish-results-empty">Chưa có nhóm Facebook được chọn.</p>
           )}
           </div>
@@ -5226,14 +5417,7 @@ function SidePanel() {
     );
   }
 
-  function renderChannelPanel() {
-    return (
-      <section className="channel-section">
-          <div className="section-heading-row">
-            <p className="section-title">Kênh tuyển dụng</p>
-          </div>
-          <div className="channel-list">
-            {POSTING_CHANNELS.map((channel) => {
+  function renderChannelOption(channel: ExtensionChannel) {
               const isSelected = selectedPostingChannels.includes(channel);
               const isFacebookChannel = channel === 'FACEBOOK';
               const isFacebookLoading = isFacebookChannel && isFacebookGroupLoading(facebookGroupLoadState);
@@ -5480,9 +5664,113 @@ function SidePanel() {
                   ) : null}
                 </div>
               );
-            })}
-          </div>
+  }
+
+  function renderChannelPanel() {
+    return (
+      <section className="channel-section">
+        <div className="section-heading-row">
+          <p className="section-title">Kênh tuyển dụng</p>
+        </div>
+        <div className="channel-list">
+          {POSTING_CHANNELS.map(renderChannelOption)}
+        </div>
       </section>
+    );
+  }
+  function handleJobDescriptionSearchInput(value: string) {
+    setJobDescriptionSearch(value);
+    if (jobDescriptionSearchDebounceRef.current !== null) {
+      window.clearTimeout(jobDescriptionSearchDebounceRef.current);
+      jobDescriptionSearchDebounceRef.current = null;
+    }
+    if (!value.trim()) {
+      void loadJobDescriptions(token, 1, { search: '' });
+      return;
+    }
+    jobDescriptionSearchDebounceRef.current = window.setTimeout(() => {
+      jobDescriptionSearchDebounceRef.current = null;
+      void loadJobDescriptions(token, 1, { search: value.trim() });
+    }, 300);
+  }
+
+  function renderJobDescriptionCard(jobDescription: JobDescriptionSummary) {
+    const badge = getJobDescriptionStatusBadge(jobDescription);
+    const isSelected = selectedJobDescription?.id === jobDescription.id;
+    const isLockedByAmis = lockedAmisJobDescriptionId !== null && lockedAmisJobDescriptionId !== jobDescription.id;
+    const displayDate = formatDate(
+      jobDescription.sourceModifiedAt
+        ?? jobDescription.lastSyncedAt
+        ?? jobDescription.updatedAt
+        ?? jobDescription.createdAt,
+    );
+    return (
+      <li key={jobDescription.id} className={isSelected ? 'is-selected' : undefined}>
+        <button
+          type="button"
+          className="jd-card-button"
+          disabled={jobDescriptionFillState === 'FILLING' || isLockedByAmis}
+          onClick={() => void fillJobDescriptionInAmis(jobDescription)}
+        >
+          <span className={`status-badge jd-status-badge ${badge.className}`}>{badge.label}</span>
+          <h3>{jobDescription.title}</h3>
+          <p>{summarizeText(jobDescription.summary ?? jobDescription.description)}</p>
+          <small>{displayDate ?? '-'}</small>
+          {fillingJobDescriptionId === jobDescription.id ? <span className="status-badge jd-fill-badge">Đang chọn</span> : null}
+        </button>
+      </li>
+    );
+  }
+
+  function renderJobDescriptionPagination(
+    totalItems: number,
+    currentPage: number,
+    visibleStart: number,
+    visibleEnd: number,
+    totalPages: number,
+    paginationPages: Array<number | 'ellipsis'>,
+  ) {
+    if (!jobDescriptionPagination || totalPages <= 1) return null;
+    return (
+      <div className="pagination-row jd-pagination-row">
+        <span>Hiển thị từ {visibleStart} - {visibleEnd} của {totalItems} kết quả</span>
+        <div className="jd-pagination-actions">
+          <button
+            type="button"
+            className="jd-page-button"
+            aria-label="Trang trước"
+            disabled={jobDescriptionStatus === 'LOADING' || jobDescriptionPagination.page <= 1}
+            onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page - 1)}
+          >
+            <BackIcon />
+          </button>
+          {paginationPages.map((page, index) => (
+            page === 'ellipsis' ? (
+              <span key={`ellipsis-${index}`} className="jd-pagination-ellipsis" aria-hidden="true">…</span>
+            ) : (
+              <button
+                key={page}
+                type="button"
+                className={`jd-page-button${page === currentPage ? ' is-active' : ''}`}
+                aria-current={page === currentPage ? 'page' : undefined}
+                disabled={jobDescriptionStatus === 'LOADING'}
+                onClick={() => void loadJobDescriptions(token, page)}
+              >
+                {page}
+              </button>
+            )
+          ))}
+          <button
+            type="button"
+            className="jd-page-button"
+            aria-label="Trang sau"
+            disabled={jobDescriptionStatus === 'LOADING' || jobDescriptionPagination.page >= jobDescriptionPagination.totalPages}
+            onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page + 1)}
+          >
+            <ChevronRightIcon />
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -5503,23 +5791,7 @@ function SidePanel() {
           <SearchField
             className="jd-search-field"
             value={jobDescriptionSearch}
-            onChange={(value) => {
-              setJobDescriptionSearch(value);
-              if (jobDescriptionSearchDebounceRef.current !== null) {
-                window.clearTimeout(jobDescriptionSearchDebounceRef.current);
-                jobDescriptionSearchDebounceRef.current = null;
-              }
-
-              if (!value.trim()) {
-                void loadJobDescriptions(token, 1, { search: '' });
-                return;
-              }
-
-              jobDescriptionSearchDebounceRef.current = window.setTimeout(() => {
-                jobDescriptionSearchDebounceRef.current = null;
-                void loadJobDescriptions(token, 1, { search: value.trim() });
-              }, 300);
-            }}
+            onChange={handleJobDescriptionSearchInput}
             placeholder="Tìm kiếm JD"
             ariaLabel="Tìm kiếm JD"
             type="search"
@@ -5609,86 +5881,11 @@ function SidePanel() {
 
         {jobDescriptions.length > 0 ? (
           <ul className="jd-list">
-            {jobDescriptions.map((jobDescription) => {
-              const badge = getJobDescriptionStatusBadge(jobDescription);
-              const isSelected = selectedJobDescription?.id === jobDescription.id;
-              const isLockedByAmis = lockedAmisJobDescriptionId !== null
-                && lockedAmisJobDescriptionId !== jobDescription.id;
-              const displayDate = formatDate(
-                jobDescription.sourceModifiedAt
-                  ?? jobDescription.lastSyncedAt
-                  ?? jobDescription.updatedAt
-                  ?? jobDescription.createdAt,
-              );
-
-              return (
-                <li key={jobDescription.id} className={isSelected ? 'is-selected' : undefined}>
-                  <button
-                    type="button"
-                    className="jd-card-button"
-                    disabled={jobDescriptionFillState === 'FILLING' || isLockedByAmis}
-                    onClick={() => void fillJobDescriptionInAmis(jobDescription)}
-                  >
-                    <span className={`status-badge jd-status-badge ${badge.className}`}>{badge.label}</span>
-                    <h3>{jobDescription.title}</h3>
-                    <p>{summarizeText(jobDescription.summary ?? jobDescription.description)}</p>
-                    <small>{displayDate ?? '-'}</small>
-                    {fillingJobDescriptionId === jobDescription.id ? (
-                      <span className="status-badge jd-fill-badge">Đang chọn</span>
-                    ) : null}
-                  </button>
-                </li>
-              );
-            })}
+            {jobDescriptions.map(renderJobDescriptionCard)}
           </ul>
         ) : null}
 
-        {jobDescriptionPagination && jobDescriptionPagination.totalPages > 1 ? (
-          <div className="pagination-row jd-pagination-row">
-            <span>
-              Hiển thị từ {visibleStart} - {visibleEnd} của {totalItems} kết quả
-            </span>
-            <div className="jd-pagination-actions">
-            <button
-              type="button"
-              className="jd-page-button"
-              aria-label="Trang trước"
-              disabled={jobDescriptionStatus === 'LOADING' || jobDescriptionPagination.page <= 1}
-              onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page - 1)}
-            >
-              <BackIcon />
-            </button>
-            {paginationPages.map((page, index) => (
-              page === 'ellipsis' ? (
-                <span key={`ellipsis-${index}`} className="jd-pagination-ellipsis" aria-hidden="true">…</span>
-              ) : (
-                <button
-                  key={page}
-                  type="button"
-                  className={`jd-page-button${page === currentPage ? ' is-active' : ''}`}
-                  aria-current={page === currentPage ? 'page' : undefined}
-                  disabled={jobDescriptionStatus === 'LOADING'}
-                  onClick={() => void loadJobDescriptions(token, page)}
-                >
-                  {page}
-                </button>
-              )
-            ))}
-            <button
-              type="button"
-              className="jd-page-button"
-              aria-label="Trang sau"
-              disabled={
-                jobDescriptionStatus === 'LOADING'
-                || jobDescriptionPagination.page >= jobDescriptionPagination.totalPages
-              }
-              onClick={() => void loadJobDescriptions(token, jobDescriptionPagination.page + 1)}
-            >
-              <ChevronRightIcon />
-            </button>
-            </div>
-          </div>
-        ) : null}
+        {renderJobDescriptionPagination(totalItems, currentPage, visibleStart, visibleEnd, totalPages, paginationPages)}
       </section>
     );
   }
@@ -5757,9 +5954,7 @@ function SidePanel() {
     );
   }
 
-  function renderCvOverviewPanel() {
-    const applications = applicationsContext?.applications ?? [];
-    const stats = getCvOverviewStats(applications);
+  function getCvOverviewJobContext() {
     const currentJobPostingId = result?.amisRecruitmentId === amisRecruitmentId
       ? result.jobPostingId
       : applicationsContext?.amisRecruitmentId === amisRecruitmentId
@@ -5773,6 +5968,13 @@ function SidePanel() {
       : snapshot
         ? `https://vcs-portal.vn/jobs/${slugifyForDisplay(snapshot.title)}`
         : '-';
+    return { currentJobTitle, hasCurrentJobMapping, publicUrl };
+  }
+
+  function renderCvOverviewPanel() {
+    const applications = applicationsContext?.applications ?? [];
+    const stats = getCvOverviewStats(applications);
+    const { currentJobTitle, hasCurrentJobMapping, publicUrl } = getCvOverviewJobContext();
 
     return (
       <section className="cv-overview-screen">
@@ -5877,6 +6079,164 @@ function SidePanel() {
         </button>
       </section>
     );
+  }
+
+  function renderCvCandidateCard(application: ExtensionApplication) {
+              const isAmisUploadPending = pendingAmisUploadApplicationIds.has(application.applicationId);
+              const syncStatus = getApplicationAmisSyncStatus(application);
+              const questionStatus = getApplicationQuestionStatus(application);
+              const isCurrentAmisCandidate = Boolean(
+                activeAmisCandidateId
+                && application.amisCandidateId === activeAmisCandidateId,
+              );
+              const isAmisCvUploaded = Boolean(application.attachmentCvId || application.attachmentCvName);
+              const aiScreeningDone = normalizeStatus(application.aiScreeningStatus) === 'DONE';
+              const aiScreeningRunning = normalizeStatus(application.aiScreeningStatus) === 'REQUESTED'
+                || aiScreeningApplicationId === application.applicationId;
+              const canRunAiScreening = questionStatus.code === 'ANSWERED';
+              const score = aiScreeningDone ? getApplicationMatchScore(application) : null;
+              const isSelected = selectedCvApplicationIds.has(application.applicationId);
+              const isAiEvaluationUploaded = aiEvaluationUploadedApplicationIds.has(application.applicationId);
+              const isAmisSynced = Boolean(application.amisCandidateId);
+              const canShowAmisSyncButton = !isAmisSynced && !isAmisCvUploaded;
+              const canShowAiScreeningButton = questionStatus.code === 'ANSWERED'
+                && isAmisSynced
+                && !aiScreeningDone
+                && !isAiEvaluationUploaded;
+              const canShowAiUploadButton = isAmisSynced
+                && isAmisCvUploaded
+                && aiScreeningDone
+                && isCurrentAmisCandidate
+                && !isAiEvaluationUploaded;
+              const canSyncToAmis = canShowAmisSyncButton && canUploadApplicationCv(application);
+              const aiEvaluationStatus = getApplicationAiEvaluationStatus(application, isAiEvaluationUploaded);
+              const candidateStages = getAmisCandidateStageOptions(amisRecruitmentRounds, application);
+              const currentStageIndex = getAmisCandidateStageIndex(
+                candidateStages,
+                application.amisRecruitmentRoundId,
+                application.amisRecruitmentRoundName,
+              );
+              const currentStageLabel = candidateStages[currentStageIndex]?.name
+                ?? application.amisRecruitmentRoundName
+                ?? 'ChÆ°a cáº­p nháº­t';
+              const isAmisRejected = application.amisStatus === 0;
+              const rejectionReason = application.amisReasonRemoved?.trim() || null;
+              const recruiterName = application.attractivePersonnelName ?? '-';
+              const appliedDate = formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-';
+
+              return (
+                <li key={application.applicationId} className={isSelected ? 'is-selected' : ''}>
+                  <div className="cv-candidate-card">
+                    <div className="cv-candidate-main">
+                      <label className="cv-candidate-select" aria-label={`Chá»n ${application.candidateName}`}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleCvCandidateSelection(application.applicationId)}
+                        />
+                      </label>
+                      <CandidateAvatar name={application.candidateName} />
+                      <div>
+                        <strong title={application.candidateName}>{application.candidateName}</strong>
+                        <span>{[application.email, application.mobile].filter(Boolean).join(' â€¢ ') || 'No contact'}</span>
+                        <span className="cv-candidate-applied-date">NgÃ y á»©ng tuyá»ƒn: {appliedDate}</span>
+                      </div>
+                      {score != null ? (
+                        <b className={`cv-candidate-score ${getCvScoreTone(score)}`}>{score}</b>
+                      ) : null}
+                    </div>
+                    <div
+                      className="cv-candidate-process"
+                      style={{ '--cv-stage-count': String(candidateStages.length) } as React.CSSProperties}
+                      aria-label={`VÃ²ng hiá»‡n táº¡i: ${currentStageLabel}`}
+                    >
+                      {candidateStages.map((stage, stageIndex) => (
+                        <div
+                          key={stage.id}
+                          className={`cv-candidate-process-step${stageIndex < currentStageIndex ? ' is-complete' : ''}${stageIndex === currentStageIndex && !isAmisRejected ? ' is-current' : ''}${stageIndex === currentStageIndex && isAmisRejected ? ' is-failed' : ''}`}
+                        >
+                          <span className="cv-candidate-process-marker" aria-hidden="true" />
+                          <span>{stage.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {isAmisRejected && rejectionReason ? (
+                      <div className="cv-candidate-rejection-reason">
+                        <strong>LÃ½ do bá»‹ loáº¡i:</strong>
+                        <span>{rejectionReason}</span>
+                      </div>
+                    ) : null}
+                    <div className="cv-candidate-info">
+                      <div className="cv-candidate-meta">
+                        <span className="cv-candidate-source">
+                          <SourceIcon />
+                          <span>Nguá»“n</span>
+                          <span className="cv-source-chip">{getCvSourceLabel(application)}</span>
+                        </span>
+                        <span className="cv-candidate-recruiter">
+                          NhÃ¢n sá»± khai thÃ¡c: <strong>{recruiterName}</strong>
+                        </span>
+                      </div>
+                      <div className="cv-candidate-details">
+                        <div className={`cv-candidate-detail cv-candidate-detail-status cv-question-status ${questionStatus.tone}`}>
+                          <small>CÃ‚U Há»ŽI</small>
+                          <strong>{questionStatus.label}</strong>
+                        </div>
+                        <div className={`cv-candidate-detail cv-candidate-detail-status ${syncStatus.tone}`}>
+                          <small>Äá»’NG Bá»˜ AMIS</small>
+                          <strong>{syncStatus.label}</strong>
+                        </div>
+                        <div className={`cv-candidate-detail cv-candidate-detail-status cv-ai-status ${aiEvaluationStatus.tone}`}>
+                          <small>FILE ÄÃNH GIÃ Báº°NG AI</small>
+                          <strong>{aiEvaluationStatus.label}</strong>
+                        </div>
+                      </div>
+                      <div className="cv-candidate-note">
+                        <span className="cv-candidate-note-label">Ghi chú của CV</span>
+                        <span>{application.cvNote?.trim() || 'CV này không có ghi chú nào.'}</span>
+                      </div>
+                    </div>
+                    <div className="cv-candidate-footer">
+                      {canShowAmisSyncButton && isAmisCandidateFormOpen ? (
+                        <button
+                          type="button"
+                          className="cv-sync-amis-button"
+                          disabled={!canSyncToAmis || Boolean(cvUploadApplicationId)}
+                          onClick={() => void uploadApplicationCvToAmisForm(application)}
+                        >
+                          {cvUploadApplicationId === application.applicationId
+                            ? 'Äang Ä‘á»“ng bá»™...'
+                            : isAmisUploadPending
+                              ? 'Chá» AMIS lÆ°u'
+                              : 'Äá»“ng bá»™'}
+                        </button>
+                      ) : null}
+                      {canShowAiScreeningButton ? (
+                        <button
+                          type="button"
+                          className="cv-sync-amis-button"
+                          disabled={!canRunAiScreening || aiScreeningRunning || Boolean(aiScreeningApplicationId)}
+                          onClick={() => void runAiScreeningForApplication(application)}
+                        >
+                          {aiScreeningRunning ? 'Äang Ä‘Ã¡nh giÃ¡...' : 'ÄÃ¡nh giÃ¡ báº±ng AI'}
+                        </button>
+                      ) : null}
+                      {canShowAiUploadButton ? (
+                        <button
+                          type="button"
+                          className="cv-sync-amis-button"
+                          disabled={Boolean(aiEvaluationApplicationId)}
+                          onClick={() => void uploadAiEvaluationToAmis(application)}
+                        >
+                          {aiEvaluationApplicationId === application.applicationId
+                            ? 'Äang táº£i lÃªn...'
+                            : 'Táº£i file Ä‘Ã¡nh giÃ¡ lÃªn AMIS'}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </li>
+              );
   }
 
   function renderCvCandidateListPanel() {
@@ -6014,163 +6374,7 @@ function SidePanel() {
 
         {pageApplications.length > 0 ? (
           <ul className="cv-candidate-list">
-            {pageApplications.map((application) => {
-              const isAmisUploadPending = pendingAmisUploadApplicationIds.has(application.applicationId);
-              const syncStatus = getApplicationAmisSyncStatus(application);
-              const questionStatus = getApplicationQuestionStatus(application);
-              const isCurrentAmisCandidate = Boolean(
-                activeAmisCandidateId
-                && application.amisCandidateId === activeAmisCandidateId,
-              );
-              const isAmisCvUploaded = Boolean(application.attachmentCvId || application.attachmentCvName);
-              const aiScreeningDone = normalizeStatus(application.aiScreeningStatus) === 'DONE';
-              const aiScreeningRunning = normalizeStatus(application.aiScreeningStatus) === 'REQUESTED'
-                || aiScreeningApplicationId === application.applicationId;
-              const canRunAiScreening = questionStatus.code === 'ANSWERED';
-              const score = aiScreeningDone ? getApplicationMatchScore(application) : null;
-              const isSelected = selectedCvApplicationIds.has(application.applicationId);
-              const isAiEvaluationUploaded = aiEvaluationUploadedApplicationIds.has(application.applicationId);
-              const isAmisSynced = Boolean(application.amisCandidateId);
-              const canShowAmisSyncButton = !isAmisSynced && !isAmisCvUploaded;
-              const canShowAiScreeningButton = questionStatus.code === 'ANSWERED'
-                && isAmisSynced
-                && !aiScreeningDone
-                && !isAiEvaluationUploaded;
-              const canShowAiUploadButton = isAmisSynced
-                && isAmisCvUploaded
-                && aiScreeningDone
-                && isCurrentAmisCandidate
-                && !isAiEvaluationUploaded;
-              const canSyncToAmis = canShowAmisSyncButton && canUploadApplicationCv(application);
-              const aiEvaluationStatus = getApplicationAiEvaluationStatus(application, isAiEvaluationUploaded);
-              const candidateStages = getAmisCandidateStageOptions(amisRecruitmentRounds, application);
-              const currentStageIndex = getAmisCandidateStageIndex(
-                candidateStages,
-                application.amisRecruitmentRoundId,
-                application.amisRecruitmentRoundName,
-              );
-              const currentStageLabel = candidateStages[currentStageIndex]?.name
-                ?? application.amisRecruitmentRoundName
-                ?? 'Chưa cập nhật';
-              const isAmisRejected = application.amisStatus === 0;
-              const rejectionReason = application.amisReasonRemoved?.trim() || null;
-              const recruiterName = application.attractivePersonnelName ?? '-';
-              const appliedDate = formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-';
-
-              return (
-                <li key={application.applicationId} className={isSelected ? 'is-selected' : ''}>
-                  <div className="cv-candidate-card">
-                    <div className="cv-candidate-main">
-                      <label className="cv-candidate-select" aria-label={`Chọn ${application.candidateName}`}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleCvCandidateSelection(application.applicationId)}
-                        />
-                      </label>
-                      <CandidateAvatar name={application.candidateName} />
-                      <div>
-                        <strong title={application.candidateName}>{application.candidateName}</strong>
-                        <span>{[application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact'}</span>
-                        <span className="cv-candidate-applied-date">Ngày ứng tuyển: {appliedDate}</span>
-                      </div>
-                      {score != null ? (
-                        <b className={`cv-candidate-score ${getCvScoreTone(score)}`}>{score}</b>
-                      ) : null}
-                    </div>
-                    <div
-                      className="cv-candidate-process"
-                      style={{ '--cv-stage-count': String(candidateStages.length) } as React.CSSProperties}
-                      aria-label={`Vòng hiện tại: ${currentStageLabel}`}
-                    >
-                      {candidateStages.map((stage, stageIndex) => (
-                        <div
-                          key={stage.id}
-                          className={`cv-candidate-process-step${stageIndex < currentStageIndex ? ' is-complete' : ''}${stageIndex === currentStageIndex && !isAmisRejected ? ' is-current' : ''}${stageIndex === currentStageIndex && isAmisRejected ? ' is-failed' : ''}`}
-                        >
-                          <span className="cv-candidate-process-marker" aria-hidden="true" />
-                          <span>{stage.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {isAmisRejected && rejectionReason ? (
-                      <div className="cv-candidate-rejection-reason">
-                        <strong>Lý do bị loại:</strong>
-                        <span>{rejectionReason}</span>
-                      </div>
-                    ) : null}
-                    <div className="cv-candidate-info">
-                      <div className="cv-candidate-meta">
-                        <span className="cv-candidate-source">
-                          <SourceIcon />
-                          <span>Nguồn</span>
-                          <span className="cv-source-chip">{getCvSourceLabel(application)}</span>
-                        </span>
-                        <span className="cv-candidate-recruiter">
-                          Nhân sự khai thác: <strong>{recruiterName}</strong>
-                        </span>
-                      </div>
-                      <div className="cv-candidate-details">
-                        <div className={`cv-candidate-detail cv-candidate-detail-status cv-question-status ${questionStatus.tone}`}>
-                          <small>CÂU HỎI</small>
-                          <strong>{questionStatus.label}</strong>
-                        </div>
-                        <div className={`cv-candidate-detail cv-candidate-detail-status ${syncStatus.tone}`}>
-                          <small>ĐỒNG BỘ AMIS</small>
-                          <strong>{syncStatus.label}</strong>
-                        </div>
-                        <div className={`cv-candidate-detail cv-candidate-detail-status cv-ai-status ${aiEvaluationStatus.tone}`}>
-                          <small>FILE ĐÁNH GIÁ BẰNG AI</small>
-                          <strong>{aiEvaluationStatus.label}</strong>
-                        </div>
-                      </div>
-                      <div className="cv-candidate-note">
-                        <span className="cv-candidate-note-label">Ghi chú của CV</span>
-                        <span>{application.cvNote?.trim() || 'CV này không có ghi chú nào.'}</span>
-                      </div>
-                    </div>
-                    <div className="cv-candidate-footer">
-                      {canShowAmisSyncButton && isAmisCandidateFormOpen ? (
-                        <button
-                          type="button"
-                          className="cv-sync-amis-button"
-                          disabled={!canSyncToAmis || Boolean(cvUploadApplicationId)}
-                          onClick={() => void uploadApplicationCvToAmisForm(application)}
-                        >
-                          {cvUploadApplicationId === application.applicationId
-                            ? 'Đang đồng bộ...'
-                            : isAmisUploadPending
-                              ? 'Chờ AMIS lưu'
-                              : 'Đồng bộ'}
-                        </button>
-                      ) : null}
-                      {canShowAiScreeningButton ? (
-                        <button
-                          type="button"
-                          className="cv-sync-amis-button"
-                          disabled={!canRunAiScreening || aiScreeningRunning || Boolean(aiScreeningApplicationId)}
-                          onClick={() => void runAiScreeningForApplication(application)}
-                        >
-                          {aiScreeningRunning ? 'Đang đánh giá...' : 'Đánh giá bằng AI'}
-                        </button>
-                      ) : null}
-                      {canShowAiUploadButton ? (
-                        <button
-                          type="button"
-                          className="cv-sync-amis-button"
-                          disabled={Boolean(aiEvaluationApplicationId)}
-                          onClick={() => void uploadAiEvaluationToAmis(application)}
-                        >
-                          {aiEvaluationApplicationId === application.applicationId
-                            ? 'Đang tải lên...'
-                            : 'Tải file đánh giá lên AMIS'}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
+            {pageApplications.map(renderCvCandidateCard)}
           </ul>
         ) : (
           <div className="empty-panel-state">
@@ -6277,10 +6481,9 @@ function SidePanel() {
     );
   }
 
-return (
-  <main className="extension-shell" style={{ '--extension-ui-zoom': extensionUiZoom } as React.CSSProperties}>
-      <section className="extension-window">
-        <header className="extension-header">
+  function renderExtensionHeader() {
+    return (
+<header className="extension-header">
           <div>
             <div className='extension-header-logo'>Tuyển dụng VCS</div>
           </div>
@@ -6313,8 +6516,13 @@ return (
             ) : null}
           </div>
         </header>
+    );
+  }
 
-        {state === 'AUTH_LOADING' ? <p className="muted-text extension-loading">Checking session...</p> : null}
+  function renderExtensionWorkspace() {
+    return (
+      <>
+{state === 'AUTH_LOADING' ? <p className="muted-text extension-loading">Checking session...</p> : null}
 
         {state === 'AUTH_REQUIRED' ? (
           <LoginForm
@@ -6387,9 +6595,14 @@ return (
             </section>
           </>
         ) : null}
-      </section>
+      </>
+    );
+  }
 
-      {extensionToast ? (
+  function renderExtensionToast() {
+    return (
+      <>
+{extensionToast ? (
         <aside
           key={extensionToast.id}
           className={`extension-toast is-${extensionToast.kind.toLowerCase()}`}
@@ -6415,10 +6628,14 @@ return (
           <span className="extension-toast-progress" aria-hidden="true" />
         </aside>
       ) : null}
+      </>
+    );
+  }
 
-      {facebookPreviewModalMode ? renderFacebookPreviewModal() : null}
-
-      {isFacebookSettingsOpen && !isFacebookGroupFormOpen ? (
+  function renderFacebookSettingsOverlay() {
+    return (
+      <>
+{isFacebookSettingsOpen && !isFacebookGroupFormOpen ? (
         <div className="modal-backdrop" role="presentation">
           {facebookGroupModalMode === 'SETTINGS' ? (
             <section
@@ -6534,7 +6751,7 @@ return (
                             title={isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'}
                             aria-label={`${isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'} ${group.targetName}`}
                             disabled={facebookSettingsState === 'SAVING' || isGroupChecking || isGroupQueued || !group.targetId}
-                            onClick={() => void checkFacebookGroupEligibility(group)}
+                            onClick={() => { checkFacebookGroupEligibility(group); }}
                           >
                             <RefreshIcon />
                           </button>
@@ -6790,9 +7007,14 @@ return (
           ) : null}
         </div>
       ) : null}
-      {isFacebookSettingsOpen && isFacebookGroupFormOpen ? renderFacebookGroupCreateModal() : null}
-              {facebookImageAttachPrompt ? renderFacebookImageAttachPromptModal() : null}
-      {isFacebookGroupSyncDetailsOpen ? (
+      </>
+    );
+  }
+
+  function renderFacebookIneligibleOverlay() {
+    return (
+      <>
+{isFacebookGroupSyncDetailsOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section
             className="facebook-group-modal facebook-ineligible-modal"
@@ -6911,10 +7133,34 @@ return (
         </div>
       ) : null}
       {selectedFacebookHistoryGroup ? renderFacebookPostHistoryModal() : null}
+      </>
+    );
+  }
+
+  function renderExtensionOverlays() {
+    return (
+      <>
+        {renderExtensionToast()}
+        {facebookPreviewModalMode ? renderFacebookPreviewModal() : null}
+        {renderFacebookSettingsOverlay()}
+        {isFacebookSettingsOpen && isFacebookGroupFormOpen ? renderFacebookGroupCreateModal() : null}
+        {facebookImageAttachPrompt ? renderFacebookImageAttachPromptModal() : null}
+        {renderFacebookIneligibleOverlay()}
+        {selectedFacebookHistoryGroup ? renderFacebookPostHistoryModal() : null}
+      </>
+    );
+  }
+
+  return (
+    <main className="extension-shell" style={{ '--extension-ui-zoom': extensionUiZoom } as React.CSSProperties}>
+      <section className="extension-window">
+        {renderExtensionHeader()}
+        {renderExtensionWorkspace()}
+      </section>
+      {renderExtensionOverlays()}
     </main>
   );
 }
-
 function getChannelPostingStatusClass(channel: ChannelPostingResult) {
   const status = channel.status.toUpperCase();
   if (['CREATED', 'PUBLISHED', 'UPDATED', 'SUCCESS'].includes(status)) return 'is-success';
@@ -6925,38 +7171,42 @@ function getChannelPostingStatusClass(channel: ChannelPostingResult) {
 
 type PostHistoryPaginationItem = number | 'ellipsis-left' | 'ellipsis-right';
 
+function getPostHistoryPaginationWindow(currentPage: number, pageCount: number) {
+  if (currentPage <= 4) return { start: 2, end: 5 };
+  if (currentPage >= pageCount - 3) return { start: pageCount - 4, end: pageCount - 1 };
+  return { start: currentPage - 1, end: currentPage + 1 };
+}
+
+function appendPostHistoryPageRange(items: PostHistoryPaginationItem[], start: number, end: number) {
+  for (let page = start; page <= end; page += 1) items.push(page);
+}
+
+function appendPostHistoryLeadingGap(items: PostHistoryPaginationItem[], start: number) {
+  if (start > 2) {
+    items.push('ellipsis-left');
+    return;
+  }
+  appendPostHistoryPageRange(items, 2, start - 1);
+}
+
+function appendPostHistoryTrailingGap(items: PostHistoryPaginationItem[], end: number, pageCount: number) {
+  if (end < pageCount - 1) {
+    items.push('ellipsis-right');
+    return;
+  }
+  appendPostHistoryPageRange(items, end + 1, pageCount - 1);
+}
+
 function buildPostHistoryPaginationItems(currentPage: number, pageCount: number): PostHistoryPaginationItem[] {
   if (pageCount <= 7) {
     return Array.from({ length: pageCount }, (_, index) => index + 1);
   }
 
   const items: PostHistoryPaginationItem[] = [1];
-  const start = currentPage <= 4
-    ? 2
-    : currentPage >= pageCount - 3
-      ? pageCount - 4
-      : currentPage - 1;
-  const end = currentPage <= 4
-    ? 5
-    : currentPage >= pageCount - 3
-      ? pageCount - 1
-      : currentPage + 1;
-
-  if (start > 2) {
-    items.push('ellipsis-left');
-  } else {
-    for (let page = 2; page < start; page += 1) items.push(page);
-  }
-
-  for (let page = start; page <= end; page += 1) {
-    items.push(page);
-  }
-
-  if (end < pageCount - 1) {
-    items.push('ellipsis-right');
-  } else {
-    for (let page = end + 1; page < pageCount; page += 1) items.push(page);
-  }
+  const { start, end } = getPostHistoryPaginationWindow(currentPage, pageCount);
+  appendPostHistoryLeadingGap(items, start);
+  appendPostHistoryPageRange(items, start, end);
+  appendPostHistoryTrailingGap(items, end, pageCount);
 
   items.push(pageCount);
   return items;
@@ -7302,17 +7552,6 @@ function getDuplicateFacebookGroupUrlError(
   return existingGroup ? 'Link URL không được trùng với nhóm đã tồn tại trong hệ thống.' : null;
 }
 
-function isFacebookPageUrl(value: string | undefined) {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    const hostname = url.hostname.toLowerCase();
-    return hostname === 'facebook.com' || hostname.endsWith('.facebook.com');
-  } catch {
-    return false;
-  }
-}
-
 function isFacebookGroupUrlCandidate(value: string) {
   return Boolean(readFacebookGroupExternalId(value));
 }
@@ -7427,7 +7666,15 @@ function buildFacebookGroupSyncDetails(result: DiscoverFacebookGroupsResponse): 
     && skipped.length === 0
     && errors.length === 0
   ) return null;
-  return { accepted, removed, reactivated, filtered, skipped, errors };
+  return {
+    requested: result.requested,
+    accepted,
+    removed,
+    reactivated,
+    filtered,
+    skipped,
+    errors,
+  };
 }
 
 const FACEBOOK_GROUP_ACTIVITY_MARKERS = [
@@ -7485,6 +7732,74 @@ function stripFacebookGroupNameNoise(value: string) {
     normalized = normalized.slice(0, -allGroupsSuffix.length).trim();
   }
   return stripFacebookGroupYearSuffix(normalized);
+}
+
+type FacebookGroupScanCandidate = {
+  targetName: string;
+  targetUrl: string;
+  targetExternalId: string;
+  order: number;
+};
+
+async function runFacebookGroupScrollPasses(
+  collected: Map<string, FacebookGroupScanCandidate>,
+  scrollHosts: Element[],
+  revealRoot: ParentNode,
+  collect: () => Map<string, FacebookGroupScanCandidate>,
+  revealHiddenListItems: (root: ParentNode) => number,
+  discoverScrollHosts: () => void,
+  sleepMs: (ms: number) => Promise<void>,
+) {
+  let stablePasses = 0;
+  let attempts = 0;
+  const previousScrollHeights = new Map<Element, number>();
+  const maxAttempts = 40;
+
+  while (attempts < maxAttempts && stablePasses < 5) {
+    const beforeSize = collected.size;
+    const now = collect();
+    now.forEach((group, key) => {
+      if (!collected.has(key)) collected.set(key, group);
+    });
+
+    const revealClicks = revealHiddenListItems(revealRoot);
+    if (revealClicks > 0) await sleepMs(1000);
+    discoverScrollHosts();
+
+    const afterSize = collected.size;
+    const sizeChanged = afterSize > beforeSize || revealClicks > 0;
+    let moved = false;
+    let heightChanged = false;
+
+    attempts += 1;
+
+    for (const host of scrollHosts) {
+      const isDocumentHost = host === document.documentElement || host === document.body;
+      const beforeScrollTop = isDocumentHost ? window.scrollY : host.scrollTop;
+      const beforeScrollHeight = isDocumentHost ? document.documentElement.scrollHeight : host.scrollHeight;
+
+      if (isDocumentHost) window.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
+      else if (host instanceof HTMLElement) host.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
+      await sleepMs(1_100);
+
+      const afterScrollTop = isDocumentHost ? window.scrollY : host.scrollTop;
+      const afterScrollHeight = isDocumentHost ? document.documentElement.scrollHeight : host.scrollHeight;
+      const hostMoved = afterScrollTop !== beforeScrollTop || afterScrollHeight !== beforeScrollHeight;
+      const previousScrollHeight = previousScrollHeights.get(host);
+      const hostHeightChanged = previousScrollHeight !== undefined && afterScrollHeight !== previousScrollHeight;
+      previousScrollHeights.set(host, afterScrollHeight);
+
+      moved = moved || hostMoved;
+      heightChanged = heightChanged || hostHeightChanged;
+    }
+
+    const afterScrollSize = collect().size;
+    const groupsLoadedAfterScroll = afterScrollSize > afterSize;
+    if (sizeChanged || groupsLoadedAfterScroll || moved || heightChanged) stablePasses = 0;
+    else stablePasses += 1;
+  }
+
+  return stablePasses;
 }
 
 async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunResult> {
@@ -7836,6 +8151,17 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     return best;
   };
 
+  const readExpectedJoinedGroupCount = () => {
+    const headingText = Array.from(
+      document.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]'),
+    )
+      .map((node) => normalizeText(node.textContent))
+      .find((text) => text && /(?:tất cả các nhóm bạn đã tham gia|all groups you joined)/i.test(text));
+    const sourceText = headingText || normalizeText(document.body?.innerText) || '';
+    const match = sourceText.match(/(?:tất cả các nhóm bạn đã tham gia|all groups you joined)[^\d]{0,32}(\d{1,4})/i);
+    return match ? Number(match[1]) : null;
+  };
+
   const pickScrollableHost = (scope: Element | null) => {
     if (!scope) return null;
     let current: Element | null = scope;
@@ -7905,6 +8231,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
   const sectionRoot = findJoinedSectionRoot();
   const fallbackSectionRoot = sectionRoot ? null : findJoinedSectionRootByDensity();
   const scanScope: ParentNode = sectionRoot ?? fallbackSectionRoot ?? document;
+  const expectedCount = readExpectedJoinedGroupCount();
 
   const collect = () => {
     const output = collectFromScope(scanScope);
@@ -7917,7 +8244,7 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
     return output;
   };
 
-  const collected = new Map<string, { targetName: string; targetUrl: string; targetExternalId: string; order: number }>(collect());
+  const collected = new Map<string, FacebookGroupScanCandidate>(collect());
   const scrollScope = sectionRoot ?? fallbackSectionRoot;
   const scrollHost = pickScrollableHost(scrollScope instanceof Element ? scrollScope : document.documentElement);
   const scrollHosts: Element[] = [];
@@ -7956,62 +8283,15 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
 
   discoverScrollHosts();
 
-  let stablePasses = 0;
-  let attempts = 0;
-  const previousScrollHeights = new Map<Element, number>();
-  const maxAttempts = 40;
-
-  while (attempts < maxAttempts && stablePasses < 5) {
-    const beforeSize = collected.size;
-    const now = collect();
-    now.forEach((group, key) => {
-      if (!collected.has(key)) {
-        collected.set(key, group);
-      }
-    });
-
-    const revealClicks = revealHiddenListItems(sectionRoot || document);
-    if (revealClicks > 0) {
-      await sleepMs(1000);
-    }
-    discoverScrollHosts();
-
-    const afterSize = collected.size;
-    const sizeChanged = afterSize > beforeSize || revealClicks > 0;
-    let moved = false;
-    let heightChanged = false;
-
-    attempts += 1;
-
-    for (const host of scrollHosts) {
-      const isDocumentHost = host === document.documentElement || host === document.body;
-      const beforeScrollTop = isDocumentHost ? window.scrollY : host.scrollTop;
-      const beforeScrollHeight = isDocumentHost ? document.documentElement.scrollHeight : host.scrollHeight;
-
-      if (isDocumentHost) {
-        window.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
-      } else if (host instanceof HTMLElement) {
-        host.scrollTo({ top: beforeScrollHeight, behavior: 'auto' });
-      }
-      await sleepMs(1_100);
-
-      const afterScrollTop = isDocumentHost ? window.scrollY : host.scrollTop;
-      const afterScrollHeight = isDocumentHost ? document.documentElement.scrollHeight : host.scrollHeight;
-      const hostMoved = afterScrollTop !== beforeScrollTop || afterScrollHeight !== beforeScrollHeight;
-      const previousScrollHeight = previousScrollHeights.get(host);
-      const hostHeightChanged = previousScrollHeight !== undefined && afterScrollHeight !== previousScrollHeight;
-      previousScrollHeights.set(host, afterScrollHeight);
-
-      moved = moved || hostMoved;
-      heightChanged = heightChanged || hostHeightChanged;
-    }
-
-    const afterScrollSize = collect().size;
-    const groupsLoadedAfterScroll = afterScrollSize > afterSize;
-
-    if (sizeChanged || groupsLoadedAfterScroll || moved || heightChanged) stablePasses = 0;
-    else stablePasses += 1;
-  }
+  const stablePasses = await runFacebookGroupScrollPasses(
+    collected,
+    scrollHosts,
+    sectionRoot || document,
+    collect,
+    revealHiddenListItems,
+    discoverScrollHosts,
+    sleepMs,
+  );
 
   const uniqueGroups = Array.from(collected.values())
     .sort((left, right) => left.order - right.order);
@@ -8045,14 +8325,22 @@ async function collectFacebookGroupsFromPage(): Promise<FacebookGroupsScanRunRes
 
   return {
     groups: Array.from(finalGroups.values()),
-    scanComplete: stablePasses >= 5 && Boolean(scrollScope) && scrollHosts.length > 0,
+    scanComplete: stablePasses >= 5
+      && Boolean(scrollScope)
+      && scrollHosts.length > 0
+      && (expectedCount === null || finalGroups.size >= expectedCount),
+    expectedCount,
   };
 }
 
-function mapGraphqlScanResult(result: FacebookGraphqlCollectionResult): FacebookGroupsScanRunResult {
+function mapGraphqlScanResult(
+  result: FacebookGraphqlCollectionResult,
+  account?: FacebookAccountIdentity | null,
+): FacebookGroupsScanRunResult {
   return {
     groups: result.groups,
     scanComplete: result.scanComplete,
+    account,
   };
 }
 
