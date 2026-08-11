@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-export const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@viettel\.com\.vn$/i;
+export const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
 export function isInternalEmail(value?: string | null) {
   return INTERNAL_EMAIL_PATTERN.test(value?.trim() ?? '');
@@ -23,7 +23,7 @@ export function normalizeInternalEmail(
   if (!isInternalEmail(normalized)) {
     throw new BadRequestException({
       code: 'INVALID_INTERNAL_EMAIL',
-      message: 'Internal email must use the @viettel.com.vn domain.',
+      message: 'Internal email is invalid.',
     });
   }
   return normalized;

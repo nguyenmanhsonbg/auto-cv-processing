@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
-const stylesSource = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+const stylesSource = await readFile(new URL('../src/app/styles.css', import.meta.url), 'utf8');
 
 test('Facebook group modal toolbar can wrap without horizontal overflow', () => {
   const toolbarCss = stylesSource.match(/\.facebook-group-settings-modal \.modal-toolbar \{[\s\S]*?\r?\n}\r?\n/);

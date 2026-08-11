@@ -19,7 +19,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       throw (err as Error | undefined) ?? new UnauthorizedException();
     }
 
-    if (user.role === UserRole.FREELANCER && !this.isAllowedFreelancerPath(context)) {
+    if (
+      (user.role === UserRole.FREELANCER || user.role === UserRole.INTERNAL)
+      && !this.isAllowedFreelancerPath(context)
+    ) {
       throw new ForbiddenException(
         'Freelancer access is limited to freelancer self-service routes.',
       );

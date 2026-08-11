@@ -77,7 +77,7 @@ export class FreelancersController {
   }
 
   @Get('me/summary')
-  @Roles(UserRole.FREELANCER)
+  @Roles(UserRole.FREELANCER, UserRole.INTERNAL)
   @ApiOperation({ summary: 'Get the active freelancer summary for the current user' })
   async meSummary(@Request() req: any) {
     const data = await this.freelancersService.findMySummary(req?.user?.id);
@@ -89,7 +89,7 @@ export class FreelancersController {
   }
 
   @Get('me/applications')
-  @Roles(UserRole.FREELANCER)
+  @Roles(UserRole.FREELANCER, UserRole.INTERNAL)
   @ApiOperation({ summary: 'List the current freelancer referral applications' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -106,7 +106,7 @@ export class FreelancersController {
   }
 
   @Patch('me/applications/:referralId/evaluation')
-  @Roles(UserRole.FREELANCER)
+  @Roles(UserRole.FREELANCER, UserRole.INTERNAL)
   @ApiOperation({ summary: 'Create or update the current freelancer evaluation note for a referral' })
   async updateMyApplicationEvaluation(
     @Request() req: any,
@@ -126,7 +126,7 @@ export class FreelancersController {
   }
 
   @Get('me/applications/:referralId/cv')
-  @Roles(UserRole.FREELANCER)
+  @Roles(UserRole.FREELANCER, UserRole.INTERNAL)
   @ApiOperation({ summary: 'Preview or download the current sanitized CV for a freelancer referral' })
   @ApiResponse({
     status: 200,

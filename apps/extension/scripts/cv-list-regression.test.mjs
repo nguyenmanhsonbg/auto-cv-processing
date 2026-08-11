@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../src/side-panel.tsx', import.meta.url), 'utf8');
+const source = await readFile(new URL('../src/app/side-panel.tsx', import.meta.url), 'utf8');
 
 test('CV list renders the select-all checkbox', () => {
   assert.match(source, /className="cv-select-all-control"/);

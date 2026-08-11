@@ -17,11 +17,11 @@ export default defineConfig({
       input: {
         popup: path.resolve(__dirname, 'popup.html'),
         'side-panel': path.resolve(__dirname, 'side-panel.html'),
-        background: path.resolve(__dirname, 'src/background.ts'),
-        'amis-source-column': path.resolve(__dirname, 'src/amis-source-column.ts'),
-        'amis-page-hook': path.resolve(__dirname, 'src/amis-page-hook.ts'),
-        'amis-bridge': path.resolve(__dirname, 'src/amis-bridge.ts'),
-        'frontend-bridge': path.resolve(__dirname, 'src/frontend-bridge.ts'),
+        background: path.resolve(__dirname, 'src/app/background.ts'),
+        'amis-source-column': path.resolve(__dirname, 'src/integrations/amis/amis-source-column.ts'),
+        'amis-page-hook': path.resolve(__dirname, 'src/integrations/amis/amis-page-hook.ts'),
+        'amis-bridge': path.resolve(__dirname, 'src/integrations/amis/amis-bridge.ts'),
+        'frontend-bridge': path.resolve(__dirname, 'src/integrations/frontend/frontend-bridge.ts'),
       },
       output: {
         entryFileNames: 'assets/[name].js',

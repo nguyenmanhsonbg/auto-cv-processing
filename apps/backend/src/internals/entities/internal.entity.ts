@@ -34,9 +34,16 @@ export class InternalEntity {
   @Column({ name: 'created_by_id', type: 'uuid', nullable: true })
   createdById: string | null;
 
+  @Column({ name: 'user_id', type: 'uuid', nullable: true, unique: true })
+  userId: string | null;
+
   @ManyToOne(() => UserEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'created_by_id' })
   createdBy: UserEntity | null;
+
+  @ManyToOne(() => UserEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'user_id' })
+  user: UserEntity | null;
 
   @OneToMany(() => ApplicationReferralEntity, (referral) => referral.internal)
   referrals: ApplicationReferralEntity[];
