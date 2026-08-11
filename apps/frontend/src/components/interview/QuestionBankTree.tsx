@@ -341,9 +341,6 @@ export function QuestionBankTree({
                             return (
                               <div
                                 key={q.id}
-                                role="button"
-                                tabIndex={isExisting ? -1 : 0}
-                                aria-disabled={isExisting}
                                 className={cn(
                                   'flex items-start gap-2 px-2 py-1 rounded',
                                   isExisting
@@ -351,15 +348,6 @@ export function QuestionBankTree({
                                     : 'cursor-pointer hover:bg-muted/50',
                                   isSelected && !isExisting && 'bg-primary/10 border border-primary/30',
                                 )}
-                                onClick={() => {
-                                  if (!isExisting) onToggle(q.id);
-                                }}
-                                onKeyDown={(event) => {
-                                  if (isExisting) return;
-                                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                                  event.preventDefault();
-                                  onToggle(q.id);
-                                }}
                               >
                                 <Checkbox
                                   checked={isSelected || isExisting}
@@ -370,7 +358,16 @@ export function QuestionBankTree({
                                   onClick={(e) => e.stopPropagation()}
                                   className={cn('mt-0.5 shrink-0', isExisting && 'opacity-50')}
                                 />
-                                <div className="flex-1 min-w-0">
+                                <button
+                                  type="button"
+                                  disabled={isExisting}
+                                  aria-disabled={isExisting}
+                                  aria-pressed={isSelected}
+                                  className="flex-1 min-w-0 p-0 text-left"
+                                  onClick={() => {
+                                    if (!isExisting) onToggle(q.id);
+                                  }}
+                                >
                                   <div className="flex items-center gap-1">
                                     <span className={cn('flex-1 truncate text-xs', isExisting && 'text-muted-foreground')}>
                                       {truncated}
@@ -403,7 +400,7 @@ export function QuestionBankTree({
                                       )}
                                     </div>
                                   </div>
-                                </div>
+                                </button>
                               </div>
                             );
                           })}

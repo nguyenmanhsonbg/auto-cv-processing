@@ -445,29 +445,50 @@ export class CandidatesService {
     const rawEmail = profile['email'] as string | undefined;
     if (rawEmail) profile['email'] = rawEmail.toLowerCase();
 
-    let existing: CandidateEntity | null = null;
-    if (candidateId) {
-      existing = await this.findOne(candidateId, scope);
-    } else {
-      const email = profile['email'] as string | undefined;
-      if (email) existing = await this.findByEmail(email, scope);
-    }
-
+    const existing = await this.findExistingUploadCandidate(profile, candidateId, scope);
     if (existing) {
-      const merged: Record<string, unknown> = { ...(existing.parsedProfile as Record<string, unknown> ?? {}) };
-      for (const [key, value] of Object.entries(profile)) {
-        if (value != null) merged[key] = value;
-      }
-      existing.parsedProfile = merged;
-      if (resumeUrl) existing.resumeUrl = resumeUrl;
-      if (profileXlsxUrl) existing.profileXlsxUrl = profileXlsxUrl;
-      const incomingLevel = profile['level'] as CandidateLevel | undefined;
-      if (incomingLevel && Object.values(CandidateLevel).includes(incomingLevel)) {
-        existing.level = incomingLevel;
-      }
-      return this.candidateRepo.save(existing);
+      return this.mergeUploadedCandidate(existing, profile, resumeUrl, profileXlsxUrl);
     }
 
+    return this.createUploadedCandidate(profile, resumeUrl, profileXlsxUrl, createdById);
+  }
+
+  private async findExistingUploadCandidate(
+    profile: Record<string, unknown>,
+    candidateId: string | undefined,
+    scope: { userId: string; isAdmin: boolean },
+  ): Promise<CandidateEntity | null> {
+    if (candidateId) return this.findOne(candidateId, scope);
+    const email = profile['email'] as string | undefined;
+    return email ? this.findByEmail(email, scope) : null;
+  }
+
+  private async mergeUploadedCandidate(
+    existing: CandidateEntity,
+    profile: Record<string, unknown>,
+    resumeUrl: string | null,
+    profileXlsxUrl: string | null,
+  ): Promise<CandidateEntity> {
+    const merged: Record<string, unknown> = { ...(existing.parsedProfile as Record<string, unknown> ?? {}) };
+    for (const [key, value] of Object.entries(profile)) {
+      if (value != null) merged[key] = value;
+    }
+    existing.parsedProfile = merged;
+    if (resumeUrl) existing.resumeUrl = resumeUrl;
+    if (profileXlsxUrl) existing.profileXlsxUrl = profileXlsxUrl;
+    const incomingLevel = profile['level'] as CandidateLevel | undefined;
+    if (incomingLevel && Object.values(CandidateLevel).includes(incomingLevel)) {
+      existing.level = incomingLevel;
+    }
+    return this.candidateRepo.save(existing);
+  }
+
+  private async createUploadedCandidate(
+    profile: Record<string, unknown>,
+    resumeUrl: string | null,
+    profileXlsxUrl: string | null,
+    createdById: string,
+  ): Promise<CandidateEntity> {
     const name = (profile['name'] as string | undefined)?.trim() || 'Unknown';
     const slug = await this.ensureUniqueSlug(this.generateSlug(name));
 
@@ -479,18 +500,19 @@ export class CandidatesService {
         phone: (profile['phone'] as string | undefined) || undefined,
         birthYear: (profile['birthYear'] as number | undefined) || undefined,
         position: (profile['position'] as string | undefined) || 'Backend Developer',
-        level: (() => {
-          const l = profile['level'] as string | undefined;
-          return (l && Object.values(CandidateLevel).includes(l as CandidateLevel))
-            ? (l as CandidateLevel)
-            : CandidateLevel.ENTRY;
-        })(),
+        level: this.resolveUploadedCandidateLevel(profile['level']),
         resumeUrl: resumeUrl ?? undefined,
         profileXlsxUrl: profileXlsxUrl ?? undefined,
         parsedProfile: profile,
         createdById,
       }),
     );
+  }
+
+  private resolveUploadedCandidateLevel(value: unknown): CandidateLevel {
+    return typeof value === 'string' && Object.values(CandidateLevel).includes(value as CandidateLevel)
+      ? value as CandidateLevel
+      : CandidateLevel.ENTRY;
   }
 
   async setAnalyzeStatus(id: string, status: 'idle' | 'analyzing'): Promise<void> {

@@ -44,6 +44,12 @@ interface DiscoverFacebookGroupsInput {
   }>;
 }
 
+interface UniqueDiscoveredGroup {
+  targetName: string;
+  targetUrl: string;
+  externalId: string;
+}
+
 interface GenerateFacebookPreviewContentInput {
   snapshot: AmisJobSnapshotDto;
   mode?: 'TEMPLATE' | 'AI';
@@ -413,6 +419,18 @@ export class FacebookPublishingService {
       items: [],
     };
 
+    const manualIncludedExternalIds = await this.loadManualIncludedExternalIds(input);
+    const uniqueItems = this.collectUniqueDiscoveredGroups(input, manualIncludedExternalIds, result);
+    let nextPriority = await this.getNextGroupPriority(input.ownerUserId);
+
+    for (const item of uniqueItems) {
+      nextPriority = await this.syncDiscoveredGroup(item, input, discoveryTime, nextPriority, result);
+    }
+
+    return result;
+  }
+
+  private async loadManualIncludedExternalIds(input: DiscoverFacebookGroupsInput): Promise<Set<string>> {
     const manualIncludedTargets = await this.targetsRepo.find({
       where: {
         ownerUserId: input.ownerUserId,
@@ -420,7 +438,7 @@ export class FacebookPublishingService {
         manualIncluded: true,
       },
     });
-    const manualIncludedExternalIds = new Set(
+    return new Set(
       manualIncludedTargets
         .filter((target) => this.isTargetInAccountScope(
           target.ownerExtensionInstanceId,
@@ -431,174 +449,204 @@ export class FacebookPublishingService {
         .map((target) => target.externalId?.trim().toLowerCase())
         .filter((value): value is string => Boolean(value)),
     );
+  }
 
-    const uniqueGroups = new Map<string, { targetName: string; targetUrl: string }>();
+  private collectUniqueDiscoveredGroups(
+    input: DiscoverFacebookGroupsInput,
+    manualIncludedExternalIds: Set<string>,
+    result: DiscoverFacebookGroupsResponseDto,
+  ): UniqueDiscoveredGroup[] {
+    const uniqueGroups = new Map<string, UniqueDiscoveredGroup>();
     for (const rawItem of input.groups) {
       try {
         const name = this.requireText(rawItem.targetName, 'targetName');
         const groupUrl = this.normalizeFacebookGroupUrl(rawItem.targetUrl);
-
         if (!groupUrl.externalId) continue;
+
         const isManualIncluded = manualIncludedExternalIds.has(groupUrl.externalId.toLowerCase());
         if (!isManualIncluded && !this.isItRecruitmentFacebookGroupName(name)) {
+          this.appendSkippedDiscovery(result, name, groupUrl.url, groupUrl.externalId, 'Group name does not match the recruitment filter.');
           result.filtered += 1;
-          result.skipped += 1;
-          result.items.push({
-            action: 'skipped',
-            targetName: name,
-            targetUrl: groupUrl.url,
-            targetExternalId: groupUrl.externalId,
-            targetId: null,
-            reason: 'Group name does not match the recruitment filter.',
-          });
           continue;
         }
         if (uniqueGroups.has(groupUrl.externalId)) {
+          this.appendSkippedDiscovery(result, name, groupUrl.url, groupUrl.externalId, 'Duplicate group in discovery payload.');
           result.duplicates += 1;
-          result.skipped += 1;
-          result.items.push({
-            action: 'skipped',
-            targetName: name,
-            targetUrl: groupUrl.url,
-            targetExternalId: groupUrl.externalId,
-            targetId: null,
-            reason: 'Duplicate group in discovery payload.',
-          });
           continue;
         }
-
         uniqueGroups.set(groupUrl.externalId, {
           targetName: name,
           targetUrl: groupUrl.url,
+          externalId: groupUrl.externalId,
         });
       } catch (error) {
         result.skipped += 1;
-        const message = error instanceof Error ? error.message : 'Invalid group discovery payload.';
-        result.errors.push(message);
+        result.errors.push(error instanceof Error ? error.message : 'Invalid group discovery payload.');
       }
     }
+    return [...uniqueGroups.values()];
+  }
 
-    const uniqueItems = Array.from(uniqueGroups.entries()).map(([externalId, item]) => ({
-      targetName: item.targetName,
-      targetUrl: item.targetUrl,
-      externalId,
-    }));
-    let nextPriority = await this.getNextGroupPriority(input.ownerUserId);
+  private appendSkippedDiscovery(
+    result: DiscoverFacebookGroupsResponseDto,
+    targetName: string,
+    targetUrl: string,
+    targetExternalId: string | null,
+    reason: string,
+  ) {
+    result.skipped += 1;
+    result.items.push({
+      action: 'skipped',
+      targetName,
+      targetUrl,
+      targetExternalId,
+      targetId: null,
+      reason,
+    });
+  }
 
-    for (const item of uniqueItems) {
-      try {
-        const matches = (await this.targetsRepo.find({
-          where: {
-            ownerUserId: input.ownerUserId,
-            type: FacebookPublishTargetType.GROUP,
-            externalId: item.externalId,
-          },
-          order: { createdAt: 'ASC' },
-        })).filter((target) => this.isTargetInAccountScope(
-          target.ownerExtensionInstanceId,
-          input.ownerExtensionInstanceId,
-          target.facebookAccountId,
-          input.facebookAccountId,
-        ));
+  private async syncDiscoveredGroup(
+    item: UniqueDiscoveredGroup,
+    input: DiscoverFacebookGroupsInput,
+    discoveryTime: Date,
+    nextPriority: number,
+    result: DiscoverFacebookGroupsResponseDto,
+  ): Promise<number> {
+    try {
+      const matches = await this.findScopedGroupTargets(item.externalId, input);
+      if (matches.length > 1) result.conflicts += 1;
 
-        if (matches.length > 1) {
-          result.conflicts += 1;
-        }
-
-        const activeTarget = matches.find((target) => target.active);
-        if (activeTarget) {
-          const changed = activeTarget.name !== item.targetName || activeTarget.url !== item.targetUrl;
-          const originalName = activeTarget.name;
-          activeTarget.name = item.targetName;
-          activeTarget.externalId = item.externalId;
-          activeTarget.url = item.targetUrl;
-          activeTarget.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? activeTarget.ownerExtensionInstanceId;
-          activeTarget.facebookAccountId = input.facebookAccountId ?? activeTarget.facebookAccountId;
-          activeTarget.lastDiscoveredAt = discoveryTime;
-          if (changed) result.updated += 1;
-
-          const savedTarget = await this.targetsRepo.save(activeTarget);
-          result.valid += 1;
-          result.items.push({
-            action: changed ? 'updated' : 'reused',
-            targetName: savedTarget.name,
-            targetUrl: savedTarget.url ?? item.targetUrl,
-            targetExternalId: savedTarget.externalId,
-            targetId: savedTarget.id,
-            reason: changed ? `Name updated from ${originalName} to ${savedTarget.name}.` : null,
-          });
-          continue;
-        }
-
-        const inactiveTarget = matches.find((target) => !target.active);
-        if (inactiveTarget) {
-          inactiveTarget.active = true;
-          inactiveTarget.name = item.targetName;
-          inactiveTarget.externalId = item.externalId;
-          inactiveTarget.url = item.targetUrl;
-          inactiveTarget.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
-          inactiveTarget.eligibilityReason = 'Group has not been verified yet.';
-          inactiveTarget.lastVerifiedAt = null;
-          inactiveTarget.lastDiscoveredAt = discoveryTime;
-          inactiveTarget.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? inactiveTarget.ownerExtensionInstanceId;
-          inactiveTarget.facebookAccountId = input.facebookAccountId ?? inactiveTarget.facebookAccountId;
-
-          const savedTarget = await this.targetsRepo.save(inactiveTarget);
-          result.reactivated += 1;
-          result.valid += 1;
-          result.items.push({
-            action: 'reactivated',
-            targetName: savedTarget.name,
-            targetUrl: savedTarget.url ?? item.targetUrl,
-            targetExternalId: savedTarget.externalId,
-            targetId: savedTarget.id,
-          });
-          continue;
-        }
-
-        const createdTarget = this.targetsRepo.create({
-          type: FacebookPublishTargetType.GROUP,
-          name: item.targetName,
-          externalId: item.externalId,
-          url: item.targetUrl,
-          ownerUserId: input.ownerUserId,
-          ownerExtensionInstanceId: input.ownerExtensionInstanceId ?? null,
-          facebookAccountId: input.facebookAccountId ?? null,
-          active: true,
-          priority: nextPriority,
-          eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
-          eligibilityReason: 'Group has not been verified yet.',
-          lastVerifiedAt: null,
-          lastDiscoveredAt: discoveryTime,
-          dailyPublishLimit: 10,
-        });
-        nextPriority += 1;
-        const savedTarget = await this.targetsRepo.save(createdTarget);
-        result.created += 1;
-        result.valid += 1;
-        result.items.push({
-          action: 'created',
-          targetName: savedTarget.name,
-          targetUrl: savedTarget.url ?? item.targetUrl,
-          targetExternalId: savedTarget.externalId,
-          targetId: savedTarget.id,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Could not sync this discovered group.';
-        result.skipped += 1;
-        result.errors.push(`${item.externalId}: ${message}`);
-        result.items.push({
-          action: 'skipped',
-          targetName: item.targetName,
-          targetUrl: item.targetUrl,
-          targetExternalId: item.externalId,
-          targetId: null,
-          reason: message,
-        });
+      const activeTarget = matches.find((target) => target.active);
+      if (activeTarget) {
+        await this.updateActiveDiscoveredGroup(activeTarget, item, input, discoveryTime, result);
+        return nextPriority;
       }
-    }
 
-    return result;
+      const inactiveTarget = matches.find((target) => !target.active);
+      if (inactiveTarget) {
+        await this.reactivateDiscoveredGroup(inactiveTarget, item, input, discoveryTime, result);
+        return nextPriority;
+      }
+
+      await this.createDiscoveredGroup(item, input, discoveryTime, nextPriority, result);
+      return nextPriority + 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not sync this discovered group.';
+      this.appendSkippedDiscovery(result, item.targetName, item.targetUrl, item.externalId, message);
+      result.errors.push(`${item.externalId}: ${message}`);
+      return nextPriority;
+    }
+  }
+
+  private async findScopedGroupTargets(externalId: string, input: DiscoverFacebookGroupsInput) {
+    const matches = await this.targetsRepo.find({
+      where: {
+        ownerUserId: input.ownerUserId,
+        type: FacebookPublishTargetType.GROUP,
+        externalId,
+      },
+      order: { createdAt: 'ASC' },
+    });
+    return matches.filter((target) => this.isTargetInAccountScope(
+      target.ownerExtensionInstanceId,
+      input.ownerExtensionInstanceId,
+      target.facebookAccountId,
+      input.facebookAccountId,
+    ));
+  }
+
+  private async updateActiveDiscoveredGroup(
+    target: FacebookPublishTargetEntity,
+    item: UniqueDiscoveredGroup,
+    input: DiscoverFacebookGroupsInput,
+    discoveryTime: Date,
+    result: DiscoverFacebookGroupsResponseDto,
+  ) {
+    const changed = target.name !== item.targetName || target.url !== item.targetUrl;
+    const originalName = target.name;
+    target.name = item.targetName;
+    target.externalId = item.externalId;
+    target.url = item.targetUrl;
+    target.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? target.ownerExtensionInstanceId;
+    target.facebookAccountId = input.facebookAccountId ?? target.facebookAccountId;
+    target.lastDiscoveredAt = discoveryTime;
+    if (changed) result.updated += 1;
+
+    const savedTarget = await this.targetsRepo.save(target);
+    result.valid += 1;
+    result.items.push({
+      action: changed ? 'updated' : 'reused',
+      targetName: savedTarget.name,
+      targetUrl: savedTarget.url ?? item.targetUrl,
+      targetExternalId: savedTarget.externalId,
+      targetId: savedTarget.id,
+      reason: changed ? `Name updated from ${originalName} to ${savedTarget.name}.` : null,
+    });
+  }
+
+  private async reactivateDiscoveredGroup(
+    target: FacebookPublishTargetEntity,
+    item: UniqueDiscoveredGroup,
+    input: DiscoverFacebookGroupsInput,
+    discoveryTime: Date,
+    result: DiscoverFacebookGroupsResponseDto,
+  ) {
+    target.active = true;
+    target.name = item.targetName;
+    target.externalId = item.externalId;
+    target.url = item.targetUrl;
+    target.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
+    target.eligibilityReason = 'Group has not been verified yet.';
+    target.lastVerifiedAt = null;
+    target.lastDiscoveredAt = discoveryTime;
+    target.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? target.ownerExtensionInstanceId;
+    target.facebookAccountId = input.facebookAccountId ?? target.facebookAccountId;
+
+    const savedTarget = await this.targetsRepo.save(target);
+    result.reactivated += 1;
+    result.valid += 1;
+    result.items.push({
+      action: 'reactivated',
+      targetName: savedTarget.name,
+      targetUrl: savedTarget.url ?? item.targetUrl,
+      targetExternalId: savedTarget.externalId,
+      targetId: savedTarget.id,
+    });
+  }
+
+  private async createDiscoveredGroup(
+    item: UniqueDiscoveredGroup,
+    input: DiscoverFacebookGroupsInput,
+    discoveryTime: Date,
+    priority: number,
+    result: DiscoverFacebookGroupsResponseDto,
+  ) {
+    const createdTarget = this.targetsRepo.create({
+      type: FacebookPublishTargetType.GROUP,
+      name: item.targetName,
+      externalId: item.externalId,
+      url: item.targetUrl,
+      ownerUserId: input.ownerUserId,
+      ownerExtensionInstanceId: input.ownerExtensionInstanceId ?? null,
+      facebookAccountId: input.facebookAccountId ?? null,
+      active: true,
+      priority,
+      eligibilityStatus: FacebookPublishTargetEligibilityStatus.UNKNOWN,
+      eligibilityReason: 'Group has not been verified yet.',
+      lastVerifiedAt: null,
+      lastDiscoveredAt: discoveryTime,
+      dailyPublishLimit: 10,
+    });
+    const savedTarget = await this.targetsRepo.save(createdTarget);
+    result.created += 1;
+    result.valid += 1;
+    result.items.push({
+      action: 'created',
+      targetName: savedTarget.name,
+      targetUrl: savedTarget.url ?? item.targetUrl,
+      targetExternalId: savedTarget.externalId,
+      targetId: savedTarget.id,
+    });
   }
 
   async syncAndReconcileExtensionGroups(input: DiscoverFacebookGroupsInput) {

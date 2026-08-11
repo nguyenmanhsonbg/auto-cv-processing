@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type KeyboardEvent } from "react"; // session detail
+import { useEffect, useState, useCallback } from "react"; // session detail
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api-client";
 import { getSocket, joinSession, disconnectSocket, WebSocketEvents } from "@/lib/socket";
@@ -53,21 +53,13 @@ function SuggestedQuestionRow({
   selected: boolean;
   onToggle: (questionId: string) => void;
 }) {
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    onToggle(questionId);
-  };
-
   return (
-    <div
-      className={cn("flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors", selected ? "border-primary bg-primary/5" : "border-input bg-background opacity-60")}
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
+      className={cn("w-full text-left flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors", selected ? "border-primary bg-primary/5" : "border-input bg-background opacity-60")}
       aria-pressed={selected}
       aria-label={"Select suggested question " + (question?.text ?? "")}
       onClick={() => onToggle(questionId)}
-      onKeyDown={handleKeyDown}
     >
       <div className={cn("mt-0.5 h-4 w-4 shrink-0 rounded border flex items-center justify-center", selected ? "bg-primary border-primary" : "border-input")}>
         {selected && (
@@ -83,7 +75,7 @@ function SuggestedQuestionRow({
           {reasoning && <span className="text-xs text-blue-600 italic">— {reasoning}</span>}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -657,18 +649,12 @@ export function SessionDetailPage() {
             const stepClass = (step: number) => cn("px-2 py-0.5 rounded-full text-xs font-medium", surveyStep === step ? "bg-primary text-primary-foreground" : surveyStep > step ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground");
             return (
               <div className="rounded-lg border bg-card">
-                <div
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
                   aria-label="Toggle pre-interview survey"
                   aria-expanded={surveyExpanded}
-                  className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors rounded-lg"
+                  className="w-full text-left flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors rounded-lg"
                   onClick={() => setSurveyExpanded((v) => !v)}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' && event.key !== ' ') return;
-                    event.preventDefault();
-                    setSurveyExpanded((v) => !v);
-                  }}
                 >
                   <div className="flex items-center gap-2 text-sm font-semibold">
                     <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
@@ -689,7 +675,7 @@ export function SessionDetailPage() {
                     </div>
                     {surveyExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                   </div>
-                </div>
+                </button>
                 {surveyExpanded && (
                   <div className="border-t px-4 py-3 space-y-3">
                     {session.status !== 'COMPLETED' && session.status !== 'EVALUATED' && (
@@ -747,22 +733,14 @@ export function SessionDetailPage() {
                     {surveyQuestions.length > 0 && (
                       <div className="space-y-2">
                         {surveyQuestions.map((sq) => (
-                          <div
-                            key={sq.id}
-                            role="button"
-                            tabIndex={0}
-                            aria-label={sq.question}
-                            aria-expanded={expandedSurveyId === sq.id}
-                            className="rounded-md border px-3 py-2 space-y-1.5 cursor-pointer hover:bg-muted/30 transition-colors"
-                            onClick={() => setExpandedSurveyId(expandedSurveyId === sq.id ? null : sq.id)}
-                            onKeyDown={(event) => {
-                              if (event.target !== event.currentTarget) return;
-                              if (event.key !== 'Enter' && event.key !== ' ') return;
-                              event.preventDefault();
-                              setExpandedSurveyId(expandedSurveyId === sq.id ? null : sq.id);
-                            }}
-                          >
-                            <div className="flex items-start gap-2">
+                          <div key={sq.id} className="rounded-md border px-3 py-2 space-y-1.5">
+                            <button
+                              type="button"
+                              aria-label={sq.question}
+                              aria-expanded={expandedSurveyId === sq.id}
+                              className="w-full text-left flex items-start gap-2 cursor-pointer hover:bg-muted/30 transition-colors"
+                              onClick={() => setExpandedSurveyId(expandedSurveyId === sq.id ? null : sq.id)}
+                            >
                               <p className="leading-snug text-sm flex-1 min-w-0">{sq.question}</p>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {sq.subcategory && (
@@ -779,7 +757,7 @@ export function SessionDetailPage() {
                                 )}
                                 {expandedSurveyId === sq.id ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
                               </div>
-                            </div>
+                            </button>
                             {sq.purpose && <p className="text-xs text-muted-foreground italic">{sq.purpose}</p>}
                             {sq.answer && <p className="text-xs text-green-800 bg-green-50 border border-green-100 rounded px-2 py-1">{sq.answer}</p>}
                             {expandedSurveyId === sq.id && sq.choices?.length > 0 && (
@@ -806,24 +784,17 @@ export function SessionDetailPage() {
           {/* Collapsible Questions tree - hidden from HR */}
           {!isHr && (
           <div className="rounded-lg border bg-card">
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label="Toggle questions"
-              aria-expanded={questionsExpanded}
-              className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-muted/40 transition-colors rounded-lg cursor-pointer"
-              onClick={() => setQuestionsExpanded((v) => !v)}
-              onKeyDown={(event) => {
-                if (event.target !== event.currentTarget) return;
-                if (event.key !== 'Enter' && event.key !== ' ') return;
-                event.preventDefault();
-                setQuestionsExpanded((v) => !v);
-              }}
-            >
-              <span className="flex items-center gap-2">
+            <div className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-muted/40 transition-colors rounded-lg">
+              <button
+                type="button"
+                aria-label="Toggle questions"
+                aria-expanded={questionsExpanded}
+                className="flex items-center gap-2 text-left"
+                onClick={() => setQuestionsExpanded((v) => !v)}
+              >
                 <Layers className="h-4 w-4 text-muted-foreground" />
                 Questions ({total})
-              </span>
+              </button>
               <div className="flex items-center gap-2">
                 {!isHr && session.status !== 'COMPLETED' && session.status !== 'EVALUATED' && (
                   <Button
@@ -993,36 +964,36 @@ export function SessionDetailPage() {
                     className="h-7 text-xs"
                   />
                 ) : (
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    aria-label={session.meetingLink ? "Edit meeting link" : "Set meeting link"}
-                    className="text-xs font-medium rounded px-1 -mx-1 cursor-pointer hover:bg-muted break-all"
-                    onClick={() => {
-                      setEditMeetingLinkValue(session.meetingLink || "");
-                      setEditingMeetingLink(true);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.target !== event.currentTarget) return;
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setEditMeetingLinkValue(session.meetingLink || "");
-                        setEditingMeetingLink(true);
-                      }
-                    }}
-                  >
+                  <div className="text-xs font-medium rounded px-1 -mx-1 break-all">
                     {session.meetingLink ? (
-                      <a
-                        href={session.meetingLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {session.meetingLink}
-                      </a>
+                      <div className="flex items-center gap-2">
+                        <a href={session.meetingLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                          {session.meetingLink}
+                        </a>
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-foreground underline"
+                          aria-label="Edit meeting link"
+                          onClick={() => {
+                            setEditMeetingLinkValue(session.meetingLink || "");
+                            setEditingMeetingLink(true);
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </div>
                     ) : (
-                      <span className="text-muted-foreground">Click to set meeting link</span>
+                      <button
+                        type="button"
+                        className="p-0 text-xs text-muted-foreground hover:text-foreground"
+                        aria-label="Set meeting link"
+                        onClick={() => {
+                          setEditMeetingLinkValue("");
+                          setEditingMeetingLink(true);
+                        }}
+                      >
+                        Click to set meeting link
+                      </button>
                     )}
                   </div>
                 )}
@@ -1287,32 +1258,28 @@ export function SessionDetailPage() {
               questionBank
                 .filter((q) => !existingQuestionIds.has(q.id))
                 .map((q) => (
-                  <div
-                    key={q.id}
-                    className="flex items-start gap-3 rounded-lg border p-3 hover:bg-muted/50 cursor-pointer"
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={selectedBankQuestionIds.has(q.id)}
-                    aria-label={`Select question ${q.text}`}
-                    onClick={() =>
-                      setSelectedBankQuestionIds((prev) => {
+                  <div key={q.id} className="flex items-start gap-3 rounded-lg border p-3 hover:bg-muted/50">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={selectedBankQuestionIds.has(q.id)}
+                      onChange={() => setSelectedBankQuestionIds((prev) => {
                         const next = new Set(prev);
                         next.has(q.id) ? next.delete(q.id) : next.add(q.id);
                         return next;
-                      })
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Enter' && event.key !== ' ') return;
-                      event.preventDefault();
-                      setSelectedBankQuestionIds((prev) => {
+                      })}
+                    />
+                    <button
+                      type="button"
+                      className="flex-1 min-w-0 text-left"
+                      aria-pressed={selectedBankQuestionIds.has(q.id)}
+                      aria-label={"Select question " + q.text}
+                      onClick={() => setSelectedBankQuestionIds((prev) => {
                         const next = new Set(prev);
                         next.has(q.id) ? next.delete(q.id) : next.add(q.id);
                         return next;
-                      });
-                    }}
-                  >
-                    <input type="checkbox" className="mt-1" readOnly checked={selectedBankQuestionIds.has(q.id)} />
-                    <div className="flex-1 min-w-0">
+                      })}
+                    >
                       <p className="text-sm font-medium truncate">{q.text}</p>
                       <div className="flex gap-2 mt-1">
                         <Badge variant="outline" className="text-xs">
@@ -1322,7 +1289,7 @@ export function SessionDetailPage() {
                           {q.type}
                         </Badge>
                       </div>
-                    </div>
+                    </button>
                   </div>
                 ))
             )}

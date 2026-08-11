@@ -26,6 +26,18 @@ import type {
 const FACEBOOK_TARGET_TIMEOUT_MS = 90_000;
 const FACEBOOK_LOGIN_REQUIRED_MESSAGE = 'Vui lòng đăng nhập facebook trước khi thực hiện thao tác này.';
 
+function splitTitleBySeparators(value: string) {
+  const parts: string[] = [];
+  let start = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!'-:|'.includes(value[index] ?? '')) continue;
+    parts.push(value.slice(start, index).trim());
+    start = index + 1;
+  }
+  parts.push(value.slice(start).trim());
+  return parts;
+}
+
 class FacebookTargetTimeoutError extends Error {
   readonly code = 'FB_TARGET_TIMEOUT';
 
@@ -4968,17 +4980,6 @@ async function recoverFacebookPendingPostUrlInPage(
     }))];
   };
   const samples = makeSearchSamples();
-  const splitTitleBySeparators = (value: string) => {
-    const parts: string[] = [];
-    let start = 0;
-    for (let index = 0; index < value.length; index += 1) {
-      if (!'-:|'.includes(value[index] ?? '')) continue;
-      parts.push(value.slice(start, index).trim());
-      start = index + 1;
-    }
-    parts.push(value.slice(start).trim());
-    return parts;
-  };
   const titleSamples = [...new Set([
     normalize(input.title ?? ''),
     ...splitTitleBySeparators(normalize(input.title ?? '')),
@@ -6313,17 +6314,6 @@ async function checkFacebookPostReviewStatusInPage(
     });
   };
   const samples = [...new Set(makeSearchSamples())];
-  const splitTitleBySeparators = (value: string) => {
-    const parts: string[] = [];
-    let start = 0;
-    for (let index = 0; index < value.length; index += 1) {
-      if (!'-:|'.includes(value[index] ?? '')) continue;
-      parts.push(value.slice(start, index).trim());
-      start = index + 1;
-    }
-    parts.push(value.slice(start).trim());
-    return parts;
-  };
   const titleSamples = [...new Set([
     normalize(input.title ?? ''),
     ...splitTitleBySeparators(normalize(input.title ?? '')),

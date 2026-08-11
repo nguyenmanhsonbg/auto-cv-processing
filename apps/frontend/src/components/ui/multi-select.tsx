@@ -69,24 +69,22 @@ export function MultiSelect({ options, selected, onChange, placeholder = 'Select
         {options.map((option) => (
           <div
             key={option.value}
-            role="button"
-            tabIndex={0}
-            aria-label={option.label}
-            aria-pressed={selected.includes(option.value)}
             className="flex items-center gap-2 px-2 py-1.5 rounded-sm cursor-pointer hover:bg-accent text-sm"
-            onClick={() => toggle(option.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter' && e.key !== ' ') return;
-              e.preventDefault();
-              toggle(option.value);
-            }}
           >
             <Checkbox
               checked={selected.includes(option.value)}
               onCheckedChange={() => toggle(option.value)}
               onClick={(e) => e.stopPropagation()}
             />
-            <span>{option.label}</span>
+            <button
+              type="button"
+              className="flex-1 p-0 text-left"
+              aria-label={option.label}
+              aria-pressed={selected.includes(option.value)}
+              onClick={() => toggle(option.value)}
+            >
+              {option.label}
+            </button>
           </div>
         ))}
       </PopoverContent>

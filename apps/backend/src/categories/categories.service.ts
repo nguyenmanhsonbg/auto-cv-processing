@@ -7,6 +7,15 @@ import { parse } from 'yaml';
 import { CategoryEntity } from './entities/category.entity';
 import { SubCategoryEntity } from './entities/sub-category.entity';
 
+type CategorySeedValue = string | { name: string; competencyType?: string };
+type CategorySeed = {
+  name: string;
+  displayName: string;
+  orderIndex: number;
+  positions?: string[];
+  subs: CategorySeedValue[];
+};
+
 @Injectable()
 export class CategoriesService implements OnModuleInit {
   constructor(
@@ -151,21 +160,26 @@ export class CategoriesService implements OnModuleInit {
   // ── Seed ──
 
   async seed() {
-    type SubSeed = string | { name: string; competencyType?: string };
-    const defaultData: Array<{ name: string; displayName: string; orderIndex: number; positions?: string[]; subs: SubSeed[] }> =
+    const defaultData: CategorySeed[] =
       parse(readFileSync(join(__dirname, '../assets/seed/categories.yaml'), 'utf8'));
 
-    // Batch-load all existing rows
     const allCats = await this.catRepo.find();
     const catByName = new Map(allCats.map((c) => [c.name, c]));
     const allSubs = await this.subRepo.find();
     const subByKey = new Map(allSubs.map((s) => [`${s.categoryId}::${s.name}`, s]));
 
-    let categoriesCreated = 0;
-    let subsCreated = 0;
+    const categoriesCreated = await this.upsertSeedCategories(defaultData, catByName);
+    const subsCreated = await this.upsertSeedSubcategories(defaultData, catByName, subByKey);
+    return { categoriesCreated, subsCreated };
+  }
 
-    // First pass: upsert categories (need IDs for subcategories)
+  private async upsertSeedCategories(
+    defaultData: CategorySeed[],
+    catByName: Map<string, CategoryEntity>,
+  ) {
+    let categoriesCreated = 0;
     const catsToSave: CategoryEntity[] = [];
+
     for (const catData of defaultData) {
       const cat = catByName.get(catData.name);
       if (!cat) {
@@ -183,33 +197,42 @@ export class CategoriesService implements OnModuleInit {
         catsToSave.push(cat);
       }
     }
+
     if (catsToSave.length) {
       const saved = await this.catRepo.save(catsToSave);
-      // Update the map with newly created categories (now have IDs)
-      for (const c of saved) catByName.set(c.name, c);
+      for (const category of saved) catByName.set(category.name, category);
     }
 
-    // Second pass: upsert subcategories
+    return categoriesCreated;
+  }
+
+  private async upsertSeedSubcategories(
+    defaultData: CategorySeed[],
+    catByName: Map<string, CategoryEntity>,
+    subByKey: Map<string, SubCategoryEntity>,
+  ) {
+    let subsCreated = 0;
     const subsToSave: SubCategoryEntity[] = [];
+
     for (const catData of defaultData) {
-      const cat = catByName.get(catData.name)!;
-      for (let i = 0; i < catData.subs.length; i++) {
-        const subSeed = catData.subs[i];
+      const category = catByName.get(catData.name)!;
+      for (let index = 0; index < catData.subs.length; index++) {
+        const subSeed = catData.subs[index];
         const subName = typeof subSeed === 'string' ? subSeed : subSeed.name;
         const competencyType = typeof subSeed === 'string' ? undefined : subSeed.competencyType;
-        const existing = subByKey.get(`${cat.id}::${subName}`);
+        const existing = subByKey.get(`${category.id}::${subName}`);
         if (!existing) {
-          subsToSave.push(this.subRepo.create({ categoryId: cat.id, name: subName, orderIndex: i, competencyType }));
+          subsToSave.push(this.subRepo.create({ categoryId: category.id, name: subName, orderIndex: index, competencyType }));
           subsCreated++;
         } else if (!existing.isCustomized) {
-          existing.orderIndex = i;
+          existing.orderIndex = index;
           if (competencyType !== undefined) existing.competencyType = competencyType;
           subsToSave.push(existing);
         }
       }
     }
-    if (subsToSave.length) await this.subRepo.save(subsToSave);
 
-    return { categoriesCreated, subsCreated };
+    if (subsToSave.length) await this.subRepo.save(subsToSave);
+    return subsCreated;
   }
 }

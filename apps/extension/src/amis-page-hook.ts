@@ -187,35 +187,43 @@ function installFetchHook() {
 
     const responsePromise = originalFetch(...args);
     return responsePromise.then((response) => {
-      if (!response.ok) return response;
-
-      if (isAmisCandidateAdditionalInfoUrl(requestUrl)) {
-        void response.clone().text()
-          .then((text) => publishCandidateStage(parseJsonText(text), requestUrl))
-          .catch(() => undefined);
-        return response;
+      if (response.ok) {
+        inspectTrackedFetchResponse(response, requestUrl, requestBodyPromise);
       }
-
-      if (isAmisCandidateUpdateRoundUrl(requestUrl)) {
-        void requestBodyPromise?.then((requestBody) => {
-          publishCandidateStagesFromUpdateRoundRequest(requestBody, requestUrl);
-        });
-        return response;
-      }
-
-      if (isAmisRecruitmentRoundsUrl(requestUrl)) {
-        void response.clone().text()
-          .then((text) => publishRecruitmentRounds(parseJsonText(text), requestUrl))
-          .catch(() => undefined);
-        return response;
-      }
-
-      void response.clone().text()
-        .then((text) => publishJobStatusUpdate(parseJsonText(text), requestUrl))
-        .catch(() => undefined);
       return response;
     });
   };
+}
+
+function inspectTrackedFetchResponse(
+  response: Response,
+  requestUrl: string,
+  requestBodyPromise: Promise<unknown> | null,
+) {
+  if (isAmisCandidateAdditionalInfoUrl(requestUrl)) {
+    void response.clone().text()
+      .then((text) => publishCandidateStage(parseJsonText(text), requestUrl))
+      .catch(() => undefined);
+    return;
+  }
+
+  if (isAmisCandidateUpdateRoundUrl(requestUrl)) {
+    void requestBodyPromise?.then((requestBody) => {
+      publishCandidateStagesFromUpdateRoundRequest(requestBody, requestUrl);
+    });
+    return;
+  }
+
+  if (isAmisRecruitmentRoundsUrl(requestUrl)) {
+    void response.clone().text()
+      .then((text) => publishRecruitmentRounds(parseJsonText(text), requestUrl))
+      .catch(() => undefined);
+    return;
+  }
+
+  void response.clone().text()
+    .then((text) => publishJobStatusUpdate(parseJsonText(text), requestUrl))
+    .catch(() => undefined);
 }
 
 function isTrackedFetchUrl(url: string) {

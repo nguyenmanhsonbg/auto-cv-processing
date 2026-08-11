@@ -207,9 +207,10 @@ export class ExportService {
 
         const id = getXmlAttribute(attributes, 'Id');
         const targetValue = getXmlAttribute(attributes, 'Target');
-        const target = targetValue?.startsWith('/')
-          ? targetValue.slice(1)
-          : targetValue ? `xl/${targetValue}` : null;
+        let target: string | null = null;
+        if (targetValue) {
+          target = targetValue.startsWith('/') ? targetValue.slice(1) : `xl/${targetValue}`;
+        }
         if (id && target && keptSheetFiles.has(target)) {
           keptRelIds.add(id);
           return match;
@@ -303,43 +304,77 @@ export class ExportService {
     xml = this.setCell(xml, 'C35', hr.careerGoal ?? '');
     xml = this.setCell(xml, 'C38', hr.knowledge ?? '');
 
-    // ── Build competency-type map ─────────────────────────────────────────
+    const { knowledgeItems, allSkillItems, additionalItems } = this.partitionRatingItems(evaluation, technicalCats);
+
+    // ── Expand sections to fit all items ──────────────────────────────────
+    const templateRows = SECTION.KNOWLEDGE.last - SECTION.KNOWLEDGE.first + 1; // 4
+
+    const expandedSections = this.expandRatingSections(
+      xml,
+      knowledgeItems,
+      allSkillItems,
+      additionalItems,
+      templateRows,
+    );
+    xml = expandedSections.xml;
+    const { skillFirst, addFirst, totalOffset } = expandedSections;
+
+    xml = this.fillRatingRows(xml, knowledgeItems, SECTION.KNOWLEDGE.first);
+    xml = this.fillRatingRows(xml, allSkillItems, skillFirst);
+    xml = this.fillRatingRows(xml, additionalItems, addFirst);
+
+    return this.fillRowsBelowSections(xml, evaluation, levelZone, totalOffset);
+  }
+
+  private partitionRatingItems(
+    evaluation: EvaluationEntity,
+    technicalCats: TechnicalCategoryData[],
+  ) {
     const subTypeMap = new Map<string, string>();
     technicalCats.forEach(({ subs }) =>
-      subs.forEach((s) => subTypeMap.set(s.name, s.competencyType ?? 'KNOWLEDGE')),
+      subs.forEach((sub) => subTypeMap.set(sub.name, sub.competencyType ?? 'KNOWLEDGE')),
     );
 
-    // ── Partition technical ratings by type ───────────────────────────────
     const knowledgeItems: RatingItem[] = [];
     const skillItems: RatingItem[] = [];
     const additionalItems: RatingItem[] = [];
-
-    for (const tr of evaluation.technicalRatings ?? []) {
-      const type = subTypeMap.get(tr.subcategory) ?? 'KNOWLEDGE';
-      const item: RatingItem = { subcategory: tr.subcategory, rating: tr.rating, comment: tr.comment };
+    for (const rating of evaluation.technicalRatings ?? []) {
+      const item: RatingItem = {
+        subcategory: rating.subcategory,
+        rating: rating.rating,
+        comment: rating.comment,
+      };
+      const type = subTypeMap.get(rating.subcategory) ?? 'KNOWLEDGE';
       if (type === 'SKILL') skillItems.push(item);
       else if (type === 'ADDITIONAL') additionalItems.push(item);
       else knowledgeItems.push(item);
     }
 
-    // Soft skills fill remaining SKILL rows after technical SKILL items
-    const allSkillItems: RatingItem[] = [
-      ...skillItems,
-      ...(evaluation.softSkillRatings ?? []).map((sr) => ({
-        subcategory: sr.subcategory,
-        rating: sr.rating,
-        comment: sr.comment,
-      })),
-    ];
+    return {
+      knowledgeItems,
+      additionalItems,
+      allSkillItems: [
+        ...skillItems,
+        ...(evaluation.softSkillRatings ?? []).map((rating) => ({
+          subcategory: rating.subcategory,
+          rating: rating.rating,
+          comment: rating.comment,
+        })),
+      ],
+    };
+  }
 
-    // ── Expand sections to fit all items ──────────────────────────────────
-    const templateRows = SECTION.KNOWLEDGE.last - SECTION.KNOWLEDGE.first + 1; // 4
-
+  private expandRatingSections(
+    xml: string,
+    knowledgeItems: RatingItem[],
+    skillItems: RatingItem[],
+    additionalItems: RatingItem[],
+    templateRows: number,
+  ) {
     const kExtra = Math.max(0, knowledgeItems.length - templateRows);
-    const sExtra = Math.max(0, allSkillItems.length - templateRows);
+    const sExtra = Math.max(0, skillItems.length - templateRows);
     const aExtra = Math.max(0, additionalItems.length - templateRows);
 
-    // Expand KNOWLEDGE section first; SKILL/ADDITIONAL boundaries shift after each expansion
     if (kExtra > 0) {
       xml = this.expandSection(xml, SECTION.KNOWLEDGE.first, SECTION.KNOWLEDGE.last, kExtra);
     }
@@ -356,75 +391,70 @@ export class ExportService {
       xml = this.expandSection(xml, addFirst, addLast, aExtra);
     }
 
-    const totalOffset = kExtra + sExtra + aExtra;
+    return { xml, skillFirst, addFirst, totalOffset: kExtra + sExtra + aExtra };
+  }
 
-    // ── Fill KNOWLEDGE rows (C = subcategory, D = comment, E-I = rating x) ─
-    const kFirst = SECTION.KNOWLEDGE.first;
-    knowledgeItems.forEach((item, i) => {
-      const row = kFirst + i;
+  private fillRatingRows(xml: string, items: RatingItem[], firstRow: number): string {
+    for (const [index, item] of items.entries()) {
+      const row = firstRow + index;
       xml = this.setCell(xml, `C${row}`, item.subcategory);
       if (item.comment) xml = this.setCell(xml, `D${row}`, item.comment);
       if (item.rating && RATING_COL[item.rating]) {
         xml = this.setCell(xml, `${RATING_COL[item.rating]}${row}`, 'x');
       }
-    });
+    }
+    return xml;
+  }
 
-    // ── Fill SKILL rows ───────────────────────────────────────────────────
-    allSkillItems.forEach((item, i) => {
-      const row = skillFirst + i;
-      xml = this.setCell(xml, `C${row}`, item.subcategory);
-      if (item.comment) xml = this.setCell(xml, `D${row}`, item.comment);
-      if (item.rating && RATING_COL[item.rating]) {
-        xml = this.setCell(xml, `${RATING_COL[item.rating]}${row}`, 'x');
+  private fillRowsBelowSections(
+    xml: string,
+    evaluation: EvaluationEntity,
+    levelZone: string,
+    offset: number,
+  ): string {
+    if (evaluation.zoneExplanation) {
+      xml = this.setCell(xml, `D${AFTER_SECTIONS.riskRow + offset}`, evaluation.zoneExplanation);
+    }
+    if (levelZone) {
+      xml = this.setCell(xml, `D${AFTER_SECTIONS.levelRow + offset}`, levelZone);
+    }
+
+    xml = this.fillPersonalityRows(xml, evaluation, offset);
+    if (evaluation.overallNotes) {
+      xml = this.setCell(xml, `C${AFTER_SECTIONS.overallNotes + offset}`, evaluation.overallNotes);
+    }
+    return this.fillSectionFourRows(xml, evaluation, levelZone, offset);
+  }
+
+  private fillPersonalityRows(xml: string, evaluation: EvaluationEntity, offset: number): string {
+    for (const [index, rating] of (evaluation.personalityRatings ?? []).entries()) {
+      const row = AFTER_SECTIONS.personalityStart + offset + index;
+      if (rating.reasoning) xml = this.setCell(xml, `D${row}`, rating.reasoning);
+      if (rating.rating && RATING_COL[rating.rating]) {
+        xml = this.setCell(xml, `${RATING_COL[rating.rating]}${row}`, 'x');
       }
-    });
+    }
+    return xml;
+  }
 
-    // ── Fill ADDITIONAL rows ──────────────────────────────────────────────
-    additionalItems.forEach((item, i) => {
-      const row = addFirst + i;
-      xml = this.setCell(xml, `C${row}`, item.subcategory);
-      if (item.comment) xml = this.setCell(xml, `D${row}`, item.comment);
-      if (item.rating && RATING_COL[item.rating]) {
-        xml = this.setCell(xml, `${RATING_COL[item.rating]}${row}`, 'x');
-      }
-    });
-
-    // ── All rows below the three sections are offset by totalOffset ────────
-    const o = totalOffset;
-
-    if (evaluation.zoneExplanation)
-      xml = this.setCell(xml, `D${AFTER_SECTIONS.riskRow + o}`, evaluation.zoneExplanation);
-    if (levelZone)
-      xml = this.setCell(xml, `D${AFTER_SECTIONS.levelRow + o}`, levelZone);
-
-    // ── Section III.2: Personality ────────────────────────────────────────
-    (evaluation.personalityRatings ?? []).forEach((pr, idx) => {
-      const row = AFTER_SECTIONS.personalityStart + o + idx;
-      if (pr.reasoning) xml = this.setCell(xml, `D${row}`, pr.reasoning);
-      if (pr.rating && RATING_COL[pr.rating]) {
-        xml = this.setCell(xml, `${RATING_COL[pr.rating]}${row}`, 'x');
-      }
-    });
-
-    if (evaluation.overallNotes)
-      xml = this.setCell(xml, `C${AFTER_SECTIONS.overallNotes + o}`, evaluation.overallNotes);
-
-    // ── Section IV ────────────────────────────────────────────────────────
-    if (evaluation.aiSummary)
-      xml = this.setCell(xml, `C${AFTER_SECTIONS.aiSummary + o}`, evaluation.aiSummary);
-    if (evaluation.zoneExplanation)
-      xml = this.setCell(xml, `C${AFTER_SECTIONS.zoneExp + o}`, evaluation.zoneExplanation);
-    if (evaluation.plannedAssignment)
-      xml = this.setCell(xml, `C${AFTER_SECTIONS.planned + o}`, evaluation.plannedAssignment);
-    if (levelZone)
-      xml = this.setCell(xml, `C${AFTER_SECTIONS.levelZone + o}`, levelZone);
-    if (evaluation.expectedSalary)
-      xml = this.setCell(xml, `C${AFTER_SECTIONS.salary + o}`, evaluation.expectedSalary);
-    if (evaluation.noticePeriod)
-      xml = this.setCell(xml, `C${AFTER_SECTIONS.notice + o}`, evaluation.noticePeriod);
-    if (evaluation.overallNotes)
-      xml = this.setCell(xml, `D${AFTER_SECTIONS.overallD + o}`, evaluation.overallNotes);
-
+  private fillSectionFourRows(
+    xml: string,
+    evaluation: EvaluationEntity,
+    levelZone: string,
+    offset: number,
+  ): string {
+    const rows: Array<[number, string | null | undefined, string]> = [
+      [AFTER_SECTIONS.aiSummary, evaluation.aiSummary, 'C'],
+      [AFTER_SECTIONS.zoneExp, evaluation.zoneExplanation, 'C'],
+      [AFTER_SECTIONS.planned, evaluation.plannedAssignment, 'C'],
+      [AFTER_SECTIONS.levelZone, levelZone, 'C'],
+      [AFTER_SECTIONS.salary, evaluation.expectedSalary, 'C'],
+      [AFTER_SECTIONS.notice, evaluation.noticePeriod, 'C'],
+      [AFTER_SECTIONS.overallD, evaluation.overallNotes, 'D'],
+    ];
+    for (const [baseRow, value, column] of rows) {
+      if (value) xml = this.setCell(xml, `${column}${baseRow + offset}`, value);
+    }
     return xml;
   }
 

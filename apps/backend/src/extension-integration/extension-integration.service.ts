@@ -1390,42 +1390,8 @@ export class ExtensionIntegrationService {
     const deduped = new Map<string, SyncAmisApplicationsDto['items'][number]>();
 
     for (const item of items) {
-      const recruitmentId = this.optionalText(item.recruitmentId);
-      const recruitmentRoundId = this.optionalText(item.recruitmentRoundId);
-      const candidateId = this.optionalText(item.candidateId);
-      const candidateName = this.optionalText(item.candidateName);
-      const email = this.optionalText(item.email)?.toLowerCase() ?? undefined;
-      const mobile = this.optionalText(item.mobile) ?? undefined;
-
-      if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) continue;
-      if (!email && !mobile) continue;
-
-      const normalizedItem = {
-        recruitmentId,
-        recruitmentRoundId,
-        candidateId,
-        candidateName,
-        ...(this.optionalText(item.candidateConvertId) ? { candidateConvertId: this.optionalText(item.candidateConvertId) ?? undefined } : {}),
-        ...(email ? { email } : {}),
-        ...(mobile ? { mobile } : {}),
-        ...(this.optionalText(item.birthday) ? { birthday: this.optionalText(item.birthday) ?? undefined } : {}),
-        ...(this.optionalText(item.recruitmentRoundName) ? { recruitmentRoundName: this.optionalText(item.recruitmentRoundName) ?? undefined } : {}),
-        ...(this.optionalText(item.reasonRemoved) ? { reasonRemoved: this.optionalText(item.reasonRemoved) ?? undefined } : {}),
-        ...(this.optionalText(item.attractivePersonnelName) ? { attractivePersonnelName: this.optionalText(item.attractivePersonnelName) ?? undefined } : {}),
-        ...(this.optionalText(item.attractivePersonnelId) ? { attractivePersonnelId: this.optionalText(item.attractivePersonnelId) ?? undefined } : {}),
-        ...(typeof item.status === 'number' ? { status: item.status } : {}),
-        ...(typeof item.recruitmentChannelId === 'number' ? { recruitmentChannelId: item.recruitmentChannelId } : {}),
-        ...(this.optionalText(item.channelName) ? { channelName: this.optionalText(item.channelName) ?? undefined } : {}),
-        ...(this.optionalText(item.applyDate) ? { applyDate: this.optionalText(item.applyDate) ?? undefined } : {}),
-        ...(this.optionalText(item.recruitmentTitle) ? { recruitmentTitle: this.optionalText(item.recruitmentTitle) ?? undefined } : {}),
-        ...(this.optionalText(item.attachmentCvId) ? { attachmentCvId: this.optionalText(item.attachmentCvId) ?? undefined } : {}),
-        ...(this.optionalText(item.attachmentCvName) ? { attachmentCvName: this.optionalText(item.attachmentCvName) ?? undefined } : {}),
-        ...(this.optionalText(item.educationDegreeName) ? { educationDegreeName: this.optionalText(item.educationDegreeName) ?? undefined } : {}),
-        ...(this.optionalText(item.educationMajorName) ? { educationMajorName: this.optionalText(item.educationMajorName) ?? undefined } : {}),
-        ...(this.optionalText(item.workPlaceRecent) ? { workPlaceRecent: this.optionalText(item.workPlaceRecent) ?? undefined } : {}),
-        rawSnapshot: this.safeAmisCatalogSnapshot(item.rawSnapshot),
-      };
-
+      const normalizedItem = this.normalizeApplicationItem(item);
+      if (!normalizedItem) continue;
       deduped.set(this.buildAmisExternalApplicationId(normalizedItem), normalizedItem);
     }
 
@@ -1437,6 +1403,46 @@ export class ExtensionIntegrationService {
     }
 
     return [...deduped.values()];
+  }
+
+  private normalizeApplicationItem(
+    item: SyncAmisApplicationsDto['items'][number],
+  ): SyncAmisApplicationsDto['items'][number] | null {
+    const recruitmentId = this.optionalText(item.recruitmentId);
+    const recruitmentRoundId = this.optionalText(item.recruitmentRoundId);
+    const candidateId = this.optionalText(item.candidateId);
+    const candidateName = this.optionalText(item.candidateName);
+    const email = this.optionalText(item.email)?.toLowerCase() ?? undefined;
+    const mobile = this.optionalText(item.mobile) ?? undefined;
+
+    if (!recruitmentId || !recruitmentRoundId || !candidateId || !candidateName) return null;
+    if (!email && !mobile) return null;
+
+    return {
+      recruitmentId,
+      recruitmentRoundId,
+      candidateId,
+      candidateName,
+      candidateConvertId: this.optionalText(item.candidateConvertId) ?? undefined,
+      email,
+      mobile,
+      birthday: this.optionalText(item.birthday) ?? undefined,
+      recruitmentRoundName: this.optionalText(item.recruitmentRoundName) ?? undefined,
+      reasonRemoved: this.optionalText(item.reasonRemoved) ?? undefined,
+      attractivePersonnelName: this.optionalText(item.attractivePersonnelName) ?? undefined,
+      attractivePersonnelId: this.optionalText(item.attractivePersonnelId) ?? undefined,
+      status: typeof item.status === 'number' ? item.status : undefined,
+      recruitmentChannelId: typeof item.recruitmentChannelId === 'number' ? item.recruitmentChannelId : undefined,
+      channelName: this.optionalText(item.channelName) ?? undefined,
+      applyDate: this.optionalText(item.applyDate) ?? undefined,
+      recruitmentTitle: this.optionalText(item.recruitmentTitle) ?? undefined,
+      attachmentCvId: this.optionalText(item.attachmentCvId) ?? undefined,
+      attachmentCvName: this.optionalText(item.attachmentCvName) ?? undefined,
+      educationDegreeName: this.optionalText(item.educationDegreeName) ?? undefined,
+      educationMajorName: this.optionalText(item.educationMajorName) ?? undefined,
+      workPlaceRecent: this.optionalText(item.workPlaceRecent) ?? undefined,
+      rawSnapshot: this.safeAmisCatalogSnapshot(item.rawSnapshot),
+    };
   }
 
   private requireSingleRecruitmentId(items: Array<{ recruitmentId: string }>) {

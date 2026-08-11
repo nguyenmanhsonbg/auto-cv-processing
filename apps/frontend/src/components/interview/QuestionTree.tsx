@@ -469,10 +469,6 @@ export function QuestionTree({
                               return (
                                 <div
                                   key={sq.id}
-                                  role="button"
-                                  tabIndex={0}
-                                  aria-label={truncated}
-                                  aria-pressed={isSelected}
                                   className={cn(
                                     'group flex items-center gap-2 px-2 py-1 rounded cursor-pointer border-l-2',
                                     isSelected
@@ -481,12 +477,6 @@ export function QuestionTree({
                                       ? 'bg-amber-50 border-l-amber-500 ring-1 ring-inset ring-amber-200'
                                       : 'border-l-transparent hover:bg-muted/50',
                                   )}
-                                  onClick={() => onSelect(sq.id)}
-                                  onKeyDown={(event) => {
-                                    if (event.key !== 'Enter' && event.key !== ' ') return;
-                                    event.preventDefault();
-                                    onSelect(sq.id);
-                                  }}
                                 >
                                   <Checkbox
                                     checked={sq.isActive}
@@ -495,6 +485,13 @@ export function QuestionTree({
                                     disabled={!onToggleActive}
                                     className="shrink-0"
                                   />
+                                  <button
+                                    type="button"
+                                    className="flex flex-1 min-w-0 items-center gap-2 p-0 text-left"
+                                    aria-label={truncated}
+                                    aria-pressed={isSelected}
+                                    onClick={() => onSelect(sq.id)}
+                                  >
                                   {TypeIcon && (
                                     <TypeIcon className={cn('h-3.5 w-3.5 shrink-0', iconColor)} />
                                   )}
@@ -528,6 +525,7 @@ export function QuestionTree({
                                   {!isCandidateCurrent && (
                                     <span className={cn('w-1.5 h-1.5 rounded-full bg-green-500 shrink-0', !sq.isActive && 'invisible')} />
                                   )}
+                                  </button>
                                   {onForceActivate && !isCandidateCurrent && (
                                     <button
                                       type="button"

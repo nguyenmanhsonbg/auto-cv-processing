@@ -196,6 +196,17 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const message = rawMessage.toLowerCase();
     const exceptionCode = this.extractExceptionCode(exception);
 
+    return this.fromFileSizeError(exceptionCode, message)
+      ?? this.fromAuthenticationStatus(status)
+      ?? this.fromNotFoundError(status, message)
+      ?? this.fromFileTypeError(message)
+      ?? this.fromSecurityFileError(status, message)
+      ?? this.fromParsingFileError(status, message)
+      ?? this.fromApplicationStateError(message)
+      ?? this.fromFallbackStatus(status, details);
+  }
+
+  private fromFileSizeError(exceptionCode: string | null, message: string): NormalizedApiError | null {
     if (exceptionCode === 'LIMIT_FILE_SIZE' || message.includes('exceeds 20mb')) {
       return this.buildError(
         HttpStatus.PAYLOAD_TOO_LARGE,
@@ -203,15 +214,16 @@ export class ApiExceptionFilter implements ExceptionFilter {
         'CV file exceeds the allowed size.',
       );
     }
+    return null;
+  }
 
+  private fromAuthenticationStatus(status: number): NormalizedApiError | null {
     if (status === HttpStatus.UNAUTHORIZED) {
       return this.buildError(status, 'UNAUTHORIZED', 'Authentication is required.');
     }
-
     if (status === HttpStatus.FORBIDDEN) {
       return this.buildError(status, 'FORBIDDEN', 'You do not have permission to perform this action.');
     }
-
     if (status === HttpStatus.TOO_MANY_REQUESTS) {
       return this.buildError(
         status,
@@ -219,23 +231,28 @@ export class ApiExceptionFilter implements ExceptionFilter {
         'Too many requests. Please retry later.',
       );
     }
+    return null;
+  }
 
-    if (status === HttpStatus.NOT_FOUND || this.isNotFoundMessage(message)) {
-      return this.buildError(
-        HttpStatus.NOT_FOUND,
-        'NOT_FOUND',
-        'Requested resource was not found.',
-      );
-    }
+  private fromNotFoundError(status: number, message: string): NormalizedApiError | null {
+    if (status !== HttpStatus.NOT_FOUND && !this.isNotFoundMessage(message)) return null;
+    return this.buildError(
+      HttpStatus.NOT_FOUND,
+      'NOT_FOUND',
+      'Requested resource was not found.',
+    );
+  }
 
-    if (this.isUnsupportedFileMessage(message)) {
-      return this.buildError(
-        HttpStatus.BAD_REQUEST,
-        'UNSUPPORTED_FILE_TYPE',
-        'CV file type is not supported.',
-      );
-    }
+  private fromFileTypeError(message: string): NormalizedApiError | null {
+    if (!this.isUnsupportedFileMessage(message)) return null;
+    return this.buildError(
+      HttpStatus.BAD_REQUEST,
+      'UNSUPPORTED_FILE_TYPE',
+      'CV file type is not supported.',
+    );
+  }
 
+  private fromSecurityFileError(status: number, message: string): NormalizedApiError | null {
     if (message.includes('malware')) {
       return this.buildError(
         HttpStatus.UNPROCESSABLE_ENTITY,
@@ -243,7 +260,6 @@ export class ApiExceptionFilter implements ExceptionFilter {
         'CV file does not meet the security policy.',
       );
     }
-
     if (this.isSanitizeFailureMessage(message)) {
       return this.buildError(
         this.isServerErrorStatus(status) ? status : HttpStatus.SERVICE_UNAVAILABLE,
@@ -251,7 +267,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
         'CV sanitization failed. Please retry later.',
       );
     }
+    return null;
+  }
 
+  private fromParsingFileError(status: number, message: string): NormalizedApiError | null {
     if (this.isParseFailureMessage(message)) {
       return this.buildError(
         status === HttpStatus.UNPROCESSABLE_ENTITY || this.isServerErrorStatus(status)
@@ -261,7 +280,6 @@ export class ApiExceptionFilter implements ExceptionFilter {
         'CV parsing failed. Manual review or retry is required.',
       );
     }
-
     if (this.isScanFailureMessage(message)) {
       return this.buildError(
         this.isServerErrorStatus(status) ? status : HttpStatus.SERVICE_UNAVAILABLE,
@@ -269,7 +287,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
         'CV security scan could not be completed. Please retry later.',
       );
     }
+    return null;
+  }
 
+  private fromApplicationStateError(message: string): NormalizedApiError | null {
     if (this.isDuplicateApplicationMessage(message)) {
       return this.buildError(
         HttpStatus.CONFLICT,
@@ -277,7 +298,6 @@ export class ApiExceptionFilter implements ExceptionFilter {
         'An application already exists for this job posting.',
       );
     }
-
     if (this.isInvalidStateMessage(message)) {
       return this.buildError(
         HttpStatus.CONFLICT,
@@ -285,7 +305,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
         'This action is not available for the current state.',
       );
     }
+    return null;
+  }
 
+  private fromFallbackStatus(status: number, details: unknown[]): NormalizedApiError {
     if (status === HttpStatus.BAD_REQUEST) {
       return this.buildError(
         status,

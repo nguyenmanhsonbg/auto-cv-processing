@@ -39,6 +39,24 @@ import { FileParserService } from '../file-parser/file-parser.service';
 import { AiService } from '../ai/ai.service';
 import { InterviewWebSocketGateway } from '../websocket/websocket.gateway';
 
+type StoredCandidateFile = { filePath: string; isXlsx: boolean };
+type UploadProgressStage = 'parsing' | 'analyzing' | 'saving' | 'done' | 'error';
+type UploadProgressEmitter = (
+  fileIndex: number,
+  fileName: string,
+  stage: UploadProgressStage,
+  extra?: Record<string, unknown>,
+) => void;
+
+interface ParsedUploadFiles {
+  fileErrors: Array<{ fileName: string; error: string }>;
+  rawTexts: string[];
+  regexFieldSets: Array<Record<string, unknown>>;
+  firstNewFileForFallback: Express.Multer.File | null;
+  resumeUrl: string | null;
+  profileXlsxUrl: string | null;
+}
+
 @ApiTags('Candidates')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -150,38 +168,13 @@ export class CandidatesController {
 
     await this.candidatesService.setAnalyzeStatus(candidate.id, 'analyzing');
     emit('parsing');
-    const rawTexts: string[] = [];
-    const regexFieldSets: Array<Record<string, unknown>> = [];
-
-    for (const { url, isXlsx } of [
+    const { rawTexts, regexFieldSets } = await this.parseStoredCandidateFiles([
       { url: candidate.resumeUrl, isXlsx: false },
       { url: candidate.profileXlsxUrl, isXlsx: true },
-    ]) {
-      if (!url) continue;
-      try {
-        const parsed = await this.fileParserService.parseFile(url.replace(/^\//, ''));
-        const rawText: string = (parsed as any).rawText ?? '';
-        if (rawText) {
-          if (isXlsx) rawTexts.unshift(rawText);
-          else rawTexts.push(rawText);
-        }
-        if (!(parsed as any).error) {
-          const { rawText: _r, error: _e, ...fields } = parsed as Record<string, unknown> & { rawText: string };
-          if (isXlsx) regexFieldSets.unshift(fields);
-          else regexFieldSets.push(fields);
-        }
-      } catch {
-        // Silently skip unreadable files
-      }
-    }
+    ]);
 
     const combinedRawText = rawTexts.join('\n\n---\n\n');
-    const combinedRegexFields: Record<string, unknown> = {};
-    for (const fields of regexFieldSets) {
-      for (const [key, value] of Object.entries(fields)) {
-        if (value != null) combinedRegexFields[key] = value;
-      }
-    }
+    const combinedRegexFields = mergeParsedFields(regexFieldSets);
 
     if (!combinedRawText) {
       await this.candidatesService.setAnalyzeStatus(candidate.id, 'idle');
@@ -257,102 +250,31 @@ export class CandidatesController {
     const hasNewPdf  = files.some(f => !isXlsxExt(f.originalname));
     const hasNewXlsx = files.some(f =>  isXlsxExt(f.originalname));
 
-    // If updating an existing candidate, pull their complementary stored file so the AI
-    // sees both document types at once.
-    type StoredFile = { filePath: string; isXlsx: boolean };
-    const complementaryFiles: StoredFile[] = [];
-    let resumeUrl: string | null = null;
-    let profileXlsxUrl: string | null = null;
+    const uploadContext = await this.resolveUploadContext(candidateId, scope, hasNewPdf, hasNewXlsx);
+    const parsedFiles = await this.parseUploadedFiles(
+      files,
+      emit,
+      uploadContext.resumeUrl,
+      uploadContext.profileXlsxUrl,
+    );
 
-    if (candidateId) {
-      try {
-        const existing = await this.candidatesService.findByIdOrSlug(candidateId, scope);
-        if (!hasNewPdf && existing.resumeUrl) {
-          complementaryFiles.push({ filePath: existing.resumeUrl.replace(/^\//, ''), isXlsx: false });
-        }
-        if (!hasNewXlsx && existing.profileXlsxUrl) {
-          complementaryFiles.push({ filePath: existing.profileXlsxUrl.replace(/^\//, ''), isXlsx: true });
-        }
-        // Preserve existing URLs for types not being replaced
-        resumeUrl = existing.resumeUrl ?? null;
-        profileXlsxUrl = existing.profileXlsxUrl ?? null;
-      } catch {
-        // candidateId not found — will fall through to create
-      }
-    }
-
-    // Phase 1: parse each NEW file (emit progress per file) and collect raw corpora
-    const fileErrors: Array<{ fileName: string; error: string }> = [];
-    const rawTexts: string[] = [];
-    const regexFieldSets: Array<Record<string, unknown>> = [];
-    // Track which new-file direct-analysis fallback to use if all text extraction fails
-    let firstNewFileForFallback: Express.Multer.File | null = null;
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const fileName = file.originalname;
-      const ext = path.extname(fileName).toLowerCase();
-
-      try {
-        emit(i, fileName, 'parsing');
-        const parsed = await this.fileParserService.parseFile(file.path);
-        const rawText: string = (parsed as any).rawText ?? '';
-        if (rawText) rawTexts.push(rawText);
-        if (!(parsed as any).error) {
-          const { rawText: _r, error: _e, ...fields } = parsed as Record<string, unknown> & { rawText: string };
-          regexFieldSets.push(fields);
-        }
-        if (!firstNewFileForFallback && !(parsed as any).rawText) {
-          firstNewFileForFallback = file;
-        }
-
-        // Track new file URLs
-        if (ext === '.xlsx' || ext === '.xls') profileXlsxUrl = `/uploads/${file.filename}`;
-        else resumeUrl = `/uploads/${file.filename}`;
-      } catch (err: unknown) {
-        const error = err instanceof Error ? err.message : String(err);
-        emit(i, fileName, 'error', { error });
-        fileErrors.push({ fileName, error });
-      }
-    }
-
-    if (fileErrors.length === files.length) {
+    if (parsedFiles.fileErrors.length === files.length) {
       throw new BadRequestException('Could not parse any of the uploaded files.');
     }
 
-    // Phase 1b: silently parse complementary existing files (no progress events — internal enrichment)
-    for (const stored of complementaryFiles) {
-      try {
-        const parsed = await this.fileParserService.parseFile(stored.filePath);
-        const rawText: string = (parsed as any).rawText ?? '';
-        if (rawText) rawTexts.unshift(rawText); // existing file goes first (lower priority on merge)
-        if (!(parsed as any).error) {
-          const { rawText: _r, error: _e, ...fields } = parsed as Record<string, unknown> & { rawText: string };
-          regexFieldSets.unshift(fields);
-        }
-      } catch {
-        // Silently skip if stored file is missing or unreadable
-      }
-    }
+    const complementary = await this.parseComplementaryFiles(uploadContext.complementaryFiles);
+    const rawTexts = [...complementary.rawTexts, ...parsedFiles.rawTexts];
+    const regexFieldSets = [...complementary.regexFieldSets, ...parsedFiles.regexFieldSets];
 
     // Phase 2: single AI call on the combined corpus
     emit(lastIdx, lastFileName, 'analyzing');
     const combinedRawText = rawTexts.join('\n\n---\n\n');
-    const combinedRegexFields: Record<string, unknown> = {};
-    for (const fields of regexFieldSets) {
-      for (const [key, value] of Object.entries(fields)) {
-        if (value != null) combinedRegexFields[key] = value;
-      }
-    }
-
-    let mergedProfile: Record<string, unknown>;
-    if (!combinedRawText && firstNewFileForFallback) {
-      // All text extraction failed — try direct document analysis on first new file
-      const direct = await this.aiService.analyzeFileDirectly(firstNewFileForFallback.path, firstNewFileForFallback.mimetype);
-      mergedProfile = (direct ?? combinedRegexFields) as Record<string, unknown>;
-    } else {
-      mergedProfile = ((await this.aiService.enrichParsedProfile(combinedRawText, combinedRegexFields)) ?? combinedRegexFields) as Record<string, unknown>;
-    }
+    const combinedRegexFields = mergeParsedFields(regexFieldSets);
+    const mergedProfile = await this.buildMergedUploadProfile(
+      combinedRawText,
+      combinedRegexFields,
+      parsedFiles.firstNewFileForFallback,
+    );
 
     if (!mergedProfile['name']) {
       mergedProfile['name'] = path.parse(files[0].originalname).name.replace(/[-_.]/g, ' ');
@@ -363,15 +285,15 @@ export class CandidatesController {
     emit(files.length - 1, savingFileName, 'saving');
     const candidate = await this.candidatesService.upsertFromUpload(
       mergedProfile,
-      resumeUrl,
-      profileXlsxUrl,
+      parsedFiles.resumeUrl,
+      parsedFiles.profileXlsxUrl,
       req.user.id,
       scope,
       candidateId,
     );
 
     emit(files.length - 1, savingFileName, 'done', { candidateId: candidate.id, slug: candidate.slug });
-    return { candidateId: candidate.id, slug: candidate.slug, errors: fileErrors };
+    return { candidateId: candidate.id, slug: candidate.slug, errors: parsedFiles.fileErrors };
   }
 
   @Post('backfill-slugs')
@@ -381,4 +303,157 @@ export class CandidatesController {
   backfillSlugs() {
     return this.candidatesService.backfillSlugs();
   }
+
+  private async resolveUploadContext(
+    candidateId: string | undefined,
+    scope: { userId: string; isAdmin: boolean },
+    hasNewPdf: boolean,
+    hasNewXlsx: boolean,
+  ) {
+    const complementaryFiles: StoredCandidateFile[] = [];
+    let resumeUrl: string | null = null;
+    let profileXlsxUrl: string | null = null;
+
+    if (!candidateId) return { complementaryFiles, resumeUrl, profileXlsxUrl };
+
+    try {
+      const existing = await this.candidatesService.findByIdOrSlug(candidateId, scope);
+      if (!hasNewPdf && existing.resumeUrl) {
+        complementaryFiles.push({ filePath: existing.resumeUrl.replace(/^\//, ''), isXlsx: false });
+      }
+      if (!hasNewXlsx && existing.profileXlsxUrl) {
+        complementaryFiles.push({ filePath: existing.profileXlsxUrl.replace(/^\//, ''), isXlsx: true });
+      }
+      return {
+        complementaryFiles,
+        resumeUrl: existing.resumeUrl ?? null,
+        profileXlsxUrl: existing.profileXlsxUrl ?? null,
+      };
+    } catch {
+      // candidateId not found — fall through to create
+      return { complementaryFiles, resumeUrl, profileXlsxUrl };
+    }
+  }
+
+  private async parseUploadedFiles(
+    files: Express.Multer.File[],
+    emit: UploadProgressEmitter,
+    initialResumeUrl: string | null,
+    initialProfileXlsxUrl: string | null,
+  ): Promise<ParsedUploadFiles> {
+    const result: ParsedUploadFiles = {
+      fileErrors: [],
+      rawTexts: [],
+      regexFieldSets: [],
+      firstNewFileForFallback: null,
+      resumeUrl: initialResumeUrl,
+      profileXlsxUrl: initialProfileXlsxUrl,
+    };
+
+    for (const [index, file] of files.entries()) {
+      const fileName = file.originalname;
+      const ext = path.extname(fileName).toLowerCase();
+
+      try {
+        emit(index, fileName, 'parsing');
+        const parsed = await this.fileParserService.parseFile(file.path);
+        const rawText: string = (parsed as any).rawText ?? '';
+        if (rawText) result.rawTexts.push(rawText);
+        if (!(parsed as any).error) {
+          const { rawText: _r, error: _e, ...fields } = parsed as Record<string, unknown> & { rawText: string };
+          result.regexFieldSets.push(fields);
+        }
+        if (!result.firstNewFileForFallback && !(parsed as any).rawText) {
+          result.firstNewFileForFallback = file;
+        }
+
+        if (ext === '.xlsx' || ext === '.xls') result.profileXlsxUrl = `/uploads/${file.filename}`;
+        else result.resumeUrl = `/uploads/${file.filename}`;
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err.message : String(err);
+        emit(index, fileName, 'error', { error });
+        result.fileErrors.push({ fileName, error });
+      }
+    }
+
+    return result;
+  }
+
+  private async parseComplementaryFiles(files: StoredCandidateFile[]) {
+    const rawTexts: string[] = [];
+    const regexFieldSets: Array<Record<string, unknown>> = [];
+
+    for (const stored of files) {
+      try {
+        const parsed = await this.fileParserService.parseFile(stored.filePath);
+        const rawText: string = (parsed as any).rawText ?? '';
+        if (rawText) rawTexts.unshift(rawText);
+        if (!(parsed as any).error) {
+          const { rawText: _r, error: _e, ...fields } = parsed as Record<string, unknown> & { rawText: string };
+          regexFieldSets.unshift(fields);
+        }
+      } catch {
+        // Silently skip if stored file is missing or unreadable
+      }
+    }
+
+    return { rawTexts, regexFieldSets };
+  }
+
+  private async buildMergedUploadProfile(
+    combinedRawText: string,
+    combinedRegexFields: Record<string, unknown>,
+    firstNewFileForFallback: Express.Multer.File | null,
+  ): Promise<Record<string, unknown>> {
+    if (!combinedRawText && firstNewFileForFallback) {
+      const direct = await this.aiService.analyzeFileDirectly(
+        firstNewFileForFallback.path,
+        firstNewFileForFallback.mimetype,
+      );
+      return (direct ?? combinedRegexFields) as Record<string, unknown>;
+    }
+
+    return (
+      (await this.aiService.enrichParsedProfile(combinedRawText, combinedRegexFields))
+      ?? combinedRegexFields
+    ) as Record<string, unknown>;
+  }
+
+  private async parseStoredCandidateFiles(
+    files: Array<{ url: string | null; isXlsx: boolean }>,
+  ) {
+    const rawTexts: string[] = [];
+    const regexFieldSets: Array<Record<string, unknown>> = [];
+
+    for (const { url, isXlsx } of files) {
+      if (!url) continue;
+      try {
+        const parsed = await this.fileParserService.parseFile(url.replace(/^\//, ''));
+        const rawText: string = (parsed as any).rawText ?? '';
+        if (rawText) {
+          if (isXlsx) rawTexts.unshift(rawText);
+          else rawTexts.push(rawText);
+        }
+        if (!(parsed as any).error) {
+          const { rawText: _r, error: _e, ...fields } = parsed as Record<string, unknown> & { rawText: string };
+          if (isXlsx) regexFieldSets.unshift(fields);
+          else regexFieldSets.push(fields);
+        }
+      } catch {
+        // Silently skip unreadable files
+      }
+    }
+
+    return { rawTexts, regexFieldSets };
+  }
+}
+
+function mergeParsedFields(fieldSets: Array<Record<string, unknown>>): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const fields of fieldSets) {
+    for (const [key, value] of Object.entries(fields)) {
+      if (value != null) merged[key] = value;
+    }
+  }
+  return merged;
 }

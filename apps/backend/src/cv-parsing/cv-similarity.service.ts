@@ -374,7 +374,7 @@ export class CvSimilarityService {
       .trim()
       .replace(/^(?:\d+[.)-]|[•▪])\s*/u, '')
       .trim();
-    const separatorIndex = trimmedLine.search(/[:\-]/u);
+    const separatorIndex = trimmedLine.search(/[:-]/u);
     const headingEnd = separatorIndex >= 0 ? separatorIndex : trimmedLine.length;
     const heading = trimmedLine
       .slice(0, headingEnd)

@@ -2409,16 +2409,16 @@ function SidePanel() {
     capture: AmisExtractionResult,
     accessToken = tokenRef.current,
     sourceTabId?: number,
-  ) {
+  ): Promise<void> {
     const recruitmentId = normalizeOptionalText(capture.amisRecruitmentId);
-    if (!accessToken || !recruitmentId || !capture.snapshot || capture.missingFields.length > 0) return null;
+    if (!accessToken || !recruitmentId || !capture.snapshot || capture.missingFields.length > 0) return;
 
     const selectionSeq = amisJobSelectionSeqRef.current + 1;
     amisJobSelectionSeqRef.current = selectionSeq;
 
     try {
       const activeTab = await getActiveTab();
-      if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return null;
+      if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return;
       const tabTemplateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
       const templateContext = tabTemplateContext
         ?? await getAmisTemplateContextForRecruitment(recruitmentId);
@@ -2433,7 +2433,7 @@ function SidePanel() {
           || selectionSeq !== amisJobSelectionSeqRef.current
           || activeAmisRecruitmentIdRef.current !== recruitmentId
         ) {
-          return null;
+          return;
         }
 
         await saveAmisTemplateContextForRecruitment(recruitmentId, templateContext);
@@ -2449,25 +2449,25 @@ function SidePanel() {
           force: true,
         });
         await clearAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
-        return null;
+        return;
       }
 
       setSnapshot(capture.snapshot);
       setExtractionResult(capture);
       setAmisUrl(capture.url);
       setJobDescriptionError(null);
-      return null;
+      return;
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
         setToken(null);
         setUser(null);
         setState('AUTH_REQUIRED');
-        return null;
+        return;
       }
 
       setJobDescriptionError(toErrorMessage(err));
-      return null;
+      return;
     }
   }
 

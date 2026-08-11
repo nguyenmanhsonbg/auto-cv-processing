@@ -6863,7 +6863,7 @@ dd {
 .referral-jd-checkbox.is-checked {
   border-color: #1476ff;
   color: #ffffff;
-  background: #1476ff;
+  background: #0b5ed7;
 }
 
 .referral-jd-option > time {
@@ -7071,7 +7071,7 @@ dd {
 
 .referral-active-badge.is-inactive {
   color: #FFFFFF;
-  background: #FF0004;
+  background: #C1121F;
 }
 
 .referral-status-icon-button {
@@ -7146,7 +7146,7 @@ dd {
   border-radius: 999px;
   padding: 5px 10px;
   color: #ffffff;
-  background: #36B110;
+  background: #187A2F;
   font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
@@ -7227,8 +7227,8 @@ dd {
   align-items: center;
   border-radius: 10px;
   padding: 0 22px;
-  color: #FF4C51;
-  background: var(--Color-Palette-error-opacity-light, #FF4C5129);
+  color: #B42318;
+  background: #FEE4E2;
   font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
@@ -7391,8 +7391,8 @@ dd {
 }
 
 .referral-input-clear-button:hover {
-  color: #64748b;
-  background: #f1f5f9;
+  color: #475569;
+  background: #e2e8f0;
 }
 
 .referral-input-clear-button .referral-search-clear-icon {
