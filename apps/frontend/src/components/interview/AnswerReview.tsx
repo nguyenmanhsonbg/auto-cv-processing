@@ -127,12 +127,12 @@ function ChoiceAnswer({
   options: { id: string; text: string }[];
   correctAnswers: string[];
 }) {
-  const selectedIds = candidateAnswer.split(',');
+  const selectedIds = new Set(candidateAnswer.split(','));
 
   return (
     <div className="mt-1 space-y-1">
       {options.map((opt) => {
-        const isSelected = selectedIds.includes(opt.id);
+        const isSelected = selectedIds.has(opt.id);
         const isCorrect = correctAnswers.includes(opt.id);
 
         return (
@@ -263,8 +263,8 @@ function CodeSubmissionResults({ codeSubmissions }: { codeSubmissions?: any[] })
               {sub.status}
             </Badge>
             <span>{sub.language}</span>
-            {sub.results?.map((result: any, j: number) => (
-              <span key={j} className={result.passed ? 'text-green-600' : 'text-red-600'}>
+            {sub.results?.map((result: any) => (
+              <span key={`${sub.id}-test-${result.testCaseIndex}`} className={result.passed ? 'text-green-600' : 'text-red-600'}>
                 T{result.testCaseIndex + 1}:{result.passed ? 'P' : 'F'}
               </span>
             ))}

@@ -391,13 +391,13 @@ function CandidateActivityCard({
 function ChoiceReview({ questionType, options, correctAnswers, candidateAnswer }: { questionType?: QuestionType; options: { id: string; text: string }[]; correctAnswers: string[]; candidateAnswer?: string }) {
   const isChoice = questionType === QuestionType.SINGLE_CHOICE || questionType === QuestionType.MULTIPLE_CHOICE;
   if (!isChoice || options.length === 0 || !candidateAnswer) return null;
-  const selectedIds = candidateAnswer.split(',');
+  const selectedIds = new Set(candidateAnswer.split(','));
   return (
     <div>
       <Label className="text-xs text-muted-foreground">Correct vs Selected</Label>
       <div className="mt-1 space-y-1">
         {options.map((opt) => {
-          const isSelected = selectedIds.includes(opt.id);
+          const isSelected = selectedIds.has(opt.id);
           const isCorrect = correctAnswers.includes(opt.id);
           return (
             <div key={opt.id} className={cn('text-sm px-2 py-1 rounded flex items-center gap-2', isSelected && isCorrect && 'bg-green-50 border border-green-200', isSelected && !isCorrect && 'bg-red-50 border border-red-200', !isSelected && isCorrect && 'bg-blue-50 border border-blue-200', !isSelected && !isCorrect && 'text-muted-foreground')}>
@@ -415,23 +415,45 @@ function ChoiceReview({ questionType, options, correctAnswers, candidateAnswer }
   );
 }
 
+function getSubmissionStatusVariant(status: string) {
+  if (status === 'PASSED') return 'default' as const;
+  if (status === 'PARTIAL') return 'secondary' as const;
+  return 'destructive' as const;
+}
+
+function getSubmissionStatusColor(status: string) {
+  if (status === 'PASSED') return 'bg-green-950 border-green-800';
+  if (status === 'PARTIAL') return 'bg-amber-950 border-amber-800';
+  return 'bg-red-950 border-red-900';
+}
+
 function LatestCodeSubmission({ submissions }: { submissions?: any[] }) {
   if (!submissions || submissions.length === 0) return null;
   const sorted = [...submissions].sort((a: any, b: any) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
   const latest = sorted[0];
-  const statusVariant = latest.status === 'PASSED' ? 'default' : latest.status === 'PARTIAL' ? 'secondary' : 'destructive';
-  const statusColor = latest.status === 'PASSED' ? 'bg-green-950 border-green-800' : latest.status === 'PARTIAL' ? 'bg-amber-950 border-amber-800' : 'bg-red-950 border-red-900';
+  const statusVariant = getSubmissionStatusVariant(latest.status);
+  const statusColor = getSubmissionStatusColor(latest.status);
+  const results = latest.results || [];
+  const renderLatestResults = () => {
+    if (latest.status === 'PENDING' || latest.status === 'RUNNING') {
+      return <div className="flex items-center gap-1.5 text-xs text-slate-400"><Loader2 className="h-3 w-3 animate-spin" />Executing...</div>;
+    }
+    if (results.length === 0) {
+      return <p className="text-xs text-slate-400">No test cases defined.</p>;
+    }
+    return results.map((result: any, i: number) => (
+      <div key={`${latest.id}-test-${result.testCaseIndex}`} className={cn('flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs rounded px-2 py-1', result.passed ? 'bg-green-900/40 text-green-300' : 'bg-red-900/40 text-red-300')}>
+        <span className="font-semibold shrink-0">{result.passed ? '✓' : '✗'} Test {i + 1}{result.runtime != null && <span className="ml-1 font-normal text-slate-500">{result.runtime}ms</span>}</span>
+        {result.input != null && <span className="text-slate-500 break-all">in: <code className="text-slate-300">{String(result.input)}</code></span>}
+        {!result.passed && <span className="text-slate-400 break-all">expected <code className="text-white">{String(result.expected ?? '—')}</code>{' · '}got <code className="text-white">{String(result.actual ?? result.error ?? '—')}</code></span>}
+      </div>
+    ));
+  };
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2"><Label className="text-xs text-muted-foreground">Last Run</Label><Badge variant={statusVariant} className="text-[10px]">{latest.status}</Badge><span className="text-[10px] text-muted-foreground ml-auto">{latest.language}</span>{sorted.length > 1 && <span className="text-[10px] text-muted-foreground">({sorted.length} runs)</span>}</div>
       <div className={cn('rounded-md border p-2.5 space-y-1', statusColor)}>
-        {latest.status === 'PENDING' || latest.status === 'RUNNING' ? <div className="flex items-center gap-1.5 text-xs text-slate-400"><Loader2 className="h-3 w-3 animate-spin" />Executing...</div> : (latest.results || []).length === 0 ? <p className="text-xs text-slate-400">No test cases defined.</p> : (latest.results || []).map((result: any, i: number) => (
-          <div key={i} className={cn('flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs rounded px-2 py-1', result.passed ? 'bg-green-900/40 text-green-300' : 'bg-red-900/40 text-red-300')}>
-            <span className="font-semibold shrink-0">{result.passed ? '✓' : '✗'} Test {i + 1}{result.runtime != null && <span className="ml-1 font-normal text-slate-500">{result.runtime}ms</span>}</span>
-            {result.input != null && <span className="text-slate-500 break-all">in: <code className="text-slate-300">{String(result.input)}</code></span>}
-            {!result.passed && <span className="text-slate-400 break-all">expected <code className="text-white">{String(result.expected ?? '—')}</code>{' · '}got <code className="text-white">{String(result.actual ?? result.error ?? '—')}</code></span>}
-          </div>
-        ))}
+        {renderLatestResults()}
       </div>
     </div>
   );

@@ -780,6 +780,12 @@ function SessionQuestionsPanel(props: any) {
   );
 }
 
+function getAntiCheatEventLabel(type: string) {
+  if (type === "TAB_HIDDEN") return "Tab switch";
+  if (type === "COPY_ATTEMPT") return "Copy attempt";
+  return "Multi-device";
+}
+
 function SessionAntiCheatPanel({ anticheatEvents }: { anticheatEvents: any[] }) {
   const tabSwitches = anticheatEvents.filter((e: any) => e.type === "TAB_HIDDEN").length;
   const copyAttempts = anticheatEvents.filter((e: any) => e.type === "COPY_ATTEMPT").length;
@@ -787,7 +793,7 @@ function SessionAntiCheatPanel({ anticheatEvents }: { anticheatEvents: any[] }) 
   return (
     <div className="space-y-2">
       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1"><ShieldAlert className="h-3.5 w-3.5" /> Anti-Cheat</p>
-      {anticheatEvents.length === 0 ? <p className="text-xs text-muted-foreground">No violations detected</p> : <><div className="flex flex-wrap gap-1.5">{multiDevice && <Badge variant="destructive" className="text-xs">Multi-device</Badge>}{tabSwitches > 0 && <Badge variant="destructive" className="text-xs">Tab switches: {tabSwitches}</Badge>}{copyAttempts > 0 && <Badge variant="destructive" className="text-xs">Copy attempts: {copyAttempts}</Badge>}</div><div className="space-y-1">{anticheatEvents.map((e: any, i: number) => <div key={i} className="text-xs text-muted-foreground flex items-center justify-between"><span className={cn("font-medium", e.type === "MULTI_DEVICE_DETECTED" ? "text-destructive" : "text-orange-600")}>{e.type === "TAB_HIDDEN" ? "Tab switch" : e.type === "COPY_ATTEMPT" ? "Copy attempt" : "Multi-device"}</span><span>{new Date(e.createdAt).toLocaleTimeString()}</span></div>)}</div></>}
+      {anticheatEvents.length === 0 ? <p className="text-xs text-muted-foreground">No violations detected</p> : <><div className="flex flex-wrap gap-1.5">{multiDevice && <Badge variant="destructive" className="text-xs">Multi-device</Badge>}{tabSwitches > 0 && <Badge variant="destructive" className="text-xs">Tab switches: {tabSwitches}</Badge>}{copyAttempts > 0 && <Badge variant="destructive" className="text-xs">Copy attempts: {copyAttempts}</Badge>}</div><div className="space-y-1">{anticheatEvents.map((e: any) => <div key={e.id ?? `${e.type}-${e.createdAt}`} className="text-xs text-muted-foreground flex items-center justify-between"><span className={cn("font-medium", e.type === "MULTI_DEVICE_DETECTED" ? "text-destructive" : "text-orange-600")}>{getAntiCheatEventLabel(e.type)}</span><span>{new Date(e.createdAt).toLocaleTimeString()}</span></div>)}</div></>}
     </div>
   );
 }

@@ -221,16 +221,27 @@ function restoreEvaluationForm(
   setValue('personality', personalityMap);
 }
 
-function applyDerivedEvaluationRatings(
-  derived: Record<string, number>,
-  map: Map<string, string[]>,
-  mustCat: string,
-  shouldCat: string,
-  mustSubs: readonly string[],
-  shouldSubs: readonly string[],
-  getValues: (name?: any) => any,
-  setValue: (name: any, value: any) => void,
-) {
+type ApplyDerivedEvaluationRatingsOptions = {
+  derived: Record<string, number>;
+  map: Map<string, string[]>;
+  mustCat: string;
+  shouldCat: string;
+  mustSubs: readonly string[];
+  shouldSubs: readonly string[];
+  getValues: (name?: any) => any;
+  setValue: (name: any, value: any) => void;
+};
+
+function applyDerivedEvaluationRatings({
+  derived,
+  map,
+  mustCat,
+  shouldCat,
+  mustSubs,
+  shouldSubs,
+  getValues,
+  setValue,
+}: ApplyDerivedEvaluationRatingsOptions) {
   const fill = (field: string, keyPrefix: string, subcategories: readonly string[]) => {
     subcategories.forEach((subcategory) => {
       if (!getValues(field + '.' + subcategory + '.rating')) {
@@ -339,16 +350,16 @@ export function SessionEvaluatePage() {
           // No existing evaluation
         }
 
-        applyDerivedEvaluationRatings(
-          computeDerivedRatings(s),
+        applyDerivedEvaluationRatings({
+          derived: computeDerivedRatings(s),
           map,
           mustCat,
           shouldCat,
-          localMustSubs,
-          localShouldSubs,
+          mustSubs: localMustSubs,
+          shouldSubs: localShouldSubs,
           getValues,
           setValue,
-        );
+        });
       } catch (err) {
         console.error('Failed to load session:', err);
       } finally {
