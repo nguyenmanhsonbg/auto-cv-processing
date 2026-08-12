@@ -1,7 +1,7 @@
-const http = require('http');
-const { spawn } = require('child_process');
-const { mkdir, stat } = require('fs/promises');
-const path = require('path');
+import http from 'node:http';
+import { spawn } from 'node:child_process';
+import { mkdir, stat } from 'node:fs/promises';
+import path from 'node:path';
 
 const GHOSTSCRIPT_COMMAND = '/usr/bin/gs';
 const PDF_MIME_TYPE = 'application/pdf';

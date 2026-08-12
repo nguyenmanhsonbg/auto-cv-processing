@@ -473,7 +473,34 @@ export class CvSimilarityService {
   }
 
   private tokenize(text: string): string[] {
-    return text.match(/(?:\.[\p{L}\p{N}]+|[\p{L}\p{N}]+(?:[+#]+|(?:[.-][\p{L}\p{N}]+)+)?)/gu) ?? [];
+    const tokenStartPattern = /\.[\p{L}\p{N}]+|[\p{L}\p{N}]+/gu;
+    const symbolSuffixPattern = /^[+#]+/u;
+    const compoundSuffixPattern = /^(?:[.-][\p{L}\p{N}]+)+/u;
+    const tokens: string[] = [];
+
+    let match: RegExpExecArray | null;
+    while ((match = tokenStartPattern.exec(text)) !== null) {
+      let token = match[0];
+      let end = tokenStartPattern.lastIndex;
+
+      if (!token.startsWith('.')) {
+        const remainingText = text.slice(end);
+        const symbolSuffix = remainingText.match(symbolSuffixPattern)?.[0];
+        const compoundSuffix = symbolSuffix === undefined
+          ? remainingText.match(compoundSuffixPattern)?.[0]
+          : undefined;
+        const suffix = symbolSuffix ?? compoundSuffix;
+        if (suffix) {
+          token += suffix;
+          end += suffix.length;
+        }
+      }
+
+      tokens.push(token);
+      tokenStartPattern.lastIndex = end;
+    }
+
+    return tokens;
   }
 
   private toTfIdfVector(

@@ -1,10 +1,8 @@
-'use strict';
-
-const crypto = require('crypto');
-const fsp = require('fs/promises');
-const http = require('http');
-const path = require('path');
-const { spawn } = require('child_process');
+import crypto from 'node:crypto';
+import fsp from 'node:fs/promises';
+import http from 'node:http';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
 
 const DOCKER_COMMAND = '/usr/bin/docker';
 const WORKER_LABEL = 'vcs.component=cv-sanitizer-worker';
@@ -871,7 +869,9 @@ async function main() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-main().catch((error) => {
+process.on('unhandledRejection', (error) => {
   console.error(error);
   process.exit(1);
 });
+
+await main();

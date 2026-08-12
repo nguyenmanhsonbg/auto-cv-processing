@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createHash, timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { ApplicationsService } from '../applications/applications.service';
 import { CvDocumentsService } from '../cv-documents/cv-documents.service';
@@ -591,9 +591,9 @@ export class VcsPortalApplyWebhookService {
   }
 
   private findCandidateField(candidateFields: JsonRecord, names: string[]) {
-    const targetNames = names.map((name) => name.toLowerCase());
+    const targetNames = new Set(names.map((name) => name.toLowerCase()));
     for (const [key, value] of Object.entries(candidateFields)) {
-      if (targetNames.includes(key.trim().toLowerCase())) {
+      if (targetNames.has(key.trim().toLowerCase())) {
         return value;
       }
     }

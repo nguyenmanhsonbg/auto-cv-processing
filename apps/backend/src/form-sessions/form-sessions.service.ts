@@ -218,8 +218,8 @@ export class FormSessionsService {
     questionSet?: QuestionSetEntity | null,
   ): QuestionnaireItemInput[] {
     const items = [...(questionSet?.items ?? [])];
+    items.sort((left, right) => left.orderIndex - right.orderIndex);
     return items
-      .sort((left, right) => left.orderIndex - right.orderIndex)
       .map((item) => ({
         questionId: item.questionId,
         questionTextSnapshot: item.questionTextSnapshot,

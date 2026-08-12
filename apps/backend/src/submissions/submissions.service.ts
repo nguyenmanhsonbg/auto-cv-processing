@@ -8,7 +8,7 @@ import { runInSandbox } from './sandbox-runner';
 import { SessionQuestionEntity } from '../sessions/entities/session-question.entity';
 import { InterviewWebSocketGateway } from '../websocket/websocket.gateway';
 
-const SUPPORTED_LANGUAGES = ['javascript', 'typescript'];
+const SUPPORTED_LANGUAGES = new Set(['javascript', 'typescript']);
 
 @Injectable()
 export class SubmissionsService {
@@ -39,7 +39,7 @@ export class SubmissionsService {
     if (!submission) return;
 
     const lang = submission.language?.toLowerCase();
-    if (!SUPPORTED_LANGUAGES.includes(lang)) {
+    if (!SUPPORTED_LANGUAGES.has(lang)) {
       // Mark as not runnable but leave PENDING for display.
       return;
     }
@@ -84,12 +84,14 @@ export class SubmissionsService {
       }
     }
 
-    const status =
-      passed === testCases.length
-        ? SubmissionStatus.PASSED
-        : passed > 0
-          ? SubmissionStatus.PARTIAL
-          : SubmissionStatus.FAILED;
+    let status: SubmissionStatus;
+    if (passed === testCases.length) {
+      status = SubmissionStatus.PASSED;
+    } else if (passed > 0) {
+      status = SubmissionStatus.PARTIAL;
+    } else {
+      status = SubmissionStatus.FAILED;
+    }
 
     await this.submissionRepo.update(submissionId, { status, results: results as any });
 

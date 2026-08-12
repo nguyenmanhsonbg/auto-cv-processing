@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Headers, Post, UploadedFile, Use
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { extname } from 'node:path';
 import { buildCvQuarantineFileName, ensureCvQuarantineRoot } from '../cv-documents/storage/cv-quarantine-storage';
 import { VcsPortalApplyWebhookService } from './vcs-portal-apply-webhook.service';
 

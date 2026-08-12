@@ -570,8 +570,8 @@ a {
 }
 
 .extension-toast-close:hover {
-  color: #eff0f7;
-  background: rgba(239, 240, 247, 0.1);
+  color: #ffffff;
+  background: #1f2e2b;
 }
 
 .extension-toast-close svg {
@@ -735,8 +735,8 @@ h2 {
 }
 
 .career-icon-button:hover {
-  background: rgba(0, 122, 90, 0.08);
-  color: #005f45;
+  background: #d1fae5;
+  color: #065f46;
 }
 
 .career-icon-button svg {
@@ -764,8 +764,8 @@ h2 {
   border: 1px solid rgba(0, 122, 90, 0.2);
   border-radius: 999px;
   padding: 7px 13px;
-  background: rgba(0, 122, 90, 0.1);
-  color: #007a5a;
+  background: #d1fae5;
+  color: #005f45;
 }
 
 .career-industry-badge svg {
@@ -909,7 +909,7 @@ h2 {
 
 .question-tag-category {
   color: #005f45;
-  background: rgba(0, 122, 90, 0.1);
+  background: #d1fae5;
 }
 
 .question-tag-muted {
@@ -1459,7 +1459,7 @@ dd {
 }
 
 .channel-option.is-selected {
-  border-color: #10b981;
+  border-color: #cbd5e1;
   background: #ecfdf5;
   box-shadow: 0 1px 4px rgba(15, 118, 110, 0.12);
 }
@@ -1977,7 +1977,7 @@ dd {
   border-radius: 6px;
   padding: 6px;
   color: #2f2b3d;
-  background: rgba(47, 43, 61, 0.08);
+  background: #e2e8f0;
   font-family: Roboto, sans-serif;
   font-size: 12px;
   font-weight: 400;
@@ -2089,7 +2089,7 @@ dd {
   border-radius: 8px;
   padding: 4px 14px;
   color: #ffffff;
-  background: #059669;
+  background: #047857;
   font-family: Inter, sans-serif;
   font-size: 10px;
   font-weight: 600;
@@ -2376,10 +2376,6 @@ dd {
   text-align: right;
 }
 
-.channel-option.is-selected {
-  border-color: #cbd5e1;
-}
-
 .channel-option.is-facebook.is-selected {
   border-color: #10b981;
   background: #ecfdf5;
@@ -2539,13 +2535,14 @@ dd {
   height: 16px;
   border: 1px solid #d1d5db;
   border-radius: 3px;
-  color: #ffffff;
+  color: #374151;
   background: #ffffff;
 }
 
 .facebook-group-item.is-selected .facebook-group-check {
   border-color: #059669;
   background: #059669;
+  color: #ffffff;
 }
 
 .facebook-group-check svg {
@@ -2649,7 +2646,7 @@ dd {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: 50;
   display: grid;
   place-items: center;
   padding: 16px;
@@ -2676,9 +2673,11 @@ dd {
 
 .modal-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  border-bottom: 1px solid #edf1f7;
+  padding: 14px 16px;
 }
 
 .modal-header h2,
@@ -2822,7 +2821,7 @@ dd {
   width: 50px;
   height: 50px;
   border-radius: 999px;
-  color: #dc2626;
+  color: #991b1b;
   background: #fef2f2;
 }
 
@@ -2920,15 +2919,12 @@ dd {
   color: #b91c1c;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgba(15, 23, 42, 0.42);
-  backdrop-filter: blur(2px);
+.modal-backdrop > dialog {
+  position: static;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
 }
 
 .facebook-group-modal {
@@ -3108,15 +3104,6 @@ dd {
   height: 14px;
 }
 
-.modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid #edf1f7;
-  padding: 14px 16px;
-}
-
 .icon-button {
   display: grid;
   width: 30px;
@@ -3124,7 +3111,7 @@ dd {
   place-items: center;
   border-radius: 6px;
   border: 1px solid currentColor;
-  color: #64748b;
+  color: #475569;
   background: #f1f5f9;
 }
 

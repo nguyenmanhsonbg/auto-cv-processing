@@ -1,7 +1,5 @@
-'use strict';
-
-const fs = require('fs/promises');
-const { spawn } = require('child_process');
+import fs from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 
 const GHOSTSCRIPT_COMMAND = '/usr/bin/gs';
 const CONTROL_DIR = '/control';
@@ -132,7 +130,7 @@ async function main() {
   process.exit(result.exit_code === 0 && !result.timed_out ? 0 : 1);
 }
 
-main().catch(async (error) => {
+process.on('unhandledRejection', async (error) => {
   try {
     await writeJson(RESULT_PATH, {
       status: 'FAILED',
@@ -149,3 +147,5 @@ main().catch(async (error) => {
   await waitForManagerRead();
   process.exit(1);
 });
+
+await main();

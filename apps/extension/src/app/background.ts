@@ -118,8 +118,6 @@ chrome.alarms?.onAlarm.addListener((alarm) => {
 });
 
 scheduleExtensionTaskPolling();
-void runExtensionTaskPoll();
-void attachToOpenAmisTabs();
 
 chrome.tabs?.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !isAmisPageUrl(tab.url)) return;
@@ -224,6 +222,11 @@ chrome.runtime?.onConnect?.addListener((port) => {
     });
   });
 });
+
+await Promise.all([
+  runExtensionTaskPoll(),
+  attachToOpenAmisTabs(),
+]);
 
 async function attachToOpenAmisTabs() {
   const tabs = await chrome.tabs?.query({}) ?? [];
@@ -1310,6 +1313,14 @@ function mergeAmisCapture(
   };
   const amisRecruitmentId = firstText(apiCapture.amisRecruitmentId, domCapture.amisRecruitmentId);
   const missingFields = getMissingFields(amisRecruitmentId, snapshot);
+  let confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  if (missingFields.length === 0) {
+    confidence = 'HIGH';
+  } else if (missingFields.length <= 1) {
+    confidence = 'MEDIUM';
+  } else {
+    confidence = 'LOW';
+  }
   const markers = uniqueStrings([
     ...apiCapture.evidence.markers,
     ...domCapture.evidence.markers,
@@ -1321,7 +1332,7 @@ function mergeAmisCapture(
     ...(amisRecruitmentId ? { amisRecruitmentId } : {}),
     snapshot,
     missingFields,
-    confidence: missingFields.length === 0 ? 'HIGH' : missingFields.length <= 1 ? 'MEDIUM' : 'LOW',
+    confidence,
     warnings: uniqueStrings([
       ...apiCapture.warnings,
       ...domCapture.warnings,
