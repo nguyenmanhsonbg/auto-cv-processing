@@ -1,6 +1,4 @@
-type IconProps = {
-  className?: string;
-};
+import type { IconProps } from './types';
 
 export function RefreshIcon({ className }: IconProps) {
   return (
@@ -75,15 +73,6 @@ export function CheckCircleIcon({ className }: IconProps) {
   return (
     <svg className={className} width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
       <path d="M15.2082 6.9485L9.16732 12.9893L5.87648 9.70766L4.58398 11.0002L9.16732 15.5835L16.5007 8.25016L15.2082 6.9485ZM11.0007 1.8335C5.94065 1.8335 1.83398 5.94016 1.83398 11.0002C1.83398 16.0602 5.94065 20.1668 11.0007 20.1668C16.0607 20.1668 20.1673 16.0602 20.1673 11.0002C20.1673 5.94016 16.0607 1.8335 11.0007 1.8335ZM11.0007 18.3335C6.94898 18.3335 3.66732 15.0518 3.66732 11.0002C3.66732 6.9485 6.94898 3.66683 11.0007 3.66683C15.0523 3.66683 18.334 6.9485 18.334 11.0002C18.334 15.0518 15.0523 18.3335 11.0007 18.3335Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-export function SparklesIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="M6.8 2.4 8 5.3l2.8 1.1L8 7.6l-1.2 3-1.1-3-2.9-1.2 2.9-1.1 1.1-2.9Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-      <path d="m12.2 9.2.5 1.4 1.3.5-1.3.6-.5 1.3-.6-1.3-1.3-.6 1.3-.5.6-1.4Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -225,79 +214,3 @@ export function InfoExportIcon({ className }: IconProps) {
     </svg>
   );
 }
-
-export function ExternalLinkIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="M6.2 4H3.8c-.7 0-1.2.5-1.2 1.2v7c0 .7.5 1.2 1.2 1.2h7c.7 0 1.2-.5 1.2-1.2V9.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8.2 2.8h5v5M7.6 8.4l5.2-5.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-export function SaveIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      height="14"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-      width="14"
-    >
-      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
-      <path d="M17 21v-8H7v8" />
-      <path d="M7 3v5h8" />
-    </svg>
-  );
-}
-
-export function EditIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      height="15"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-      width="15"
-    >
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  );
-}
-
-export function GearIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      height="16"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-      width="16"
-    >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-    </svg>
-  );
-}
-
-export function ChevronUpIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="m3.5 10 4.5-4.5 4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-

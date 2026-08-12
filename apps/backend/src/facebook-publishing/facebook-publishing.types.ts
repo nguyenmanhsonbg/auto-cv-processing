@@ -28,6 +28,7 @@ export enum FacebookPublishTargetEligibilityStatus {
 
 export interface ResolvedFacebookPublishTarget {
   targetId?: string | null;
+  reservationId?: string | null;
   targetType: FacebookPublishTargetType;
   targetName: string;
   targetUrl?: string | null;
@@ -57,6 +58,7 @@ export interface ResolveFacebookAccountInput {
   facebookExternalId: string;
   displayName?: string | null;
   profileUrl?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface ResolvedFacebookAccount {
@@ -64,6 +66,7 @@ export interface ResolvedFacebookAccount {
   facebookExternalId: string;
   displayName: string | null;
   profileUrl: string | null;
+  avatarUrl: string | null;
   status: 'ACTIVE' | 'LOGGED_OUT' | 'UNKNOWN';
   lastSeenAt: string | null;
 }
@@ -132,6 +135,7 @@ export interface FacebookPublishSummary {
 export interface ReportFacebookPublishResultInput {
   ownerUserId: string;
   jobPostingId: string;
+  reservationId?: string | null;
   targetId?: string | null;
   targetType: FacebookPublishTargetType;
   targetName: string;
@@ -143,6 +147,17 @@ export interface ReportFacebookPublishResultInput {
   externalPostId?: string | null;
   externalPostUrl?: string | null;
   submittedAt?: Date | null;
+  extensionInstanceId?: string | null;
+}
+
+export interface ReserveFacebookPublishTargetInput {
+  ownerUserId: string;
+  jobPostingId: string;
+  targetId: string;
+  targetType: FacebookPublishTargetType;
+  targetName: string;
+  targetUrl?: string | null;
+  content?: string | null;
   extensionInstanceId?: string | null;
 }
 

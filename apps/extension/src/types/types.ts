@@ -465,6 +465,7 @@ export type FacebookPublishProgressStatus =
 
 export interface FacebookPublishTarget {
   targetId?: string | null;
+  reservationId?: string | null;
   targetType: FacebookPublishTargetType;
   targetName: string;
   targetUrl?: string | null;
@@ -494,6 +495,7 @@ export interface FacebookAccount {
   facebookExternalId: string;
   displayName: string | null;
   profileUrl: string | null;
+  avatarUrl: string | null;
   status: 'ACTIVE' | 'LOGGED_OUT' | 'UNKNOWN';
   lastSeenAt: string | null;
 }
@@ -601,6 +603,7 @@ export interface FacebookPublishPlan {
 
 export interface FacebookPublishResultPayload {
   jobPostingId: string;
+  reservationId?: string | null;
   targetId?: string | null;
   targetType: FacebookPublishTargetType;
   targetName: string;
@@ -612,6 +615,15 @@ export interface FacebookPublishResultPayload {
   externalPostId?: string | null;
   externalPostUrl?: string | null;
   submittedAt?: string | null;
+}
+
+export interface FacebookPublishReservationPayload {
+  jobPostingId: string;
+  targetId: string;
+  targetType: FacebookPublishTargetType;
+  targetName: string;
+  targetUrl?: string | null;
+  content?: string | null;
 }
 
 export interface FacebookPublishProgress {

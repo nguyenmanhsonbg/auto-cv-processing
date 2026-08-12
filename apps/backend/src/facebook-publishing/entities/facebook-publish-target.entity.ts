@@ -60,6 +60,9 @@ export class FacebookPublishTargetEntity {
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
+  @Column({ name: 'excluded_from_discovery', type: 'boolean', default: false })
+  excludedFromDiscovery: boolean;
+
   @Column({ name: 'manual_included', type: 'boolean', default: false })
   manualIncluded: boolean;
 
