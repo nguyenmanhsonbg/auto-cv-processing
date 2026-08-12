@@ -1,7 +1,7 @@
 // Temporarily disabled while AI generation is routed through Gemini.
 // import { query } from '@anthropic-ai/claude-agent-sdk';
 import { AiEvaluationSuggestion, ParsedProfile, ProfileAnomalyDetection, TECHNICAL_RATING_LABELS, PERSONALITY_RATING_LABELS, PERSONALITY_CATEGORIES } from '@interview-assistant/shared';
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
 import {
   Injectable,
   InternalServerErrorException,
@@ -41,8 +41,6 @@ export const AVAILABLE_MODELS = {
   'claude-haiku-4.5': 'claude-haiku-4-5-20251001',
   'claude-haiku-3.5': 'claude-3-5-haiku-20241022',
 } as const;
-
-type PromptModel = string;
 
 export interface RecruitmentPhase1AiScreeningInput {
   enrichedJobDescription: Record<string, unknown>;
@@ -99,7 +97,7 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
   // Cache resolved system prompts for the process lifetime — prompts rarely change
   // and each uncached lookup adds a DB round-trip per request.
-  private readonly promptCache = new Map<string, { systemPrompt: string; model: PromptModel }>();
+  private readonly promptCache = new Map<string, { systemPrompt: string; model: string }>();
   private nextModelIndex = 0;
 
   constructor(
@@ -114,7 +112,7 @@ export class AiService {
    * Normalize legacy prompt model fields for compatibility with existing rows.
    * Gemini generation ignores per-prompt legacy model choices while rotation is active.
    */
-  private resolveModel(model?: string): PromptModel {
+  private resolveModel(model?: string): string {
     if (!model) return AVAILABLE_MODELS['claude-sonnet-4.6'];
 
     // If it's a full model identifier from AVAILABLE_MODELS, return it directly
@@ -175,7 +173,7 @@ export class AiService {
    * To force a refresh (e.g. after an admin edits a prompt), restart the process
    * or call clearPromptCache().
    */
-  private async getSystemPrompt(key: keyof typeof PROMPT_DEFAULTS): Promise<{ systemPrompt: string; model: PromptModel }> {
+  private async getSystemPrompt(key: keyof typeof PROMPT_DEFAULTS): Promise<{ systemPrompt: string; model: string }> {
     if (this.promptCache.has(key)) {
       return this.promptCache.get(key)!;
     }
@@ -213,7 +211,6 @@ export class AiService {
   // private async callClaude(
   //   systemPrompt: string,
   //   userPrompt: string,
-  //   model: PromptModel,
   //   _maxTokens = 2048,
   // ): Promise<string> {
   //   for await (const message of query({
@@ -440,6 +437,18 @@ ${truncated}`;
     }));
 
     const { systemPrompt } = await this.getSystemPrompt('suggest_questions');
+    const questionPromptLines = questionList
+      .map((q) =>
+        'ID:' +
+        q.id +
+        ' | [' +
+        q.subcategory +
+        '] ' +
+        q.text +
+        ' | difficulty:' +
+        q.difficulty,
+      )
+      .join('\n');
 
     const userPrompt = `Candidate: ${profileSummary.name || 'Unknown'}, ${profileSummary.totalYearsExperience || '?'} years experience
 Target: ${targetLevel} ${templatePosition}
@@ -448,7 +457,7 @@ Tech stack: ${profileSummary.techstack?.join(', ') || 'N/A'}
 Projects: ${profileSummary.projects?.map((p) => `${p.name} (${p.role}): ${p.techstack?.join(', ')}`).join('; ') || 'N/A'}
 
 Available questions (${questionList.length} total):
-${questionList.map((q) => `ID:${q.id} | [${q.subcategory}] ${q.text} | difficulty:${q.difficulty}`).join('\n')}`;
+${questionPromptLines}`;
 
     try {
       const text = await this.callGeminiWithFallback(systemPrompt, userPrompt);
@@ -484,11 +493,17 @@ ${questionList.map((q) => `ID:${q.id} | [${q.subcategory}] ${q.text} | difficult
     const candidate = evaluation.session?.candidate;
 
     const technicalSection = evaluation.technicalRatings
-      .map((r) => `  ${r.subcategory}: ${ratingLabel(r.rating)}${r.comment ? ` — ${r.comment}` : ''}`)
+      .map((r) => {
+        const commentSuffix = r.comment ? ` — ${r.comment}` : '';
+        return `  ${r.subcategory}: ${ratingLabel(r.rating)}${commentSuffix}`;
+      })
       .join('\n');
 
     const personalitySection = evaluation.personalityRatings
-      .map((r) => `  ${r.category}: ${ratingLabel(r.rating)}${r.reasoning ? ` — ${r.reasoning}` : ''}`)
+      .map((r) => {
+        const reasoningSuffix = r.reasoning ? ` — ${r.reasoning}` : '';
+        return `  ${r.category}: ${ratingLabel(r.rating)}${reasoningSuffix}`;
+      })
       .join('\n');
 
     const hrSection = evaluation.hrEvaluation
@@ -722,15 +737,29 @@ Lương kỳ vọng: ${evaluation.expectedSalary || 'Không có'}
     }
     if (parsedProfile?.projects?.length) {
       const projs = parsedProfile.projects.slice(0, 5).map((p) =>
-        `${p.name ?? '?'}${p.teamSize ? ` (${p.teamSize} người)` : ''}${p.techstack?.length ? ` [${p.techstack.slice(0, 5).join(', ')}]` : ''}`
+        (p.name ?? '?') +
+        (p.teamSize ? ' (' + p.teamSize + ' người)' : '') +
+        (p.techstack?.length ? ' [' + p.techstack.slice(0, 5).join(', ') + ']' : '')
       ).join('; ');
       profileLines.push(`Dự án: ${projs}`);
     }
 
     const { systemPrompt } = await this.getSystemPrompt('evaluate_session');
 
+    const surveyLines = surveyAnswers
+      ?.map((s) =>
+        '[' +
+        s.category +
+        '::' +
+        s.subcategory +
+        '] Q: ' +
+        s.question +
+        '\nA: ' +
+        s.answer,
+      )
+      .join('\n\n');
     const surveySection = surveyAnswers?.length
-      ? `<survey_answers>\n${surveyAnswers.map((s) => `[${s.category}::${s.subcategory}] Q: ${s.question}\nA: ${s.answer}`).join('\n\n')}\n</survey_answers>\n\n`
+      ? '<survey_answers>\n' + surveyLines + '\n</survey_answers>\n\n'
       : '';
 
     const userPrompt =

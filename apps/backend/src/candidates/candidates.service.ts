@@ -199,7 +199,7 @@ export class CandidatesService {
   }
 
   async remove(id: string, scope?: { userId: string; isAdmin: boolean }): Promise<void> {
-    const candidate = await this.findOne(id, scope);
+    await this.findOne(id, scope);
 
     await this.candidateRepo.manager.transaction(async (manager) => {
       // 1. Find all interview sessions for this candidate

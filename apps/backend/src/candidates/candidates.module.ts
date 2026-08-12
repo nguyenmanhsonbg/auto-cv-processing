@@ -3,7 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { randomUUID } from 'node:crypto';
-import { extname } from 'path';
+import { extname } from 'node:path';
 import { CandidateEntity } from './entities/candidate.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { CandidatesService } from './candidates.service';

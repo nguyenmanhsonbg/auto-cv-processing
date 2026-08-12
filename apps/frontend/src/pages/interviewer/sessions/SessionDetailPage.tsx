@@ -72,7 +72,7 @@ function SuggestedQuestionRow({
         <p className="text-sm leading-snug">{question?.text}</p>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
           {question?.difficulty && <span className="text-xs text-muted-foreground">Difficulty: {question.difficulty}</span>}
-          {reasoning && <span className="text-xs text-blue-600 italic">— {reasoning}</span>}
+          {reasoning && <span className="text-xs text-blue-600 italic">â€” {reasoning}</span>}
         </div>
       </div>
     </button>
@@ -157,7 +157,6 @@ export function SessionDetailPage() {
   const [detailSaving, setDetailSaving] = useState(false);
 
   const [anticheatEvents, setAnticheatEvents] = useState<Array<{ type: string; createdAt: string }>>([]);
-
   const [editingTargetLevel, setEditingTargetLevel] = useState(false);
   const [editTargetLevelValue, setEditTargetLevelValue] = useState("");
   const [editingTemplatePosition, setEditingTemplatePosition] = useState(false);
@@ -257,7 +256,7 @@ export function SessionDetailPage() {
   const handleSuggest = async () => {
     try {
       await apiClient.post(`/sessions/${slug}/suggest-from-survey`, {});
-      // Socket events (SURVEY_SUGGEST_GENERATING → SURVEY_SUGGEST_READY) drive the UI updates
+      // Socket events (SURVEY_SUGGEST_GENERATING â†’ SURVEY_SUGGEST_READY) drive the UI updates
     } catch {
       toast({ title: "Failed to start suggestion", variant: "destructive" });
     }
@@ -380,7 +379,7 @@ export function SessionDetailPage() {
   const handleUpdateStatus = async (status: string) => {
     try {
       await apiClient.patch(`/sessions/${slug}`, { status });
-      toast({ title: `Status → ${status}` });
+      toast({ title: `Status â†’ ${status}` });
       fetchSession();
     } catch {
       toast({ title: "Failed to update status", variant: "destructive" });
@@ -500,7 +499,7 @@ export function SessionDetailPage() {
       const current: Record<string, number> = { ...(session?.categoryRatings || {}) };
       if (rating === null) delete current[key];
       else current[key] = rating;
-      // Optimistic update — no full refetch needed
+      // Optimistic update â€” no full refetch needed
       setSession((prev: any) => (prev ? { ...prev, categoryRatings: current } : prev));
       try {
         await apiClient.patch(`/sessions/${slug}`, { categoryRatings: current });
@@ -711,6 +710,87 @@ function SessionDetailHeader(props: any) {
   );
 }
 
+function SessionSurveyPanel(props: any) {
+  const {
+    session,
+    surveyQuestions,
+    surveyExpanded,
+    setSurveyExpanded,
+    surveyGenerating,
+    surveyActivated,
+    expandedSurveyId,
+    setExpandedSurveyId,
+    surveyAnswerSaving,
+    handleGenerateSurvey,
+    handleSuggest,
+    handleOpenActivateDialog,
+    fetchSurvey,
+    handleSaveSurveyAnswer,
+  } = props;
+  const surveyAnsweredCount = surveyQuestions.filter((q: any) => q.answer).length;
+  const allSurveyAnswered = surveyQuestions.length > 0 && surveyAnsweredCount === surveyQuestions.length;
+  const surveyStep = surveyQuestions.length === 0 ? 1 : allSurveyAnswered ? 3 : 2;
+  const stepClass = (step: number) => cn("px-2 py-0.5 rounded-full text-xs font-medium", surveyStep === step ? "bg-primary text-primary-foreground" : surveyStep > step ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground");
+
+  return (
+    <div className="rounded-lg border bg-card">
+      <button type="button" aria-label="Toggle pre-interview survey" aria-expanded={surveyExpanded} className="w-full text-left flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors rounded-lg" onClick={() => setSurveyExpanded((v: boolean) => !v)}>
+        <div className="flex items-center gap-2 text-sm font-semibold"><ClipboardCheck className="h-4 w-4 text-muted-foreground" />Pre-Interview Survey{surveyQuestions.length > 0 && <span className="text-xs font-normal text-muted-foreground">({surveyAnsweredCount}/{surveyQuestions.length} answered)</span>}</div>
+        <div className="flex items-center gap-2"><div className="hidden sm:flex items-center gap-1"><span className={stepClass(1)}>1 Generate</span><span className="text-muted-foreground text-xs">â€º</span><span className={stepClass(2)}>2 Answers</span><span className="text-muted-foreground text-xs">â€º</span><span className={stepClass(3)}>3 Activate</span></div>{surveyExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}</div>
+      </button>
+      {surveyExpanded && (
+        <div className="border-t px-4 py-3 space-y-3">
+          {session.status !== 'COMPLETED' && session.status !== 'EVALUATED' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button size="sm" variant={surveyQuestions.length > 0 ? "outline" : "default"} onClick={(e) => { e.stopPropagation(); handleGenerateSurvey(); }} disabled={surveyGenerating}>{surveyGenerating && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}{surveyQuestions.length > 0 ? "Regenerate" : "Generate Survey"}</Button>
+              {allSurveyAnswered && !surveyActivated && !session?.surveySuggestions?.length && <Button size="sm" disabled={session?.isSurveySuggestGenerating} onClick={(e) => { e.stopPropagation(); handleSuggest(); }}>{session?.isSurveySuggestGenerating && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}Suggest</Button>}
+              {allSurveyAnswered && !surveyActivated && !!session?.surveySuggestions?.length && <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenActivateDialog(); }}>Activate â†’</Button>}
+              {surveyQuestions.length > 0 && <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); fetchSurvey(); }}>Refresh</Button>}
+            </div>
+          )}
+          {surveyQuestions.length > 0 && <div className="space-y-2">{surveyQuestions.map((sq: any) => (
+            <div key={sq.id} className="rounded-md border px-3 py-2 space-y-1.5">
+              <button type="button" aria-label={sq.question} aria-expanded={expandedSurveyId === sq.id} className="w-full text-left flex items-start gap-2 cursor-pointer hover:bg-muted/30 transition-colors" onClick={() => setExpandedSurveyId(expandedSurveyId === sq.id ? null : sq.id)}>
+                <p className="leading-snug text-sm flex-1 min-w-0">{sq.question}</p>
+                <div className="flex items-center gap-1.5 shrink-0">{sq.subcategory && <Badge variant="secondary" className="text-xs">{sq.subcategory}</Badge>}{sq.answer ? <Badge className="text-xs bg-green-100 text-green-700 border border-green-200 hover:bg-green-100">âœ“</Badge> : <Badge variant="outline" className="text-xs text-muted-foreground">Waitingâ€¦</Badge>}{expandedSurveyId === sq.id ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}</div>
+              </button>
+              {sq.purpose && <p className="text-xs text-muted-foreground italic">{sq.purpose}</p>}
+              {sq.answer && <p className="text-xs text-green-800 bg-green-50 border border-green-100 rounded px-2 py-1">{sq.answer}</p>}
+              {expandedSurveyId === sq.id && sq.choices?.length > 0 && <div className="pt-1 space-y-1">{sq.choices.map((choice: string) => <button type="button" key={choice} className={cn("w-full text-left text-xs px-2 py-1.5 rounded border transition-colors", sq.answer === choice ? "bg-green-50 border-green-300 text-green-800 font-medium" : "hover:bg-muted/60 border-transparent hover:border-border", surveyAnswerSaving === sq.id && "opacity-50 pointer-events-none")} onClick={(event) => { event.stopPropagation(); handleSaveSurveyAnswer(sq.id, choice); }}>{surveyAnswerSaving === sq.id && sq.answer !== choice && <Loader2 className="inline h-3 w-3 mr-1 animate-spin" />}{choice}</button>)}</div>}
+            </div>
+          ))}</div>}
+          {surveyQuestions.length === 0 && <p className="text-xs text-muted-foreground">Generate diagnostic survey questions. The candidate will answer them before the interview starts.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SessionQuestionsPanel(props: any) {
+  const { session, total, questionsExpanded, setQuestionsExpanded, handleOpenAddQuestions, handleSelectQuestion, handleToggleActive, handleBulkToggle, handleRateSubcategory, sessionQuestions, categoryOrder } = props;
+  const sessionClosed = session.status === 'COMPLETED' || session.status === 'EVALUATED';
+  return (
+    <div className="rounded-lg border bg-card">
+      <div className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-muted/40 transition-colors rounded-lg">
+        <button type="button" aria-label="Toggle questions" aria-expanded={questionsExpanded} className="flex items-center gap-2 text-left" onClick={() => setQuestionsExpanded((v: boolean) => !v)}><Layers className="h-4 w-4 text-muted-foreground" />Questions ({total})</button>
+        <div className="flex items-center gap-2">{!sessionClosed && <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={(e) => { e.stopPropagation(); handleOpenAddQuestions(); }}><Plus className="h-3.5 w-3.5 mr-0.5" />Add</Button>}{questionsExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}</div>
+      </div>
+      {questionsExpanded && <div className="border-t px-3 py-3 max-h-[60vh] overflow-y-auto"><QuestionTree questions={sessionQuestions} onSelect={handleSelectQuestion} onToggleActive={!sessionClosed ? handleToggleActive : undefined} onBulkToggle={!sessionClosed ? handleBulkToggle : undefined} onRateSubcategory={handleRateSubcategory} categoryRatings={session?.categoryRatings} categoryOrder={categoryOrder} hideUnrated={sessionClosed} /></div>}
+    </div>
+  );
+}
+
+function SessionAntiCheatPanel({ anticheatEvents }: { anticheatEvents: any[] }) {
+  const tabSwitches = anticheatEvents.filter((e: any) => e.type === "TAB_HIDDEN").length;
+  const copyAttempts = anticheatEvents.filter((e: any) => e.type === "COPY_ATTEMPT").length;
+  const multiDevice = anticheatEvents.some((e: any) => e.type === "MULTI_DEVICE_DETECTED");
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1"><ShieldAlert className="h-3.5 w-3.5" /> Anti-Cheat</p>
+      {anticheatEvents.length === 0 ? <p className="text-xs text-muted-foreground">No violations detected</p> : <><div className="flex flex-wrap gap-1.5">{multiDevice && <Badge variant="destructive" className="text-xs">Multi-device</Badge>}{tabSwitches > 0 && <Badge variant="destructive" className="text-xs">Tab switches: {tabSwitches}</Badge>}{copyAttempts > 0 && <Badge variant="destructive" className="text-xs">Copy attempts: {copyAttempts}</Badge>}</div><div className="space-y-1">{anticheatEvents.map((e: any, i: number) => <div key={i} className="text-xs text-muted-foreground flex items-center justify-between"><span className={cn("font-medium", e.type === "MULTI_DEVICE_DETECTED" ? "text-destructive" : "text-orange-600")}>{e.type === "TAB_HIDDEN" ? "Tab switch" : e.type === "COPY_ATTEMPT" ? "Copy attempt" : "Multi-device"}</span><span>{new Date(e.createdAt).toLocaleTimeString()}</span></div>)}</div></>}
+    </div>
+  );
+}
 function SessionMainContent(props: any) {
   const {
     session,
@@ -773,7 +853,7 @@ function SessionMainContent(props: any) {
     <>
       {/* Body: stacks on mobile, 2-col on md+ */}
       <div className="flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
-        {/* Left — Overview + Questions tree */}
+        {/* Left â€” Overview + Questions tree */}
         <div className="flex-1 md:overflow-y-auto px-4 py-4 space-y-4">
           {/* Stats cards - hidden from HR */}
           {!isHr && (
@@ -798,187 +878,40 @@ function SessionMainContent(props: any) {
           )}
 
           {/* Survey Panel - hidden from HR */}
-          {!isHr && (() => {
-            const surveyAnsweredCount = surveyQuestions.filter((q: any) => q.answer).length;
-            const allSurveyAnswered = surveyQuestions.length > 0 && surveyAnsweredCount === surveyQuestions.length;
-            const surveyStep = surveyQuestions.length === 0 ? 1 : allSurveyAnswered ? 3 : 2;
-            const stepClass = (step: number) => cn("px-2 py-0.5 rounded-full text-xs font-medium", surveyStep === step ? "bg-primary text-primary-foreground" : surveyStep > step ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground");
-            return (
-              <div className="rounded-lg border bg-card">
-                <button
-                  type="button"
-                  aria-label="Toggle pre-interview survey"
-                  aria-expanded={surveyExpanded}
-                  className="w-full text-left flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors rounded-lg"
-                  onClick={() => setSurveyExpanded((v: boolean) => !v)}
-                >
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
-                    Pre-Interview Survey
-                    {surveyQuestions.length > 0 && (
-                      <span className="text-xs font-normal text-muted-foreground">
-                        ({surveyAnsweredCount}/{surveyQuestions.length} answered)
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="hidden sm:flex items-center gap-1">
-                      <span className={stepClass(1)}>1 Generate</span>
-                      <span className="text-muted-foreground text-xs">›</span>
-                      <span className={stepClass(2)}>2 Answers</span>
-                      <span className="text-muted-foreground text-xs">›</span>
-                      <span className={stepClass(3)}>3 Activate</span>
-                    </div>
-                    {surveyExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-                  </div>
-                </button>
-                {surveyExpanded && (
-                  <div className="border-t px-4 py-3 space-y-3">
-                    {session.status !== 'COMPLETED' && session.status !== 'EVALUATED' && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Button
-                        size="sm"
-                        variant={surveyQuestions.length > 0 ? "outline" : "default"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleGenerateSurvey();
-                        }}
-                        disabled={surveyGenerating}
-                      >
-                        {surveyGenerating && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-                        {surveyQuestions.length > 0 ? "Regenerate" : "Generate Survey"}
-                      </Button>
-                      {allSurveyAnswered && !surveyActivated && !session?.surveySuggestions?.length && (
-                        <Button
-                          size="sm"
-                          disabled={session?.isSurveySuggestGenerating}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSuggest();
-                          }}
-                        >
-                          {session?.isSurveySuggestGenerating && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-                          Suggest
-                        </Button>
-                      )}
-                      {allSurveyAnswered && !surveyActivated && !!session?.surveySuggestions?.length && (
-                        <Button
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenActivateDialog();
-                          }}
-                        >
-                          Activate →
-                        </Button>
-                      )}
-                      {surveyQuestions.length > 0 && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            fetchSurvey();
-                          }}
-                        >
-                          Refresh
-                        </Button>
-                      )}
-                    </div>
-                    )}
-                    {surveyQuestions.length > 0 && (
-                      <div className="space-y-2">
-                        {surveyQuestions.map((sq: any) => (
-                          <div key={sq.id} className="rounded-md border px-3 py-2 space-y-1.5">
-                            <button
-                              type="button"
-                              aria-label={sq.question}
-                              aria-expanded={expandedSurveyId === sq.id}
-                              className="w-full text-left flex items-start gap-2 cursor-pointer hover:bg-muted/30 transition-colors"
-                              onClick={() => setExpandedSurveyId(expandedSurveyId === sq.id ? null : sq.id)}
-                            >
-                              <p className="leading-snug text-sm flex-1 min-w-0">{sq.question}</p>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {sq.subcategory && (
-                                  <Badge variant="secondary" className="text-xs">
-                                    {sq.subcategory}
-                                  </Badge>
-                                )}
-                                {sq.answer ? (
-                                  <Badge className="text-xs bg-green-100 text-green-700 border border-green-200 hover:bg-green-100">✓</Badge>
-                                ) : (
-                                  <Badge variant="outline" className="text-xs text-muted-foreground">
-                                    Waiting…
-                                  </Badge>
-                                )}
-                                {expandedSurveyId === sq.id ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
-                              </div>
-                            </button>
-                            {sq.purpose && <p className="text-xs text-muted-foreground italic">{sq.purpose}</p>}
-                            {sq.answer && <p className="text-xs text-green-800 bg-green-50 border border-green-100 rounded px-2 py-1">{sq.answer}</p>}
-                            {expandedSurveyId === sq.id && sq.choices?.length > 0 && (
-                              <div className="pt-1 space-y-1">
-                                {sq.choices.map((choice: string) => (
-                                  <button type="button" key={choice} className={cn("w-full text-left text-xs px-2 py-1.5 rounded border transition-colors", sq.answer === choice ? "bg-green-50 border-green-300 text-green-800 font-medium" : "hover:bg-muted/60 border-transparent hover:border-border", surveyAnswerSaving === sq.id && "opacity-50 pointer-events-none")} onClick={(event) => { event.stopPropagation(); handleSaveSurveyAnswer(sq.id, choice); }}>
-                                    {surveyAnswerSaving === sq.id && sq.answer !== choice && <Loader2 className="inline h-3 w-3 mr-1 animate-spin" />}
-                                    {choice}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {surveyQuestions.length === 0 && <p className="text-xs text-muted-foreground">Generate diagnostic survey questions. The candidate will answer them before the interview starts.</p>}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-
-          {/* Collapsible Questions tree - hidden from HR */}
           {!isHr && (
-          <div className="rounded-lg border bg-card">
-            <div className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-muted/40 transition-colors rounded-lg">
-              <button
-                type="button"
-                aria-label="Toggle questions"
-                aria-expanded={questionsExpanded}
-                className="flex items-center gap-2 text-left"
-                onClick={() => setQuestionsExpanded((v: boolean) => !v)}
-              >
-                <Layers className="h-4 w-4 text-muted-foreground" />
-                Questions ({total})
-              </button>
-              <div className="flex items-center gap-2">
-                {!isHr && session.status !== 'COMPLETED' && session.status !== 'EVALUATED' && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 text-xs px-2"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenAddQuestions();
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-0.5" />
-                    Add
-                  </Button>
-                )}
-                {questionsExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-              </div>
-            </div>
-            {questionsExpanded && (
-              <div className="border-t px-3 py-3 max-h-[60vh] overflow-y-auto">
-                <QuestionTree questions={sessionQuestions} onSelect={handleSelectQuestion} onToggleActive={session.status !== 'COMPLETED' && session.status !== 'EVALUATED' ? handleToggleActive : undefined} onBulkToggle={session.status !== 'COMPLETED' && session.status !== 'EVALUATED' ? handleBulkToggle : undefined} onRateSubcategory={handleRateSubcategory} categoryRatings={session?.categoryRatings} categoryOrder={categoryOrder} hideUnrated={session.status === 'COMPLETED' || session.status === 'EVALUATED'} />
-              </div>
-            )}
-          </div>
+            <SessionSurveyPanel
+              session={session}
+              surveyQuestions={surveyQuestions}
+              surveyExpanded={surveyExpanded}
+              setSurveyExpanded={setSurveyExpanded}
+              surveyGenerating={surveyGenerating}
+              surveyActivated={surveyActivated}
+              expandedSurveyId={expandedSurveyId}
+              setExpandedSurveyId={setExpandedSurveyId}
+              surveyAnswerSaving={surveyAnswerSaving}
+              handleGenerateSurvey={handleGenerateSurvey}
+              handleSuggest={handleSuggest}
+              handleOpenActivateDialog={handleOpenActivateDialog}
+              fetchSurvey={fetchSurvey}
+              handleSaveSurveyAnswer={handleSaveSurveyAnswer}
+            />
+          )}
+          {!isHr && (
+            <SessionQuestionsPanel
+              session={session}
+              total={total}
+              questionsExpanded={questionsExpanded}
+              setQuestionsExpanded={setQuestionsExpanded}
+              handleOpenAddQuestions={handleOpenAddQuestions}
+              handleSelectQuestion={handleSelectQuestion}
+              handleToggleActive={handleToggleActive}
+              handleBulkToggle={handleBulkToggle}
+              handleRateSubcategory={handleRateSubcategory}
+              sessionQuestions={sessionQuestions}
+              categoryOrder={categoryOrder}
+            />
           )}
         </div>
-
-        {/* Right — Session info + Category ratings */}
         <div className="w-full md:w-80 md:shrink-0 border-t md:border-t-0 md:border-l md:overflow-y-auto px-4 py-4 space-y-5 bg-muted/20">
           {/* Candidate */}
           <div className="space-y-1">
@@ -1022,7 +955,7 @@ function SessionMainContent(props: any) {
                   }
                 }}
               >
-                {session.templatePosition || <span className="text-muted-foreground">—</span>}
+                {session.templatePosition || <span className="text-muted-foreground">â€”</span>}
               </button>
             )}
           </div>
@@ -1054,7 +987,7 @@ function SessionMainContent(props: any) {
                   }
                 }}
               >
-                {session.targetLevel || <span className="text-muted-foreground">—</span>}
+                {session.targetLevel || <span className="text-muted-foreground">â€”</span>}
               </button>
             )}
           </div>
@@ -1215,51 +1148,7 @@ function SessionMainContent(props: any) {
             </div>
           }
 
-          {/* Anti-cheat */}
-          {(() => {
-            const tabSwitches = anticheatEvents.filter((e: any) => e.type === "TAB_HIDDEN").length;
-            const copyAttempts = anticheatEvents.filter((e: any) => e.type === "COPY_ATTEMPT").length;
-            const multiDevice = anticheatEvents.some((e: any) => e.type === "MULTI_DEVICE_DETECTED");
-            return (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                  <ShieldAlert className="h-3.5 w-3.5" /> Anti-Cheat
-                </p>
-                {anticheatEvents.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No violations detected</p>
-                ) : (
-                  <>
-                    <div className="flex flex-wrap gap-1.5">
-                      {multiDevice && (
-                        <Badge variant="destructive" className="text-xs">
-                          Multi-device
-                        </Badge>
-                      )}
-                      {tabSwitches > 0 && (
-                        <Badge variant="destructive" className="text-xs">
-                          Tab switches: {tabSwitches}
-                        </Badge>
-                      )}
-                      {copyAttempts > 0 && (
-                        <Badge variant="destructive" className="text-xs">
-                          Copy attempts: {copyAttempts}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      {anticheatEvents.map((e: any, i: number) => (
-                        <div key={i} className="text-xs text-muted-foreground flex items-center justify-between">
-                          <span className={cn("font-medium", e.type === "MULTI_DEVICE_DETECTED" ? "text-destructive" : "text-orange-600")}>{e.type === "TAB_HIDDEN" ? "Tab switch" : e.type === "COPY_ATTEMPT" ? "Copy attempt" : "Multi-device"}</span>
-                          <span>{new Date(e.createdAt).toLocaleTimeString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })()}
-
+          <SessionAntiCheatPanel anticheatEvents={anticheatEvents} />
           {/* Category Ratings */}
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Ratings by Category</p>
@@ -1320,7 +1209,7 @@ function SessionDetailDialogs(props: any) {
             </DialogTitle>
             <DialogDescription className="flex items-center gap-2 text-xs">
               {detailSq?.question?.category && <span>{detailSq.question.category}</span>}
-              {detailSq?.question?.subcategory && <span>· {detailSq.question.subcategory}</span>}
+              {detailSq?.question?.subcategory && <span>Â· {detailSq.question.subcategory}</span>}
             </DialogDescription>
           </DialogHeader>
 
@@ -1356,7 +1245,7 @@ function SessionDetailDialogs(props: any) {
                       <div className="mt-1 flex flex-wrap gap-1">
                         {sub.results.map((r: any, i: number) => (
                           <span key={i} className={cn("text-xs px-1.5 py-0.5 rounded", r.passed ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300")}>
-                            T{i + 1} {r.passed ? "✓" : "✗"}
+                            T{i + 1} {r.passed ? "âœ“" : "âœ—"}
                           </span>
                         ))}
                       </div>
@@ -1369,7 +1258,7 @@ function SessionDetailDialogs(props: any) {
             {/* Interviewer note */}
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Interviewer Note</p>
-                  <Textarea value={detailNote} onChange={(e: any) => setDetailNote(e.target.value)} placeholder="Add note…" className="text-sm min-h-[80px] resize-none" />
+                  <Textarea value={detailNote} onChange={(e: any) => setDetailNote(e.target.value)} placeholder="Add noteâ€¦" className="text-sm min-h-[80px] resize-none" />
             </div>
 
             {/* Rating */}
@@ -1378,7 +1267,7 @@ function SessionDetailDialogs(props: any) {
               <div className="flex flex-wrap gap-2">
                 {[1, 2, 3, 4, 5].map((r) => (
                   <button type="button" key={r} onClick={() => setDetailRating((prev: number | null) => (prev === r ? null : r))} className={cn("text-sm px-3 py-1.5 rounded-full border transition-all font-medium", detailRating === r ? RATING_COLORS[r] : "bg-background text-muted-foreground border-border hover:border-primary/50")}>
-                    {r} — {getRatingLabels(detailSq?.question?.category ?? "")[r]}
+                    {r} â€” {getRatingLabels(detailSq?.question?.category ?? "")[r]}
                   </button>
                 ))}
               </div>
@@ -1390,13 +1279,13 @@ function SessionDetailDialogs(props: any) {
               Cancel
             </Button>
             <Button onClick={handleSaveDetail} disabled={detailSaving}>
-              {detailSaving ? "Saving…" : "Save"}
+              {detailSaving ? "Savingâ€¦" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Activate Dialog — shows persisted AI suggestions, allows re-suggest */}
+      {/* Activate Dialog â€” shows persisted AI suggestions, allows re-suggest */}
       <Dialog open={activateDialogOpen} onOpenChange={(open) => { if (!open) setActivateDialogOpen(false); }}>
         <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
           <DialogHeader>
@@ -1407,7 +1296,7 @@ function SessionDetailDialogs(props: any) {
           {activateQuestionsLoading ? (
             <div className="flex items-center justify-center py-12 gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Loading questions…</span>
+              <span className="text-sm text-muted-foreground">Loading questionsâ€¦</span>
             </div>
           ) : (
             <SuggestedQuestionsList
@@ -1421,7 +1310,7 @@ function SessionDetailDialogs(props: any) {
           <DialogFooter className="flex-wrap gap-2 pt-2 border-t">
             <Button onClick={handleActivateSubmit} disabled={activateSubmitting || activateQuestionsLoading || activateSelectedIds.size === 0}>
               {activateSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {activateSubmitting ? "Activating…" : `Activate ${activateSelectedIds.size} Question(s)`}
+              {activateSubmitting ? "Activatingâ€¦" : `Activate ${activateSelectedIds.size} Question(s)`}
             </Button>
             <Button variant="outline" onClick={handleResuggest} disabled={activateSubmitting}>
               Re-suggest

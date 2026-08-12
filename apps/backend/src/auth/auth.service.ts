@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { UserEntity } from './entities/user.entity';
@@ -20,18 +20,18 @@ import { generatePasswordResetOtp } from './otp.util';
 export class AuthService implements OnModuleInit {
   constructor(
     @InjectRepository(UserEntity)
-    private userRepo: Repository<UserEntity>,
+    private readonly userRepo: Repository<UserEntity>,
     @InjectRepository(RefreshTokenEntity)
-    private refreshTokenRepo: Repository<RefreshTokenEntity>,
+    private readonly refreshTokenRepo: Repository<RefreshTokenEntity>,
     @InjectRepository(FreelancerEntity)
-    private freelancerRepo: Repository<FreelancerEntity>,
+    private readonly freelancerRepo: Repository<FreelancerEntity>,
     @InjectRepository(InternalEntity)
-    private internalRepo: Repository<InternalEntity>,
+    private readonly internalRepo: Repository<InternalEntity>,
     @InjectRepository(PasswordResetRequestEntity)
-    private passwordResetRepo: Repository<PasswordResetRequestEntity>,
-    private jwtService: JwtService,
-    private configService: ConfigService,
-    private mailService: MailService,
+    private readonly passwordResetRepo: Repository<PasswordResetRequestEntity>,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+    private readonly mailService: MailService,
   ) {}
 
   async onModuleInit() {

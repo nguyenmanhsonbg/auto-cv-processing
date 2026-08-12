@@ -28,8 +28,8 @@ import { RolesGuard } from './guards/roles.guard';
 @Controller('auth')
 export class AuthController {
   constructor(
-    private authService: AuthService,
-    private configService: ConfigService,
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
   ) { }
 
   @Post('login')

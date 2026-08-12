@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CandidateLevel, PaginatedResponse, ParsedProfile } from '@interview-assistant/shared';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import slugify from 'slugify';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
@@ -1049,12 +1049,16 @@ export class ApplicationsService {
 
     const existingReferral = existingSource.application?.freelancerReferral;
     const incomingReferral = await this.resolvePublicReferralSource(input, manager);
-    const existingReferralType = existingReferral?.sourceType
-      ?? (existingReferral?.internalId
-        ? ApplicationReferralSourceType.INTERNAL
-        : existingReferral?.freelancerId
-          ? ApplicationReferralSourceType.FREELANCER
-          : null);
+    let existingReferralType: ApplicationReferralSourceType | null | undefined = existingReferral?.sourceType;
+    if (existingReferralType == null) {
+      if (existingReferral?.internalId) {
+        existingReferralType = ApplicationReferralSourceType.INTERNAL;
+      } else if (existingReferral?.freelancerId) {
+        existingReferralType = ApplicationReferralSourceType.FREELANCER;
+      } else {
+        existingReferralType = null;
+      }
+    }
     const existingReferralKey = existingReferral && existingReferralType
       ? `${existingReferralType}:${existingReferral.freelancerId ?? existingReferral.internalId ?? ''}`
       : null;

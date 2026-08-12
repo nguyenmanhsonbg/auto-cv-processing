@@ -20,9 +20,9 @@ type CategorySeed = {
 export class CategoriesService implements OnModuleInit {
   constructor(
     @InjectRepository(CategoryEntity)
-    private catRepo: Repository<CategoryEntity>,
+    private readonly catRepo: Repository<CategoryEntity>,
     @InjectRepository(SubCategoryEntity)
-    private subRepo: Repository<SubCategoryEntity>,
+    private readonly subRepo: Repository<SubCategoryEntity>,
   ) {}
 
   async onModuleInit() {

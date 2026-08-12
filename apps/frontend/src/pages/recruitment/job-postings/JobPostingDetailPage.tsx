@@ -228,7 +228,7 @@ function getFacebookGroupUrlValidationError(
   currentTargetId?: string | null,
 ) {
   if (!isFacebookGroupUrlCandidate(value)) {
-    return 'Link URL pháº£i cÃ³ dáº¡ng https://www.facebook.com/groups/{groupId}.';
+    return 'Link URL phÃƒÂ¡Ã‚ÂºÃ‚Â£i cÃƒÆ’Ã‚Â³ dÃƒÂ¡Ã‚ÂºÃ‚Â¡ng https://www.facebook.com/groups/{groupId}.';
   }
 
   return getDuplicateFacebookGroupUrlError(value, groups, currentTargetId);
@@ -247,7 +247,7 @@ function getDuplicateFacebookGroupUrlError(
     && group.targetId !== currentTargetId
   ));
 
-  return existingGroup ? 'Group Ä‘Ã£ tá»“n táº¡i.' : null;
+  return existingGroup ? 'Group Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ tÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n tÃƒÂ¡Ã‚ÂºÃ‚Â¡i.' : null;
 }
 
 function isFacebookGroupUrlCandidate(value: string) {
@@ -364,11 +364,11 @@ function isAmbiguousFacebookComposerVerificationReason(reason: string) {
 
 function getFacebookImageFileValidationError(file: File) {
   if (!FACEBOOK_IMAGE_ALLOWED_TYPES.has(file.type)) {
-    return 'Chá»‰ há»— trá»£ áº£nh JPEG, PNG hoáº·c WebP.';
+    return 'ChÃƒÂ¡Ã‚Â»Ã¢â‚¬Â° hÃƒÂ¡Ã‚Â»Ã¢â‚¬â€ trÃƒÂ¡Ã‚Â»Ã‚Â£ ÃƒÂ¡Ã‚ÂºÃ‚Â£nh JPEG, PNG hoÃƒÂ¡Ã‚ÂºÃ‚Â·c WebP.';
   }
 
   if (file.size > FACEBOOK_IMAGE_MAX_SIZE_BYTES) {
-    return `áº¢nh pháº£i nhá» hÆ¡n ${formatFileSize(FACEBOOK_IMAGE_MAX_SIZE_BYTES)}.`;
+    return `ÃƒÂ¡Ã‚ÂºÃ‚Â¢nh phÃƒÂ¡Ã‚ÂºÃ‚Â£i nhÃƒÂ¡Ã‚Â»Ã‚Â hÃƒâ€ Ã‚Â¡n ${formatFileSize(FACEBOOK_IMAGE_MAX_SIZE_BYTES)}.`;
   }
 
   return null;
@@ -436,10 +436,10 @@ function getPublishValidationError({
     return 'Select at least one Facebook group before publishing.';
   }
   if (isFacebookImageReading) {
-    return 'Vui lÃ²ng chá» áº£nh upload Ä‘Æ°á»£c xá»­ lÃ½ xong trÆ°á»›c khi Ä‘Äƒng bÃ i.';
+    return 'Vui lÃƒÆ’Ã‚Â²ng chÃƒÂ¡Ã‚Â»Ã‚Â ÃƒÂ¡Ã‚ÂºÃ‚Â£nh upload Ãƒâ€žÃ¢â‚¬ËœÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£c xÃƒÂ¡Ã‚Â»Ã‚Â­ lÃƒÆ’Ã‚Â½ xong trÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºc khi Ãƒâ€žÃ¢â‚¬ËœÃƒâ€žÃ†â€™ng bÃƒÆ’Ã‚Â i.';
   }
   if (hasFacebookImageAttachmentError) {
-    return 'Vui lÃ²ng bá» áº£nh lá»—i hoáº·c chá»n áº£nh há»£p lá»‡ trÆ°á»›c khi Ä‘Äƒng bÃ i.';
+    return 'Vui lÃƒÆ’Ã‚Â²ng bÃƒÂ¡Ã‚Â»Ã‚Â ÃƒÂ¡Ã‚ÂºÃ‚Â£nh lÃƒÂ¡Ã‚Â»Ã¢â‚¬â€i hoÃƒÂ¡Ã‚ÂºÃ‚Â·c chÃƒÂ¡Ã‚Â»Ã‚Ân ÃƒÂ¡Ã‚ÂºÃ‚Â£nh hÃƒÂ¡Ã‚Â»Ã‚Â£p lÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡ trÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºc khi Ãƒâ€žÃ¢â‚¬ËœÃƒâ€žÃ†â€™ng bÃƒÆ’Ã‚Â i.';
   }
   return null;
 }
@@ -928,7 +928,7 @@ export function JobPostingDetailPage() {
       await refreshFacebookGroups();
     } catch (err) {
       if (isDuplicateFacebookGroupError(err)) {
-        setFacebookGroupUrlError('Group Ä‘Ã£ tá»“n táº¡i.');
+        setFacebookGroupUrlError('Group Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ tÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n tÃƒÂ¡Ã‚ÂºÃ‚Â¡i.');
         setPublishError(null);
       } else {
         setPublishError(getInternalSafeErrorMessage(err));
@@ -1224,77 +1224,556 @@ type JobPostingDetailViewModel = {
   resolveFacebookImageAttachPrompt: (decision: FacebookImageAttachFailureDecision) => void;
 };
 
-function JobPostingDetailView({ model }: { model: JobPostingDetailViewModel }) {
+function FacebookPublishSection({ model }: { model: JobPostingDetailViewModel }) {
   const {
-    id,
-    jobPosting,
-    channels,
-    loading,
-    channelsLoading,
-    error,
-    channelsError,
-    editOpen,
-    publishOpen,
-    selectedChannels,
-    facebookGroups,
-    selectedFacebookGroupIds,
     facebookGroupLoadState,
-    facebookGroupMessage,
     facebookGroupVerificationBusy,
-    facebookImageAttachment,
-    facebookImageAttachmentError,
-    facebookImageAttachPrompt,
+    submitting,
+    refreshFacebookGroups,
+    setPublishError,
+    setFacebookSettingsOpen,
+    facebookGroupMessage,
+    selectedFacebookGroupIds,
+    facebookGroups,
     verifyingFacebookGroupIds,
     queuedFacebookGroupIds,
-    facebookSettingsOpen,
-    facebookGroupName,
-    facebookGroupUrl,
-    facebookGroupUrlFieldError,
-    editingFacebookGroup,
-    facebookGroupSaving,
-    facebookPublishStatus,
-    facebookPublishProgress,
-    facebookPublishPlan,
-    publishResultChannels,
-    publishNote,
-    publishError,
-    submitting,
-    closing,
-    publicSlug,
-    closedLike,
-    publishedLike,
-    isFacebookImageReading,
-    publishSubmitDisabled,
+    toggleFacebookGroupSelection,
+    checkFacebookGroup,
+    startEditFacebookGroup,
+    removeFacebookGroup,
     facebookImageInputRef,
-    setEditOpen,
-    setPublishOpen,
-    setFacebookSettingsOpen,
+    handleFacebookImageFileChange,
+    isFacebookImageReading,
+    openFacebookImageFilePicker,
+    facebookImageAttachment,
+    clearFacebookImageAttachment,
+    facebookImageAttachmentError,
+    facebookSettingsOpen,
+    editingFacebookGroup,
+    setEditingFacebookGroup,
     setFacebookGroupName,
     setFacebookGroupUrl,
     setFacebookGroupUrlError,
-    setEditingFacebookGroup,
+    facebookGroupName,
+    facebookGroupUrl,
+    facebookGroupUrlFieldError,
+    facebookGroupSaving,
+    submitFacebookGroup,
+    facebookPublishProgress,
+    facebookPublishPlan,
+    publishResultChannels,
+    facebookPublishStatus,
+  } = model;
+  return (
+                <section className="rounded-md border border-emerald-400 bg-emerald-50">
+                  <div className="flex items-center justify-between gap-3 border-b border-emerald-200 px-3 py-2">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                      <span>Facebook groups</span>
+                      {isFacebookBusy(facebookGroupLoadState) || facebookGroupVerificationBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-emerald-900 hover:bg-emerald-100"
+                        disabled={submitting || isFacebookBusy(facebookGroupLoadState) || facebookGroupVerificationBusy}
+                        onClick={() => {
+                          void refreshFacebookGroups().catch((err) => {
+                            setPublishError(getInternalSafeErrorMessage(err));
+                          });
+                        }}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-emerald-900 hover:bg-emerald-100"
+                        disabled={submitting}
+                        onClick={() => setFacebookSettingsOpen((open) => !open)}
+                      >
+                        <Settings className="h-4 w-4" />
+                      </Button>
+                      <ChevronUp className="h-4 w-4 text-emerald-800" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 p-3">
+                    <p className="text-xs text-emerald-900">
+                      {(isFacebookBusy(facebookGroupLoadState) || facebookGroupVerificationBusy) && facebookGroupMessage
+                        ? facebookGroupMessage
+                        : `${selectedFacebookGroupIds.length}/${countSelectableFacebookGroups(facebookGroups)} eligible Facebook group(s) selected.`}
+                    </p>
+
+                    {facebookGroups.length > 0 ? (
+                      <div className="max-h-72 divide-y divide-emerald-100 overflow-y-auto rounded-md bg-white">
+                        {facebookGroups.map((group) => {
+                          const isGroupChecking = Boolean(group.targetId && verifyingFacebookGroupIds.includes(group.targetId));
+                          const isGroupQueued = Boolean(group.targetId && queuedFacebookGroupIds.includes(group.targetId));
+                          const groupStatusMessage = isGroupChecking
+                            ? 'Checking with the current Facebook browser session...'
+                            : isGroupQueued
+                              ? 'Queued for checking.'
+                              : getFacebookGroupDisabledReason(group);
+
+                          return (
+                          <div
+                            key={group.targetId ?? group.targetUrl ?? group.targetName}
+                            className={cn(
+                              'flex items-center justify-between gap-3 px-3 py-2',
+                              !isSelectableFacebookGroup(group) && 'bg-slate-50 text-muted-foreground',
+                            )}
+                          >
+                            <label className="flex min-w-0 flex-1 items-start gap-2 text-sm">
+                              <input
+                                className="mt-1"
+                                type="checkbox"
+                                checked={Boolean(group.targetId && selectedFacebookGroupIds.includes(group.targetId))}
+                                disabled={submitting || !group.targetId || !isSelectableFacebookGroup(group)}
+                                onChange={() => toggleFacebookGroupSelection(group.targetId)}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate">{group.targetName}</span>
+                                <span className="mt-1 flex flex-wrap gap-1">
+                                  <Badge variant="outline" className={cn('text-[10px]', getFacebookEligibilityClass(group.eligibilityStatus))}>
+                                    {getFacebookEligibilityLabel(group.eligibilityStatus)}
+                                  </Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      'text-[10px]',
+                                      group.quotaExceeded
+                                        ? 'border-red-200 bg-red-50 text-red-700'
+                                        : 'border-slate-200 bg-slate-50 text-slate-700',
+                                    )}
+                                  >
+                                    {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`} today
+                                  </Badge>
+                                </span>
+                                {groupStatusMessage ? (
+                                  <span className="mt-1 block text-xs text-amber-700">
+                                    {groupStatusMessage}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </label>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0"
+                                disabled={submitting || isGroupChecking || isGroupQueued || !group.targetId}
+                                onClick={() => checkFacebookGroup(group)}
+                              >
+                                <RefreshCw className={cn('h-3.5 w-3.5', isGroupChecking && 'animate-spin')} />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0"
+                                disabled={submitting}
+                                onClick={() => startEditFacebookGroup(group)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                disabled={submitting || facebookGroupSaving}
+                                onClick={() => void removeFacebookGroup(group)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-dashed border-emerald-300 bg-white p-3 text-sm text-muted-foreground">
+                        No Facebook groups are configured for this account yet.
+                      </div>
+                    )}
+
+                    <div className="space-y-2 rounded-md border border-emerald-200 bg-white p-3">
+                      <input
+                        ref={facebookImageInputRef}
+                        type="file"
+                        accept={FACEBOOK_IMAGE_ACCEPT}
+                        className="hidden"
+                        onChange={(event) => void handleFacebookImageFileChange(event)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={submitting || isFacebookImageReading}
+                        onClick={openFacebookImageFilePicker}
+                      >
+                        {isFacebookImageReading ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <ImagePlus className="mr-2 h-4 w-4" />
+                        )}
+                        Upload ÃƒÂ¡Ã‚ÂºÃ‚Â£nh
+                      </Button>
+                      {facebookImageAttachment ? (
+                        <div className="flex items-center gap-3 rounded-md border bg-slate-50 p-2">
+                          <img
+                            src={facebookImageAttachment.dataUrl}
+                            alt=""
+                            className="h-14 w-14 rounded object-cover"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{facebookImageAttachment.fileName}</p>
+                            <p className="text-xs text-muted-foreground">{formatFileSize(facebookImageAttachment.size)}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={submitting || isFacebookImageReading}
+                            onClick={clearFacebookImageAttachment}
+                          >
+                            BÃƒÂ¡Ã‚Â»Ã‚Â ÃƒÂ¡Ã‚ÂºÃ‚Â£nh
+                          </Button>
+                        </div>
+                      ) : null}
+                      {isFacebookImageReading ? (
+                        <p className="text-xs text-muted-foreground">Ãƒâ€žÃ‚Âang xÃƒÂ¡Ã‚Â»Ã‚Â­ lÃƒÆ’Ã‚Â½ ÃƒÂ¡Ã‚ÂºÃ‚Â£nh...</p>
+                      ) : null}
+                      {facebookImageAttachmentError ? (
+                        <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-2">
+                          <p className="text-xs font-medium text-destructive">{facebookImageAttachmentError}</p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearFacebookImageAttachment}
+                          >
+                            BÃƒÂ¡Ã‚Â»Ã‚Â ÃƒÂ¡Ã‚ÂºÃ‚Â£nh
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {facebookSettingsOpen ? (
+                      <div className="space-y-3 rounded-md border border-emerald-200 bg-white p-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium">
+                            {editingFacebookGroup ? 'Edit Facebook group' : 'Add Facebook group'}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2"
+                            onClick={() => {
+                              setEditingFacebookGroup(null);
+                              setFacebookGroupName('');
+                              setFacebookGroupUrl('');
+                              setFacebookGroupUrlError(null);
+                            }}
+                          >
+                            <Plus className="mr-1 h-4 w-4" />
+                            New
+                          </Button>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-1.5">
+                            <Label htmlFor="facebook-group-name">Group name</Label>
+                            <Input
+                              id="facebook-group-name"
+                              value={facebookGroupName}
+                              disabled={facebookGroupSaving}
+                              placeholder="Hoi Nhom FullStack Ha Noi"
+                              onChange={(event) => setFacebookGroupName(event.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="facebook-group-url">Group URL</Label>
+                            <Input
+                              id="facebook-group-url"
+                              value={facebookGroupUrl}
+                              disabled={facebookGroupSaving}
+                              placeholder="https://www.facebook.com/groups/..."
+                              aria-invalid={Boolean(facebookGroupUrlFieldError)}
+                              className={cn(
+                                facebookGroupUrlFieldError
+                                  && 'border-destructive focus-visible:ring-destructive/30',
+                              )}
+                              onChange={(event) => {
+                                setFacebookGroupUrl(event.target.value);
+                                setFacebookGroupUrlError(null);
+                              }}
+                            />
+                            {facebookGroupUrlFieldError ? (
+                              <p className="text-xs font-medium text-destructive">{facebookGroupUrlFieldError}</p>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={facebookGroupSaving || Boolean(facebookGroupUrlFieldError)}
+                            onClick={() => void submitFacebookGroup()}
+                          >
+                            {facebookGroupSaving ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Plus className="mr-2 h-4 w-4" />
+                            )}
+                            {editingFacebookGroup ? 'Save group' : 'Add group'}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {facebookPublishProgress ? (
+                      <FacebookPublishResultsPanel
+                        progress={facebookPublishProgress}
+                        plan={facebookPublishPlan}
+                        channels={publishResultChannels}
+                      />
+                    ) : null}
+                    {facebookPublishStatus ? (
+                      <p className="rounded-md bg-white p-2 text-xs text-emerald-900">
+                        {facebookPublishStatus}
+                      </p>
+                    ) : null}
+                  </div>
+                </section>
+  );
+}
+
+function JobPostingEditDialog({ model }: { model: JobPostingDetailViewModel }) {
+  const {
+    editOpen,
+    setEditOpen,
+    jobPosting,
+    submitting,
+    handleUpdate,
+  } = model;
+  return (
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit Job Posting</DialogTitle>
+            <DialogDescription>
+              Update posting title, public slug and publish window before closing.
+            </DialogDescription>
+          </DialogHeader>
+          <JobPostingForm
+            mode="edit"
+            initialValue={jobPosting}
+            submitting={submitting}
+            onCancel={() => setEditOpen(false)}
+            onSubmit={handleUpdate}
+          />
+        </DialogContent>
+      </Dialog>
+
+  );
+}
+
+function JobPostingPublishDialog({ model }: { model: JobPostingDetailViewModel }) {
+  const {
+    publishOpen,
+    setPublishOpen,
+    setPublishError,
     setFacebookPublishStatus,
     setFacebookPublishProgress,
     setFacebookPublishPlan,
     setPublishResultChannels,
-    setPublishNote,
-    setPublishError,
-    reload,
-    loadChannels,
-    handleUpdate,
-    handlePublish,
-    handleClose,
-    toggleChannel,
-    refreshFacebookGroups,
-    toggleFacebookGroupSelection,
-    checkFacebookGroup,
-    removeFacebookGroup,
-    startEditFacebookGroup,
-    handleFacebookImageFileChange,
-    openFacebookImageFilePicker,
     clearFacebookImageAttachment,
-    submitFacebookGroup,
+    handlePublish,
+    selectedChannels,
+    toggleChannel,
+    submitting,
+    publishError,
+    publishNote,
+    setPublishNote,
+    publishSubmitDisabled,
+    isFacebookImageReading,
+  } = model;
+  return (
+      <Dialog
+        open={publishOpen}
+        onOpenChange={(open) => {
+          setPublishOpen(open);
+          if (!open) {
+            setPublishError(null);
+            setFacebookPublishStatus(null);
+            setFacebookPublishProgress(null);
+            setFacebookPublishPlan(null);
+            setPublishResultChannels([]);
+            clearFacebookImageAttachment();
+          }
+        }}
+      >
+        <DialogContent className="max-h-[calc(100vh-2rem)] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Publish Job Posting</DialogTitle>
+            <DialogDescription>
+              Publish this posting to selected channels. Public preview uses the posting slug.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handlePublish} className="space-y-5">
+            <div className="space-y-3">
+              <Label>Publish channels</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {CHANNEL_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={cn(
+                      'flex items-center gap-2 rounded-md border p-3 text-sm',
+                      option.value === 'FACEBOOK' && selectedChannels.includes('FACEBOOK') && 'border-emerald-400 bg-emerald-50',
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedChannels.includes(option.value)}
+                      onChange={() => toggleChannel(option.value)}
+                      disabled={submitting}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+               {selectedChannels.includes('FACEBOOK') ? (
+                 <FacebookPublishSection model={model} />
+               ) : null}
+              {publishError && <p className="text-sm text-destructive">{publishError}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="publish-note">Publish note</Label>
+              <Textarea
+                id="publish-note"
+                value={publishNote}
+                onChange={(event) => setPublishNote(event.target.value)}
+                rows={4}
+                disabled={submitting}
+              />
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPublishOpen(false)}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={publishSubmitDisabled}>
+                <CheckCircle className="mr-2 h-4 w-4" />
+                {submitting ? 'Publishing...' : isFacebookImageReading ? 'Loading image...' : 'Publish'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+  );
+}
+
+function FacebookImageAttachPromptDialog({ model }: { model: JobPostingDetailViewModel }) {
+  const {
+    facebookImageAttachPrompt,
     resolveFacebookImageAttachPrompt,
+  } = model;
+  return (
+      <Dialog
+        open={Boolean(facebookImageAttachPrompt)}
+        onOpenChange={(open) => {
+          if (!open && facebookImageAttachPrompt) {
+            resolveFacebookImageAttachPrompt('SKIP');
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>KhÃƒÆ’Ã‚Â´ng attach Ãƒâ€žÃ¢â‚¬ËœÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£c ÃƒÂ¡Ã‚ÂºÃ‚Â£nh</DialogTitle>
+            <DialogDescription>
+              {facebookImageAttachPrompt?.target.targetName}
+            </DialogDescription>
+          </DialogHeader>
+          {facebookImageAttachPrompt ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 rounded-md border bg-slate-50 p-2">
+                <img
+                  src={facebookImageAttachPrompt.attachment.dataUrl}
+                  alt=""
+                  className="h-16 w-16 rounded object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{facebookImageAttachPrompt.attachment.fileName}</p>
+                  <p className="text-xs text-muted-foreground">{formatFileSize(facebookImageAttachPrompt.attachment.size)}</p>
+                </div>
+              </div>
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                {facebookImageAttachPrompt.message}
+              </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => resolveFacebookImageAttachPrompt('SKIP')}
+                >
+                  KhÃƒÆ’Ã‚Â´ng Ãƒâ€žÃ¢â‚¬ËœÃƒâ€žÃ†â€™ng bÃƒÆ’Ã‚Â i nÃƒÆ’Ã‚Â y
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => resolveFacebookImageAttachPrompt('POST_TEXT_ONLY')}
+                >
+                  VÃƒÂ¡Ã‚ÂºÃ‚Â«n Ãƒâ€žÃ¢â‚¬ËœÃƒâ€žÃ†â€™ng text-only
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+  );
+}
+
+function JobPostingDialogs({ model }: { model: JobPostingDetailViewModel }) {
+  return (
+    <>
+      <JobPostingEditDialog model={model} />
+      <JobPostingPublishDialog model={model} />
+      <FacebookImageAttachPromptDialog model={model} />
+    </>
+  );
+}
+
+function JobPostingDetailView({ model }: { model: JobPostingDetailViewModel }) {
+  const {
+    id,
+    jobPosting,
+    loading,
+    channels,
+    channelsLoading,
+    error,
+    channelsError,
+    closing,
+    publicSlug,
+    closedLike,
+    publishedLike,
+    reload,
+    setEditOpen,
+    setPublishOpen,
+    handleClose,
+    loadChannels,
   } = model;
 
   return (
@@ -1484,438 +1963,7 @@ function JobPostingDetailView({ model }: { model: JobPostingDetailViewModel }) {
         </CardContent>
       </Card>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Edit Job Posting</DialogTitle>
-            <DialogDescription>
-              Update posting title, public slug and publish window before closing.
-            </DialogDescription>
-          </DialogHeader>
-          <JobPostingForm
-            mode="edit"
-            initialValue={jobPosting}
-            submitting={submitting}
-            onCancel={() => setEditOpen(false)}
-            onSubmit={handleUpdate}
-          />
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={publishOpen}
-        onOpenChange={(open) => {
-          setPublishOpen(open);
-          if (!open) {
-            setPublishError(null);
-            setFacebookPublishStatus(null);
-            setFacebookPublishProgress(null);
-            setFacebookPublishPlan(null);
-            setPublishResultChannels([]);
-            clearFacebookImageAttachment();
-          }
-        }}
-      >
-        <DialogContent className="max-h-[calc(100vh-2rem)] max-w-2xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Publish Job Posting</DialogTitle>
-            <DialogDescription>
-              Publish this posting to selected channels. Public preview uses the posting slug.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handlePublish} className="space-y-5">
-            <div className="space-y-3">
-              <Label>Publish channels</Label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {CHANNEL_OPTIONS.map((option) => (
-                  <label
-                    key={option.value}
-                    className={cn(
-                      'flex items-center gap-2 rounded-md border p-3 text-sm',
-                      option.value === 'FACEBOOK' && selectedChannels.includes('FACEBOOK') && 'border-emerald-400 bg-emerald-50',
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedChannels.includes(option.value)}
-                      onChange={() => toggleChannel(option.value)}
-                      disabled={submitting}
-                    />
-                    {option.label}
-                  </label>
-                ))}
-              </div>
-              {selectedChannels.includes('FACEBOOK') ? (
-                <section className="rounded-md border border-emerald-400 bg-emerald-50">
-                  <div className="flex items-center justify-between gap-3 border-b border-emerald-200 px-3 py-2">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
-                      <span>Facebook groups</span>
-                      {isFacebookBusy(facebookGroupLoadState) || facebookGroupVerificationBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 text-emerald-900 hover:bg-emerald-100"
-                        disabled={submitting || isFacebookBusy(facebookGroupLoadState) || facebookGroupVerificationBusy}
-                        onClick={() => {
-                          void refreshFacebookGroups().catch((err) => {
-                            setPublishError(getInternalSafeErrorMessage(err));
-                          });
-                        }}
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 text-emerald-900 hover:bg-emerald-100"
-                        disabled={submitting}
-                        onClick={() => setFacebookSettingsOpen((open) => !open)}
-                      >
-                        <Settings className="h-4 w-4" />
-                      </Button>
-                      <ChevronUp className="h-4 w-4 text-emerald-800" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 p-3">
-                    <p className="text-xs text-emerald-900">
-                      {(isFacebookBusy(facebookGroupLoadState) || facebookGroupVerificationBusy) && facebookGroupMessage
-                        ? facebookGroupMessage
-                        : `${selectedFacebookGroupIds.length}/${countSelectableFacebookGroups(facebookGroups)} eligible Facebook group(s) selected.`}
-                    </p>
-
-                    {facebookGroups.length > 0 ? (
-                      <div className="max-h-72 divide-y divide-emerald-100 overflow-y-auto rounded-md bg-white">
-                        {facebookGroups.map((group) => {
-                          const isGroupChecking = Boolean(group.targetId && verifyingFacebookGroupIds.includes(group.targetId));
-                          const isGroupQueued = Boolean(group.targetId && queuedFacebookGroupIds.includes(group.targetId));
-                          const groupStatusMessage = isGroupChecking
-                            ? 'Checking with the current Facebook browser session...'
-                            : isGroupQueued
-                              ? 'Queued for checking.'
-                              : getFacebookGroupDisabledReason(group);
-
-                          return (
-                          <div
-                            key={group.targetId ?? group.targetUrl ?? group.targetName}
-                            className={cn(
-                              'flex items-center justify-between gap-3 px-3 py-2',
-                              !isSelectableFacebookGroup(group) && 'bg-slate-50 text-muted-foreground',
-                            )}
-                          >
-                            <label className="flex min-w-0 flex-1 items-start gap-2 text-sm">
-                              <input
-                                className="mt-1"
-                                type="checkbox"
-                                checked={Boolean(group.targetId && selectedFacebookGroupIds.includes(group.targetId))}
-                                disabled={submitting || !group.targetId || !isSelectableFacebookGroup(group)}
-                                onChange={() => toggleFacebookGroupSelection(group.targetId)}
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate">{group.targetName}</span>
-                                <span className="mt-1 flex flex-wrap gap-1">
-                                  <Badge variant="outline" className={cn('text-[10px]', getFacebookEligibilityClass(group.eligibilityStatus))}>
-                                    {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                                  </Badge>
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      'text-[10px]',
-                                      group.quotaExceeded
-                                        ? 'border-red-200 bg-red-50 text-red-700'
-                                        : 'border-slate-200 bg-slate-50 text-slate-700',
-                                    )}
-                                  >
-                                    {group.quotaLabel ?? `${group.todayPublishCount ?? 0}/${group.dailyPublishLimit ?? 10}`} today
-                                  </Badge>
-                                </span>
-                                {groupStatusMessage ? (
-                                  <span className="mt-1 block text-xs text-amber-700">
-                                    {groupStatusMessage}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </label>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0"
-                                disabled={submitting || isGroupChecking || isGroupQueued || !group.targetId}
-                                onClick={() => checkFacebookGroup(group)}
-                              >
-                                <RefreshCw className={cn('h-3.5 w-3.5', isGroupChecking && 'animate-spin')} />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0"
-                                disabled={submitting}
-                                onClick={() => startEditFacebookGroup(group)}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                                disabled={submitting || facebookGroupSaving}
-                                onClick={() => void removeFacebookGroup(group)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="rounded-md border border-dashed border-emerald-300 bg-white p-3 text-sm text-muted-foreground">
-                        No Facebook groups are configured for this account yet.
-                      </div>
-                    )}
-
-                    <div className="space-y-2 rounded-md border border-emerald-200 bg-white p-3">
-                      <input
-                        ref={facebookImageInputRef}
-                        type="file"
-                        accept={FACEBOOK_IMAGE_ACCEPT}
-                        className="hidden"
-                        onChange={(event) => void handleFacebookImageFileChange(event)}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={submitting || isFacebookImageReading}
-                        onClick={openFacebookImageFilePicker}
-                      >
-                        {isFacebookImageReading ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <ImagePlus className="mr-2 h-4 w-4" />
-                        )}
-                        Upload áº£nh
-                      </Button>
-                      {facebookImageAttachment ? (
-                        <div className="flex items-center gap-3 rounded-md border bg-slate-50 p-2">
-                          <img
-                            src={facebookImageAttachment.dataUrl}
-                            alt=""
-                            className="h-14 w-14 rounded object-cover"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">{facebookImageAttachment.fileName}</p>
-                            <p className="text-xs text-muted-foreground">{formatFileSize(facebookImageAttachment.size)}</p>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={submitting || isFacebookImageReading}
-                            onClick={clearFacebookImageAttachment}
-                          >
-                            Bá» áº£nh
-                          </Button>
-                        </div>
-                      ) : null}
-                      {isFacebookImageReading ? (
-                        <p className="text-xs text-muted-foreground">Äang xá»­ lÃ½ áº£nh...</p>
-                      ) : null}
-                      {facebookImageAttachmentError ? (
-                        <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-2">
-                          <p className="text-xs font-medium text-destructive">{facebookImageAttachmentError}</p>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={clearFacebookImageAttachment}
-                          >
-                            Bá» áº£nh
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {facebookSettingsOpen ? (
-                      <div className="space-y-3 rounded-md border border-emerald-200 bg-white p-3">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium">
-                            {editingFacebookGroup ? 'Edit Facebook group' : 'Add Facebook group'}
-                          </p>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 px-2"
-                            onClick={() => {
-                              setEditingFacebookGroup(null);
-                              setFacebookGroupName('');
-                              setFacebookGroupUrl('');
-                              setFacebookGroupUrlError(null);
-                            }}
-                          >
-                            <Plus className="mr-1 h-4 w-4" />
-                            New
-                          </Button>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="space-y-1.5">
-                            <Label htmlFor="facebook-group-name">Group name</Label>
-                            <Input
-                              id="facebook-group-name"
-                              value={facebookGroupName}
-                              disabled={facebookGroupSaving}
-                              placeholder="Hoi Nhom FullStack Ha Noi"
-                              onChange={(event) => setFacebookGroupName(event.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor="facebook-group-url">Group URL</Label>
-                            <Input
-                              id="facebook-group-url"
-                              value={facebookGroupUrl}
-                              disabled={facebookGroupSaving}
-                              placeholder="https://www.facebook.com/groups/..."
-                              aria-invalid={Boolean(facebookGroupUrlFieldError)}
-                              className={cn(
-                                facebookGroupUrlFieldError
-                                  && 'border-destructive focus-visible:ring-destructive/30',
-                              )}
-                              onChange={(event) => {
-                                setFacebookGroupUrl(event.target.value);
-                                setFacebookGroupUrlError(null);
-                              }}
-                            />
-                            {facebookGroupUrlFieldError ? (
-                              <p className="text-xs font-medium text-destructive">{facebookGroupUrlFieldError}</p>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="flex justify-end">
-                          <Button
-                            type="button"
-                            size="sm"
-                            disabled={facebookGroupSaving || Boolean(facebookGroupUrlFieldError)}
-                            onClick={() => void submitFacebookGroup()}
-                          >
-                            {facebookGroupSaving ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <Plus className="mr-2 h-4 w-4" />
-                            )}
-                            {editingFacebookGroup ? 'Save group' : 'Add group'}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {facebookPublishProgress ? (
-                      <FacebookPublishResultsPanel
-                        progress={facebookPublishProgress}
-                        plan={facebookPublishPlan}
-                        channels={publishResultChannels}
-                      />
-                    ) : null}
-                    {facebookPublishStatus ? (
-                      <p className="rounded-md bg-white p-2 text-xs text-emerald-900">
-                        {facebookPublishStatus}
-                      </p>
-                    ) : null}
-                  </div>
-                </section>
-              ) : null}
-              {publishError && <p className="text-sm text-destructive">{publishError}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="publish-note">Publish note</Label>
-              <Textarea
-                id="publish-note"
-                value={publishNote}
-                onChange={(event) => setPublishNote(event.target.value)}
-                rows={4}
-                disabled={submitting}
-              />
-            </div>
-
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setPublishOpen(false)}
-                disabled={submitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={publishSubmitDisabled}>
-                <CheckCircle className="mr-2 h-4 w-4" />
-                {submitting ? 'Publishing...' : isFacebookImageReading ? 'Loading image...' : 'Publish'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={Boolean(facebookImageAttachPrompt)}
-        onOpenChange={(open) => {
-          if (!open && facebookImageAttachPrompt) {
-            resolveFacebookImageAttachPrompt('SKIP');
-          }
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>KhÃ´ng attach Ä‘Æ°á»£c áº£nh</DialogTitle>
-            <DialogDescription>
-              {facebookImageAttachPrompt?.target.targetName}
-            </DialogDescription>
-          </DialogHeader>
-          {facebookImageAttachPrompt ? (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 rounded-md border bg-slate-50 p-2">
-                <img
-                  src={facebookImageAttachPrompt.attachment.dataUrl}
-                  alt=""
-                  className="h-16 w-16 rounded object-cover"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{facebookImageAttachPrompt.attachment.fileName}</p>
-                  <p className="text-xs text-muted-foreground">{formatFileSize(facebookImageAttachPrompt.attachment.size)}</p>
-                </div>
-              </div>
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                {facebookImageAttachPrompt.message}
-              </div>
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => resolveFacebookImageAttachPrompt('SKIP')}
-                >
-                  KhÃ´ng Ä‘Äƒng bÃ i nÃ y
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => resolveFacebookImageAttachPrompt('POST_TEXT_ONLY')}
-                >
-                  Váº«n Ä‘Äƒng text-only
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      <JobPostingDialogs model={model} />
     </div>
   );
 }

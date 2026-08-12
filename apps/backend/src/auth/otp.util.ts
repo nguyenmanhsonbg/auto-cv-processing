@@ -1,4 +1,4 @@
-import { randomInt } from 'crypto';
+import { randomInt } from 'node:crypto';
 
 const OTP_MIN = 100000;
 const OTP_MAX_EXCLUSIVE = 1000000;

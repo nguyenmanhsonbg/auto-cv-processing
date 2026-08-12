@@ -162,6 +162,89 @@ function applyAiEvaluationSuggestion(
   if (suggestion.finalSubZone) setValue('finalSubZone', suggestion.finalSubZone);
 }
 
+type EvaluationCategory = { id: string; name: string; orderIndex: number };
+type EvaluationSubcategory = { categoryId: string; name: string; orderIndex: number };
+
+function buildEvaluationCategoryOrder(cats: EvaluationCategory[], subs: EvaluationSubcategory[]) {
+  const map = new Map<string, string[]>();
+  cats.sort((a, b) => a.orderIndex - b.orderIndex).forEach(({ id: catId, name }) => {
+    map.set(name, subs.filter((sub) => sub.categoryId === catId).sort((a, b) => a.orderIndex - b.orderIndex).map((sub) => sub.name));
+  });
+  const techCats = cats.filter(({ name }) => name !== 'SOFT_SKILL' && name !== 'PERSONALITY');
+  const mustCat = techCats[0]?.name ?? '';
+  const shouldCat = techCats[1]?.name ?? '';
+  return {
+    map,
+    mustCat,
+    shouldCat,
+    mustSubs: map.get(mustCat) ?? [],
+    shouldSubs: map.get(shouldCat) ?? [],
+  };
+}
+
+function restoreEvaluationForm(
+  ev: Evaluation,
+  setValue: (name: any, value: any) => void,
+  mustSubs: readonly string[],
+) {
+  setValue('hrEvaluation', ev.hrEvaluation || {});
+  setValue('zoneExplanation', ev.zoneExplanation || '');
+  setValue('finalLevel', ev.finalLevel || '');
+  setValue('finalZone', ev.finalZone || '');
+  setValue('finalSubZone', ev.finalSubZone || '');
+  setValue('overallResult', ev.overallResult || OverallResult.PENDING);
+  setValue('overallNotes', ev.overallNotes || '');
+
+  const mustMap: Record<string, { comment: string; rating: string }> = {};
+  const shouldMap: Record<string, { comment: string; rating: string }> = {};
+  ev.technicalRatings?.forEach((tr) => {
+    const entry = { comment: tr.comment || '', rating: tr.rating?.toString() || '' };
+    if (mustSubs.includes(tr.subcategory)) {
+      mustMap[tr.subcategory] = entry;
+    } else {
+      shouldMap[tr.subcategory] = entry;
+    }
+  });
+  setValue('technicalMust', mustMap);
+  setValue('technicalShould', shouldMap);
+
+  const softSkillMap: Record<string, { comment: string; rating: string }> = {};
+  ev.softSkillRatings?.forEach((sr) => {
+    softSkillMap[sr.subcategory] = { comment: sr.comment || '', rating: sr.rating?.toString() || '' };
+  });
+  setValue('softSkill', softSkillMap);
+
+  const personalityMap: Record<string, { rating: string; reasoning: string }> = {};
+  ev.personalityRatings?.forEach((pr) => {
+    personalityMap[pr.category] = { rating: pr.rating?.toString() || '', reasoning: pr.reasoning || (pr as any).note || '' };
+  });
+  setValue('personality', personalityMap);
+}
+
+function applyDerivedEvaluationRatings(
+  derived: Record<string, number>,
+  map: Map<string, string[]>,
+  mustCat: string,
+  shouldCat: string,
+  mustSubs: readonly string[],
+  shouldSubs: readonly string[],
+  getValues: (name?: any) => any,
+  setValue: (name: any, value: any) => void,
+) {
+  const fill = (field: string, keyPrefix: string, subcategories: readonly string[]) => {
+    subcategories.forEach((subcategory) => {
+      if (!getValues(field + '.' + subcategory + '.rating')) {
+        const rating = derived[keyPrefix + '::' + subcategory];
+        if (rating !== undefined) setValue(field + '.' + subcategory + '.rating' as any, String(rating));
+      }
+    });
+  };
+  fill('technicalMust', mustCat, mustSubs);
+  fill('technicalShould', shouldCat, shouldSubs);
+  fill('softSkill', 'SOFT_SKILL', map.get('SOFT_SKILL') ?? SOFT_SKILL_SUBCATEGORIES);
+  fill('personality', 'PERSONALITY', map.get('PERSONALITY') ?? PERSONALITY_CATEGORIES);
+}
+
 export function SessionEvaluatePage() {
   const { slug } = useParams<{ slug: string }>();
   const [loading, setLoading] = useState(true);
@@ -224,27 +307,23 @@ export function SessionEvaluatePage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch category order and levels in parallel
         const [cats, subs, lvls] = await Promise.all([
-          apiClient.get<Array<{ id: string; name: string; orderIndex: number }>>('/categories'),
-          apiClient.get<Array<{ categoryId: string; name: string; orderIndex: number }>>('/sub-categories'),
+          apiClient.get<EvaluationCategory[]>('/categories'),
+          apiClient.get<EvaluationSubcategory[]>('/sub-categories'),
           apiClient.get<PaginatedResponse<Level>>('/levels', { limit: 100 }),
         ]);
         setLevels(lvls.data);
-        const map = new Map<string, string[]>();
-        cats.sort((a, b) => a.orderIndex - b.orderIndex).forEach(({ id: catId, name }) => {
-          map.set(name, subs.filter((s) => s.categoryId === catId).sort((a, b) => a.orderIndex - b.orderIndex).map((s) => s.name));
-        });
+
+        const {
+          map,
+          mustCat,
+          shouldCat,
+          mustSubs: localMustSubs,
+          shouldSubs: localShouldSubs,
+        } = buildEvaluationCategoryOrder(cats, subs);
         setCategoryOrder(map);
-        const techCats = cats
-          .filter(({ name }) => name !== 'SOFT_SKILL' && name !== 'PERSONALITY')
-          .sort((a, b) => a.orderIndex - b.orderIndex);
-        const localMustCat = techCats[0]?.name ?? '';
-        const localShouldCat = techCats[1]?.name ?? '';
-        const localMustSubs = map.get(localMustCat) ?? [];
-        const localShouldSubs = map.get(localShouldCat) ?? [];
-        setMustCatName(localMustCat);
-        setShouldCatName(localShouldCat);
+        setMustCatName(mustCat);
+        setShouldCatName(shouldCat);
 
         const s = await apiClient.get<any>(`/sessions/${slug}`);
         setSession(s);
@@ -253,77 +332,23 @@ export function SessionEvaluatePage() {
           const ev = await apiClient.get<Evaluation>(`/evaluations/by-session/${slug}`);
           setExistingEval(ev);
           existingEvalIdRef.current = ev.id;
-          if (ev.aiEvaluationSuggestion) {
-            setAiSuggestion(ev.aiEvaluationSuggestion);
-          }
-          // Restore spinner if analysis was in-flight when page was reloaded
-          if (ev.aiAnalysisStatus === 'analyzing') {
-            setGeneratingEval(true);
-          }
-          if (ev) {
-            setValue('hrEvaluation', ev.hrEvaluation || {});
-            setValue('zoneExplanation', ev.zoneExplanation || '');
-            setValue('finalLevel', ev.finalLevel || '');
-            setValue('finalZone', ev.finalZone || '');
-            setValue('finalSubZone', ev.finalSubZone || '');
-            setValue('overallResult', ev.overallResult || OverallResult.PENDING);
-            setValue('overallNotes', ev.overallNotes || '');
-
-            const mustMap: Record<string, { comment: string; rating: string }> = {};
-            const shouldMap: Record<string, { comment: string; rating: string }> = {};
-            ev.technicalRatings?.forEach((tr) => {
-              const entry = { comment: tr.comment || '', rating: tr.rating?.toString() || '' };
-              if (localMustSubs.includes(tr.subcategory)) {
-                mustMap[tr.subcategory] = entry;
-              } else {
-                shouldMap[tr.subcategory] = entry;
-              }
-            });
-            setValue('technicalMust', mustMap);
-            setValue('technicalShould', shouldMap);
-
-            const softSkillMap: Record<string, { comment: string; rating: string }> = {};
-            ev.softSkillRatings?.forEach((sr) => {
-              softSkillMap[sr.subcategory] = { comment: sr.comment || '', rating: sr.rating?.toString() || '' };
-            });
-            setValue('softSkill', softSkillMap);
-
-            const persMap: Record<string, { rating: string; reasoning: string }> = {};
-            ev.personalityRatings?.forEach((pr) => {
-              persMap[pr.category] = { rating: pr.rating?.toString() || '', reasoning: pr.reasoning || (pr as any).note || '' };
-            });
-            setValue('personality', persMap);
-          }
+          if (ev.aiEvaluationSuggestion) setAiSuggestion(ev.aiEvaluationSuggestion);
+          if (ev.aiAnalysisStatus === 'analyzing') setGeneratingEval(true);
+          if (ev) restoreEvaluationForm(ev, setValue, localMustSubs);
         } catch {
           // No existing evaluation
         }
 
-        // Auto-fill empty fields from derived ratings
-        const derived = computeDerivedRatings(s);
-        for (const sub of localMustSubs) {
-          if (!getValues(`technicalMust.${sub}.rating`)) {
-            const r = derived[`${localMustCat}::${sub}`];
-            if (r !== undefined) setValue(`technicalMust.${sub}.rating` as any, String(r));
-          }
-        }
-        for (const sub of localShouldSubs) {
-          if (!getValues(`technicalShould.${sub}.rating`)) {
-            const r = derived[`${localShouldCat}::${sub}`];
-            if (r !== undefined) setValue(`technicalShould.${sub}.rating` as any, String(r));
-          }
-        }
-        for (const sub of (map.get('SOFT_SKILL') ?? SOFT_SKILL_SUBCATEGORIES)) {
-          if (!getValues(`softSkill.${sub}.rating`)) {
-            const r = derived[`SOFT_SKILL::${sub}`];
-            if (r !== undefined) setValue(`softSkill.${sub}.rating` as any, String(r));
-          }
-        }
-        for (const cat of (map.get('PERSONALITY') ?? PERSONALITY_CATEGORIES as readonly string[])) {
-          if (!getValues(`personality.${cat}.rating`)) {
-            const r = derived[`PERSONALITY::${cat}`];
-            if (r !== undefined) setValue(`personality.${cat}.rating` as any, String(r));
-          }
-        }
+        applyDerivedEvaluationRatings(
+          computeDerivedRatings(s),
+          map,
+          mustCat,
+          shouldCat,
+          localMustSubs,
+          localShouldSubs,
+          getValues,
+          setValue,
+        );
       } catch (err) {
         console.error('Failed to load session:', err);
       } finally {

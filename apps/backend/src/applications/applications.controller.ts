@@ -234,7 +234,7 @@ export class ApplicationsController {
     const parsedData = this.sanitizeParsedData(parsedProfile.parsedData);
     const rawTextPreview = this.previewText(parsedProfile.parsedData?.rawText);
     const normalizedTextPreview = this.previewText(parsedProfile.parsedData?.normalizedText);
-    const parseConfidence = this.toNullableNumber(
+    const parseConfidence = this.toNumber(
       parsedData.parseConfidence ?? parsedData.confidence,
     );
 
@@ -453,13 +453,7 @@ export class ApplicationsController {
     })[0];
   }
 
-  private toNumber(value?: string | null) {
-    if (value == null) return null;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  private toNullableNumber(value: unknown) {
+  private toNumber(value?: unknown) {
     if (value == null) return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
@@ -571,11 +565,12 @@ export class ApplicationsController {
   }
 
   private toInsightItems(value: unknown) {
-    const items = Array.isArray(value)
-      ? value
-      : this.isRecord(value) && Array.isArray(value.items)
-        ? value.items
-        : [];
+    let items: unknown[] = [];
+    if (Array.isArray(value)) {
+      items = value;
+    } else if (this.isRecord(value) && Array.isArray(value.items)) {
+      items = value.items;
+    }
 
     return items
       .filter((item): item is Record<string, unknown> => this.isRecord(item))

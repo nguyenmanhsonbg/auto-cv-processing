@@ -2,7 +2,7 @@ import { BadRequestException, Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { extname } from 'node:path';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';

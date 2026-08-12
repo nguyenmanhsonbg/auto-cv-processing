@@ -651,8 +651,8 @@ function readFetchRequestBody(args: Parameters<typeof fetch>) {
     .catch(() => null);
 }
 
-function readAmisSaveRecruitmentFields(data: Record<string, unknown>) {
-  const recruitmentId = cleanText(readFirst(data, [
+function readAmisRecruitmentId(data: Record<string, unknown>) {
+  return cleanText(readFirst(data, [
     'RecruitmentID',
     'RecruitmentId',
     'recruitmentId',
@@ -661,6 +661,12 @@ function readAmisSaveRecruitmentFields(data: Record<string, unknown>) {
     'Id',
     'id',
   ]));
+}
+
+function readAmisSaveRecruitmentValues(data: Record<string, unknown>) {
+  const title = cleanText(readFirst(data, ['TitleWebsite', 'titleWebsite']))
+    || cleanText(readFirst(data, ['Title', 'title']))
+    || cleanText(readFirst(data, ['JobPositionName', 'jobPositionName']));
   const summaryText = truncateText(cleanText(readFirst(data, ['Summary', 'summary'])), 500);
   const descriptionText = htmlToText(readFirst(data, ['Description', 'description']))
     || summaryText;
@@ -675,33 +681,66 @@ function readAmisSaveRecruitmentFields(data: Record<string, unknown>) {
     'ExpectedTime',
     'expectedTime',
   ])) || undefined;
-  const snapshot = {
-    title: cleanText(readFirst(data, ['TitleWebsite', 'titleWebsite']))
-      || cleanText(readFirst(data, ['Title', 'title']))
-      || cleanText(readFirst(data, ['JobPositionName', 'jobPositionName'])),
-    ...(summaryText ? { summary: summaryText } : {}),
-    description: descriptionText,
-    requirements: { rawText: requirementText },
-    ...(benefitText ? { benefits: { rawText: benefitText } } : {}),
-    ...(location ? { location } : {}),
-    ...(deadline ? { deadline } : {}),
+  return {
+    recruitmentId: readAmisRecruitmentId(data),
+    title,
+    summaryText,
+    descriptionText,
+    requirementText,
+    benefitText,
+    location,
+    deadline,
   };
+}
+
+function buildAmisSaveRecruitmentSnapshot(values: ReturnType<typeof readAmisSaveRecruitmentValues>) {
+  const snapshot = {
+    title: values.title,
+    ...(values.summaryText ? { summary: values.summaryText } : {}),
+    description: values.descriptionText,
+    requirements: { rawText: values.requirementText },
+    ...(values.benefitText ? { benefits: { rawText: values.benefitText } } : {}),
+    ...(values.location ? { location: values.location } : {}),
+    ...(values.deadline ? { deadline: values.deadline } : {}),
+  };
+  return snapshot;
+}
+
+function getAmisSaveRecruitmentMissingFields(
+  values: ReturnType<typeof readAmisSaveRecruitmentValues>,
+  snapshot: ReturnType<typeof buildAmisSaveRecruitmentSnapshot>,
+) {
   const missingFields: string[] = [];
-  if (!recruitmentId) missingFields.push('AMIS recruitment id');
+  if (!values.recruitmentId) missingFields.push('AMIS recruitment id');
   if (!snapshot.title) missingFields.push('title');
   if (!snapshot.description) missingFields.push('description');
   if (!snapshot.requirements.rawText) missingFields.push('requirements');
+  return missingFields;
+}
+
+function getAmisSaveRecruitmentFieldSources(
+  values: ReturnType<typeof readAmisSaveRecruitmentValues>,
+  snapshot: ReturnType<typeof buildAmisSaveRecruitmentSnapshot>,
+) {
   const fieldSources = {
-    ...(recruitmentId ? { amisRecruitmentId: 'SaveRecruitment.Data.RecruitmentID' } : {}),
+    ...(values.recruitmentId ? { amisRecruitmentId: 'SaveRecruitment.Data.RecruitmentID' } : {}),
     ...(snapshot.title ? { title: 'SaveRecruitment.Data.TitleWebsite|Title|JobPositionName' } : {}),
-    ...(summaryText ? { summary: 'SaveRecruitment.Data.Summary' } : {}),
+    ...(values.summaryText ? { summary: 'SaveRecruitment.Data.Summary' } : {}),
     ...(snapshot.description ? { description: 'SaveRecruitment.Data.Description|Summary' } : {}),
     ...(snapshot.requirements.rawText ? { requirements: 'SaveRecruitment.Data.Requirement' } : {}),
-    ...(benefitText ? { benefits: 'SaveRecruitment.Data.Benifit' } : {}),
-    ...(location ? { location: 'SaveRecruitment.Data.RecruitmentWorkLocations' } : {}),
-    ...(deadline ? { deadline: 'SaveRecruitment.Data.RegistrationExpiryDate|CloseDate|ExpectedTime' } : {}),
+    ...(values.benefitText ? { benefits: 'SaveRecruitment.Data.Benifit' } : {}),
+    ...(values.location ? { location: 'SaveRecruitment.Data.RecruitmentWorkLocations' } : {}),
+    ...(values.deadline ? { deadline: 'SaveRecruitment.Data.RegistrationExpiryDate|CloseDate|ExpectedTime' } : {}),
   };
-  return { recruitmentId, snapshot, missingFields, fieldSources };
+  return fieldSources;
+}
+
+function readAmisSaveRecruitmentFields(data: Record<string, unknown>) {
+  const values = readAmisSaveRecruitmentValues(data);
+  const snapshot = buildAmisSaveRecruitmentSnapshot(values);
+  const missingFields = getAmisSaveRecruitmentMissingFields(values, snapshot);
+  const fieldSources = getAmisSaveRecruitmentFieldSources(values, snapshot);
+  return { recruitmentId: values.recruitmentId, snapshot, missingFields, fieldSources };
 }
 
 function mapAmisSaveRecruitmentResponse(
