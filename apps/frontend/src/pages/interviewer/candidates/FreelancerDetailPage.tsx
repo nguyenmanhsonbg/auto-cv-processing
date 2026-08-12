@@ -231,207 +231,199 @@ export function FreelancerDetailPage() {
     }
   };
 
-  if (!freelancerId) {
-    return (
-      <div className="space-y-4">
-        <Button asChild variant="ghost" className="w-fit px-0">
-          <Link to="/candidates/freelancers">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to freelancers
-          </Link>
-        </Button>
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-          Freelancer id is required.
-        </div>
-      </div>
-    );
-  }
+  return (
+    <FreelancerDetailView
+      freelancerId={freelancerId}
+      freelancer={freelancer}
+      summaryLoading={summaryLoading}
+      summaryError={summaryError}
+      applications={applications}
+      pagination={pagination}
+      tableLoading={tableLoading}
+      tableError={tableError}
+      searchInput={searchInput}
+      setSearchInput={setSearchInput}
+      page={page}
+      limit={limit}
+      setPage={setPage}
+      setLimit={setLimit}
+      statusUpdating={statusUpdating}
+      handleToggleStatus={handleToggleStatus}
+    />
+  );
+}
 
-  const currentFreelancer = freelancer?.id === freelancerId ? freelancer : null;
-  const currentPagination = pagination ?? {
-    page,
-    limit,
-    total: applications.length,
+interface FreelancerDetailViewProps {
+  freelancerId?: string;
+  freelancer: FreelancerRecord | null;
+  summaryLoading: boolean;
+  summaryError: string | null;
+  applications: FreelancerApplicationRecord[];
+  pagination?: RecruitmentPagination;
+  tableLoading: boolean;
+  tableError: string | null;
+  searchInput: string;
+  setSearchInput: (value: string) => void;
+  page: number;
+  limit: number;
+  setPage: (value: number) => void;
+  setLimit: (value: number) => void;
+  statusUpdating: boolean;
+  handleToggleStatus: (event: MouseEvent<HTMLButtonElement>, freelancer: FreelancerRecord) => void;
+}
+
+function FreelancerDetailView(props: FreelancerDetailViewProps) {
+  if (!props.freelancerId) return <FreelancerMissingView />;
+
+  const currentFreelancer = props.freelancer?.id === props.freelancerId ? props.freelancer : null;
+  const currentPagination = props.pagination ?? {
+    page: props.page,
+    limit: props.limit,
+    total: props.applications.length,
     totalPages: 1,
   };
-  const hideTablePagination = tableLoading && !pagination && applications.length === 0;
+  const hideTablePagination = props.tableLoading && !props.pagination && props.applications.length === 0;
 
   return (
     <div className="space-y-6">
-      <div className="space-y-4">
-        <Button asChild variant="ghost" className="w-fit px-0">
-          <Link to="/candidates/freelancers">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to freelancers
-          </Link>
-        </Button>
-
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-2">
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">Candidates</p>
-              <h1 className="text-2xl font-semibold">
-                {currentFreelancer?.name ?? 'Freelancer detail'}
-              </h1>
-            </div>
-
-            {summaryLoading && !currentFreelancer ? (
-              <p className="text-sm text-muted-foreground">Loading freelancer summary...</p>
-            ) : currentFreelancer ? (
-              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                <span>{currentFreelancer.email}</span>
-                <span>•</span>
-                <span className="font-medium text-foreground">
-                  {currentFreelancer.identifier}
-                </span>
-                <Badge
-                  className={getFreelancerStatusBadgeClassName(currentFreelancer.isActive)}
-                >
-                  {getFreelancerStatusLabel(currentFreelancer.isActive)}
-                </Badge>
-                <span>{currentFreelancer.applicationCount} applications</span>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Freelancer summary unavailable.
-              </p>
-            )}
-
-            <p className="text-sm text-muted-foreground">
-              Deactivating a freelancer blocks new referrals while preserving historical referrals.
-            </p>
-          </div>
-
-          {currentFreelancer ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={statusUpdating || summaryLoading}
-              onClick={(event) => void handleToggleStatus(event, currentFreelancer)}
-            >
-              {statusUpdating ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              {currentFreelancer.isActive ? 'Deactivate' : 'Activate'}
-            </Button>
-          ) : null}
-        </div>
-
-        {summaryError ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-            {summaryError}
-          </div>
-        ) : null}
-      </div>
-
-      <Card>
-        <CardHeader className="gap-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-1">
-              <CardTitle className="text-lg">Applications</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Minimal HR referral view. Candidate contact details, CV links, and sensitive fields stay hidden.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-[1fr]">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Search candidate or JD"
-                className="pl-8"
-              />
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          {tableError ? (
-            <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {tableError}
-            </div>
-          ) : null}
-
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16">STT</TableHead>
-                <TableHead>Tên ứng viên</TableHead>
-                <TableHead>JD</TableHead>
-                <TableHead>Trạng thái process</TableHead>
-                <TableHead>HR tiếp nhận hồ sơ</TableHead>
-                <TableHead>Đánh giá chung</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tableLoading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                    Loading applications...
-                  </TableCell>
-                </TableRow>
-              ) : null}
-
-              {!tableLoading && applications.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                    No applications found.
-                  </TableCell>
-                </TableRow>
-              ) : null}
-
-              {!tableLoading && applications.map((application, index) => (
-                <TableRow key={application.referralId}>
-                  <TableCell>
-                    {(currentPagination.page - 1) * currentPagination.limit + index + 1}
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    {valueOrDash(application.candidateName)}
-                  </TableCell>
-                  <TableCell>{valueOrDash(application.jobPostingTitle)}</TableCell>
-                  <TableCell>
-                    {application.processStatus ? (
-                      <Badge className={getApplicationStatusClassName(application.processStatus)}>
-                        {getApplicationStatusLabel(application.processStatus)}
-                      </Badge>
-                    ) : (
-                      '-'
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {application.hrReceptionStatus ? (
-                      <Badge className={getApplicationStatusClassName(application.hrReceptionStatus)}>
-                        {getApplicationStatusLabel(application.hrReceptionStatus)}
-                      </Badge>
-                    ) : (
-                      '-'
-                    )}
-                  </TableCell>
-                  <TableCell className="max-w-md whitespace-pre-wrap break-words">
-                    {valueOrDash(application.evaluation)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-
-          {!hideTablePagination ? (
-            <div className="mt-4">
-              <DataTablePagination
-                page={currentPagination.page}
-                totalPages={currentPagination.totalPages}
-                total={currentPagination.total}
-                limit={currentPagination.limit}
-                onPageChange={setPage}
-                onLimitChange={setLimit}
-              />
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      <FreelancerSummary
+        freelancer={currentFreelancer}
+        loading={props.summaryLoading}
+        error={props.summaryError}
+        statusUpdating={props.statusUpdating}
+        onToggleStatus={props.handleToggleStatus}
+      />
+      <ApplicationsCard
+        applications={props.applications}
+        pagination={currentPagination}
+        tableLoading={props.tableLoading}
+        tableError={props.tableError}
+        hidePagination={hideTablePagination}
+        searchInput={props.searchInput}
+        setSearchInput={props.setSearchInput}
+        onPageChange={props.setPage}
+        onLimitChange={props.setLimit}
+      />
     </div>
   );
+}
+
+function FreelancerMissingView() {
+  return (
+    <div className="space-y-4">
+      <Button asChild variant="ghost" className="w-fit px-0">
+        <Link to="/candidates/freelancers"><ArrowLeft className="mr-2 h-4 w-4" />Back to freelancers</Link>
+      </Button>
+      <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">Freelancer id is required.</div>
+    </div>
+  );
+}
+
+function FreelancerSummary({
+  freelancer,
+  loading,
+  error,
+  statusUpdating,
+  onToggleStatus,
+}: {
+  freelancer: FreelancerRecord | null;
+  loading: boolean;
+  error: string | null;
+  statusUpdating: boolean;
+  onToggleStatus: (event: MouseEvent<HTMLButtonElement>, freelancer: FreelancerRecord) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <Button asChild variant="ghost" className="w-fit px-0">
+        <Link to="/candidates/freelancers"><ArrowLeft className="mr-2 h-4 w-4" />Back to freelancers</Link>
+      </Button>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-2">
+          <div className="space-y-1"><p className="text-sm text-muted-foreground">Candidates</p><h1 className="text-2xl font-semibold">{freelancer?.name ?? 'Freelancer detail'}</h1></div>
+          <FreelancerSummaryStatus freelancer={freelancer} loading={loading} />
+          <p className="text-sm text-muted-foreground">Deactivating a freelancer blocks new referrals while preserving historical referrals.</p>
+        </div>
+        {freelancer && <Button type="button" variant="outline" disabled={statusUpdating || loading} onClick={(event) => onToggleStatus(event, freelancer)}>{statusUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{freelancer.isActive ? 'Deactivate' : 'Activate'}</Button>}
+      </div>
+      {error && <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+    </div>
+  );
+}
+
+function FreelancerSummaryStatus({ freelancer, loading }: { freelancer: FreelancerRecord | null; loading: boolean }) {
+  if (loading && !freelancer) return <p className="text-sm text-muted-foreground">Loading freelancer summary...</p>;
+  if (!freelancer) return <p className="text-sm text-muted-foreground">Freelancer summary unavailable.</p>;
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+      <span>{freelancer.email}</span><span>•</span><span className="font-medium text-foreground">{freelancer.identifier}</span>
+      <Badge className={getFreelancerStatusBadgeClassName(freelancer.isActive)}>{getFreelancerStatusLabel(freelancer.isActive)}</Badge>
+      <span>{freelancer.applicationCount} applications</span>
+    </div>
+  );
+}
+
+function ApplicationsCard({
+  applications,
+  pagination,
+  tableLoading,
+  tableError,
+  hidePagination,
+  searchInput,
+  setSearchInput,
+  onPageChange,
+  onLimitChange,
+}: {
+  applications: FreelancerApplicationRecord[];
+  pagination: RecruitmentPagination;
+  tableLoading: boolean;
+  tableError: string | null;
+  hidePagination: boolean;
+  searchInput: string;
+  setSearchInput: (value: string) => void;
+  onPageChange: (value: number) => void;
+  onLimitChange: (value: number) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="gap-4">
+        <div className="space-y-1"><CardTitle className="text-lg">Applications</CardTitle><p className="text-sm text-muted-foreground">Minimal HR referral view. Candidate contact details, CV links, and sensitive fields stay hidden.</p></div>
+        <div className="relative"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search candidate or JD" className="pl-8" /></div>
+      </CardHeader>
+      <CardContent>
+        {tableError && <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{tableError}</div>}
+        <ApplicationsTable applications={applications} pagination={pagination} loading={tableLoading} />
+        {!hidePagination && <div className="mt-4"><DataTablePagination page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={pagination.limit} onPageChange={onPageChange} onLimitChange={onLimitChange} /></div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ApplicationsTable({ applications, pagination, loading }: { applications: FreelancerApplicationRecord[]; pagination: RecruitmentPagination; loading: boolean }) {
+  return (
+    <Table>
+      <TableHeader><TableRow><TableHead className="w-16">STT</TableHead><TableHead>Tên ứng viên</TableHead><TableHead>JD</TableHead><TableHead>Trạng thái process</TableHead><TableHead>HR tiếp nhận hồ sơ</TableHead><TableHead>Đánh giá chung</TableHead></TableRow></TableHeader>
+      <TableBody>
+        {loading && <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Loading applications...</TableCell></TableRow>}
+        {!loading && applications.length === 0 && <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No applications found.</TableCell></TableRow>}
+        {!loading && applications.map((application, index) => <ApplicationRow key={application.referralId} application={application} index={(pagination.page - 1) * pagination.limit + index + 1} />)}
+      </TableBody>
+    </Table>
+  );
+}
+
+function ApplicationRow({ application, index }: { application: FreelancerApplicationRecord; index: number }) {
+  return (
+    <TableRow>
+      <TableCell>{index}</TableCell>
+      <TableCell className="font-medium">{valueOrDash(application.candidateName)}</TableCell>
+      <TableCell>{valueOrDash(application.jobPostingTitle)}</TableCell>
+      <StatusCell value={application.processStatus} />
+      <StatusCell value={application.hrReceptionStatus} />
+      <TableCell className="max-w-md whitespace-pre-wrap break-words">{valueOrDash(application.evaluation)}</TableCell>
+    </TableRow>
+  );
+}
+
+function StatusCell({ value }: { value?: string | null }) {
+  return value ? <TableCell><Badge className={getApplicationStatusClassName(value)}>{getApplicationStatusLabel(value)}</Badge></TableCell> : <TableCell>-</TableCell>;
 }

@@ -651,19 +651,7 @@ function readFetchRequestBody(args: Parameters<typeof fetch>) {
     .catch(() => null);
 }
 
-function mapAmisSaveRecruitmentResponse(
-  response: unknown,
-  requestUrl: string,
-  pageUrl: string,
-) {
-  if (!isObject(response)) return null;
-
-  const success = response.Success ?? response.success;
-  if (success === false) return null;
-
-  const data = findRecruitmentData(response);
-  if (!data) return null;
-
+function readAmisSaveRecruitmentFields(data: Record<string, unknown>) {
   const recruitmentId = cleanText(readFirst(data, [
     'RecruitmentID',
     'RecruitmentId',
@@ -687,27 +675,22 @@ function mapAmisSaveRecruitmentResponse(
     'ExpectedTime',
     'expectedTime',
   ])) || undefined;
-
   const snapshot = {
     title: cleanText(readFirst(data, ['TitleWebsite', 'titleWebsite']))
       || cleanText(readFirst(data, ['Title', 'title']))
       || cleanText(readFirst(data, ['JobPositionName', 'jobPositionName'])),
     ...(summaryText ? { summary: summaryText } : {}),
     description: descriptionText,
-    requirements: {
-      rawText: requirementText,
-    },
+    requirements: { rawText: requirementText },
     ...(benefitText ? { benefits: { rawText: benefitText } } : {}),
     ...(location ? { location } : {}),
     ...(deadline ? { deadline } : {}),
   };
-
   const missingFields: string[] = [];
   if (!recruitmentId) missingFields.push('AMIS recruitment id');
   if (!snapshot.title) missingFields.push('title');
   if (!snapshot.description) missingFields.push('description');
   if (!snapshot.requirements.rawText) missingFields.push('requirements');
-
   const fieldSources = {
     ...(recruitmentId ? { amisRecruitmentId: 'SaveRecruitment.Data.RecruitmentID' } : {}),
     ...(snapshot.title ? { title: 'SaveRecruitment.Data.TitleWebsite|Title|JobPositionName' } : {}),
@@ -718,7 +701,21 @@ function mapAmisSaveRecruitmentResponse(
     ...(location ? { location: 'SaveRecruitment.Data.RecruitmentWorkLocations' } : {}),
     ...(deadline ? { deadline: 'SaveRecruitment.Data.RegistrationExpiryDate|CloseDate|ExpectedTime' } : {}),
   };
+  return { recruitmentId, snapshot, missingFields, fieldSources };
+}
 
+function mapAmisSaveRecruitmentResponse(
+  response: unknown,
+  requestUrl: string,
+  pageUrl: string,
+) {
+  if (!isObject(response)) return null;
+  const success = response.Success ?? response.success;
+  if (success === false) return null;
+  const data = findRecruitmentData(response);
+  if (!data) return null;
+
+  const { recruitmentId, snapshot, missingFields, fieldSources } = readAmisSaveRecruitmentFields(data);
   return {
     status: 'AMIS_PAGE_DETECTED',
     detected: true,

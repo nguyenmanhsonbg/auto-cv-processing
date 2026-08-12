@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type ChangeEvent, type Dispatch, type FormEvent, type Ref, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -228,7 +228,7 @@ function getFacebookGroupUrlValidationError(
   currentTargetId?: string | null,
 ) {
   if (!isFacebookGroupUrlCandidate(value)) {
-    return 'Link URL phải có dạng https://www.facebook.com/groups/{groupId}.';
+    return 'Link URL pháº£i cÃ³ dáº¡ng https://www.facebook.com/groups/{groupId}.';
   }
 
   return getDuplicateFacebookGroupUrlError(value, groups, currentTargetId);
@@ -247,7 +247,7 @@ function getDuplicateFacebookGroupUrlError(
     && group.targetId !== currentTargetId
   ));
 
-  return existingGroup ? 'Group đã tồn tại.' : null;
+  return existingGroup ? 'Group Ä‘Ã£ tá»“n táº¡i.' : null;
 }
 
 function isFacebookGroupUrlCandidate(value: string) {
@@ -364,11 +364,11 @@ function isAmbiguousFacebookComposerVerificationReason(reason: string) {
 
 function getFacebookImageFileValidationError(file: File) {
   if (!FACEBOOK_IMAGE_ALLOWED_TYPES.has(file.type)) {
-    return 'Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP.';
+    return 'Chá»‰ há»— trá»£ áº£nh JPEG, PNG hoáº·c WebP.';
   }
 
   if (file.size > FACEBOOK_IMAGE_MAX_SIZE_BYTES) {
-    return `Ảnh phải nhỏ hơn ${formatFileSize(FACEBOOK_IMAGE_MAX_SIZE_BYTES)}.`;
+    return `áº¢nh pháº£i nhá» hÆ¡n ${formatFileSize(FACEBOOK_IMAGE_MAX_SIZE_BYTES)}.`;
   }
 
   return null;
@@ -414,6 +414,99 @@ function DetailField({
       <p className="mt-1 break-words font-medium">{value}</p>
     </div>
   );
+}
+
+type PublishValidationInput = {
+  selectedChannels: string[];
+  selectedFacebookGroupIds: string[];
+  isFacebookImageReading: boolean;
+  hasFacebookImageAttachmentError: boolean;
+};
+
+function getPublishValidationError({
+  selectedChannels,
+  selectedFacebookGroupIds,
+  isFacebookImageReading,
+  hasFacebookImageAttachmentError,
+}: PublishValidationInput) {
+  if (selectedChannels.length === 0) {
+    return 'Select at least one publish channel.';
+  }
+  if (selectedChannels.includes('FACEBOOK') && selectedFacebookGroupIds.length === 0) {
+    return 'Select at least one Facebook group before publishing.';
+  }
+  if (isFacebookImageReading) {
+    return 'Vui lÃ²ng chá» áº£nh upload Ä‘Æ°á»£c xá»­ lÃ½ xong trÆ°á»›c khi Ä‘Äƒng bÃ i.';
+  }
+  if (hasFacebookImageAttachmentError) {
+    return 'Vui lÃ²ng bá» áº£nh lá»—i hoáº·c chá»n áº£nh há»£p lá»‡ trÆ°á»›c khi Ä‘Äƒng bÃ i.';
+  }
+  return null;
+}
+
+type FacebookPublishRunInput = {
+  response: {
+    facebookPublishPlan?: FacebookPublishPlan | null;
+    channels?: JobPostingChannelStatus[];
+  };
+  selectedChannels: string[];
+  facebookImageAttachment: FacebookPublishAttachment | null;
+  onPlan: (plan: FacebookPublishPlan, channels: JobPostingChannelStatus[]) => void;
+  onProgress: (progress: FacebookPublishProgress) => void;
+  onImageAttachFailed: (
+    context: FacebookImageAttachFailureContext,
+  ) => Promise<FacebookImageAttachFailureDecision>;
+};
+
+async function runFacebookPublishIfRequested({
+  response,
+  selectedChannels,
+  facebookImageAttachment,
+  onPlan,
+  onProgress,
+  onImageAttachFailed,
+}: FacebookPublishRunInput) {
+  if (!response.facebookPublishPlan || !selectedChannels.includes('FACEBOOK')) {
+    return null;
+  }
+
+  const plan: FacebookPublishPlan = facebookImageAttachment
+    ? { ...response.facebookPublishPlan, attachments: [facebookImageAttachment] }
+    : response.facebookPublishPlan;
+  onPlan(plan, response.channels ?? []);
+
+  const accessToken = apiClient.getToken() ?? localStorage.getItem('token');
+  if (!accessToken) {
+    throw new Error('Authentication token is required for browser Facebook publishing.');
+  }
+
+  let latestResults: FacebookPublishResultPayload[] = [];
+  await startFacebookExtensionPublish(accessToken, plan, {
+    onProgress: (progress) => {
+      latestResults = progress.results;
+      onProgress(progress);
+    },
+    onImageAttachFailed,
+  });
+
+  return { plan, latestResults };
+}
+
+async function reportFacebookPublishFailureIfNeeded({
+  plan,
+  latestResults,
+  error,
+  reload,
+}: {
+  plan: FacebookPublishPlan | null;
+  latestResults: FacebookPublishResultPayload[];
+  error: unknown;
+  reload: () => Promise<void>;
+}) {
+  if (!plan) return;
+  await reportUnreportedFacebookPublishFailures(plan, latestResults, error)
+    .catch(() => undefined);
+  await reload().catch(() => undefined);
 }
 
 export function JobPostingDetailPage() {
@@ -543,20 +636,14 @@ export function JobPostingDetailPage() {
     event.preventDefault();
     if (!id) return;
 
-    if (selectedChannels.length === 0) {
-      setPublishError('Select at least one publish channel.');
-      return;
-    }
-    if (selectedChannels.includes('FACEBOOK') && selectedFacebookGroupIds.length === 0) {
-      setPublishError('Select at least one Facebook group before publishing.');
-      return;
-    }
-    if (isFacebookImageReading) {
-      setPublishError('Vui lòng chờ ảnh upload được xử lý xong trước khi đăng bài.');
-      return;
-    }
-    if (hasFacebookImageAttachmentError) {
-      setPublishError('Vui lòng bỏ ảnh lỗi hoặc chọn ảnh hợp lệ trước khi đăng bài.');
+    const validationError = getPublishValidationError({
+      selectedChannels,
+      selectedFacebookGroupIds,
+      isFacebookImageReading,
+      hasFacebookImageAttachmentError,
+    });
+    if (validationError) {
+      setPublishError(validationError);
       return;
     }
 
@@ -579,26 +666,24 @@ export function JobPostingDetailPage() {
         },
         newIdempotencyKey('posting-publish'),
       );
-      if (response.facebookPublishPlan && selectedChannels.includes('FACEBOOK')) {
-        const planForPublish: FacebookPublishPlan = facebookImageAttachment
-          ? { ...response.facebookPublishPlan, attachments: [facebookImageAttachment] }
-          : response.facebookPublishPlan;
-        facebookPlan = planForPublish;
-        setFacebookPublishPlan(planForPublish);
-        setPublishResultChannels(response.channels ?? []);
-        const accessToken = apiClient.getToken() ?? localStorage.getItem('token');
-        if (!accessToken) {
-          throw new Error('Authentication token is required for browser Facebook publishing.');
-        }
-
-        await startFacebookExtensionPublish(accessToken, planForPublish, {
-          onProgress: (progress) => {
-            latestFacebookResults = progress.results;
-            setFacebookPublishStatus(progress.message);
-            setFacebookPublishProgress(progress);
-          },
-          onImageAttachFailed: requestFacebookImageAttachDecision,
-        });
+      const facebookPublish = await runFacebookPublishIfRequested({
+        response,
+        selectedChannels,
+        facebookImageAttachment,
+        onPlan: (plan, resultChannels) => {
+          facebookPlan = plan;
+          setFacebookPublishPlan(plan);
+          setPublishResultChannels(resultChannels);
+        },
+        onProgress: (progress) => {
+          setFacebookPublishStatus(progress.message);
+          setFacebookPublishProgress(progress);
+        },
+        onImageAttachFailed: requestFacebookImageAttachDecision,
+      });
+      if (facebookPublish) {
+        facebookPlan = facebookPublish.plan;
+        latestFacebookResults = facebookPublish.latestResults;
         toast({ title: 'Facebook publishing completed in this browser' });
       }
       toast({ title: 'Job posting publish requested' });
@@ -609,11 +694,12 @@ export function JobPostingDetailPage() {
       clearFacebookImageAttachment();
       await reload();
     } catch (err) {
-      if (facebookPlan) {
-        await reportUnreportedFacebookPublishFailures(facebookPlan, latestFacebookResults, err)
-          .catch(() => undefined);
-        await reload().catch(() => undefined);
-      }
+      await reportFacebookPublishFailureIfNeeded({
+        plan: facebookPlan,
+        latestResults: latestFacebookResults,
+        error: err,
+        reload,
+      });
       toast({
         title: 'Publish failed',
         description: facebookPlan
@@ -842,7 +928,7 @@ export function JobPostingDetailPage() {
       await refreshFacebookGroups();
     } catch (err) {
       if (isDuplicateFacebookGroupError(err)) {
-        setFacebookGroupUrlError('Group đã tồn tại.');
+        setFacebookGroupUrlError('Group Ä‘Ã£ tá»“n táº¡i.');
         setPublishError(null);
       } else {
         setPublishError(getInternalSafeErrorMessage(err));
@@ -984,6 +1070,232 @@ export function JobPostingDetailPage() {
     editingFacebookGroup?.targetId ?? null,
   );
   const facebookGroupUrlFieldError = facebookGroupDuplicateUrlError ?? facebookGroupUrlError;
+
+  const viewModel: JobPostingDetailViewModel = {
+    id,
+    jobPosting,
+    channels,
+    loading,
+    channelsLoading,
+    error,
+    channelsError,
+    editOpen,
+    publishOpen,
+    selectedChannels,
+    facebookGroups,
+    selectedFacebookGroupIds,
+    facebookGroupLoadState,
+    facebookGroupMessage,
+    facebookGroupVerificationBusy,
+    facebookImageAttachment,
+    facebookImageAttachmentState,
+    facebookImageAttachmentError,
+    facebookImageAttachPrompt,
+    verifyingFacebookGroupIds,
+    queuedFacebookGroupIds,
+    facebookSettingsOpen,
+    facebookGroupName,
+    facebookGroupUrl,
+    facebookGroupUrlError,
+    facebookGroupUrlFieldError,
+    editingFacebookGroup,
+    facebookGroupSaving,
+    facebookPublishStatus,
+    facebookPublishProgress,
+    facebookPublishPlan,
+    publishResultChannels,
+    publishNote,
+    publishError,
+    submitting,
+    closing,
+    publicSlug,
+    closedLike,
+    publishedLike,
+    isFacebookImageReading,
+    hasFacebookImageAttachmentError,
+    publishSubmitDisabled,
+    facebookImageInputRef,
+    setEditOpen,
+    setPublishOpen,
+    setFacebookSettingsOpen,
+    setFacebookGroupName,
+    setFacebookGroupUrl,
+    setFacebookGroupUrlError,
+    setEditingFacebookGroup,
+    setFacebookPublishStatus,
+    setFacebookPublishProgress,
+    setFacebookPublishPlan,
+    setPublishResultChannels,
+    setPublishNote,
+    setPublishError,
+    reload,
+    loadChannels,
+    handleUpdate,
+    handlePublish,
+    handleClose,
+    toggleChannel,
+    refreshFacebookGroups,
+    toggleFacebookGroupSelection,
+    checkFacebookGroup,
+    removeFacebookGroup,
+    startEditFacebookGroup,
+    handleFacebookImageFileChange,
+    openFacebookImageFilePicker,
+    clearFacebookImageAttachment,
+    submitFacebookGroup,
+    resolveFacebookImageAttachPrompt,
+  };
+
+  return <JobPostingDetailView model={viewModel} />;
+}
+
+type JobPostingDetailViewModel = {
+  id?: string;
+  jobPosting: JobPostingRecord | null;
+  channels: JobPostingChannelStatus[];
+  loading: boolean;
+  channelsLoading: boolean;
+  error: string | null;
+  channelsError: string | null;
+  editOpen: boolean;
+  publishOpen: boolean;
+  selectedChannels: string[];
+  facebookGroups: FacebookPublishTarget[];
+  selectedFacebookGroupIds: string[];
+  facebookGroupLoadState: FacebookGroupLoadState;
+  facebookGroupMessage: string | null;
+  facebookGroupVerificationBusy: boolean;
+  facebookImageAttachment: FacebookPublishAttachment | null;
+  facebookImageAttachmentState: FacebookImageAttachmentState;
+  facebookImageAttachmentError: string | null;
+  facebookImageAttachPrompt: FacebookImageAttachFailureContext | null;
+  verifyingFacebookGroupIds: string[];
+  queuedFacebookGroupIds: string[];
+  facebookSettingsOpen: boolean;
+  facebookGroupName: string;
+  facebookGroupUrl: string;
+  facebookGroupUrlError: string | null;
+  facebookGroupUrlFieldError: string | null;
+  editingFacebookGroup: FacebookPublishTarget | null;
+  facebookGroupSaving: boolean;
+  facebookPublishStatus: string | null;
+  facebookPublishProgress: FacebookPublishProgress | null;
+  facebookPublishPlan: FacebookPublishPlan | null;
+  publishResultChannels: JobPostingChannelStatus[];
+  publishNote: string;
+  publishError: string | null;
+  submitting: boolean;
+  closing: boolean;
+  publicSlug: string;
+  closedLike: boolean;
+  publishedLike: boolean;
+  isFacebookImageReading: boolean;
+  hasFacebookImageAttachmentError: boolean;
+  publishSubmitDisabled: boolean;
+  facebookImageInputRef: Ref<HTMLInputElement>;
+  setEditOpen: Dispatch<SetStateAction<boolean>>;
+  setPublishOpen: Dispatch<SetStateAction<boolean>>;
+  setFacebookSettingsOpen: Dispatch<SetStateAction<boolean>>;
+  setFacebookGroupName: Dispatch<SetStateAction<string>>;
+  setFacebookGroupUrl: Dispatch<SetStateAction<string>>;
+  setFacebookGroupUrlError: Dispatch<SetStateAction<string | null>>;
+  setEditingFacebookGroup: Dispatch<SetStateAction<FacebookPublishTarget | null>>;
+  setFacebookPublishStatus: Dispatch<SetStateAction<string | null>>;
+  setFacebookPublishProgress: Dispatch<SetStateAction<FacebookPublishProgress | null>>;
+  setFacebookPublishPlan: Dispatch<SetStateAction<FacebookPublishPlan | null>>;
+  setPublishResultChannels: Dispatch<SetStateAction<JobPostingChannelStatus[]>>;
+  setPublishNote: Dispatch<SetStateAction<string>>;
+  setPublishError: Dispatch<SetStateAction<string | null>>;
+  reload: () => Promise<void>;
+  loadChannels: () => Promise<void>;
+  handleUpdate: (payload: JobPostingPayload) => Promise<void>;
+  handlePublish: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  handleClose: () => Promise<void>;
+  toggleChannel: (channel: string) => void;
+  refreshFacebookGroups: (options?: { selectAllWhenEmpty?: boolean }) => Promise<void>;
+  toggleFacebookGroupSelection: (targetId?: string | null) => void;
+  checkFacebookGroup: (group: FacebookPublishTarget) => void;
+  removeFacebookGroup: (group: FacebookPublishTarget) => Promise<void>;
+  startEditFacebookGroup: (group: FacebookPublishTarget) => void;
+  handleFacebookImageFileChange: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
+  openFacebookImageFilePicker: () => void;
+  clearFacebookImageAttachment: () => void;
+  submitFacebookGroup: () => Promise<void>;
+  resolveFacebookImageAttachPrompt: (decision: FacebookImageAttachFailureDecision) => void;
+};
+
+function JobPostingDetailView({ model }: { model: JobPostingDetailViewModel }) {
+  const {
+    id,
+    jobPosting,
+    channels,
+    loading,
+    channelsLoading,
+    error,
+    channelsError,
+    editOpen,
+    publishOpen,
+    selectedChannels,
+    facebookGroups,
+    selectedFacebookGroupIds,
+    facebookGroupLoadState,
+    facebookGroupMessage,
+    facebookGroupVerificationBusy,
+    facebookImageAttachment,
+    facebookImageAttachmentError,
+    facebookImageAttachPrompt,
+    verifyingFacebookGroupIds,
+    queuedFacebookGroupIds,
+    facebookSettingsOpen,
+    facebookGroupName,
+    facebookGroupUrl,
+    facebookGroupUrlFieldError,
+    editingFacebookGroup,
+    facebookGroupSaving,
+    facebookPublishStatus,
+    facebookPublishProgress,
+    facebookPublishPlan,
+    publishResultChannels,
+    publishNote,
+    publishError,
+    submitting,
+    closing,
+    publicSlug,
+    closedLike,
+    publishedLike,
+    isFacebookImageReading,
+    publishSubmitDisabled,
+    facebookImageInputRef,
+    setEditOpen,
+    setPublishOpen,
+    setFacebookSettingsOpen,
+    setFacebookGroupName,
+    setFacebookGroupUrl,
+    setFacebookGroupUrlError,
+    setEditingFacebookGroup,
+    setFacebookPublishStatus,
+    setFacebookPublishProgress,
+    setFacebookPublishPlan,
+    setPublishResultChannels,
+    setPublishNote,
+    setPublishError,
+    reload,
+    loadChannels,
+    handleUpdate,
+    handlePublish,
+    handleClose,
+    toggleChannel,
+    refreshFacebookGroups,
+    toggleFacebookGroupSelection,
+    checkFacebookGroup,
+    removeFacebookGroup,
+    startEditFacebookGroup,
+    handleFacebookImageFileChange,
+    openFacebookImageFilePicker,
+    clearFacebookImageAttachment,
+    submitFacebookGroup,
+    resolveFacebookImageAttachPrompt,
+  } = model;
 
   return (
     <div className="space-y-6">
@@ -1337,7 +1649,7 @@ export function JobPostingDetailPage() {
                                 size="sm"
                                 className="h-7 w-7 p-0"
                                 disabled={submitting || isGroupChecking || isGroupQueued || !group.targetId}
-                                onClick={() => void checkFacebookGroup(group)}
+                                onClick={() => checkFacebookGroup(group)}
                               >
                                 <RefreshCw className={cn('h-3.5 w-3.5', isGroupChecking && 'animate-spin')} />
                               </Button>
@@ -1392,7 +1704,7 @@ export function JobPostingDetailPage() {
                         ) : (
                           <ImagePlus className="mr-2 h-4 w-4" />
                         )}
-                        Upload ảnh
+                        Upload áº£nh
                       </Button>
                       {facebookImageAttachment ? (
                         <div className="flex items-center gap-3 rounded-md border bg-slate-50 p-2">
@@ -1412,12 +1724,12 @@ export function JobPostingDetailPage() {
                             disabled={submitting || isFacebookImageReading}
                             onClick={clearFacebookImageAttachment}
                           >
-                            Bỏ ảnh
+                            Bá» áº£nh
                           </Button>
                         </div>
                       ) : null}
                       {isFacebookImageReading ? (
-                        <p className="text-xs text-muted-foreground">Đang xử lý ảnh...</p>
+                        <p className="text-xs text-muted-foreground">Äang xá»­ lÃ½ áº£nh...</p>
                       ) : null}
                       {facebookImageAttachmentError ? (
                         <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-2">
@@ -1428,7 +1740,7 @@ export function JobPostingDetailPage() {
                             size="sm"
                             onClick={clearFacebookImageAttachment}
                           >
-                            Bỏ ảnh
+                            Bá» áº£nh
                           </Button>
                         </div>
                       ) : null}
@@ -1564,7 +1876,7 @@ export function JobPostingDetailPage() {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Không attach được ảnh</DialogTitle>
+            <DialogTitle>KhÃ´ng attach Ä‘Æ°á»£c áº£nh</DialogTitle>
             <DialogDescription>
               {facebookImageAttachPrompt?.target.targetName}
             </DialogDescription>
@@ -1591,13 +1903,13 @@ export function JobPostingDetailPage() {
                   variant="outline"
                   onClick={() => resolveFacebookImageAttachPrompt('SKIP')}
                 >
-                  Không đăng bài này
+                  KhÃ´ng Ä‘Äƒng bÃ i nÃ y
                 </Button>
                 <Button
                   type="button"
                   onClick={() => resolveFacebookImageAttachPrompt('POST_TEXT_ONLY')}
                 >
-                  Vẫn đăng text-only
+                  Váº«n Ä‘Äƒng text-only
                 </Button>
               </div>
             </div>

@@ -94,6 +94,74 @@ function RatingButtons({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
+function toEvaluationRating(value?: string): 1 | 2 | 3 | 4 | 5 | undefined {
+  return value ? (Number(value) as 1 | 2 | 3 | 4 | 5) : undefined;
+}
+
+function buildEvaluationPayload(
+  data: EvalFormData,
+  sessionId: string | undefined,
+  mustSubs: readonly string[],
+  shouldSubs: readonly string[],
+  softSubs: readonly string[],
+  persSubs: readonly string[],
+) {
+  const technicalRatings: TechnicalRating[] = [...mustSubs.map((subcategory) => {
+    const entry = data.technicalMust[subcategory];
+    return { subcategory, comment: entry?.comment || '', rating: toEvaluationRating(entry?.rating) };
+  }), ...shouldSubs.map((subcategory) => {
+    const entry = data.technicalShould[subcategory];
+    return { subcategory, comment: entry?.comment || '', rating: toEvaluationRating(entry?.rating) };
+  })];
+  const softSkillRatings: SoftSkillRating[] = softSubs.map((subcategory) => {
+    const entry = data.softSkill[subcategory];
+    return { subcategory, comment: entry?.comment || '', rating: toEvaluationRating(entry?.rating) };
+  });
+  const personalityRatings: PersonalityRating[] = persSubs.map((category) => {
+    const entry = data.personality[category];
+    return { category, rating: toEvaluationRating(entry?.rating), reasoning: entry?.reasoning || '' };
+  });
+  return {
+    sessionId,
+    hrEvaluation: data.hrEvaluation,
+    technicalRatings,
+    softSkillRatings,
+    zoneExplanation: data.zoneExplanation,
+    finalLevel: data.finalLevel,
+    finalZone: data.finalZone,
+    finalSubZone: data.finalSubZone,
+    personalityRatings,
+    overallResult: data.overallResult,
+    overallNotes: data.overallNotes,
+  };
+}
+
+function applyAiEvaluationSuggestion(
+  suggestion: AiEvaluationSuggestion,
+  setValue: (name: any, value: any) => void,
+  softSubs: readonly string[],
+  mustSubs: readonly string[],
+  persSubs: readonly string[],
+) {
+  suggestion.technicalRatings.forEach(({ subcategory, suggestedRating, reasoning }) => {
+    const prefix = softSubs.includes(subcategory) ? 'softSkill' : mustSubs.includes(subcategory) ? 'technicalMust' : 'technicalShould';
+    setValue(prefix + '.' + subcategory + '.rating', suggestedRating.toString());
+    setValue(prefix + '.' + subcategory + '.comment', reasoning);
+  });
+  suggestion.personalityRatings.forEach(({ category, suggestedRating, reasoning }) => {
+    const formCategory = persSubs.find((item) => item === category || category.startsWith(item) || item.startsWith(category));
+    if (!formCategory) return;
+    setValue('personality.' + formCategory + '.rating', suggestedRating.toString());
+    setValue('personality.' + formCategory + '.reasoning', reasoning);
+  });
+  setValue('overallResult', suggestion.overallResult);
+  setValue('overallNotes', suggestion.overallNotes);
+  if (suggestion.overallNotes) setValue('zoneExplanation', suggestion.overallNotes);
+  if (suggestion.finalLevel) setValue('finalLevel', suggestion.finalLevel);
+  if (suggestion.finalZone) setValue('finalZone', suggestion.finalZone);
+  if (suggestion.finalSubZone) setValue('finalSubZone', suggestion.finalSubZone);
+}
+
 export function SessionEvaluatePage() {
   const { slug } = useParams<{ slug: string }>();
   const [loading, setLoading] = useState(true);
@@ -294,56 +362,7 @@ export function SessionEvaluatePage() {
   const onSubmit = async (data: EvalFormData) => {
     try {
       setSaving(true);
-      const technicalRatings: TechnicalRating[] = [];
-
-      for (const sub of mustSubs) {
-        const entry = data.technicalMust[sub];
-        technicalRatings.push({
-          subcategory: sub,
-          comment: entry?.comment || '',
-          rating: entry?.rating ? (Number(entry.rating) as 1 | 2 | 3 | 4 | 5) : undefined,
-        });
-      }
-      for (const sub of shouldSubs) {
-        const entry = data.technicalShould[sub];
-        technicalRatings.push({
-          subcategory: sub,
-          comment: entry?.comment || '',
-          rating: entry?.rating ? (Number(entry.rating) as 1 | 2 | 3 | 4 | 5) : undefined,
-        });
-      }
-
-      const softSkillRatings: SoftSkillRating[] = softSubs.map((sub) => {
-        const entry = data.softSkill[sub];
-        return {
-          subcategory: sub,
-          comment: entry?.comment || '',
-          rating: entry?.rating ? (Number(entry.rating) as 1 | 2 | 3 | 4 | 5) : undefined,
-        };
-      });
-
-      const personalityRatings: PersonalityRating[] = persSubs.map((cat) => {
-        const entry = data.personality[cat];
-        return {
-          category: cat,
-          rating: entry?.rating ? (Number(entry.rating) as 1 | 2 | 3 | 4 | 5) : undefined,
-          reasoning: entry?.reasoning || '',
-        };
-      });
-
-      const payload = {
-        sessionId: slug,
-        hrEvaluation: data.hrEvaluation,
-        technicalRatings,
-        softSkillRatings,
-        zoneExplanation: data.zoneExplanation,
-        finalLevel: data.finalLevel,
-        finalZone: data.finalZone,
-        finalSubZone: data.finalSubZone,
-        personalityRatings,
-        overallResult: data.overallResult,
-        overallNotes: data.overallNotes,
-      };
+      const payload = buildEvaluationPayload(data, slug, mustSubs, shouldSubs, softSubs, persSubs);
 
       const resolvedId = existingEval?.id ?? existingEvalIdRef.current;
       if (resolvedId) {
@@ -366,37 +385,8 @@ export function SessionEvaluatePage() {
       setGeneratingEval(true);
       let evalId = existingEval?.id;
       if (!evalId) {
-        const data = getValues();
-        const technicalRatings: TechnicalRating[] = [];
-        for (const sub of mustSubs) {
-          const entry = data.technicalMust[sub];
-          technicalRatings.push({ subcategory: sub, comment: entry?.comment || '', rating: entry?.rating ? (Number(entry.rating) as 1 | 2 | 3 | 4 | 5) : undefined });
-        }
-        for (const sub of shouldSubs) {
-          const entry = data.technicalShould[sub];
-          technicalRatings.push({ subcategory: sub, comment: entry?.comment || '', rating: entry?.rating ? (Number(entry.rating) as 1 | 2 | 3 | 4 | 5) : undefined });
-        }
-        const softSkillRatings: SoftSkillRating[] = softSubs.map((sub) => {
-          const entry = data.softSkill[sub];
-          return { subcategory: sub, comment: entry?.comment || '', rating: entry?.rating ? (Number(entry.rating) as 1 | 2 | 3 | 4 | 5) : undefined };
-        });
-        const personalityRatings: PersonalityRating[] = persSubs.map((cat) => {
-          const entry = data.personality[cat];
-          return { category: cat, rating: entry?.rating ? (Number(entry.rating) as 1 | 2 | 3 | 4 | 5) : undefined, reasoning: entry?.reasoning || '' };
-        });
-        const ev = await apiClient.post<Evaluation>('/evaluations', {
-          sessionId: slug,
-          hrEvaluation: data.hrEvaluation,
-          technicalRatings,
-          softSkillRatings,
-          zoneExplanation: data.zoneExplanation,
-          finalLevel: data.finalLevel,
-          finalZone: data.finalZone,
-          finalSubZone: data.finalSubZone,
-          personalityRatings,
-          overallResult: data.overallResult,
-          overallNotes: data.overallNotes,
-        });
+        const payload = buildEvaluationPayload(getValues(), slug, mustSubs, shouldSubs, softSubs, persSubs);
+        const ev = await apiClient.post<Evaluation>('/evaluations', payload);
         setExistingEval(ev);
         existingEvalIdRef.current = ev.id;
         evalId = ev.id;
@@ -405,34 +395,7 @@ export function SessionEvaluatePage() {
         `/evaluations/${evalId}/generate-ai-evaluation`,
       );
       setAiSuggestion(suggestion);
-      // Auto-apply all suggestions immediately
-      suggestion.technicalRatings.forEach(({ subcategory, suggestedRating, reasoning }) => {
-        if (softSubs.includes(subcategory)) {
-          setValue(`softSkill.${subcategory}.rating` as any, suggestedRating.toString());
-          setValue(`softSkill.${subcategory}.comment` as any, reasoning);
-          return;
-        }
-        const isMust = mustSubs.includes(subcategory);
-        const prefix = isMust ? 'technicalMust' : 'technicalShould';
-        setValue(`${prefix}.${subcategory}.rating` as any, suggestedRating.toString());
-        setValue(`${prefix}.${subcategory}.comment` as any, reasoning);
-      });
-      suggestion.personalityRatings.forEach(({ category, suggestedRating, reasoning }) => {
-        // Exact match first; fall back to prefix match for DB subs that are abbreviated forms
-        // (e.g. DB "Phẩm chất" matches AI-returned "Phẩm chất đạo đức")
-        const formCat =
-          persSubs.find((c) => c === category) ??
-          persSubs.find((c) => category.startsWith(c) || c.startsWith(category));
-        if (!formCat) return;
-        setValue(`personality.${formCat}.rating` as any, suggestedRating.toString());
-        setValue(`personality.${formCat}.reasoning` as any, reasoning);
-      });
-      setValue('overallResult', suggestion.overallResult);
-      setValue('overallNotes', suggestion.overallNotes);
-      if (suggestion.overallNotes) setValue('zoneExplanation', suggestion.overallNotes);
-      if (suggestion.finalLevel) setValue('finalLevel', suggestion.finalLevel);
-      if (suggestion.finalZone) setValue('finalZone', suggestion.finalZone);
-      if (suggestion.finalSubZone) setValue('finalSubZone', suggestion.finalSubZone);
+      applyAiEvaluationSuggestion(suggestion, setValue, softSubs, mustSubs, persSubs);
       toast({ title: 'AI analysis complete — suggestions applied' });
     } catch (err) {
       toast({ title: 'AI Error', description: err instanceof Error ? err.message : 'Error', variant: 'destructive' });
@@ -469,65 +432,89 @@ export function SessionEvaluatePage() {
   const getPersSuggestion = (category: string) =>
     aiSuggestion?.personalityRatings.find((r) => r.category === category);
 
-  const hasDerivedData = Object.keys(derivedRatings).length > 0;
-
   const getDerivedRating = (category: string, subcategory: string): number | undefined =>
     derivedRatings[`${category}::${subcategory}`];
 
   if (loading) return <div>Loading...</div>;
   if (!session) return <div>Session not found.</div>;
 
-  const hasAiSuggestion = aiSuggestion !== null;
-  const showAiCol = hasAiSuggestion && showAiSuggestion;
-  // Total column count for the technical table (index + name + comment + rating + optional columns)
-  const techColCount = 4 + (hasDerivedData ? 1 : 0) + (showAiCol ? 1 : 0);
+  return (
+    <SessionEvaluationView
+      session={session}
+      slug={slug}
+      levels={levels}
+      mustSubs={mustSubs}
+      shouldSubs={shouldSubs}
+      softSubs={softSubs}
+      persSubs={persSubs}
+      mustCatName={mustCatName}
+      shouldCatName={shouldCatName}
+      existingEval={existingEval}
+      saving={saving}
+      aiSuggestion={aiSuggestion}
+      generatingEval={generatingEval}
+      showAiSuggestion={showAiSuggestion}
+      setShowAiSuggestion={setShowAiSuggestion}
+      derivedRatings={derivedRatings}
+      editingComment={editingComment}
+      setEditingComment={setEditingComment}
+      register={register}
+      handleSubmit={handleSubmit}
+      control={control}
+      setValue={setValue}
+      watch={watch}
+      onSubmit={onSubmit}
+      onGenerateAiEvaluation={handleGenerateAiEvaluation}
+      onExport={handleExport}
+      getTechSuggestion={getTechSuggestion}
+      getPersSuggestion={getPersSuggestion}
+      getDerivedRating={getDerivedRating}
+    />
+  );
+}
 
+function SessionEvaluationView(props: any) {
+  const hasAiSuggestion = props.aiSuggestion !== null;
+  const showAiCol = hasAiSuggestion && props.showAiSuggestion;
+  const techColCount = 4 + (Object.keys(props.derivedRatings).length > 0 ? 1 : 0) + (showAiCol ? 1 : 0);
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <Link
-            to={`/sessions/${slug}`}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to session
-          </Link>
-          <h1 className="text-3xl font-bold">BM04 Evaluation Form</h1>
-          <p className="text-muted-foreground">
-            {session.candidate?.name} - {session.templatePosition}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleGenerateAiEvaluation}
-            disabled={generatingEval}
-          >
-            {generatingEval ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Analyzing...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4 mr-2" />
-                Analyze with AI
-              </>
-            )}
-          </Button>
-          <Button onClick={handleSubmit(onSubmit)} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Evaluation'}
-          </Button>
-          <Button variant="outline" onClick={handleExport}>
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
-        </div>
-      </div>
+      <EvaluationHeader {...props} />
+      <form onSubmit={props.handleSubmit(props.onSubmit)} className="space-y-6">
+        <TechnicalAssessment {...props} hasAiSuggestion={hasAiSuggestion} hasDerivedData={Object.keys(props.derivedRatings).length > 0} showAiCol={showAiCol} techColCount={techColCount} />
+        <PersonalityAssessment {...props} hasAiSuggestion={hasAiSuggestion} hasDerivedData={Object.keys(props.derivedRatings).length > 0} showAiCol={showAiCol} />
+        <FinalEvaluationCard {...props} />
+        <OverallResultCard {...props} />
+      </form>
+    </div>
+  );
+}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+function EvaluationHeader({ session, slug, saving, generatingEval, handleSubmit, onSubmit, onGenerateAiEvaluation, onExport }: any) {
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <Link to={'/sessions/' + slug} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-2"><ArrowLeft className="h-4 w-4" />Back to session</Link>
+        <h1 className="text-3xl font-bold">BM04 Evaluation Form</h1>
+        <p className="text-muted-foreground">{session.candidate?.name} - {session.templatePosition}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="outline" onClick={onGenerateAiEvaluation} disabled={generatingEval}>{generatingEval ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Analyzing...</> : <><Sparkles className="h-4 w-4 mr-2" />Analyze with AI</>}</Button>
+        <Button onClick={handleSubmit(onSubmit)} disabled={saving}>{saving ? 'Saving...' : 'Save Evaluation'}</Button>
+        <Button variant="outline" onClick={onExport}><Download className="h-4 w-4 mr-2" />Export</Button>
+      </div>
+    </div>
+  );
+}
+
+function TechnicalAssessment(props: any) {
+  const {
+    mustSubs, shouldSubs, softSubs, mustCatName, shouldCatName, hasAiSuggestion, showAiSuggestion, setShowAiSuggestion,
+    techColCount, hasDerivedData, showAiCol, getTechSuggestion, getDerivedRating, editingComment, setEditingComment,
+    register, control, setValue, watch,
+  } = props;
+  return (
+    <>
         {/* Technical + Soft Skill Ratings — merged with interview-derived and AI suggestions */}
         <Card>
           <CardHeader>
@@ -566,7 +553,7 @@ export function SessionEvaluatePage() {
                     MUST — Required
                   </TableCell>
                 </TableRow>
-                {mustSubs.map((sub, idx) => {
+                {mustSubs.map((sub: string, idx: number) => {
                   const suggestion = getTechSuggestion(sub);
                   const derivedR = getDerivedRating(mustCatName, sub);
                   const commentKey = `technicalMust.${sub}.comment` as const;
@@ -663,7 +650,7 @@ export function SessionEvaluatePage() {
                     SHOULD — Nice to have
                   </TableCell>
                 </TableRow>
-                {shouldSubs.map((sub, idx) => {
+                {shouldSubs.map((sub: string, idx: number) => {
                   const suggestion = getTechSuggestion(sub);
                   const derivedR = getDerivedRating(shouldCatName, sub);
                   const commentKey = `technicalShould.${sub}.comment` as const;
@@ -760,7 +747,7 @@ export function SessionEvaluatePage() {
                     SOFT SKILLS
                   </TableCell>
                 </TableRow>
-                {softSubs.map((sub, idx) => {
+                {softSubs.map((sub: string, idx: number) => {
                   const suggestion = getTechSuggestion(sub);
                   const derivedR = getDerivedRating('SOFT_SKILL', sub);
                   const commentKey = `softSkill.${sub}.comment` as const;
@@ -853,6 +840,18 @@ export function SessionEvaluatePage() {
           </CardContent>
         </Card>
 
+
+    </>
+  );
+}
+
+function PersonalityAssessment(props: any) {
+  const {
+    persSubs, hasAiSuggestion, showAiSuggestion, setShowAiSuggestion, hasDerivedData, showAiCol, getPersSuggestion, getDerivedRating,
+    editingComment, setEditingComment, register, control, setValue, watch,
+  } = props;
+  return (
+    <>
         {/* Personality — also merged with AI suggestions */}
         <Card>
           <CardHeader>
@@ -881,7 +880,7 @@ export function SessionEvaluatePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {persSubs.map((cat) => {
+                {persSubs.map((cat: string) => {
                   const suggestion = getPersSuggestion(cat);
                   const noteVal = watch(`personality.${cat}.reasoning` as any) || '';
                   const derivedR = getDerivedRating('PERSONALITY', cat);
@@ -979,6 +978,17 @@ export function SessionEvaluatePage() {
           </CardContent>
         </Card>
 
+
+    </>
+  );
+}
+
+function FinalEvaluationCard(props: any) {
+  const {
+    levels, aiSuggestion, control, setValue, editingComment, setEditingComment, register, watch,
+  } = props;
+  return (
+    <>
         {/* Final Evaluation Result */}
         <Card>
           <CardHeader>
@@ -1018,7 +1028,7 @@ export function SessionEvaluatePage() {
                         <SelectValue placeholder="Select level..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {levels.map((l) => (
+                        {levels.map((l: Level) => (
                           <SelectItem key={l.id} value={l.name}>{l.displayName}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1114,6 +1124,17 @@ export function SessionEvaluatePage() {
           </CardContent>
         </Card>
 
+
+    </>
+  );
+}
+
+function OverallResultCard(props: any) {
+  const {
+    control, editingComment, setEditingComment, register, watch,
+  } = props;
+  return (
+    <>
         {/* Overall Result */}
         <Card>
           <CardHeader>
@@ -1166,7 +1187,7 @@ export function SessionEvaluatePage() {
           </CardContent>
         </Card>
 
-      </form>
-    </div>
+
+    </>
   );
 }

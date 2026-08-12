@@ -326,62 +326,53 @@ function findCandidateGridTables(grid: HTMLElement) {
   };
 }
 
-function addSourceColumnToTable(
+function injectSourceColumnIntoColGroup(
   table: HTMLTableElement,
-  tablePart: 'header' | 'body',
-  sourceByRowIndex: Map<string, SourceChipDefinition | null>,
-  expandedScrollableTableWidth: number | null,
+  isFixedTable: boolean,
+  actionColumnIndex: number,
 ) {
-  const isFixedTable = Boolean(table.closest('.dx-datagrid-content-fixed'));
-  const headerRow = table.querySelector<HTMLTableRowElement>('tbody > tr.dx-header-row');
-  const actionCell = headerRow?.querySelector<HTMLTableCellElement>('.dx-command-edit')
-    ?? table.querySelector<HTMLTableCellElement>(
-      'tbody > tr.dx-data-row .dx-command-edit, tbody > tr.dx-freespace-row .dx-command-edit',
-    );
-  const actionColumnIndex = actionCell
-    ? Array.from(actionCell.parentElement?.children ?? []).indexOf(actionCell)
-    : -1;
   const colGroup = table.querySelector<HTMLElement>('colgroup');
-  if (colGroup) {
-    const sourceCol = ensureSingleInjectedElement(
-      colGroup,
-      'col',
-      () => document.createElement('col'),
-    );
-    if (sourceCol.style.width !== `${SOURCE_COLUMN_WIDTH_PX}px`) {
-      sourceCol.style.width = `${SOURCE_COLUMN_WIDTH_PX}px`;
-    }
-    const insertIndex = isFixedTable
-      ? Math.max(0, colGroup.children.length - 1)
-      : actionColumnIndex >= 0 ? actionColumnIndex : colGroup.children.length;
-    insertElementAtPosition(colGroup, sourceCol, colGroup.children[insertIndex] ?? null);
+  if (!colGroup) return;
+
+  const sourceCol = ensureSingleInjectedElement(
+    colGroup,
+    'col',
+    () => document.createElement('col'),
+  );
+  if (sourceCol.style.width !== `${SOURCE_COLUMN_WIDTH_PX}px`) {
+    sourceCol.style.width = `${SOURCE_COLUMN_WIDTH_PX}px`;
   }
+  const insertIndex = isFixedTable
+    ? Math.max(0, colGroup.children.length - 1)
+    : actionColumnIndex >= 0 ? actionColumnIndex : colGroup.children.length;
+  insertElementAtPosition(colGroup, sourceCol, colGroup.children[insertIndex] ?? null);
+}
 
-  if (isFixedTable) {
-    expandFixedTableSpans(table);
-    return;
-  }
+function renderSourceHeaderCell(
+  headerRow: HTMLTableRowElement,
+  actionCell: HTMLTableCellElement | null,
+) {
+  const sourceHeader = ensureSingleInjectedElement(
+    headerRow,
+    'td',
+    () => {
+      const cell = document.createElement('td');
+      cell.className = 'vcs-amis-source-column-header dx-cell-focus-disabled';
+      return cell;
+    },
+  );
+  sourceHeader.setAttribute('role', 'columnheader');
+  sourceHeader.setAttribute('aria-label', 'Cột Nguồn');
+  sourceHeader.setAttribute('aria-colindex', getSourceColumnAriaIndex(actionCell));
+  if (sourceHeader.textContent !== 'Nguồn') sourceHeader.textContent = 'Nguồn';
+  insertBeforeActionCell(headerRow, sourceHeader);
+}
 
-  configureScrollableTableWidth(table, expandedScrollableTableWidth);
-
-  if (tablePart === 'header' && headerRow) {
-    const sourceHeader = ensureSingleInjectedElement(
-      headerRow,
-      'td',
-      () => {
-        const cell = document.createElement('td');
-        cell.className = 'vcs-amis-source-column-header dx-cell-focus-disabled';
-        return cell;
-      },
-    );
-    sourceHeader.setAttribute('role', 'columnheader');
-    sourceHeader.setAttribute('aria-label', 'Cột Nguồn');
-    sourceHeader.setAttribute('aria-colindex', getSourceColumnAriaIndex(actionCell));
-    if (sourceHeader.textContent !== 'Nguồn') sourceHeader.textContent = 'Nguồn';
-    insertBeforeActionCell(headerRow, sourceHeader);
-    return;
-  }
-
+function renderSourceBodyCells(
+  table: HTMLTableElement,
+  actionCell: HTMLTableCellElement | null,
+  sourceByRowIndex: Map<string, SourceChipDefinition | null>,
+) {
   for (const row of getBodyRows(table)) {
     const sourceCell = ensureSingleInjectedElement(
       row,
@@ -401,6 +392,38 @@ function addSourceColumnToTable(
     updateSourceCell(sourceCell, sourceChip);
     insertBeforeActionCell(row, sourceCell);
   }
+}
+
+function addSourceColumnToTable(
+  table: HTMLTableElement,
+  tablePart: 'header' | 'body',
+  sourceByRowIndex: Map<string, SourceChipDefinition | null>,
+  expandedScrollableTableWidth: number | null,
+) {
+  const isFixedTable = Boolean(table.closest('.dx-datagrid-content-fixed'));
+  const headerRow = table.querySelector<HTMLTableRowElement>('tbody > tr.dx-header-row');
+  const actionCell = headerRow?.querySelector<HTMLTableCellElement>('.dx-command-edit')
+    ?? table.querySelector<HTMLTableCellElement>(
+      'tbody > tr.dx-data-row .dx-command-edit, tbody > tr.dx-freespace-row .dx-command-edit',
+    );
+  const actionColumnIndex = actionCell
+    ? Array.from(actionCell.parentElement?.children ?? []).indexOf(actionCell)
+    : -1;
+  injectSourceColumnIntoColGroup(table, isFixedTable, actionColumnIndex);
+
+  if (isFixedTable) {
+    expandFixedTableSpans(table);
+    return;
+  }
+
+  configureScrollableTableWidth(table, expandedScrollableTableWidth);
+
+  if (tablePart === 'header' && headerRow) {
+    renderSourceHeaderCell(headerRow, actionCell);
+    return;
+  }
+
+  renderSourceBodyCells(table, actionCell, sourceByRowIndex);
 }
 
 function updateSourceCell(cell: HTMLTableCellElement, sourceChip: SourceChipDefinition | null) {
@@ -445,7 +468,7 @@ function insertElementAtPosition(
 ) {
   if (reference === element) return;
   if (reference) {
-    if (element.nextElementSibling !== reference) parent.insertBefore(element, reference);
+    if (element.nextElementSibling !== reference) reference.before(element);
     return;
   }
   if (element.parentElement !== parent || element.nextElementSibling !== null) parent.appendChild(element);

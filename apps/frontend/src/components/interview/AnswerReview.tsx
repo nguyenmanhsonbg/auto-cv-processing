@@ -16,15 +16,378 @@ interface AnswerReviewProps {
   onAutoSave: (sqId: string, data: { interviewerNote?: string; rating?: number }) => Promise<void>;
 }
 
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
 const getRatingLabels = (category: string): Record<number, string> =>
   category === 'PERSONALITY' ? PERSONALITY_RATING_LABELS : TECHNICAL_RATING_LABELS;
+
+function parseArchitectureAnswer(
+  questionType: QuestionType | undefined,
+  candidateAnswer: string | undefined,
+): ArchitectureAnswer | null {
+  if (questionType !== QuestionType.ARCHITECTURE || !candidateAnswer) return null;
+
+  try {
+    return JSON.parse(candidateAnswer) as ArchitectureAnswer;
+  } catch {
+    return null;
+  }
+}
+
+function SaveStatusIndicator({ status }: { status: SaveStatus }) {
+  if (status === 'saving') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Saving...
+      </span>
+    );
+  }
+  if (status === 'saved') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-green-600">
+        <Check className="h-3 w-3" />
+        Saved
+      </span>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-red-600">
+        <AlertCircle className="h-3 w-3" />
+        Error saving
+      </span>
+    );
+  }
+  return null;
+}
+
+function AnswerHeader({
+  questionType,
+  subcategory,
+  saveStatus,
+}: {
+  questionType?: QuestionType;
+  subcategory?: string;
+  saveStatus: SaveStatus;
+}) {
+  return (
+    <CardHeader className="pb-3">
+      <div className="flex items-center justify-between">
+        <CardTitle className="text-sm">Answer Review</CardTitle>
+        <div className="flex items-center gap-2">
+          <SaveStatusIndicator status={saveStatus} />
+          {questionType && (
+            <Badge variant="outline" className="text-xs">{questionType}</Badge>
+          )}
+          {subcategory && (
+            <Badge variant="outline" className="text-xs">{subcategory}</Badge>
+          )}
+        </div>
+      </div>
+    </CardHeader>
+  );
+}
+
+function QuestionDetails({ question }: { question: any }) {
+  return (
+    <>
+      <div>
+        <Label className="text-xs text-muted-foreground">Question</Label>
+        <p className="text-sm whitespace-pre-wrap mt-1">{question?.text || 'N/A'}</p>
+      </div>
+
+      {question?.expectedAnswer && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 p-3">
+          <Label className="text-xs text-blue-700 font-medium">Expected Answer</Label>
+          <p className="text-sm whitespace-pre-wrap mt-1 text-blue-900">
+            {question.expectedAnswer}
+          </p>
+        </div>
+      )}
+
+      {question?.scoringGuide && (
+        <div className="rounded-md bg-purple-50 border border-purple-200 p-3">
+          <Label className="text-xs text-purple-700 font-medium">Scoring Guide</Label>
+          <p className="text-sm whitespace-pre-wrap mt-1 text-purple-900">
+            {question.scoringGuide}
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ChoiceAnswer({
+  candidateAnswer,
+  options,
+  correctAnswers,
+}: {
+  candidateAnswer: string;
+  options: { id: string; text: string }[];
+  correctAnswers: string[];
+}) {
+  const selectedIds = candidateAnswer.split(',');
+
+  return (
+    <div className="mt-1 space-y-1">
+      {options.map((opt) => {
+        const isSelected = selectedIds.includes(opt.id);
+        const isCorrect = correctAnswers.includes(opt.id);
+
+        return (
+          <div
+            key={opt.id}
+            className={cn(
+              'text-sm px-2 py-1 rounded flex items-center gap-2',
+              isSelected && isCorrect && 'bg-green-50 border border-green-200',
+              isSelected && !isCorrect && 'bg-red-50 border border-red-200',
+              !isSelected && isCorrect && 'bg-blue-50 border border-blue-200',
+              !isSelected && !isCorrect && 'text-muted-foreground',
+            )}
+          >
+            {isSelected && isCorrect && <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />}
+            {isSelected && !isCorrect && <XCircle className="h-3.5 w-3.5 text-red-600 shrink-0" />}
+            {!isSelected && isCorrect && <CheckCircle className="h-3.5 w-3.5 text-blue-600 shrink-0" />}
+            <span>{opt.text}</span>
+            {isSelected && <Badge variant="outline" className="text-[10px] ml-auto">Selected</Badge>}
+            {isCorrect && <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Correct</Badge>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CandidateAnswerDisplay({
+  questionType,
+  candidateAnswer,
+  options,
+  correctAnswers,
+  parsedArchitecture,
+}: {
+  questionType?: QuestionType;
+  candidateAnswer: string;
+  options: { id: string; text: string }[];
+  correctAnswers: string[];
+  parsedArchitecture: ArchitectureAnswer | null;
+}) {
+  const isChoiceQuestion = questionType === QuestionType.SINGLE_CHOICE
+    || questionType === QuestionType.MULTIPLE_CHOICE;
+
+  if (isChoiceQuestion && options.length > 0) {
+    return (
+      <ChoiceAnswer
+        candidateAnswer={candidateAnswer}
+        options={options}
+        correctAnswers={correctAnswers}
+      />
+    );
+  }
+  if (questionType === QuestionType.ARCHITECTURE && parsedArchitecture) {
+    return (
+      <div className="mt-1">
+        <ArchitectureViewer value={parsedArchitecture} />
+      </div>
+    );
+  }
+  if (questionType === QuestionType.CODING) {
+    return (
+      <div className="mt-1 border rounded-md overflow-hidden">
+        <Editor
+          height="200px"
+          language="javascript"
+          value={candidateAnswer}
+          theme="vs-dark"
+          options={{
+            readOnly: true,
+            minimap: { enabled: false },
+            fontSize: 12,
+            lineNumbers: 'on',
+            scrollBeyondLastLine: false,
+            automaticLayout: true,
+            domReadOnly: true,
+          }}
+        />
+      </div>
+    );
+  }
+  return (
+    <p className="text-sm whitespace-pre-wrap mt-1 rounded-md bg-muted p-3">
+      {candidateAnswer}
+    </p>
+  );
+}
+
+function CandidateAnswerSection({
+  questionType,
+  candidateAnswer,
+  options,
+  correctAnswers,
+  parsedArchitecture,
+}: {
+  questionType?: QuestionType;
+  candidateAnswer?: string;
+  options: { id: string; text: string }[];
+  correctAnswers: string[];
+  parsedArchitecture: ArchitectureAnswer | null;
+}) {
+  return (
+    <div>
+      <Label className="text-xs text-muted-foreground">Candidate Answer</Label>
+      {candidateAnswer ? (
+        <CandidateAnswerDisplay
+          questionType={questionType}
+          candidateAnswer={candidateAnswer}
+          options={options}
+          correctAnswers={correctAnswers}
+          parsedArchitecture={parsedArchitecture}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground mt-1 italic">Not answered yet</p>
+      )}
+    </div>
+  );
+}
+
+function CodeSubmissionResults({ codeSubmissions }: { codeSubmissions?: any[] }) {
+  if (!codeSubmissions || codeSubmissions.length === 0) return null;
+
+  return (
+    <div>
+      <Label className="text-xs text-muted-foreground">Code Submission Results</Label>
+      <div className="mt-1 space-y-1">
+        {codeSubmissions.map((sub: any, i: number) => (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <Badge variant={sub.status === 'PASSED' ? 'default' : 'destructive'} className="text-[10px]">
+              {sub.status}
+            </Badge>
+            <span>{sub.language}</span>
+            {sub.results?.map((result: any, j: number) => (
+              <span key={j} className={result.passed ? 'text-green-600' : 'text-red-600'}>
+                T{result.testCaseIndex + 1}:{result.passed ? 'P' : 'F'}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AnswerRating({
+  question,
+  sessionQuestionId,
+  rating,
+  onRatingChange,
+}: {
+  question: any;
+  sessionQuestionId: string;
+  rating: number;
+  onRatingChange: (value: number) => void;
+}) {
+  const labels = getRatingLabels(question?.category ?? '');
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs">Rating</Label>
+      <RadioGroup
+        value={rating ? rating.toString() : ''}
+        onValueChange={(value) => onRatingChange(Number(value))}
+        className="flex flex-wrap gap-3"
+      >
+        {[1, 2, 3, 4, 5].map((value) => (
+          <div key={value} className="flex items-center space-x-1.5">
+            <RadioGroupItem value={value.toString()} id={`review-${sessionQuestionId}-${value}`} />
+            <Label
+              htmlFor={`review-${sessionQuestionId}-${value}`}
+              className={cn(
+                'text-xs cursor-pointer',
+                rating === value && 'font-medium',
+              )}
+            >
+              {value} - {labels[value]}
+            </Label>
+          </div>
+        ))}
+      </RadioGroup>
+    </div>
+  );
+}
+
+function AnswerReviewCard({
+  sq,
+  question,
+  questionType,
+  options,
+  correctAnswers,
+  candidateAnswer,
+  parsedArchitecture,
+  note,
+  rating,
+  saveStatus,
+  onNoteChange,
+  onRatingChange,
+}: {
+  sq: any;
+  question: any;
+  questionType?: QuestionType;
+  options: { id: string; text: string }[];
+  correctAnswers: string[];
+  candidateAnswer?: string;
+  parsedArchitecture: ArchitectureAnswer | null;
+  note: string;
+  rating: number;
+  saveStatus: SaveStatus;
+  onNoteChange: (value: string) => void;
+  onRatingChange: (value: number) => void;
+}) {
+  return (
+    <Card>
+      <AnswerHeader
+        questionType={questionType}
+        subcategory={question?.subcategory}
+        saveStatus={saveStatus}
+      />
+      <CardContent className="space-y-4">
+        <QuestionDetails question={question} />
+        <CandidateAnswerSection
+          questionType={questionType}
+          candidateAnswer={candidateAnswer}
+          options={options}
+          correctAnswers={correctAnswers}
+          parsedArchitecture={parsedArchitecture}
+        />
+        {questionType === QuestionType.CODING && (
+          <CodeSubmissionResults codeSubmissions={sq.codeSubmissions} />
+        )}
+        <div className="space-y-2">
+          <Label className="text-xs">Interviewer Note</Label>
+          <Textarea
+            value={note}
+            onChange={(event) => onNoteChange(event.target.value)}
+            placeholder="Add your notes about this answer..."
+            rows={3}
+            className="text-sm"
+          />
+        </div>
+        <AnswerRating
+          question={question}
+          sessionQuestionId={sq.id}
+          rating={rating}
+          onRatingChange={onRatingChange}
+        />
+      </CardContent>
+    </Card>
+  );
+}
 
 export function AnswerReview({ sessionQuestion, onAutoSave }: AnswerReviewProps) {
   const sq = sessionQuestion;
   const question = sq?.question;
   const [note, setNote] = useState(sq?.interviewerNote || '');
   const [rating, setRating] = useState<number>(sq?.rating || 0);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -34,7 +397,6 @@ export function AnswerReview({ sessionQuestion, onAutoSave }: AnswerReviewProps)
     setSaveStatus('idle');
   }, [sq?.id, sq?.interviewerNote, sq?.rating]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -90,206 +452,22 @@ export function AnswerReview({ sessionQuestion, onAutoSave }: AnswerReviewProps)
   const options: { id: string; text: string }[] = question?.options || [];
   const correctAnswers: string[] = question?.correctAnswers || [];
   const candidateAnswer = sq.candidateAnswer;
-
-  // Parse architecture answer if applicable
-  let parsedArchitecture: ArchitectureAnswer | null = null;
-  if (questionType === QuestionType.ARCHITECTURE && candidateAnswer) {
-    try {
-      parsedArchitecture = JSON.parse(candidateAnswer);
-    } catch {
-      // will show raw text
-    }
-  }
+  const parsedArchitecture = parseArchitectureAnswer(questionType, candidateAnswer);
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm">Answer Review</CardTitle>
-          <div className="flex items-center gap-2">
-            {/* Save status indicator */}
-            {saveStatus === 'saving' && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Saving...
-              </span>
-            )}
-            {saveStatus === 'saved' && (
-              <span className="flex items-center gap-1 text-xs text-green-600">
-                <Check className="h-3 w-3" />
-                Saved
-              </span>
-            )}
-            {saveStatus === 'error' && (
-              <span className="flex items-center gap-1 text-xs text-red-600">
-                <AlertCircle className="h-3 w-3" />
-                Error saving
-              </span>
-            )}
-            {questionType && (
-              <Badge variant="outline" className="text-xs">{questionType}</Badge>
-            )}
-            {question?.subcategory && (
-              <Badge variant="outline" className="text-xs">{question.subcategory}</Badge>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Full question text */}
-        <div>
-          <Label className="text-xs text-muted-foreground">Question</Label>
-          <p className="text-sm whitespace-pre-wrap mt-1">{question?.text || 'N/A'}</p>
-        </div>
-
-        {/* Expected answer */}
-        {question?.expectedAnswer && (
-          <div className="rounded-md bg-blue-50 border border-blue-200 p-3">
-            <Label className="text-xs text-blue-700 font-medium">Expected Answer</Label>
-            <p className="text-sm whitespace-pre-wrap mt-1 text-blue-900">
-              {question.expectedAnswer}
-            </p>
-          </div>
-        )}
-
-        {/* Scoring guide */}
-        {question?.scoringGuide && (
-          <div className="rounded-md bg-purple-50 border border-purple-200 p-3">
-            <Label className="text-xs text-purple-700 font-medium">Scoring Guide</Label>
-            <p className="text-sm whitespace-pre-wrap mt-1 text-purple-900">
-              {question.scoringGuide}
-            </p>
-          </div>
-        )}
-
-        {/* Candidate answer */}
-        <div>
-          <Label className="text-xs text-muted-foreground">Candidate Answer</Label>
-          {candidateAnswer ? (
-            <>
-              {/* Choice-type display */}
-              {(questionType === QuestionType.SINGLE_CHOICE ||
-                questionType === QuestionType.MULTIPLE_CHOICE) &&
-                options.length > 0 ? (
-                <div className="mt-1 space-y-1">
-                  {options.map((opt) => {
-                    const selectedIds = candidateAnswer.split(',');
-                    const isSelected = selectedIds.includes(opt.id);
-                    const isCorrect = correctAnswers.includes(opt.id);
-
-                    return (
-                      <div
-                        key={opt.id}
-                        className={cn(
-                          'text-sm px-2 py-1 rounded flex items-center gap-2',
-                          isSelected && isCorrect && 'bg-green-50 border border-green-200',
-                          isSelected && !isCorrect && 'bg-red-50 border border-red-200',
-                          !isSelected && isCorrect && 'bg-blue-50 border border-blue-200',
-                          !isSelected && !isCorrect && 'text-muted-foreground',
-                        )}
-                      >
-                        {isSelected && isCorrect && <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />}
-                        {isSelected && !isCorrect && <XCircle className="h-3.5 w-3.5 text-red-600 shrink-0" />}
-                        {!isSelected && isCorrect && <CheckCircle className="h-3.5 w-3.5 text-blue-600 shrink-0" />}
-                        <span>{opt.text}</span>
-                        {isSelected && <Badge variant="outline" className="text-[10px] ml-auto">Selected</Badge>}
-                        {isCorrect && <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Correct</Badge>}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : questionType === QuestionType.ARCHITECTURE && parsedArchitecture ? (
-                <div className="mt-1">
-                  <ArchitectureViewer value={parsedArchitecture} />
-                </div>
-              ) : questionType === QuestionType.CODING ? (
-                <div className="mt-1 border rounded-md overflow-hidden">
-                  <Editor
-                    height="200px"
-                    language="javascript"
-                    value={candidateAnswer}
-                    theme="vs-dark"
-                    options={{
-                      readOnly: true,
-                      minimap: { enabled: false },
-                      fontSize: 12,
-                      lineNumbers: 'on',
-                      scrollBeyondLastLine: false,
-                      automaticLayout: true,
-                      domReadOnly: true,
-                    }}
-                  />
-                </div>
-              ) : (
-                <p className="text-sm whitespace-pre-wrap mt-1 rounded-md bg-muted p-3">
-                  {candidateAnswer}
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground mt-1 italic">Not answered yet</p>
-          )}
-        </div>
-
-        {/* Code submission results */}
-        {questionType === QuestionType.CODING && sq.codeSubmissions && sq.codeSubmissions.length > 0 && (
-          <div>
-            <Label className="text-xs text-muted-foreground">Code Submission Results</Label>
-            <div className="mt-1 space-y-1">
-              {sq.codeSubmissions.map((sub: any, i: number) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  <Badge variant={sub.status === 'PASSED' ? 'default' : 'destructive'} className="text-[10px]">
-                    {sub.status}
-                  </Badge>
-                  <span>{sub.language}</span>
-                  {sub.results?.map((r: any, j: number) => (
-                    <span key={j} className={r.passed ? 'text-green-600' : 'text-red-600'}>
-                      T{r.testCaseIndex + 1}:{r.passed ? 'P' : 'F'}
-                    </span>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Interviewer note */}
-        <div className="space-y-2">
-          <Label className="text-xs">Interviewer Note</Label>
-          <Textarea
-            value={note}
-            onChange={(e) => handleNoteChange(e.target.value)}
-            placeholder="Add your notes about this answer..."
-            rows={3}
-            className="text-sm"
-          />
-        </div>
-
-        {/* Rating */}
-        <div className="space-y-2">
-          <Label className="text-xs">Rating</Label>
-          <RadioGroup
-            value={rating ? rating.toString() : ''}
-            onValueChange={(val) => handleRatingChange(Number(val))}
-            className="flex flex-wrap gap-3"
-          >
-            {[1, 2, 3, 4, 5].map((r) => (
-              <div key={r} className="flex items-center space-x-1.5">
-                <RadioGroupItem value={r.toString()} id={`review-${sq.id}-${r}`} />
-                <Label
-                  htmlFor={`review-${sq.id}-${r}`}
-                  className={cn(
-                    'text-xs cursor-pointer',
-                    rating === r && 'font-medium',
-                  )}
-                >
-                  {r} - {getRatingLabels(question?.category ?? '')[r]}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-      </CardContent>
-    </Card>
+    <AnswerReviewCard
+      sq={sq}
+      question={question}
+      questionType={questionType}
+      options={options}
+      correctAnswers={correctAnswers}
+      candidateAnswer={candidateAnswer}
+      parsedArchitecture={parsedArchitecture}
+      note={note}
+      rating={rating}
+      saveStatus={saveStatus}
+      onNoteChange={handleNoteChange}
+      onRatingChange={handleRatingChange}
+    />
   );
 }

@@ -567,21 +567,114 @@ export function SessionDetailPage() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading…</div>;
+  if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
   if (!session) return <div className="flex items-center justify-center h-64 text-muted-foreground">Session not found.</div>;
 
-  const existingQuestionIds = new Set(sessionQuestions.map((sq) => sq.question?.id || sq.questionId));
+  return (
+    <SessionDetailView
+      session={session}
+      slug={slug}
+      isHr={isHr}
+      navigate={navigate}
+      sessionQuestions={sessionQuestions}
+      categoryOrder={categoryOrder}
+      copied={copied}
+      setCopied={setCopied}
+      questionsExpanded={questionsExpanded}
+      setQuestionsExpanded={setQuestionsExpanded}
+      detailSq={detailSq}
+      setDetailSq={setDetailSq}
+      detailNote={detailNote}
+      setDetailNote={setDetailNote}
+      detailRating={detailRating}
+      setDetailRating={setDetailRating}
+      detailSaving={detailSaving}
+      anticheatEvents={anticheatEvents}
+      editingTargetLevel={editingTargetLevel}
+      setEditingTargetLevel={setEditingTargetLevel}
+      editTargetLevelValue={editTargetLevelValue}
+      setEditTargetLevelValue={setEditTargetLevelValue}
+      editingTemplatePosition={editingTemplatePosition}
+      setEditingTemplatePosition={setEditingTemplatePosition}
+      editTemplatePositionValue={editTemplatePositionValue}
+      setEditTemplatePositionValue={setEditTemplatePositionValue}
+      editingMeetingLink={editingMeetingLink}
+      setEditingMeetingLink={setEditingMeetingLink}
+      editMeetingLinkValue={editMeetingLinkValue}
+      setEditMeetingLinkValue={setEditMeetingLinkValue}
+      editingScheduledAt={editingScheduledAt}
+      setEditingScheduledAt={setEditingScheduledAt}
+      editScheduledAtValue={editScheduledAtValue}
+      setEditScheduledAtValue={setEditScheduledAtValue}
+      addQuestionsOpen={addQuestionsOpen}
+      setAddQuestionsOpen={setAddQuestionsOpen}
+      questionBank={questionBank}
+      selectedBankQuestionIds={selectedBankQuestionIds}
+      setSelectedBankQuestionIds={setSelectedBankQuestionIds}
+      surveyQuestions={surveyQuestions}
+      surveyGenerating={surveyGenerating}
+      surveyExpanded={surveyExpanded}
+      setSurveyExpanded={setSurveyExpanded}
+      surveyActivated={surveyActivated}
+      expandedSurveyId={expandedSurveyId}
+      setExpandedSurveyId={setExpandedSurveyId}
+      surveyAnswerSaving={surveyAnswerSaving}
+      activateDialogOpen={activateDialogOpen}
+      setActivateDialogOpen={setActivateDialogOpen}
+      activateSelectedIds={activateSelectedIds}
+      activateSubmitting={activateSubmitting}
+      activateQuestionsLoading={activateQuestionsLoading}
+      dialogQuestionsMap={dialogQuestionsMap}
+      accessLink={accessLink}
+      handleCopy={handleCopy}
+      handleGenerateSurvey={handleGenerateSurvey}
+      handleSaveSurveyAnswer={handleSaveSurveyAnswer}
+      handleSuggest={handleSuggest}
+      handleOpenActivateDialog={handleOpenActivateDialog}
+      handleResuggest={handleResuggest}
+      handleActivateSubmit={handleActivateSubmit}
+      toggleActivateQuestion={toggleActivateQuestion}
+      fetchSurvey={fetchSurvey}
+      handleUpdateStatus={handleUpdateStatus}
+      handleExport={handleExport}
+      handleSelectQuestion={handleSelectQuestion}
+      handleToggleActive={handleToggleActive}
+      handleBulkToggle={handleBulkToggle}
+      handleRateSubcategory={handleRateSubcategory}
+      handleOpenAddQuestions={handleOpenAddQuestions}
+      handleAddSelectedQuestions={handleAddSelectedQuestions}
+      handleSaveDetail={handleSaveDetail}
+      handleSaveTargetLevel={handleSaveTargetLevel}
+      handleSaveTemplatePosition={handleSaveTemplatePosition}
+      handleSaveMeetingLink={handleSaveMeetingLink}
+      handleSaveScheduledAt={handleSaveScheduledAt}
+      handleToggleCandidateView={handleToggleCandidateView}
+    />
+  );
+}
 
-  // Stats
-  const total = sessionQuestions.length;
-  const active = sessionQuestions.filter((q) => q.isActive).length;
-  const answered = sessionQuestions.filter((q) => q.candidateAnswer).length;
-  const rated = sessionQuestions.filter((q) => q.rating).length;
+function SessionDetailView(props: any) {
+  const existingQuestionIds = new Set(props.sessionQuestions.map((sq: any) => sq.question?.id || sq.questionId));
+  const total = props.sessionQuestions.length;
+  const active = props.sessionQuestions.filter((q: any) => q.isActive).length;
+  const answered = props.sessionQuestions.filter((q: any) => q.candidateAnswer).length;
+  const rated = props.sessionQuestions.filter((q: any) => q.rating).length;
   const answerRate = total > 0 ? Math.round((answered / total) * 100) : 0;
   const ratingRate = total > 0 ? Math.round((rated / total) * 100) : 0;
 
   return (
     <div className="flex flex-col md:h-full">
+      <SessionDetailHeader {...props} />
+      <SessionMainContent {...props} total={total} active={active} answered={answered} rated={rated} answerRate={answerRate} ratingRate={ratingRate} />
+      <SessionDetailDialogs {...props} existingQuestionIds={existingQuestionIds} />
+    </div>
+  );
+}
+
+function SessionDetailHeader(props: any) {
+  const { session, slug, isHr, navigate, handleUpdateStatus, handleExport } = props;
+  return (
+    <>
       {/* Top bar */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 border-b bg-background shrink-0">
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -614,7 +707,70 @@ export function SessionDetailPage() {
           </Button>
         </div>
       </div>
+    </>
+  );
+}
 
+function SessionMainContent(props: any) {
+  const {
+    session,
+    isHr,
+    sessionQuestions,
+    categoryOrder,
+    total,
+    active,
+    answered,
+    rated,
+    answerRate,
+    ratingRate,
+    copied,
+    surveyQuestions,
+    surveyExpanded,
+    setSurveyExpanded,
+    surveyGenerating,
+    surveyActivated,
+    expandedSurveyId,
+    setExpandedSurveyId,
+    surveyAnswerSaving,
+    handleGenerateSurvey,
+    handleSuggest,
+    handleOpenActivateDialog,
+    fetchSurvey,
+    handleSaveSurveyAnswer,
+    questionsExpanded,
+    setQuestionsExpanded,
+    handleOpenAddQuestions,
+    handleSelectQuestion,
+    handleToggleActive,
+    handleBulkToggle,
+    handleRateSubcategory,
+    editingTemplatePosition,
+    setEditingTemplatePosition,
+    editTemplatePositionValue,
+    setEditTemplatePositionValue,
+    handleSaveTemplatePosition,
+    handleSaveTargetLevel,
+    editingTargetLevel,
+    setEditingTargetLevel,
+    editTargetLevelValue,
+    setEditTargetLevelValue,
+    editingScheduledAt,
+    setEditingScheduledAt,
+    editScheduledAtValue,
+    setEditScheduledAtValue,
+    handleSaveScheduledAt,
+    editingMeetingLink,
+    setEditingMeetingLink,
+    editMeetingLinkValue,
+    setEditMeetingLinkValue,
+    handleSaveMeetingLink,
+    accessLink,
+    handleCopy,
+    handleToggleCandidateView,
+    anticheatEvents,
+  } = props;
+  return (
+    <>
       {/* Body: stacks on mobile, 2-col on md+ */}
       <div className="flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
         {/* Left — Overview + Questions tree */}
@@ -643,7 +799,7 @@ export function SessionDetailPage() {
 
           {/* Survey Panel - hidden from HR */}
           {!isHr && (() => {
-            const surveyAnsweredCount = surveyQuestions.filter((q) => q.answer).length;
+            const surveyAnsweredCount = surveyQuestions.filter((q: any) => q.answer).length;
             const allSurveyAnswered = surveyQuestions.length > 0 && surveyAnsweredCount === surveyQuestions.length;
             const surveyStep = surveyQuestions.length === 0 ? 1 : allSurveyAnswered ? 3 : 2;
             const stepClass = (step: number) => cn("px-2 py-0.5 rounded-full text-xs font-medium", surveyStep === step ? "bg-primary text-primary-foreground" : surveyStep > step ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground");
@@ -654,7 +810,7 @@ export function SessionDetailPage() {
                   aria-label="Toggle pre-interview survey"
                   aria-expanded={surveyExpanded}
                   className="w-full text-left flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors rounded-lg"
-                  onClick={() => setSurveyExpanded((v) => !v)}
+                  onClick={() => setSurveyExpanded((v: boolean) => !v)}
                 >
                   <div className="flex items-center gap-2 text-sm font-semibold">
                     <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
@@ -732,7 +888,7 @@ export function SessionDetailPage() {
                     )}
                     {surveyQuestions.length > 0 && (
                       <div className="space-y-2">
-                        {surveyQuestions.map((sq) => (
+                        {surveyQuestions.map((sq: any) => (
                           <div key={sq.id} className="rounded-md border px-3 py-2 space-y-1.5">
                             <button
                               type="button"
@@ -790,7 +946,7 @@ export function SessionDetailPage() {
                 aria-label="Toggle questions"
                 aria-expanded={questionsExpanded}
                 className="flex items-center gap-2 text-left"
-                onClick={() => setQuestionsExpanded((v) => !v)}
+                onClick={() => setQuestionsExpanded((v: boolean) => !v)}
               >
                 <Layers className="h-4 w-4 text-muted-foreground" />
                 Questions ({total})
@@ -1061,9 +1217,9 @@ export function SessionDetailPage() {
 
           {/* Anti-cheat */}
           {(() => {
-            const tabSwitches = anticheatEvents.filter((e) => e.type === "TAB_HIDDEN").length;
-            const copyAttempts = anticheatEvents.filter((e) => e.type === "COPY_ATTEMPT").length;
-            const multiDevice = anticheatEvents.some((e) => e.type === "MULTI_DEVICE_DETECTED");
+            const tabSwitches = anticheatEvents.filter((e: any) => e.type === "TAB_HIDDEN").length;
+            const copyAttempts = anticheatEvents.filter((e: any) => e.type === "COPY_ATTEMPT").length;
+            const multiDevice = anticheatEvents.some((e: any) => e.type === "MULTI_DEVICE_DETECTED");
             return (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
@@ -1091,7 +1247,7 @@ export function SessionDetailPage() {
                       )}
                     </div>
                     <div className="space-y-1">
-                      {anticheatEvents.map((e, i) => (
+                      {anticheatEvents.map((e: any, i: number) => (
                         <div key={i} className="text-xs text-muted-foreground flex items-center justify-between">
                           <span className={cn("font-medium", e.type === "MULTI_DEVICE_DETECTED" ? "text-destructive" : "text-orange-600")}>{e.type === "TAB_HIDDEN" ? "Tab switch" : e.type === "COPY_ATTEMPT" ? "Copy attempt" : "Multi-device"}</span>
                           <span>{new Date(e.createdAt).toLocaleTimeString()}</span>
@@ -1111,7 +1267,40 @@ export function SessionDetailPage() {
           </div>
         </div>
       </div>
+    </>
+  );
+}
 
+function SessionDetailDialogs(props: any) {
+  const {
+    session,
+    detailSq,
+    setDetailSq,
+    detailNote,
+    setDetailNote,
+    detailRating,
+    setDetailRating,
+    detailSaving,
+    handleSaveDetail,
+    activateDialogOpen,
+    setActivateDialogOpen,
+    activateQuestionsLoading,
+    dialogQuestionsMap,
+    activateSelectedIds,
+    toggleActivateQuestion,
+    activateSubmitting,
+    handleActivateSubmit,
+    handleResuggest,
+    addQuestionsOpen,
+    setAddQuestionsOpen,
+    questionBank,
+    existingQuestionIds,
+    selectedBankQuestionIds,
+    setSelectedBankQuestionIds,
+    handleAddSelectedQuestions,
+  } = props;
+  return (
+    <>
       {/* Question Detail Dialog */}
       <Dialog
         open={!!detailSq}
@@ -1180,7 +1369,7 @@ export function SessionDetailPage() {
             {/* Interviewer note */}
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Interviewer Note</p>
-              <Textarea value={detailNote} onChange={(e) => setDetailNote(e.target.value)} placeholder="Add note…" className="text-sm min-h-[80px] resize-none" />
+                  <Textarea value={detailNote} onChange={(e: any) => setDetailNote(e.target.value)} placeholder="Add note…" className="text-sm min-h-[80px] resize-none" />
             </div>
 
             {/* Rating */}
@@ -1188,7 +1377,7 @@ export function SessionDetailPage() {
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Rating</p>
               <div className="flex flex-wrap gap-2">
                 {[1, 2, 3, 4, 5].map((r) => (
-                  <button type="button" key={r} onClick={() => setDetailRating((prev) => (prev === r ? null : r))} className={cn("text-sm px-3 py-1.5 rounded-full border transition-all font-medium", detailRating === r ? RATING_COLORS[r] : "bg-background text-muted-foreground border-border hover:border-primary/50")}>
+                  <button type="button" key={r} onClick={() => setDetailRating((prev: number | null) => (prev === r ? null : r))} className={cn("text-sm px-3 py-1.5 rounded-full border transition-all font-medium", detailRating === r ? RATING_COLORS[r] : "bg-background text-muted-foreground border-border hover:border-primary/50")}>
                     {r} — {getRatingLabels(detailSq?.question?.category ?? "")[r]}
                   </button>
                 ))}
@@ -1252,18 +1441,18 @@ export function SessionDetailPage() {
             <DialogDescription>Select questions to add to this session.</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            {questionBank.filter((q) => !existingQuestionIds.has(q.id)).length === 0 ? (
+            {questionBank.filter((q: any) => !existingQuestionIds.has(q.id)).length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">All questions are already added.</p>
             ) : (
               questionBank
-                .filter((q) => !existingQuestionIds.has(q.id))
-                .map((q) => (
+                .filter((q: any) => !existingQuestionIds.has(q.id))
+                .map((q: any) => (
                   <div key={q.id} className="flex items-start gap-3 rounded-lg border p-3 hover:bg-muted/50">
                     <input
                       type="checkbox"
                       className="mt-1"
                       checked={selectedBankQuestionIds.has(q.id)}
-                      onChange={() => setSelectedBankQuestionIds((prev) => {
+                      onChange={() => setSelectedBankQuestionIds((prev: Set<string>) => {
                         const next = new Set(prev);
                         next.has(q.id) ? next.delete(q.id) : next.add(q.id);
                         return next;
@@ -1274,7 +1463,7 @@ export function SessionDetailPage() {
                       className="flex-1 min-w-0 text-left"
                       aria-pressed={selectedBankQuestionIds.has(q.id)}
                       aria-label={"Select question " + q.text}
-                      onClick={() => setSelectedBankQuestionIds((prev) => {
+                      onClick={() => setSelectedBankQuestionIds((prev: Set<string>) => {
                         const next = new Set(prev);
                         next.has(q.id) ? next.delete(q.id) : next.add(q.id);
                         return next;
@@ -1304,6 +1493,7 @@ export function SessionDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+
+    </>
   );
 }

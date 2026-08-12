@@ -43,7 +43,266 @@ const recruitmentNavItems = [
   { label: 'Applications', href: '/recruitment/applications', icon: Users },
 ];
 
+const settingsNavItems = [
+  { label: 'AMIS Careers', href: '/settings/positions', icon: Briefcase },
+  { label: 'Categories', href: '/settings/categories', icon: Tag },
+  { label: 'Levels', href: '/settings/levels', icon: BarChart2 },
+  { label: 'Users', href: '/settings/users', icon: UserCog },
+  { label: 'AI Prompts', href: '/settings/prompts', icon: Bot },
+  { label: 'AI Models', href: '/settings/models', icon: Cpu },
+];
+
 const freelancerWorkspacePath = '/candidates/freelancers';
+
+type SidebarNavItem = {
+  label: string;
+  href: string;
+  icon: typeof Briefcase;
+};
+
+function SidebarLink({
+  item,
+  pathname,
+  collapsed,
+  isActive,
+}: {
+  item: SidebarNavItem;
+  pathname: string;
+  collapsed: boolean;
+  isActive?: boolean;
+}) {
+  const Icon = item.icon;
+  const active = isActive ?? pathname.startsWith(item.href);
+
+  return (
+    <Link
+      to={item.href}
+      title={collapsed ? item.label : undefined}
+      className={cn(
+        'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+        collapsed && 'justify-center px-2',
+        active
+          ? 'bg-primary text-primary-foreground'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      {!collapsed && item.label}
+    </Link>
+  );
+}
+
+function SidebarSubLink({
+  item,
+  pathname,
+}: {
+  item: SidebarNavItem;
+  pathname: string;
+}) {
+  const Icon = item.icon;
+
+  return (
+    <Link
+      to={item.href}
+      className={cn(
+        'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
+        pathname.startsWith(item.href)
+          ? 'bg-primary text-primary-foreground'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+      )}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      {item.label}
+    </Link>
+  );
+}
+
+function SidebarNavLinks({
+  items,
+  pathname,
+  collapsed,
+}: {
+  items: SidebarNavItem[];
+  pathname: string;
+  collapsed: boolean;
+}) {
+  const isCandidatePage = pathname.startsWith('/candidates');
+  const isFreelancerPage = pathname.startsWith('/candidates/freelancers');
+  const isInternalPage = pathname.startsWith('/candidates/internals');
+
+  return (
+    <>
+      {items.map((item) => (
+        <SidebarLink
+          key={item.href}
+          item={item}
+          pathname={pathname}
+          collapsed={collapsed}
+          isActive={item.href === '/candidates'
+            ? isCandidatePage && !isFreelancerPage && !isInternalPage
+            : undefined}
+        />
+      ))}
+    </>
+  );
+}
+
+function SidebarSectionButton({
+  label,
+  icon: Icon,
+  collapsed,
+  expanded,
+  active,
+  onClick,
+}: {
+  label: string;
+  icon: typeof Briefcase;
+  collapsed: boolean;
+  expanded: boolean;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={collapsed ? label : undefined}
+      onClick={onClick}
+      className={cn(
+        'w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+        collapsed && 'justify-center px-2',
+        active
+          ? 'text-primary font-medium'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      {!collapsed && (
+        <>
+          <span className="flex-1 text-left">{label}</span>
+          {expanded
+            ? <ChevronDown className="h-3.5 w-3.5" />
+            : <ChevronRight className="h-3.5 w-3.5" />}
+        </>
+      )}
+    </button>
+  );
+}
+
+function RecruitmentNavSection({
+  pathname,
+  collapsed,
+  expanded,
+  onToggle,
+}: {
+  pathname: string;
+  collapsed: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <Separator className="my-1" />
+      <SidebarSectionButton
+        label="Recruitment"
+        icon={Briefcase}
+        collapsed={collapsed}
+        expanded={expanded}
+        active={pathname.startsWith('/recruitment')}
+        onClick={onToggle}
+      />
+      {!collapsed && expanded && (
+        <div className="ml-4 space-y-1">
+          {recruitmentNavItems.map((item) => (
+            <SidebarSubLink key={item.href} item={item} pathname={pathname} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function SettingsNavSection({
+  pathname,
+  collapsed,
+  expanded,
+  onToggle,
+}: {
+  pathname: string;
+  collapsed: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <Separator className="my-1" />
+      <SidebarSectionButton
+        label="Settings"
+        icon={Settings}
+        collapsed={collapsed}
+        expanded={expanded}
+        active={pathname.startsWith('/settings')}
+        onClick={onToggle}
+      />
+      {!collapsed && expanded && (
+        <div className="ml-4 space-y-1">
+          {settingsNavItems.map((item) => (
+            <SidebarSubLink key={item.href} item={item} pathname={pathname} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function SidebarNavigation({
+  pathname,
+  collapsed,
+  user,
+  recruitmentExpanded,
+  settingsExpanded,
+  onToggleRecruitment,
+  onToggleSettings,
+}: {
+  pathname: string;
+  collapsed: boolean;
+  user: User | null;
+  recruitmentExpanded: boolean;
+  settingsExpanded: boolean;
+  onToggleRecruitment: () => void;
+  onToggleSettings: () => void;
+}) {
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const isFreelancerUser = user?.role === UserRole.FREELANCER;
+  const isRecruitmentUser = isAdmin || user?.role === UserRole.HR;
+  const primaryNavItems: SidebarNavItem[] = isFreelancerUser
+    ? [{ label: 'Freelancer', href: freelancerWorkspacePath, icon: Users }]
+    : defaultNavItems;
+
+  return (
+    <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+      <SidebarNavLinks items={primaryNavItems} pathname={pathname} collapsed={collapsed} />
+      {!isFreelancerUser && isRecruitmentUser && (
+        <SidebarNavLinks items={hrAdminNavItems} pathname={pathname} collapsed={collapsed} />
+      )}
+      {!isFreelancerUser && isRecruitmentUser && (
+        <RecruitmentNavSection
+          pathname={pathname}
+          collapsed={collapsed}
+          expanded={recruitmentExpanded}
+          onToggle={onToggleRecruitment}
+        />
+      )}
+      {!isFreelancerUser && isAdmin && (
+        <SettingsNavSection
+          pathname={pathname}
+          collapsed={collapsed}
+          expanded={settingsExpanded}
+          onToggle={onToggleSettings}
+        />
+      )}
+    </nav>
+  );
+}
 
 function SidebarContent() {
   const location = useLocation();
@@ -79,12 +338,17 @@ function SidebarContent() {
     });
   };
 
-  const isAdmin = user?.role === UserRole.ADMIN;
-  const isFreelancerUser = user?.role === UserRole.FREELANCER;
-  const isRecruitmentUser = user?.role === UserRole.ADMIN || user?.role === UserRole.HR;
-  const primaryNavItems = isFreelancerUser
-    ? [{ label: 'Freelancer', href: freelancerWorkspacePath, icon: Users }]
-    : defaultNavItems;
+  const toggleRecruitment = () => {
+    const next = !recruitmentExpanded;
+    setRecruitmentExpanded(next);
+    localStorage.setItem('recruitment-expanded', String(next));
+  };
+
+  const toggleSettings = () => {
+    const next = !settingsExpanded;
+    setSettingsExpanded(next);
+    localStorage.setItem('settings-expanded', String(next));
+  };
 
   return (
     <aside
@@ -108,173 +372,15 @@ function SidebarContent() {
       </div>
       <Separator />
 
-      {/* Nav */}
-      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-        {primaryNavItems.map((item) => {
-          const Icon = item.icon;
-          const isCandidatePage = location.pathname.startsWith('/candidates');
-          const isFreelancerPage = location.pathname.startsWith('/candidates/freelancers');
-          const isInternalPage = location.pathname.startsWith('/candidates/internals');
-          const isActive = item.href === '/candidates'
-            ? isCandidatePage && !isFreelancerPage && !isInternalPage
-            : location.pathname.startsWith(item.href);
-
-          return (
-            <Link
-              key={item.href}
-              to={item.href}
-              title={collapsed ? item.label : undefined}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-                collapsed && 'justify-center px-2',
-                isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && item.label}
-            </Link>
-          );
-        })}
-
-        {/* HR/Admin nav items (Questions, etc.) */}
-        {!isFreelancerUser && isRecruitmentUser && hrAdminNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = location.pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              to={item.href}
-              title={collapsed ? item.label : undefined}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-                collapsed && 'justify-center px-2',
-                isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && item.label}
-            </Link>
-          );
-        })}
-
-        {!isFreelancerUser && isRecruitmentUser && (
-          <>
-            <Separator className="my-1" />
-            <button
-              type="button"
-              title={collapsed ? 'Recruitment' : undefined}
-              onClick={() => {
-                const next = !recruitmentExpanded;
-                setRecruitmentExpanded(next);
-                localStorage.setItem('recruitment-expanded', String(next));
-              }}
-              className={cn(
-                'w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-                collapsed && 'justify-center px-2',
-                location.pathname.startsWith('/recruitment')
-                  ? 'text-primary font-medium'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              <Briefcase className="h-4 w-4 shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="flex-1 text-left">Recruitment</span>
-                  {recruitmentExpanded
-                    ? <ChevronDown className="h-3.5 w-3.5" />
-                    : <ChevronRight className="h-3.5 w-3.5" />}
-                </>
-              )}
-            </button>
-
-            {!collapsed && recruitmentExpanded && (
-              <div className="ml-4 space-y-1">
-                {recruitmentNavItems.map(({ label, href, icon: Icon }) => (
-                  <Link
-                    key={href}
-                    to={href}
-                    className={cn(
-                      'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
-                      location.pathname.startsWith(href)
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    {label}
-                  </Link>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Settings sub-menu — admin only */}
-        {!isFreelancerUser && isAdmin && (
-          <>
-            <Separator className="my-1" />
-            {/* Settings header row */}
-            <button
-              type="button"
-              title={collapsed ? 'Settings' : undefined}
-              onClick={() => {
-                const next = !settingsExpanded;
-                setSettingsExpanded(next);
-                localStorage.setItem('settings-expanded', String(next));
-              }}
-              className={cn(
-                'w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-                collapsed && 'justify-center px-2',
-                location.pathname.startsWith('/settings')
-                  ? 'text-primary font-medium'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              <Settings className="h-4 w-4 shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="flex-1 text-left">Settings</span>
-                  {settingsExpanded
-                    ? <ChevronDown className="h-3.5 w-3.5" />
-                    : <ChevronRight className="h-3.5 w-3.5" />}
-                </>
-              )}
-            </button>
-
-            {/* Sub-items — only visible when sidebar expanded + settings expanded */}
-            {!collapsed && settingsExpanded && (
-              <div className="ml-4 space-y-1">
-                {[
-                  { label: 'AMIS Careers', href: '/settings/positions', icon: Briefcase },
-                  { label: 'Categories', href: '/settings/categories', icon: Tag },
-                  { label: 'Levels', href: '/settings/levels', icon: BarChart2 },
-                  { label: 'Users', href: '/settings/users', icon: UserCog },
-                  { label: 'AI Prompts', href: '/settings/prompts', icon: Bot },
-                  { label: 'AI Models', href: '/settings/models', icon: Cpu },
-                ].map(({ label, href, icon: Icon }) => (
-                  <Link
-                    key={href}
-                    to={href}
-                    className={cn(
-                      'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
-                      location.pathname.startsWith(href)
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    {label}
-                  </Link>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </nav>
+      <SidebarNavigation
+        pathname={location.pathname}
+        collapsed={collapsed}
+        user={user}
+        recruitmentExpanded={recruitmentExpanded}
+        settingsExpanded={settingsExpanded}
+        onToggleRecruitment={toggleRecruitment}
+        onToggleSettings={toggleSettings}
+      />
 
       <Separator />
 
@@ -298,7 +404,7 @@ function SidebarContent() {
             <span className="ml-2">Logout</span>
           </Button>
         )}
-        {/* Collapse toggle — always visible */}
+        {/* Collapse toggle - always visible */}
         <Button
           variant="ghost"
           size="sm"
@@ -350,7 +456,7 @@ function LayoutInner() {
       .catch((err) => {
         if (!isActive) return;
 
-        // Only logout on 401 — network errors (e.g. backend restarting) should not clear the session
+        // Only logout on 401 - network errors (e.g. backend restarting) should not clear the session
         if (err instanceof ApiError && err.status === 401) {
           apiClient.clearTokens();
           setUser(null);
@@ -400,7 +506,7 @@ function LayoutInner() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Sidebar — always visible and expanded on all screen sizes */}
+      {/* Sidebar - always visible and expanded on all screen sizes */}
       <div className="flex shrink-0">
         <SidebarContent />
       </div>

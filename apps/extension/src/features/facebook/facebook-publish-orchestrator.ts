@@ -950,6 +950,91 @@ type FacebookPendingPostGroupRecoveryState = {
   stopAfterClickFailure: boolean;
 };
 
+function isAcceptedFacebookPendingPostUrl(
+  state: FacebookPendingPostGroupRecoveryState,
+  postUrl: FacebookParsedGroupPostUrl | null,
+) {
+  return Boolean(
+    postUrl
+    && (
+      isExpectedFacebookGroupPostUrl(
+        postUrl,
+        getExpectedFacebookGroupIds(state.history.targetUrl, state.history.targetExternalId),
+      )
+      || state.lastDetection?.trustedTimestampNavigation
+    ),
+  );
+}
+
+function buildFacebookPendingPostRecoveryResult(
+  state: FacebookPendingPostGroupRecoveryState,
+  postUrl: FacebookParsedGroupPostUrl,
+  message: string,
+): FacebookPublishHistoryStatusCheckRequest {
+  return {
+    facebookReviewStatus: postUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
+    message,
+    externalPostId: postUrl.postId,
+    externalPostUrl: postUrl.url,
+    checkedAt: state.checkedAt,
+  };
+}
+
+async function inspectFacebookPendingPostSurfaceAfterClick(
+  state: FacebookPendingPostGroupRecoveryState,
+  clickPoint: FacebookSubmitButtonPoint,
+): Promise<FacebookPublishHistoryStatusCheckRequest | null> {
+  const surfaceProbe = await runScript<
+    [FacebookPendingPostOpenSurfaceProbeInput],
+    FacebookPendingPostOpenSurfaceProbeResult
+  >(
+    state.tabId,
+    inspectFacebookPendingPostOpenSurfaceInPage,
+    [{
+      title: state.history.title,
+      contentPreview: state.history.contentPreview ?? null,
+      targetUrl: state.history.targetUrl ?? null,
+      targetExternalId: state.history.targetExternalId ?? null,
+      clickPoint,
+    }],
+  ).catch((error) => {
+    state.lastSurfaceProbeMessage = toAutomationErrorMessage(error);
+    return null;
+  });
+  if (!surfaceProbe) return null;
+
+  state.lastSurfaceProbeMessage = surfaceProbe.diagnostics ?? null;
+  const surfacePostUrl = parseFacebookGroupPostUrl(surfaceProbe.externalPostUrl);
+  if (isAcceptedFacebookPendingPostUrl(state, surfacePostUrl)) {
+    await closeAutomationOpenedTabs(state.openedTabIdsToClose, state.tabId);
+    return buildFacebookPendingPostRecoveryResult(
+      state,
+      surfacePostUrl!,
+      'Recovered Facebook group post URL from the menu or dialog opened by the matched pending post controls.',
+    );
+  }
+  addUniqueClickPoints(state.clickQueue, surfaceProbe.clickPoints ?? [], state.queuedClickPointKeys);
+  return null;
+}
+
+async function inspectFacebookPendingPostPageAfterClick(
+  state: FacebookPendingPostGroupRecoveryState,
+): Promise<FacebookPublishHistoryStatusCheckRequest | null> {
+  const pageRecovery = await state.recoverInCurrentPage().catch((error) => {
+    state.lastPageProbeErrorMessage = toAutomationErrorMessage(error);
+    return null;
+  });
+  if (!pageRecovery) return null;
+  state.recoveryResult = pageRecovery;
+  const pagePostUrl = parseFacebookGroupPostUrl(pageRecovery.externalPostUrl);
+  if (isAcceptedFacebookPendingPostUrl(state, pagePostUrl)) {
+    await closeAutomationOpenedTabs(state.openedTabIdsToClose, state.tabId);
+    return buildFacebookPendingPostRecoveryResult(state, pagePostUrl!, pageRecovery.message);
+  }
+  addUniqueClickPoints(state.clickQueue, getPostOpenClickPoints(pageRecovery), state.queuedClickPointKeys);
+  return null;
+}
+
 async function processFacebookPendingPostGroupRecoveryClick(
   state: FacebookPendingPostGroupRecoveryState,
   clickPoint: FacebookSubmitButtonPoint,
@@ -974,86 +1059,17 @@ async function processFacebookPendingPostGroupRecoveryClick(
   state.lastDetection = detectedPostUrl;
   if (detectedPostUrl.postUrl && (detectedPostUrl.matchedExpectedGroup || detectedPostUrl.trustedTimestampNavigation)) {
     await closeAutomationOpenedTabs(state.openedTabIdsToClose, state.tabId);
-    return {
-      facebookReviewStatus: detectedPostUrl.postUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
-      message: buildRecoveredPendingPostUrlMessage(detectedPostUrl),
-      externalPostId: detectedPostUrl.postUrl.postId,
-      externalPostUrl: detectedPostUrl.postUrl.url,
-      checkedAt: state.checkedAt,
-    };
+    return buildFacebookPendingPostRecoveryResult(
+      state,
+      detectedPostUrl.postUrl,
+      buildRecoveredPendingPostUrlMessage(detectedPostUrl),
+    );
   }
 
   await sleep(randomDelay(700, 1_200));
-  const surfaceProbeAfterClick = await runScript<
-    [FacebookPendingPostOpenSurfaceProbeInput],
-    FacebookPendingPostOpenSurfaceProbeResult
-  >(
-    state.tabId,
-    inspectFacebookPendingPostOpenSurfaceInPage,
-    [{
-      title: state.history.title,
-      contentPreview: state.history.contentPreview ?? null,
-      targetUrl: state.history.targetUrl ?? null,
-      targetExternalId: state.history.targetExternalId ?? null,
-      clickPoint,
-    }],
-  ).catch((error) => {
-    state.lastSurfaceProbeMessage = toAutomationErrorMessage(error);
-    return null;
-  });
-  if (surfaceProbeAfterClick) {
-    state.lastSurfaceProbeMessage = surfaceProbeAfterClick.diagnostics ?? null;
-    const surfacePostUrl = parseFacebookGroupPostUrl(surfaceProbeAfterClick.externalPostUrl);
-    if (
-      surfacePostUrl
-      && (
-        isExpectedFacebookGroupPostUrl(
-          surfacePostUrl,
-          getExpectedFacebookGroupIds(state.history.targetUrl, state.history.targetExternalId),
-        )
-        || state.lastDetection?.trustedTimestampNavigation
-      )
-    ) {
-      await closeAutomationOpenedTabs(state.openedTabIdsToClose, state.tabId);
-      return {
-        facebookReviewStatus: surfacePostUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
-        message: 'Recovered Facebook group post URL from the menu or dialog opened by the matched pending post controls.',
-        externalPostId: surfacePostUrl.postId,
-        externalPostUrl: surfacePostUrl.url,
-        checkedAt: state.checkedAt,
-      };
-    }
-    addUniqueClickPoints(state.clickQueue, surfaceProbeAfterClick.clickPoints ?? [], state.queuedClickPointKeys);
-  }
-
-  const pageRecoveryAfterClick = await state.recoverInCurrentPage().catch((error) => {
-    state.lastPageProbeErrorMessage = toAutomationErrorMessage(error);
-    return null;
-  });
-  if (!pageRecoveryAfterClick) return null;
-  state.recoveryResult = pageRecoveryAfterClick;
-  const clickedUrl = parseFacebookGroupPostUrl(pageRecoveryAfterClick.externalPostUrl);
-  if (
-    clickedUrl
-    && (
-      isExpectedFacebookGroupPostUrl(
-        clickedUrl,
-        getExpectedFacebookGroupIds(state.history.targetUrl, state.history.targetExternalId),
-      )
-      || state.lastDetection?.trustedTimestampNavigation
-    )
-  ) {
-    await closeAutomationOpenedTabs(state.openedTabIdsToClose, state.tabId);
-    return {
-      facebookReviewStatus: clickedUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
-      message: pageRecoveryAfterClick.message,
-      externalPostId: clickedUrl.postId,
-      externalPostUrl: clickedUrl.url,
-      checkedAt: state.checkedAt,
-    };
-  }
-  addUniqueClickPoints(state.clickQueue, getPostOpenClickPoints(pageRecoveryAfterClick), state.queuedClickPointKeys);
-  return null;
+  const surfaceResult = await inspectFacebookPendingPostSurfaceAfterClick(state, clickPoint);
+  if (surfaceResult) return surfaceResult;
+  return inspectFacebookPendingPostPageAfterClick(state);
 }
 
 async function prepareFacebookPendingPostGroupRecoveryClicks(state: FacebookPendingPostGroupRecoveryState) {
@@ -5945,6 +5961,54 @@ async function recoverFacebookPendingPostUrlInPage(
       height: Math.round(rect.height),
     },
   });
+  const getPostOpenActionText = (element: Element, clickable: Element) => {
+    const elementText = textOf(element);
+    const clickableText = textOf(clickable);
+    return normalize([
+      directTextOf(element),
+      elementAttributeText(element),
+      elementText.length <= 180 ? elementText : '',
+      clickable !== element ? directTextOf(clickable) : '',
+      clickable !== element ? elementAttributeText(clickable) : '',
+      clickable !== element && clickableText.length <= 180 ? clickableText : '',
+    ].join(' '));
+  };
+  const getPostOpenActionPrimaryScore = (actionText: string) => (
+    /(^|\s)(quan ly bai viet|manage (?:your )?posts?)(?=\s|$|[.,;:!?])/.test(actionText)
+      ? 260
+      : /(^|\s)(xem bai viet|view post|open post|go to post|see post|review post)(?=\s|$|[.,;:!?])/.test(actionText)
+        ? 230
+        : 160
+  );
+  const isPostOpenActionGeometryValid = (
+    rect: DOMRect,
+    cardRect: DOMRect,
+    semantic: boolean,
+    compact: boolean,
+    hasExpectedPostUrl: boolean,
+  ) => {
+    const tooLarge = rect.width > Math.min(cardRect.width * 0.94, 620) && rect.height > 120;
+    if (tooLarge && !hasExpectedPostUrl) return false;
+    return semantic || compact || hasExpectedPostUrl;
+  };
+  const scorePostOpenAction = (
+    rect: DOMRect,
+    contentRect: DOMRect | null,
+    hasExpectedPostUrl: boolean,
+    primaryTextScore: number,
+    semantic: boolean,
+    compact: boolean,
+  ) => {
+    const contentDistancePenalty = contentRect
+      ? Math.max(0, Math.abs((rect.top + rect.bottom) / 2 - (contentRect.top + contentRect.bottom) / 2) - 320) / 10
+      : 0;
+    return (hasExpectedPostUrl ? 600 : 0)
+      + primaryTextScore
+      + (semantic ? 110 : 0)
+      + (compact ? 80 : 0)
+      - Math.max(0, rect.width - 280) / 5
+      - contentDistancePenalty;
+  };
   const scorePostOpenActionElement = (
     element: Element,
     scopes: Element[],
@@ -5958,16 +6022,7 @@ async function recoverFacebookPendingPostUrlInPage(
     seenTargets.add(target);
     if (!isInsideAnyTimestampScope(target, scopes) || !isVisible(target)) return null;
 
-    const elementText = textOf(element);
-    const clickableText = textOf(clickable);
-    const actionText = normalize([
-      directTextOf(element),
-      elementAttributeText(element),
-      elementText.length <= 180 ? elementText : '',
-      clickable !== element ? directTextOf(clickable) : '',
-      clickable !== element ? elementAttributeText(clickable) : '',
-      clickable !== element && clickableText.length <= 180 ? clickableText : '',
-    ].join(' '));
+    const actionText = getPostOpenActionText(element, clickable);
     if (!hasPostOpenActionText(actionText)) return null;
 
     const rect = target.getBoundingClientRect();
@@ -5978,24 +6033,16 @@ async function recoverFacebookPendingPostUrlInPage(
       || clickable.getAttribute('role') === 'button'
       || clickable instanceof HTMLButtonElement;
     const compact = rect.width <= Math.min(cardRect.width * 0.85, 380) && rect.height <= 76;
-    const tooLarge = rect.width > Math.min(cardRect.width * 0.94, 620) && rect.height > 120;
-    if (tooLarge && !hasExpectedPostUrl) return null;
-    if (!semantic && !compact && !hasExpectedPostUrl) return null;
+    if (!isPostOpenActionGeometryValid(rect, cardRect, semantic, compact, hasExpectedPostUrl)) return null;
 
-    const primaryTextScore = /(^|\s)(quan ly bai viet|manage (?:your )?posts?)(?=\s|$|[.,;:!?])/.test(actionText)
-      ? 260
-      : /(^|\s)(xem bai viet|view post|open post|go to post|see post|review post)(?=\s|$|[.,;:!?])/.test(actionText)
-        ? 230
-        : 160;
-    const contentDistancePenalty = contentRect
-      ? Math.max(0, Math.abs((rect.top + rect.bottom) / 2 - (contentRect.top + contentRect.bottom) / 2) - 320) / 10
-      : 0;
-    const score = (hasExpectedPostUrl ? 600 : 0)
-      + primaryTextScore
-      + (semantic ? 110 : 0)
-      + (compact ? 80 : 0)
-      - Math.max(0, rect.width - 280) / 5
-      - contentDistancePenalty;
+    const score = scorePostOpenAction(
+      rect,
+      contentRect,
+      hasExpectedPostUrl,
+      getPostOpenActionPrimaryScore(actionText),
+      semantic,
+      compact,
+    );
     return score < 150 ? null : { point: buildPostOpenActionPoint(rect), score };
   };
   const getPostOpenActionCandidates = (card: Element) => {
@@ -6639,6 +6686,36 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
     document.body,
   ].filter((root): root is Element => Boolean(root));
   const seenTargets = new Set<Element>();
+  const getPendingSurfaceHref = (element: Element, target: Element) => (
+    target instanceof HTMLAnchorElement
+      ? target.href
+      : element instanceof HTMLAnchorElement
+        ? element.href
+        : target.getAttribute('href') ?? element.getAttribute('href')
+  );
+  const getPendingSurfaceActionText = (element: Element, clickable: Element, target: Element) => {
+    const targetText = textOf(target);
+    const elementText = textOf(element);
+    return normalize([
+      directTextOf(element),
+      elementAttributeText(element),
+      elementText.length <= 220 ? elementText : '',
+      clickable !== element ? directTextOf(clickable) : '',
+      clickable !== element ? elementAttributeText(clickable) : '',
+      clickable !== element && targetText.length <= 220 ? targetText : '',
+    ].join(' '));
+  };
+  const getPendingSurfaceActionScore = (
+    rect: DOMRect,
+    inOverlay: boolean,
+    semantic: boolean,
+    compact: boolean,
+    actionText: string,
+  ) => (inOverlay ? 420 : 0)
+    + (semantic ? 160 : 0)
+    + (compact ? 80 : 0)
+    + (/(^|\s)(xem bai viet|view (?:your )?post|open post|go to post|see post|xem bai dang|mo bai viet)(?=\s|$|[.,;:!?])/.test(actionText) ? 260 : 140)
+    - Math.max(0, rect.width - 320) / 8;
   const scorePendingOpenSurfaceAction = (
     element: Element,
     overlayRoots: Element[],
@@ -6650,13 +6727,7 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
     seenTargets.add(target);
     if (!isVisible(target)) return null;
 
-    const hrefPostUrl = parsePostUrl(
-      target instanceof HTMLAnchorElement
-        ? target.href
-        : element instanceof HTMLAnchorElement
-          ? element.href
-          : target.getAttribute('href') ?? element.getAttribute('href'),
-    );
+    const hrefPostUrl = parsePostUrl(getPendingSurfaceHref(element, target));
     if (isExpectedPostUrl(hrefPostUrl)) {
       return {
         point: buildPoint(target.getBoundingClientRect(), 'Facebook pending post exposed URL action'),
@@ -6665,16 +6736,7 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
       };
     }
 
-    const targetText = textOf(target);
-    const elementText = textOf(element);
-    const actionText = normalize([
-      directTextOf(element),
-      elementAttributeText(element),
-      elementText.length <= 220 ? elementText : '',
-      clickable !== element ? directTextOf(clickable) : '',
-      clickable !== element ? elementAttributeText(clickable) : '',
-      clickable !== element && targetText.length <= 220 ? targetText : '',
-    ].join(' '));
+    const actionText = getPendingSurfaceActionText(element, clickable, target);
     if (!hasPostOpenActionText(actionText)) return null;
 
     const rect = target.getBoundingClientRect();
@@ -6683,11 +6745,7 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
       || clickable instanceof HTMLButtonElement;
     const inOverlay = overlayRoots.some((root) => root === target || root.contains(target));
     const compact = rect.width <= Math.min(window.innerWidth * 0.82, 420) && rect.height <= 82;
-    const actionScore = (inOverlay ? 420 : 0)
-      + (semantic ? 160 : 0)
-      + (compact ? 80 : 0)
-      + (/(^|\s)(xem bai viet|view (?:your )?post|open post|go to post|see post|xem bai dang|mo bai viet)(?=\s|$|[.,;:!?])/.test(actionText) ? 260 : 140)
-      - Math.max(0, rect.width - 320) / 8;
+    const actionScore = getPendingSurfaceActionScore(rect, inOverlay, semantic, compact, actionText);
     if (actionScore < 180) return null;
 
     return {

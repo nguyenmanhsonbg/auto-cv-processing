@@ -293,290 +293,241 @@ export function LiveSessionPage() {
   if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
   if (!session) return <div className="flex items-center justify-center h-screen">Session not found.</div>;
 
-  const statusStyles: Record<string, string> = {
-    DRAFT: 'bg-gray-100 text-gray-800',
-    IN_PROGRESS: 'bg-blue-100 text-blue-800',
-    COMPLETED: 'bg-green-100 text-green-800',
-    EVALUATED: 'bg-purple-100 text-purple-800',
-  };
+  return (
+    <LiveSessionView
+      session={session}
+      slug={slug}
+      user={user}
+      sessionQuestions={sessionQuestions}
+      categoryOrder={categoryOrder}
+      categories={categories}
+      connected={connected}
+      elapsed={elapsed}
+      candidateIp={candidateIp}
+      anticheat={anticheat}
+      interviewers={interviewers}
+      candidateCurrentSqId={candidateCurrentSqId}
+      focusedSqId={focusedSqId}
+      liveDrafts={liveDrafts}
+      liveCode={liveCode}
+      liveArchitecture={liveArchitecture}
+      viewingSqId={viewingSqId}
+      setViewingSqId={setViewingSqId}
+      suggestionsEnabled={suggestionsEnabled}
+      setSuggestionsEnabled={setSuggestionsEnabled}
+      sequentialMode={sequentialMode}
+      setSequentialMode={setSequentialMode}
+      candidateViewEnabled={candidateViewEnabled}
+      setCandidateViewEnabled={setCandidateViewEnabled}
+      rightTab={rightTab}
+      setRightTab={setRightTab}
+      mobilePanel={mobilePanel}
+      setMobilePanel={setMobilePanel}
+      onAutoSave={handleAutoSave}
+      onFetchSession={fetchSession}
+      onForceActivate={handleForceActivate}
+      onForceActivateNext={handleForceActivateNextFromCandidate}
+      onForceActivateById={callForceActivate}
+      onCompleteSession={handleCompleteSession}
+      onCategoryRatingsUpdate={handleCategoryRatingsUpdate}
+    />
+  );
+}
 
-  const isReadOnly = session.status === 'COMPLETED' || session.status === 'EVALUATED';
-  const showBackToCandidate = viewingSqId && viewingSqId !== candidateCurrentSqId;
-  const canViewQuestions = user?.role === UserRole.ADMIN || user?.role === UserRole.INTERVIEWER;
+const SESSION_STATUS_STYLES: Record<string, string> = {
+  DRAFT: 'bg-gray-100 text-gray-800',
+  IN_PROGRESS: 'bg-blue-100 text-blue-800',
+  COMPLETED: 'bg-green-100 text-green-800',
+  EVALUATED: 'bg-purple-100 text-purple-800',
+};
 
+interface LiveSessionViewProps {
+  session: any;
+  slug?: string;
+  user: any;
+  sessionQuestions: any[];
+  categoryOrder: Map<string, string[]>;
+  categories: Array<{ id: string; name: string; positions?: string[] | null }>;
+  connected: boolean;
+  elapsed: string;
+  candidateIp: { ip: string; userAgent: string; connectedAt: string } | null;
+  anticheat: { tabSwitches: number; copyAttempts: number; multiDeviceDetected: boolean };
+  interviewers: InterviewerInfo[];
+  candidateCurrentSqId: string | null;
+  focusedSqId: string | null;
+  liveDrafts: Record<string, string>;
+  liveCode: Record<string, { code: string; language: string }>;
+  liveArchitecture: Record<string, ArchitectureAnswer>;
+  viewingSqId: string | null;
+  setViewingSqId: (id: string | null) => void;
+  suggestionsEnabled: boolean;
+  setSuggestionsEnabled: (enabled: boolean) => void;
+  sequentialMode: boolean;
+  setSequentialMode: (enabled: boolean) => void;
+  candidateViewEnabled: boolean;
+  setCandidateViewEnabled: (enabled: boolean) => void;
+  rightTab: 'questions' | 'ratings';
+  setRightTab: (tab: 'questions' | 'ratings') => void;
+  mobilePanel: 'candidate' | 'panel';
+  setMobilePanel: (panel: 'candidate' | 'panel') => void;
+  onAutoSave: (sqId: string, data: { interviewerNote?: string; rating?: number }) => Promise<void>;
+  onFetchSession: () => void;
+  onForceActivate: () => Promise<void>;
+  onForceActivateNext: () => Promise<void>;
+  onForceActivateById: (sqId: string) => Promise<void>;
+  onCompleteSession: () => Promise<void>;
+  onCategoryRatingsUpdate: (ratings: Record<string, number>) => void;
+}
+
+function LiveSessionView(props: LiveSessionViewProps) {
+  const isReadOnly = props.session.status === 'COMPLETED' || props.session.status === 'EVALUATED';
+  const showBackToCandidate = Boolean(props.viewingSqId && props.viewingSqId !== props.candidateCurrentSqId);
+  const canViewQuestions = props.user?.role === UserRole.ADMIN || props.user?.role === UserRole.INTERVIEWER;
   return (
     <div className="h-screen flex flex-col">
-      {/* Header */}
-      <div className="border-b bg-background px-3 py-2 flex items-center justify-between shrink-0 gap-2">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Link to={`/sessions/${slug}`}>
-            <Button variant="ghost" size="sm" className="px-2">
-              <ArrowLeft className="h-4 w-4" />
-              <span className="hidden sm:inline ml-1">Back</span>
-            </Button>
-          </Link>
-          <div className="h-6 w-px bg-border hidden sm:block" />
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Radio className="h-4 w-4 text-red-500 animate-pulse" />
-            <span className="font-semibold text-sm hidden sm:inline">Live</span>
-          </div>
-          {session.candidate?.slug ? (
-            <Link to={`/candidates/${session.candidate.slug}`} className="text-sm text-blue-600 hover:underline truncate min-w-0">
-              {session.candidate.name || 'Unknown'}
-            </Link>
-          ) : (
-            <span className="text-sm text-muted-foreground truncate min-w-0">
-              {session.candidate?.name || 'Unknown'}
-            </span>
-          )}
-          <Badge className={cn(statusStyles[session.status] || '', 'shrink-0')} variant="outline">
-            {session.status}
-          </Badge>
-          {/* Elapsed timer */}
-          {elapsed && (
-            <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground font-mono shrink-0">
-              <Clock className="h-3.5 w-3.5" />
-              {elapsed}
-            </span>
-          )}
-          {/* IP + interviewers — sm+ only */}
-          <span className="hidden lg:flex items-center gap-1 text-xs shrink-0">
-            {candidateIp ? (
-              <Badge variant="outline" className="text-xs font-mono">IP: {candidateIp.ip}</Badge>
-            ) : (
-              <Badge variant="outline" className="text-xs text-muted-foreground">Offline</Badge>
-            )}
-          </span>
-          {/* Anti-cheat badges */}
-          {anticheat.multiDeviceDetected && (
-            <Badge variant="destructive" className="text-xs shrink-0 hidden lg:flex">Multi-device!</Badge>
-          )}
-          {anticheat.tabSwitches > 0 && (
-            <Badge variant="destructive" className="text-xs shrink-0 hidden lg:flex">Tabs: {anticheat.tabSwitches}</Badge>
-          )}
-          {anticheat.copyAttempts > 0 && (
-            <Badge variant="destructive" className="text-xs shrink-0 hidden lg:flex">Copy: {anticheat.copyAttempts}</Badge>
-          )}
-          {interviewers.length > 0 && (
-            <span className="hidden lg:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-              <Users className="h-3.5 w-3.5" />
-              {[...new Map(interviewers.map((iv) => [iv.email || iv.name, iv])).values()].map((iv) => (
-                <span key={iv.email || iv.socketId} className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs font-medium">
-                  {iv.email || iv.name}
-                </span>
-              ))}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 text-sm shrink-0">
-          <div className="hidden sm:flex items-center gap-1.5">
-            <Label htmlFor="sequential-toggle" className="text-xs cursor-pointer select-none">Sequential</Label>
-            <Switch
-              id="sequential-toggle"
-              checked={sequentialMode}
-              onCheckedChange={async (checked) => {
-                setSequentialMode(checked);
-                try {
-                  await apiClient.patch(`/sessions/${slug}`, { sequentialMode: checked });
-                  toast({ title: checked ? 'Sequential mode enabled' : 'Sequential mode disabled' });
-                } catch {
-                  setSequentialMode(!checked);
-                  toast({ title: 'Failed to update sequential mode', variant: 'destructive' });
-                }
-              }}
-              className="scale-75"
-            />
-          </div>
-          <div className="hidden sm:flex items-center gap-1.5">
-            <Label htmlFor="candidate-view-toggle" className="text-xs cursor-pointer select-none">Candidate View</Label>
-            <Switch
-              id="candidate-view-toggle"
-              checked={candidateViewEnabled}
-              onCheckedChange={async (checked) => {
-                setCandidateViewEnabled(checked);
-                try {
-                  await apiClient.patch(`/sessions/${slug}/candidate-view`, { enabled: checked });
-                  toast({ title: checked ? 'Candidate can now view questions' : 'Candidate view disabled' });
-                } catch {
-                  setCandidateViewEnabled(!checked);
-                  toast({ title: 'Failed to update candidate view permission', variant: 'destructive' });
-                }
-              }}
-              className="scale-75"
-            />
-          </div>
-          <div className="hidden sm:flex items-center gap-1.5">
-            <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
-            <Label htmlFor="suggestions-toggle" className="text-xs cursor-pointer select-none">AI</Label>
-            <Switch
-              id="suggestions-toggle"
-              checked={suggestionsEnabled}
-              onCheckedChange={setSuggestionsEnabled}
-              className="scale-75"
-            />
-          </div>
-          {session.status === 'IN_PROGRESS' && (
-            <Button variant="outline" size="sm" onClick={handleCompleteSession} className="text-xs px-2">
-              Complete Session
-            </Button>
-          )}
-          {(session.status === 'COMPLETED' || session.status === 'EVALUATED') && (
-            <Link to={`/sessions/${slug}/evaluate`}>
-              <Button variant="outline" size="sm" className="text-xs px-2">Evaluate</Button>
-            </Link>
-          )}
-          {showBackToCandidate && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setViewingSqId(null)}
-              className="text-xs px-2"
-            >
-              <Eye className="h-3.5 w-3.5 sm:mr-1" />
-              <span className="hidden sm:inline">Back to Candidate</span>
-            </Button>
-          )}
-          {connected ? (
-            <span className="flex items-center gap-1 text-green-600 text-xs">
-              <Wifi className="h-4 w-4" />
-              <span className="hidden sm:inline">Connected</span>
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-muted-foreground text-xs">
-              <WifiOff className="h-4 w-4" />
-              <span className="hidden sm:inline">Disconnected</span>
-            </span>
-          )}
-        </div>
+      <SessionHeader {...props} isReadOnly={isReadOnly} showBackToCandidate={showBackToCandidate} />
+      <MobilePanelSwitcher mobilePanel={props.mobilePanel} setMobilePanel={props.setMobilePanel} />
+      <SessionPanels {...props} isReadOnly={isReadOnly} canViewQuestions={canViewQuestions} />
+    </div>
+  );
+}
+
+function SessionHeader({
+  session,
+  slug,
+  connected,
+  elapsed,
+  candidateIp,
+  anticheat,
+  interviewers,
+  showBackToCandidate,
+  setViewingSqId,
+  suggestionsEnabled,
+  setSuggestionsEnabled,
+  sequentialMode,
+  setSequentialMode,
+  candidateViewEnabled,
+  setCandidateViewEnabled,
+  onCompleteSession,
+}: LiveSessionViewProps & { isReadOnly: boolean; showBackToCandidate: boolean }) {
+  const updateSequentialMode = async (checked: boolean) => {
+    setSequentialMode(checked);
+    try {
+      await apiClient.patch('/sessions/' + slug, { sequentialMode: checked });
+      toast({ title: checked ? 'Sequential mode enabled' : 'Sequential mode disabled' });
+    } catch {
+      setSequentialMode(!checked);
+      toast({ title: 'Failed to update sequential mode', variant: 'destructive' });
+    }
+  };
+  const updateCandidateView = async (checked: boolean) => {
+    setCandidateViewEnabled(checked);
+    try {
+      await apiClient.patch('/sessions/' + slug + '/candidate-view', { enabled: checked });
+      toast({ title: checked ? 'Candidate can now view questions' : 'Candidate view disabled' });
+    } catch {
+      setCandidateViewEnabled(!checked);
+      toast({ title: 'Failed to update candidate view permission', variant: 'destructive' });
+    }
+  };
+  const uniqueInterviewers = [...new Map(interviewers.map((iv) => [iv.email || iv.name, iv])).values()];
+  return (
+    <div className="border-b bg-background px-3 py-2 flex items-center justify-between shrink-0 gap-2">
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <Link to={'/sessions/' + slug}><Button variant="ghost" size="sm" className="px-2"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline ml-1">Back</span></Button></Link>
+        <div className="h-6 w-px bg-border hidden sm:block" />
+        <div className="flex items-center gap-1.5 shrink-0"><Radio className="h-4 w-4 text-red-500 animate-pulse" /><span className="font-semibold text-sm hidden sm:inline">Live</span></div>
+        {session.candidate?.slug ? <Link to={'/candidates/' + session.candidate.slug} className="text-sm text-blue-600 hover:underline truncate min-w-0">{session.candidate.name || 'Unknown'}</Link> : <span className="text-sm text-muted-foreground truncate min-w-0">{session.candidate?.name || 'Unknown'}</span>}
+        <Badge className={cn(SESSION_STATUS_STYLES[session.status] || '', 'shrink-0')} variant="outline">{session.status}</Badge>
+        {elapsed && <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground font-mono shrink-0"><Clock className="h-3.5 w-3.5" />{elapsed}</span>}
+        <span className="hidden lg:flex items-center gap-1 text-xs shrink-0">{candidateIp ? <Badge variant="outline" className="text-xs font-mono">IP: {candidateIp.ip}</Badge> : <Badge variant="outline" className="text-xs text-muted-foreground">Offline</Badge>}</span>
+        {anticheat.multiDeviceDetected && <Badge variant="destructive" className="text-xs shrink-0 hidden lg:flex">Multi-device!</Badge>}
+        {anticheat.tabSwitches > 0 && <Badge variant="destructive" className="text-xs shrink-0 hidden lg:flex">Tabs: {anticheat.tabSwitches}</Badge>}
+        {anticheat.copyAttempts > 0 && <Badge variant="destructive" className="text-xs shrink-0 hidden lg:flex">Copy: {anticheat.copyAttempts}</Badge>}
+        {interviewers.length > 0 && <span className="hidden lg:flex items-center gap-1 text-xs text-muted-foreground shrink-0"><Users className="h-3.5 w-3.5" />{uniqueInterviewers.map((iv) => <span key={iv.email || iv.socketId} className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs font-medium">{iv.email || iv.name}</span>)}</span>}
       </div>
-
-      {/* Mobile panel switcher */}
-      <div className="flex md:hidden border-b shrink-0">
-        <button
-          type="button"
-          className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-colors',
-            mobilePanel === 'candidate'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground',
-          )}
-          onClick={() => setMobilePanel('candidate')}
-        >
-          <Eye className="h-3.5 w-3.5" />
-          Candidate
-        </button>
-        <button
-          type="button"
-          className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-colors',
-            mobilePanel === 'panel'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground',
-          )}
-          onClick={() => setMobilePanel('panel')}
-        >
-          <ListTree className="h-3.5 w-3.5" />
-          Panel
-        </button>
+      <div className="flex items-center gap-2 text-sm shrink-0">
+        <div className="hidden sm:flex items-center gap-1.5"><Label htmlFor="sequential-toggle" className="text-xs cursor-pointer select-none">Sequential</Label><Switch id="sequential-toggle" checked={sequentialMode} onCheckedChange={updateSequentialMode} className="scale-75" /></div>
+        <div className="hidden sm:flex items-center gap-1.5"><Label htmlFor="candidate-view-toggle" className="text-xs cursor-pointer select-none">Candidate View</Label><Switch id="candidate-view-toggle" checked={candidateViewEnabled} onCheckedChange={updateCandidateView} className="scale-75" /></div>
+        <div className="hidden sm:flex items-center gap-1.5"><Lightbulb className="h-3.5 w-3.5 text-amber-500" /><Label htmlFor="suggestions-toggle" className="text-xs cursor-pointer select-none">AI</Label><Switch id="suggestions-toggle" checked={suggestionsEnabled} onCheckedChange={setSuggestionsEnabled} className="scale-75" /></div>
+        {session.status === 'IN_PROGRESS' && <Button variant="outline" size="sm" onClick={onCompleteSession} className="text-xs px-2">Complete Session</Button>}
+        {(session.status === 'COMPLETED' || session.status === 'EVALUATED') && <Link to={'/sessions/' + slug + '/evaluate'}><Button variant="outline" size="sm" className="text-xs px-2">Evaluate</Button></Link>}
+        {showBackToCandidate && <Button variant="outline" size="sm" onClick={() => setViewingSqId(null)} className="text-xs px-2"><Eye className="h-3.5 w-3.5 sm:mr-1" /><span className="hidden sm:inline">Back to Candidate</span></Button>}
+        {connected ? <span className="flex items-center gap-1 text-green-600 text-xs"><Wifi className="h-4 w-4" /><span className="hidden sm:inline">Connected</span></span> : <span className="flex items-center gap-1 text-muted-foreground text-xs"><WifiOff className="h-4 w-4" /><span className="hidden sm:inline">Disconnected</span></span>}
       </div>
+    </div>
+  );
+}
 
-      {/* Split-screen */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left panel: 60% on desktop, full width on mobile (hidden when panel tab active) */}
-        <div className={cn(
-          'border-r overflow-y-auto p-4',
-          'md:w-[60%]',
-          mobilePanel === 'candidate' ? 'flex-1 md:flex-none' : 'hidden md:block',
-        )}>
-          <CandidateMirror
-            session={session}
-            liveDrafts={liveDrafts}
-            liveCode={liveCode}
-            liveArchitecture={liveArchitecture}
-            focusedSqId={focusedSqId || undefined}
-            allQuestions={sessionQuestions}
-            onAutoSave={handleAutoSave}
-            onNavigate={(sqId) => setViewingSqId(sqId)}
-            onForceActivate={isReadOnly ? undefined : handleForceActivate}
-            onForceActivateNext={isReadOnly || !candidateCurrentSqId ? undefined : handleForceActivateNextFromCandidate}
-            candidateCurrentSqId={candidateCurrentSqId || undefined}
-            sessionId={session?.id!}
-            onForceActivateById={isReadOnly ? undefined : callForceActivate}
-            suggestionsEnabled={suggestionsEnabled}
-            canViewQuestions={canViewQuestions}
-          />
-        </div>
+function MobilePanelSwitcher({ mobilePanel, setMobilePanel }: Pick<LiveSessionViewProps, 'mobilePanel' | 'setMobilePanel'>) {
+  return (
+    <div className="flex md:hidden border-b shrink-0">
+      <button type="button" className={cn('flex-1 flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-colors', mobilePanel === 'candidate' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground')} onClick={() => setMobilePanel('candidate')}><Eye className="h-3.5 w-3.5" />Candidate</button>
+      <button type="button" className={cn('flex-1 flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-colors', mobilePanel === 'panel' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground')} onClick={() => setMobilePanel('panel')}><ListTree className="h-3.5 w-3.5" />Panel</button>
+    </div>
+  );
+}
 
-        {/* Right panel: 40% on desktop, full width on mobile (hidden when candidate tab active) */}
-        <div className={cn(
-          'flex flex-col overflow-hidden',
-          'md:w-[40%]',
-          mobilePanel === 'panel' ? 'flex-1 md:flex-none' : 'hidden md:flex',
-        )}>
-          {/* Tab bar */}
-          <div className="flex border-b shrink-0">
-            {canViewQuestions && (
-              <button
-                type="button"
-                className={cn(
-                  'flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-colors',
-                  rightTab === 'questions'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}
-                onClick={() => setRightTab('questions')}
-              >
-                <ListTree className="h-3.5 w-3.5" />
-                Questions
-              </button>
-            )}
-            <button
-              type="button"
-              className={cn(
-                'flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-colors',
-                rightTab === 'ratings'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-              onClick={() => setRightTab('ratings')}
-            >
-              <Star className="h-3.5 w-3.5" />
-              Ratings
-            </button>
-          </div>
+function SessionPanels({
+  session,
+  sessionQuestions,
+  categoryOrder,
+  categories,
+  liveDrafts,
+  liveCode,
+  liveArchitecture,
+  focusedSqId,
+  candidateCurrentSqId,
+  mobilePanel,
+  rightTab,
+  setRightTab,
+  setViewingSqId,
+  onAutoSave,
+  onFetchSession,
+  onForceActivate,
+  onForceActivateNext,
+  onForceActivateById,
+  onCategoryRatingsUpdate,
+  isReadOnly,
+  canViewQuestions,
+  suggestionsEnabled,
+}: LiveSessionViewProps & { isReadOnly: boolean; canViewQuestions: boolean }) {
+  return (
+    <div className="flex flex-1 overflow-hidden">
+      <div className={cn('border-r overflow-y-auto p-4', 'md:w-[60%]', mobilePanel === 'candidate' ? 'flex-1 md:flex-none' : 'hidden md:block')}>
+        <CandidateMirror session={session} liveDrafts={liveDrafts} liveCode={liveCode} liveArchitecture={liveArchitecture} focusedSqId={focusedSqId || undefined} allQuestions={sessionQuestions} onAutoSave={onAutoSave} onNavigate={(sqId) => setViewingSqId(sqId)} onForceActivate={isReadOnly ? undefined : onForceActivate} onForceActivateNext={isReadOnly || !candidateCurrentSqId ? undefined : onForceActivateNext} candidateCurrentSqId={candidateCurrentSqId || undefined} sessionId={session?.id!} onForceActivateById={isReadOnly ? undefined : onForceActivateById} suggestionsEnabled={suggestionsEnabled} canViewQuestions={canViewQuestions} />
+      </div>
+      <SessionRightPanel session={session} sessionQuestions={sessionQuestions} categoryOrder={categoryOrder} categories={categories} focusedSqId={focusedSqId} candidateCurrentSqId={candidateCurrentSqId} rightTab={rightTab} setRightTab={setRightTab} mobilePanel={mobilePanel} setViewingSqId={setViewingSqId} onFetchSession={onFetchSession} onForceActivateById={onForceActivateById} onCategoryRatingsUpdate={onCategoryRatingsUpdate} isReadOnly={isReadOnly} canViewQuestions={canViewQuestions} />
+    </div>
+  );
+}
 
-          <div className="flex-1 overflow-y-auto p-4">
-            {rightTab === 'questions' && canViewQuestions && (
-              <ControlPanel
-                session={session}
-                sessionQuestions={sessionQuestions}
-                onRefresh={fetchSession}
-                onSelectQuestion={(sqId) => setViewingSqId(sqId)}
-                selectedSqId={focusedSqId || undefined}
-                candidateCurrentSqId={candidateCurrentSqId || undefined}
-                onForceActivate={isReadOnly ? undefined : callForceActivate}
-                categoryOrder={categoryOrder}
-                categories={categories}
-                onCategoryRatingsChange={handleCategoryRatingsUpdate}
-                hideUnrated={isReadOnly}
-                isReadOnly={isReadOnly}
-              />
-            )}
-            {rightTab === 'ratings' && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  Ratings by Category
-                </p>
-                <CategoryRatings
-                  sessionId={session?.id!}
-                  sessionQuestions={sessionQuestions}
-                  onRefresh={fetchSession}
-                  categoryOrder={categoryOrder}
-                />
-              </div>
-            )}
-          </div>
-        </div>
+function SessionRightPanel({
+  session,
+  sessionQuestions,
+  categoryOrder,
+  categories,
+  focusedSqId,
+  candidateCurrentSqId,
+  rightTab,
+  setRightTab,
+  mobilePanel,
+  setViewingSqId,
+  onFetchSession,
+  onForceActivateById,
+  onCategoryRatingsUpdate,
+  isReadOnly,
+  canViewQuestions,
+}: Pick<LiveSessionViewProps, 'session' | 'sessionQuestions' | 'categoryOrder' | 'categories' | 'focusedSqId' | 'candidateCurrentSqId' | 'rightTab' | 'setRightTab' | 'mobilePanel' | 'setViewingSqId' | 'onFetchSession' | 'onForceActivateById' | 'onCategoryRatingsUpdate'> & { isReadOnly: boolean; canViewQuestions: boolean }) {
+  return (
+    <div className={cn('flex flex-col overflow-hidden', 'md:w-[40%]', mobilePanel === 'panel' ? 'flex-1 md:flex-none' : 'hidden md:flex')}>
+      <div className="flex border-b shrink-0">
+        {canViewQuestions && <button type="button" className={cn('flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-colors', rightTab === 'questions' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')} onClick={() => setRightTab('questions')}><ListTree className="h-3.5 w-3.5" />Questions</button>}
+        <button type="button" className={cn('flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-colors', rightTab === 'ratings' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')} onClick={() => setRightTab('ratings')}><Star className="h-3.5 w-3.5" />Ratings</button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        {rightTab === 'questions' && canViewQuestions && <ControlPanel session={session} sessionQuestions={sessionQuestions} onRefresh={onFetchSession} onSelectQuestion={(sqId) => setViewingSqId(sqId)} selectedSqId={focusedSqId || undefined} candidateCurrentSqId={candidateCurrentSqId || undefined} onForceActivate={isReadOnly ? undefined : onForceActivateById} categoryOrder={categoryOrder} categories={categories} onCategoryRatingsChange={onCategoryRatingsUpdate} hideUnrated={isReadOnly} isReadOnly={isReadOnly} />}
+        {rightTab === 'ratings' && <div className="space-y-2"><p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ratings by Category</p><CategoryRatings sessionId={session?.id!} sessionQuestions={sessionQuestions} onRefresh={onFetchSession} categoryOrder={categoryOrder} /></div>}
       </div>
     </div>
   );

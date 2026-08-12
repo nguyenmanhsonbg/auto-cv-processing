@@ -19,6 +19,84 @@ interface SqInfo {
   } | null;
 }
 
+interface SuggestionPick {
+  picked: SqInfo;
+  reasoning: string;
+}
+
+function chooseWeakQuestion(
+  unrated: SqInfo[],
+  sameSubcategory: SqInfo[],
+  sameCategory: SqInfo[],
+  ratedDiff: number,
+  ratedSubcategory: string,
+  ratedCategory: string,
+  rating: number,
+): SuggestionPick {
+  const easierQuestion = sameSubcategory.find((q) => (q.question?.difficulty || 1) <= ratedDiff);
+  if (easierQuestion) {
+    return {
+      picked: easierQuestion,
+      reasoning: `Ứng viên trả lời yếu (${rating}/4) — chọn câu dễ hơn trong cùng chủ đề "${ratedSubcategory}" để đánh giá kỹ hơn.`,
+    };
+  }
+
+  const sameCategoryQuestion = sameCategory[0];
+  if (sameCategoryQuestion) {
+    return {
+      picked: sameCategoryQuestion,
+      reasoning: `Ứng viên trả lời yếu (${rating}/4) — không còn câu dễ hơn trong "${ratedSubcategory}", chuyển sang chủ đề khác trong "${ratedCategory}".`,
+    };
+  }
+
+  return {
+    picked: unrated[0],
+    reasoning: `Ứng viên trả lời yếu (${rating}/4) — chuyển sang câu tiếp theo theo thứ tự.`,
+  };
+}
+
+function chooseStrongQuestion(
+  unrated: SqInfo[],
+  sameSubcategory: SqInfo[],
+  sameCategory: SqInfo[],
+  otherCategory: SqInfo[],
+  ratedDiff: number,
+  ratedSubcategory: string,
+  rating: number,
+): SuggestionPick {
+  const harderQuestion = sameSubcategory.find((q) => (q.question?.difficulty || 1) > ratedDiff);
+  if (harderQuestion) {
+    return {
+      picked: harderQuestion,
+      reasoning: `Ứng viên trả lời tốt (${rating}/4) — chọn câu khó hơn trong "${ratedSubcategory}" để đánh giá chiều sâu.`,
+    };
+  }
+
+  const nextCategoryQuestion = otherCategory[0] || sameCategory[0];
+  if (nextCategoryQuestion) {
+    return {
+      picked: nextCategoryQuestion,
+      reasoning: `Ứng viên trả lời tốt (${rating}/4) — chuyển sang category mới để đánh giá chiều rộng kiến thức.`,
+    };
+  }
+
+  return {
+    picked: unrated[0],
+    reasoning: `Ứng viên trả lời tốt (${rating}/4) — chuyển sang câu tiếp theo theo thứ tự.`,
+  };
+}
+
+function toSuggestion({ picked, reasoning }: SuggestionPick): QuestionSuggestion {
+  return {
+    sessionQuestionId: picked.id,
+    reasoning,
+    category: picked.question?.category || '',
+    subcategory: picked.question?.subcategory || '',
+    difficulty: picked.question?.difficulty || 1,
+    questionText: picked.question?.text || '',
+  };
+}
+
 /**
  * Rule-based next question suggestion.
  * - Rating 1-2 (weak): prefer easier question in same subcategory, then same category
@@ -36,59 +114,17 @@ export function suggestNextQuestion(
   const unrated = allQuestions
     .filter((q) => q.id !== justRatedSqId && (!q.rating || q.rating === 0))
     .sort((a, b) => a.orderIndex - b.orderIndex);
-
   if (unrated.length === 0) return null;
 
-  const ratedCat = justRated.question.category || '';
-  const ratedSub = justRated.question.subcategory || '';
+  const ratedCategory = justRated.question.category || '';
+  const ratedSubcategory = justRated.question.subcategory || '';
   const ratedDiff = justRated.question.difficulty || 1;
-  const isWeak = justRatedValue <= 2;
+  const sameSubcategory = unrated.filter((q) => q.question?.subcategory === ratedSubcategory);
+  const sameCategory = unrated.filter((q) => q.question?.category === ratedCategory && q.question?.subcategory !== ratedSubcategory);
+  const otherCategory = unrated.filter((q) => q.question?.category !== ratedCategory);
+  const pick = justRatedValue <= 2
+    ? chooseWeakQuestion(unrated, sameSubcategory, sameCategory, ratedDiff, ratedSubcategory, ratedCategory, justRatedValue)
+    : chooseStrongQuestion(unrated, sameSubcategory, sameCategory, otherCategory, ratedDiff, ratedSubcategory, justRatedValue);
 
-  const sameSubcategory = unrated.filter((q) => q.question?.subcategory === ratedSub);
-  const sameCategory = unrated.filter((q) => q.question?.category === ratedCat && q.question?.subcategory !== ratedSub);
-  const otherCategory = unrated.filter((q) => q.question?.category !== ratedCat);
-
-  let picked: SqInfo | undefined;
-  let reasoning: string;
-
-  if (isWeak) {
-    // Prefer easier in same subcategory
-    picked = sameSubcategory.find((q) => (q.question?.difficulty || 1) <= ratedDiff);
-    if (picked) {
-      reasoning = `Ứng viên trả lời yếu (${justRatedValue}/4) — chọn câu dễ hơn trong cùng chủ đề "${ratedSub}" để đánh giá kỹ hơn.`;
-    } else {
-      picked = sameCategory[0];
-      if (picked) {
-        reasoning = `Ứng viên trả lời yếu (${justRatedValue}/4) — không còn câu dễ hơn trong "${ratedSub}", chuyển sang chủ đề khác trong "${ratedCat}".`;
-      } else {
-        picked = unrated[0];
-        reasoning = `Ứng viên trả lời yếu (${justRatedValue}/4) — chuyển sang câu tiếp theo theo thứ tự.`;
-      }
-    }
-  } else {
-    // Prefer harder in same subcategory, then next category
-    picked = sameSubcategory.find((q) => (q.question?.difficulty || 1) > ratedDiff);
-    if (picked) {
-      reasoning = `Ứng viên trả lời tốt (${justRatedValue}/4) — chọn câu khó hơn trong "${ratedSub}" để đánh giá chiều sâu.`;
-    } else {
-      picked = otherCategory[0] || sameCategory[0];
-      if (picked) {
-        reasoning = `Ứng viên trả lời tốt (${justRatedValue}/4) — chuyển sang category mới để đánh giá chiều rộng kiến thức.`;
-      } else {
-        picked = unrated[0];
-        reasoning = `Ứng viên trả lời tốt (${justRatedValue}/4) — chuyển sang câu tiếp theo theo thứ tự.`;
-      }
-    }
-  }
-
-  if (!picked) return null;
-
-  return {
-    sessionQuestionId: picked.id,
-    reasoning,
-    category: picked.question?.category || '',
-    subcategory: picked.question?.subcategory || '',
-    difficulty: picked.question?.difficulty || 1,
-    questionText: picked.question?.text || '',
-  };
+  return toSuggestion(pick);
 }

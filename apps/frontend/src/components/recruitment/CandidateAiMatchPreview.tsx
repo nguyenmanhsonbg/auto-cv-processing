@@ -311,9 +311,6 @@ const EMPTY_VCS_SIGNALS: VcsSignals = {
   seniorRoles: { ok: false, items: [], evidence: 'No qualifying senior-role evidence was returned by profile analysis.' },
 };
 
-function RiskLevelBadge({ level }: { level: ProfileAnomalyDetection['riskLevel'] }) { return <span className="text-xs font-normal px-2 py-0.5 rounded border text-orange-700 bg-orange-50 border-orange-200">{level.toUpperCase()}</span>; }
-function AnomalyDetectionCard({ anomalyDetection }: { anomalyDetection: ProfileAnomalyDetection }) { return <Card><CardHeader><CardTitle className="flex items-center gap-3">Anomaly Detection <RiskLevelBadge level={anomalyDetection.riskLevel} /></CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="flex items-center gap-3"><div className="h-2 flex-1 rounded-full bg-muted overflow-hidden"><div className="h-full bg-orange-500" style={{ width: `${anomalyDetection.overallRiskScore}%` }} /></div><span className="font-semibold">{anomalyDetection.overallRiskScore}/100</span></div><p className="text-muted-foreground">{anomalyDetection.summary}</p>{anomalyDetection.anomalies.map((anomaly, index) => <div key={index} className="rounded border p-3"><div className="flex items-center gap-2 font-medium"><AlertTriangle className="h-4 w-4" />{anomaly.type}</div><p className="mt-1">{anomaly.description}</p><p className="mt-1 text-xs text-muted-foreground">{anomaly.evidence}</p></div>)}</CardContent></Card>; }
-void AnomalyDetectionCard;
 
 function AiRiskAssessmentCard({ anomalyDetection, risks }: { anomalyDetection?: ProfileAnomalyDetection; risks?: ApplicationAiScreeningInsight[] }) {
   return <Card><CardHeader><CardTitle className="flex items-center gap-3">AI Risk &amp; Anomaly Assessment <Badge variant="outline">{anomalyDetection?.riskLevel?.toUpperCase() ?? 'NOT ANALYZED'}</Badge></CardTitle></CardHeader><CardContent className="space-y-4 text-sm">

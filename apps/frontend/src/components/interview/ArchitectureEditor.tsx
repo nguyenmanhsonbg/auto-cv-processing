@@ -232,7 +232,7 @@ export function ArchitectureEditor({ value, onChange, readOnly }: ArchitectureEd
   const handleSvgClick = (e: React.MouseEvent) => {
     if (readOnly) return;
     const target = e.target as SVGElement;
-    if (e.target === svgRef.current || (target.tagName === 'rect' && target.getAttribute('data-bg') === 'true')) {
+    if (e.target === svgRef.current || (target.tagName === 'rect' && target.dataset.bg === 'true')) {
       setSelectedNodeId(null);
       setConnecting(null);
       setSelectedConnectionIdx(null);

@@ -62,10 +62,8 @@ import {
   parseApplicationCv,
   runApplicationAiScreening,
   type ApplicationAiScreeningInsight,
-  type ApplicationAiScreeningSummary,
   type ApplicationAuditLogRecord,
   type ApplicationDetailRecord,
-  type ApplicationMappingSummary,
   type ApplicationTimelineRecord,
   type CvVersionRecord,
   type ParsedProfileRecord,
@@ -171,120 +169,6 @@ function AiAssessmentList({
     </div>
   );
 }
-
-function ApplicationAiMatchResult({
-  mapping,
-  aiScreening,
-  parsedProfile,
-  screeningLoading,
-  onRunAiScreening,
-}: {
-  mapping?: ApplicationMappingSummary | null;
-  aiScreening?: ApplicationAiScreeningSummary | null;
-  parsedProfile?: ParsedProfileRecord | null;
-  screeningLoading: boolean;
-  onRunAiScreening: () => void;
-}) {
-  const hasAiResult = Boolean(
-    aiScreening?.summary ||
-      aiScreening?.score != null ||
-      aiScreening?.recommendation ||
-      aiScreening?.strengths?.length ||
-      aiScreening?.gaps?.length ||
-      aiScreening?.risks?.length,
-  );
-
-  return (
-    <div className="max-h-[72vh] space-y-5 overflow-y-auto pr-1">
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">CV-JD Mapping</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            <DetailField label="Score" value={scoreLabel(mapping?.score)} />
-            <DetailField label="Status" value={valueOrDash(mapping?.status)} />
-            <DetailField
-              label="Recommendation"
-              value={valueOrDash(mapping?.recommendation)}
-            />
-            <DetailField label="Updated" value={formatDate(mapping?.createdAt)} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="text-base">AI Screening</CardTitle>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onRunAiScreening}
-              disabled={screeningLoading}
-            >
-              <Sparkles
-                className={cn(
-                  'mr-2 h-4 w-4',
-                  screeningLoading && 'animate-pulse',
-                )}
-              />
-              {screeningLoading ? 'Running...' : hasAiResult ? 'Refresh AI' : 'Run AI'}
-            </Button>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            <DetailField label="Score" value={scoreLabel(aiScreening?.score)} />
-            <DetailField label="Status" value={valueOrDash(aiScreening?.status)} />
-            <DetailField
-              label="Recommendation"
-              value={valueOrDash(aiScreening?.recommendation)}
-            />
-            <DetailField label="Updated" value={formatDate(aiScreening?.createdAt)} />
-          </CardContent>
-        </Card>
-      </div>
-
-      <ParsedProfileView profile={parsedProfile} />
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">AI Candidate Assessment</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {aiScreening?.summary ? (
-            <div>
-              <p className="text-sm text-muted-foreground">Summary</p>
-              <p className="mt-1 text-sm leading-6">{aiScreening.summary}</p>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Run AI screening to see candidate assessment and reviewer notes.
-            </p>
-          )}
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <AiAssessmentList
-              title="Strengths"
-              items={aiScreening?.strengths}
-              emptyLabel="No strengths recorded yet."
-            />
-            <AiAssessmentList
-              title="Gaps"
-              items={aiScreening?.gaps}
-              emptyLabel="No gaps recorded yet."
-            />
-            <AiAssessmentList
-              title="Risks"
-              items={aiScreening?.risks}
-              emptyLabel="No risks recorded yet."
-            />
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-void ApplicationAiMatchResult;
 
 type FormDisplayStatus =
   | 'NOT_SENT'

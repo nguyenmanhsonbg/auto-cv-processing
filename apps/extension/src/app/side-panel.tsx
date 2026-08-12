@@ -3345,6 +3345,66 @@ function SidePanel() {
     await refreshFacebookGroupsForSettings(token);
   }
 
+  async function collectFacebookGroupsWithGraphqlCrossCheck(
+    tabId: number,
+    graphqlResult: FacebookGraphqlCollectionResult,
+    account: FacebookAccountIdentity | null | undefined,
+    onMessage?: (message: string) => void,
+  ): Promise<FacebookGroupsScanRunResult> {
+    let pageScanResult: FacebookGroupsScanRunResult | null = null;
+    try {
+      await waitForTabComplete(tabId);
+      await sleep(3_000);
+      pageScanResult = await runScriptInTab<FacebookGroupsScanRunResult>(tabId, collectFacebookGroupsFromPage);
+    } catch (error) {
+      onMessage?.(`[FB_GQL_VALIDATION] Không thể đối chiếu DOM với GraphQL: ${toErrorMessage(error)}`);
+    }
+
+    const mergedGroups = uniqueDiscoveredGroups([
+      ...graphqlResult.groups,
+      ...(pageScanResult?.groups ?? []),
+    ]);
+    // GraphQL is the authoritative source for this scan. DOM extraction is
+    // only a best-effort cross-check because the hidden tab may not expose
+    // the same rendered list as an active Facebook tab.
+    const scanComplete = graphqlResult.scanComplete;
+    if (scanComplete) {
+      onMessage?.(`Đã xác nhận đủ ${mergedGroups.length} nhóm bằng GraphQL.`);
+    } else {
+      onMessage?.(
+        `[FB_GQL_VALIDATION] GraphQL=${graphqlResult.groups.length}/${graphqlResult.expectedCount ?? '?'}; `
+        + `DOM=${pageScanResult?.groups.length ?? 0}/${pageScanResult?.expectedCount ?? '?'}; merged=${mergedGroups.length}; `
+        + `graphqlComplete=${String(graphqlResult.scanComplete)}; domComplete=${String(pageScanResult?.scanComplete === true)}.`,
+      );
+    }
+
+    return mapGraphqlScanResult({ ...graphqlResult, groups: mergedGroups, scanComplete }, account);
+  }
+
+  async function collectFacebookGroupsFromDomPage(
+    tabId: number,
+    account: FacebookAccountIdentity | null | undefined,
+    onMessage?: (message: string) => void,
+  ): Promise<FacebookGroupsScanRunResult> {
+    await chrome.tabs?.update(tabId, {
+      url: 'https://www.facebook.com/groups/joins/?nav_source=tab',
+      active: false,
+    });
+    await waitForTabComplete(tabId);
+    await sleep(1_000);
+
+    const scanResult = await runScriptInTab<FacebookGroupsScanRunResult>(tabId, collectFacebookGroupsFromPage);
+    if (!scanResult.scanComplete) {
+      onMessage?.('Quét trang chưa hoàn tất; tab Facebook được giữ lại để tiếp tục kiểm tra.');
+    }
+    return {
+      groups: uniqueDiscoveredGroups(scanResult.groups ?? []),
+      scanComplete: scanResult.scanComplete === true,
+      expectedCount: scanResult.expectedCount,
+      account,
+    };
+  }
+
   async function collectJoinedFacebookGroupsFromFacebookPage(
     onMessage?: (message: string) => void,
     options: { ensureSession?: boolean; expectedFacebookExternalId?: string } = {},
@@ -3393,58 +3453,22 @@ function SidePanel() {
         )
         : null;
       if (graphqlResult) {
-        let pageScanResult: FacebookGroupsScanRunResult | null = null;
-        try {
-          await waitForTabComplete(tab.id);
-          await sleep(3_000);
-          pageScanResult = await runScriptInTab<FacebookGroupsScanRunResult>(tab.id, collectFacebookGroupsFromPage);
-        } catch (error) {
-          onMessage?.(`[FB_GQL_VALIDATION] Không thể đối chiếu DOM với GraphQL: ${toErrorMessage(error)}`);
-        }
-
-        const mergedGroups = uniqueDiscoveredGroups([
-          ...graphqlResult.groups,
-          ...(pageScanResult?.groups ?? []),
-        ]);
-        // GraphQL is the authoritative source for this scan. DOM extraction is
-        // only a best-effort cross-check because the hidden tab may not expose
-        // the same rendered list as an active Facebook tab.
-        const scanComplete = graphqlResult.scanComplete;
-        if (scanComplete) {
-          onMessage?.(`Đã xác nhận đủ ${mergedGroups.length} nhóm bằng GraphQL.`);
-        } else {
-          onMessage?.(
-            `[FB_GQL_VALIDATION] GraphQL=${graphqlResult.groups.length}/${graphqlResult.expectedCount ?? '?'}; `
-            + `DOM=${pageScanResult?.groups.length ?? 0}/${pageScanResult?.expectedCount ?? '?'}; merged=${mergedGroups.length}; `
-            + `graphqlComplete=${String(graphqlResult.scanComplete)}; domComplete=${String(pageScanResult?.scanComplete === true)}.`,
-          );
-        }
-
-        closeAfterScan = scanComplete;
+        const scanResult = await collectFacebookGroupsWithGraphqlCrossCheck(
+          tab.id,
+          graphqlResult,
+          account,
+          onMessage,
+        );
+        closeAfterScan = scanResult.scanComplete;
         if (!closeAfterScan) {
           onMessage?.('Quét chưa xác nhận đủ danh sách; tab Facebook được giữ lại để tiếp tục kiểm tra.');
         }
-        return mapGraphqlScanResult({ ...graphqlResult, groups: mergedGroups, scanComplete }, account);
+        return scanResult;
       }
 
-      await chrome.tabs?.update(tab.id, {
-        url: 'https://www.facebook.com/groups/joins/?nav_source=tab',
-        active: false,
-      });
-      await waitForTabComplete(tab.id);
-      await sleep(1_000);
-
-      const scanResult = await runScriptInTab<FacebookGroupsScanRunResult>(tab.id, collectFacebookGroupsFromPage);
-      closeAfterScan = scanResult.scanComplete === true;
-      if (!closeAfterScan) {
-        onMessage?.('Quét trang chưa hoàn tất; tab Facebook được giữ lại để tiếp tục kiểm tra.');
-      }
-      return {
-        groups: uniqueDiscoveredGroups(scanResult.groups ?? []),
-        scanComplete: scanResult.scanComplete === true,
-        expectedCount: scanResult.expectedCount,
-        account,
-      };
+      const scanResult = await collectFacebookGroupsFromDomPage(tab.id, account, onMessage);
+      closeAfterScan = scanResult.scanComplete;
+      return scanResult;
     } finally {
       if (closeAfterScan) {
         await closeTabSafely(tab.id);

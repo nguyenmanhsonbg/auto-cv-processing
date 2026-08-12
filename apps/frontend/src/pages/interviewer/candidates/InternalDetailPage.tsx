@@ -202,138 +202,194 @@ export function InternalDetailPage() {
     }
   };
 
-  if (!internalId) {
-    return (
-      <div className="space-y-4">
-        <Button asChild variant="ghost" className="w-fit px-0">
-          <Link to="/candidates/internals"><ArrowLeft className="mr-2 h-4 w-4" />Back to internals</Link>
-        </Button>
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-          Internal id is required.
-        </div>
-      </div>
-    );
-  }
+  return (
+    <InternalDetailView
+      internalId={internalId}
+      internal={internal}
+      summaryLoading={summaryLoading}
+      summaryError={summaryError}
+      applications={applications}
+      pagination={pagination}
+      tableLoading={tableLoading}
+      tableError={tableError}
+      searchInput={searchInput}
+      setSearchInput={setSearchInput}
+      page={page}
+      limit={limit}
+      setPage={setPage}
+      setLimit={setLimit}
+      statusUpdating={statusUpdating}
+      handleToggleStatus={handleToggleStatus}
+    />
+  );
+}
 
-  const currentInternal = internal?.id === internalId ? internal : null;
-  const currentPagination = pagination ?? {
-    page,
-    limit,
-    total: applications.length,
+interface InternalDetailViewProps {
+  internalId?: string;
+  internal: InternalRecord | null;
+  summaryLoading: boolean;
+  summaryError: string | null;
+  applications: InternalApplicationRecord[];
+  pagination?: RecruitmentPagination;
+  tableLoading: boolean;
+  tableError: string | null;
+  searchInput: string;
+  setSearchInput: (value: string) => void;
+  page: number;
+  limit: number;
+  setPage: (value: number) => void;
+  setLimit: (value: number) => void;
+  statusUpdating: boolean;
+  handleToggleStatus: (event: MouseEvent<HTMLButtonElement>, internal: InternalRecord) => void;
+}
+
+function InternalDetailView(props: InternalDetailViewProps) {
+  if (!props.internalId) return <InternalMissingView />;
+
+  const currentInternal = props.internal?.id === props.internalId ? props.internal : null;
+  const currentPagination = props.pagination ?? {
+    page: props.page,
+    limit: props.limit,
+    total: props.applications.length,
     totalPages: 1,
   };
-  const hideTablePagination = tableLoading && !pagination && applications.length === 0;
+  const hideTablePagination = props.tableLoading && !props.pagination && props.applications.length === 0;
 
   return (
     <div className="space-y-6">
-      <div className="space-y-4">
-        <Button asChild variant="ghost" className="w-fit px-0">
-          <Link to="/candidates/internals"><ArrowLeft className="mr-2 h-4 w-4" />Back to internals</Link>
-        </Button>
-
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Candidates / Internals</p>
-            <h1 className="text-2xl font-semibold">{currentInternal?.name ?? currentInternal?.email ?? 'Internal detail'}</h1>
-            {summaryLoading && !currentInternal ? (
-              <p className="text-sm text-muted-foreground">Loading internal summary...</p>
-            ) : currentInternal ? (
-              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                <span>{currentInternal.email}</span>
-                <span>{currentInternal.phone ?? '-'}</span>
-                <span>{currentInternal.applicationCount} applications</span>
-                <Badge className={getStatusBadgeClassName(currentInternal.isActive)}>
-                  {currentInternal.isActive ? 'Active' : 'Inactive'}
-                </Badge>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Internal summary unavailable.</p>
-            )}
-            <p className="text-sm text-muted-foreground">
-              Contact information is read-only after creation. Deactivating this record blocks new referrals and preserves history.
-            </p>
-          </div>
-
-          {currentInternal ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={statusUpdating || summaryLoading}
-              onClick={(event) => void handleToggleStatus(event, currentInternal)}
-            >
-              {statusUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {currentInternal.isActive ? 'Deactivate' : 'Activate'}
-            </Button>
-          ) : null}
-        </div>
-
-        {summaryError ? <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{summaryError}</div> : null}
-      </div>
-
-      <Card>
-        <CardHeader className="gap-4">
-          <div className="space-y-1">
-            <CardTitle className="text-lg">Applications</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Applications attributed to this internal email. Candidate contact details and CV links stay hidden.
-            </p>
-          </div>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search candidate or JD"
-              className="pl-8"
-            />
-          </div>
-        </CardHeader>
-        <CardContent>
-          {tableError ? <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{tableError}</div> : null}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16">No.</TableHead>
-                <TableHead>Candidate</TableHead>
-                <TableHead>JD</TableHead>
-                <TableHead>Process status</TableHead>
-                <TableHead>HR reception</TableHead>
-                <TableHead>Evaluation</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tableLoading ? <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Loading applications...</TableCell></TableRow> : null}
-              {!tableLoading && applications.length === 0 ? <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No applications found.</TableCell></TableRow> : null}
-              {!tableLoading && applications.map((application, index) => (
-                <TableRow key={application.referralId}>
-                  <TableCell>{(currentPagination.page - 1) * currentPagination.limit + index + 1}</TableCell>
-                  <TableCell className="font-medium">{valueOrDash(application.candidateName)}</TableCell>
-                  <TableCell>{valueOrDash(application.jobPostingTitle)}</TableCell>
-                  <TableCell>
-                    {application.processStatus ? <Badge className={getApplicationStatusClassName(application.processStatus)}>{getApplicationStatusLabel(application.processStatus)}</Badge> : '-'}
-                  </TableCell>
-                  <TableCell>
-                    {application.hrReceptionStatus ? <Badge className={getApplicationStatusClassName(application.hrReceptionStatus)}>{getApplicationStatusLabel(application.hrReceptionStatus)}</Badge> : '-'}
-                  </TableCell>
-                  <TableCell className="max-w-md whitespace-pre-wrap break-words">{valueOrDash(application.evaluation)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {!hideTablePagination ? (
-            <div className="mt-4">
-              <DataTablePagination
-                page={currentPagination.page}
-                totalPages={currentPagination.totalPages}
-                total={currentPagination.total}
-                limit={currentPagination.limit}
-                onPageChange={setPage}
-                onLimitChange={setLimit}
-              />
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      <InternalSummary
+        internal={currentInternal}
+        loading={props.summaryLoading}
+        error={props.summaryError}
+        statusUpdating={props.statusUpdating}
+        onToggleStatus={props.handleToggleStatus}
+      />
+      <InternalApplicationsCard
+        applications={props.applications}
+        pagination={currentPagination}
+        tableLoading={props.tableLoading}
+        tableError={props.tableError}
+        hidePagination={hideTablePagination}
+        searchInput={props.searchInput}
+        setSearchInput={props.setSearchInput}
+        onPageChange={props.setPage}
+        onLimitChange={props.setLimit}
+      />
     </div>
   );
+}
+
+function InternalMissingView() {
+  return (
+    <div className="space-y-4">
+      <Button asChild variant="ghost" className="w-fit px-0"><Link to="/candidates/internals"><ArrowLeft className="mr-2 h-4 w-4" />Back to internals</Link></Button>
+      <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">Internal id is required.</div>
+    </div>
+  );
+}
+
+function InternalSummary({
+  internal,
+  loading,
+  error,
+  statusUpdating,
+  onToggleStatus,
+}: {
+  internal: InternalRecord | null;
+  loading: boolean;
+  error: string | null;
+  statusUpdating: boolean;
+  onToggleStatus: (event: MouseEvent<HTMLButtonElement>, internal: InternalRecord) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <Button asChild variant="ghost" className="w-fit px-0"><Link to="/candidates/internals"><ArrowLeft className="mr-2 h-4 w-4" />Back to internals</Link></Button>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-2">
+          <div className="space-y-1"><p className="text-sm text-muted-foreground">Candidates / Internals</p><h1 className="text-2xl font-semibold">{internal?.name ?? internal?.email ?? 'Internal detail'}</h1></div>
+          <InternalSummaryStatus internal={internal} loading={loading} />
+          <p className="text-sm text-muted-foreground">Contact information is read-only after creation. Deactivating this record blocks new referrals and preserves history.</p>
+        </div>
+        {internal && <Button type="button" variant="outline" disabled={statusUpdating || loading} onClick={(event) => onToggleStatus(event, internal)}>{statusUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{internal.isActive ? 'Deactivate' : 'Activate'}</Button>}
+      </div>
+      {error && <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+    </div>
+  );
+}
+
+function InternalSummaryStatus({ internal, loading }: { internal: InternalRecord | null; loading: boolean }) {
+  if (loading && !internal) return <p className="text-sm text-muted-foreground">Loading internal summary...</p>;
+  if (!internal) return <p className="text-sm text-muted-foreground">Internal summary unavailable.</p>;
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+      <span>{internal.email}</span><span>{internal.phone ?? '-'}</span><span>{internal.applicationCount} applications</span>
+      <Badge className={getStatusBadgeClassName(internal.isActive)}>{internal.isActive ? 'Active' : 'Inactive'}</Badge>
+    </div>
+  );
+}
+
+function InternalApplicationsCard({
+  applications,
+  pagination,
+  tableLoading,
+  tableError,
+  hidePagination,
+  searchInput,
+  setSearchInput,
+  onPageChange,
+  onLimitChange,
+}: {
+  applications: InternalApplicationRecord[];
+  pagination: RecruitmentPagination;
+  tableLoading: boolean;
+  tableError: string | null;
+  hidePagination: boolean;
+  searchInput: string;
+  setSearchInput: (value: string) => void;
+  onPageChange: (value: number) => void;
+  onLimitChange: (value: number) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="gap-4">
+        <div className="space-y-1"><CardTitle className="text-lg">Applications</CardTitle><p className="text-sm text-muted-foreground">Applications attributed to this internal email. Candidate contact details and CV links stay hidden.</p></div>
+        <div className="relative"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search candidate or JD" className="pl-8" /></div>
+      </CardHeader>
+      <CardContent>
+        {tableError && <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{tableError}</div>}
+        <InternalApplicationsTable applications={applications} pagination={pagination} loading={tableLoading} />
+        {!hidePagination && <div className="mt-4"><DataTablePagination page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={pagination.limit} onPageChange={onPageChange} onLimitChange={onLimitChange} /></div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function InternalApplicationsTable({ applications, pagination, loading }: { applications: InternalApplicationRecord[]; pagination: RecruitmentPagination; loading: boolean }) {
+  return (
+    <Table>
+      <TableHeader><TableRow><TableHead className="w-16">No.</TableHead><TableHead>Candidate</TableHead><TableHead>JD</TableHead><TableHead>Process status</TableHead><TableHead>HR reception</TableHead><TableHead>Evaluation</TableHead></TableRow></TableHeader>
+      <TableBody>
+        {loading && <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Loading applications...</TableCell></TableRow>}
+        {!loading && applications.length === 0 && <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No applications found.</TableCell></TableRow>}
+        {!loading && applications.map((application, index) => <InternalApplicationRow key={application.referralId} application={application} index={(pagination.page - 1) * pagination.limit + index + 1} />)}
+      </TableBody>
+    </Table>
+  );
+}
+
+function InternalApplicationRow({ application, index }: { application: InternalApplicationRecord; index: number }) {
+  return (
+    <TableRow>
+      <TableCell>{index}</TableCell>
+      <TableCell className="font-medium">{valueOrDash(application.candidateName)}</TableCell>
+      <TableCell>{valueOrDash(application.jobPostingTitle)}</TableCell>
+      <InternalStatusCell value={application.processStatus} />
+      <InternalStatusCell value={application.hrReceptionStatus} />
+      <TableCell className="max-w-md whitespace-pre-wrap break-words">{valueOrDash(application.evaluation)}</TableCell>
+    </TableRow>
+  );
+}
+
+function InternalStatusCell({ value }: { value?: string | null }) {
+  return value ? <TableCell><Badge className={getApplicationStatusClassName(value)}>{getApplicationStatusLabel(value)}</Badge></TableCell> : <TableCell>-</TableCell>;
 }
