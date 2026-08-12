@@ -1,8 +1,8 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as path from 'path';
-import * as fs from 'fs';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 import JSZip from 'jszip';
 import { EvaluationEntity } from '../evaluations/entities/evaluation.entity';
 import { SessionEntity } from '../sessions/entities/session.entity';
@@ -129,11 +129,11 @@ export class ExportService {
 
   constructor(
     @InjectRepository(EvaluationEntity)
-    private evaluationRepo: Repository<EvaluationEntity>,
+    private readonly evaluationRepo: Repository<EvaluationEntity>,
     @InjectRepository(SessionEntity)
-    private sessionRepo: Repository<SessionEntity>,
+    private readonly sessionRepo: Repository<SessionEntity>,
     @InjectRepository(CandidateEntity)
-    private candidateRepo: Repository<CandidateEntity>,
+    private readonly candidateRepo: Repository<CandidateEntity>,
     private readonly categoriesService: CategoriesService,
   ) {}
 

@@ -9,9 +9,9 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { copyFile, open, stat } from 'fs/promises';
+import { copyFile, open, stat } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
-import * as path from 'path';
+import * as path from 'node:path';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';

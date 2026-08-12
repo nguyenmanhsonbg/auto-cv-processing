@@ -791,19 +791,57 @@ function SessionAntiCheatPanel({ anticheatEvents }: { anticheatEvents: any[] }) 
     </div>
   );
 }
-function SessionMainContent(props: any) {
+
+function SessionEditableField(props: any) {
+  const { label, isHr, editing, value, displayValue, setValue, setEditing, onSave, onCancel } = props;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</p>
+      {!isHr && editing ? (
+        <Input
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onBlur={onSave}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") onSave();
+            if (event.key === "Escape") onCancel();
+          }}
+          autoFocus
+          className="h-7 text-sm"
+        />
+      ) : (
+        <button
+          type="button"
+          disabled={isHr}
+          className={cn(
+            "w-full border-0 bg-transparent text-left text-sm font-medium rounded px-1 -mx-1 disabled:cursor-default disabled:opacity-100",
+            !isHr && "cursor-pointer hover:bg-muted",
+          )}
+          onClick={() => {
+            if (!isHr) {
+          {displayValue || <span className="text-muted-foreground">—</span>}
+              setValue(displayValue || "");
+              setEditing(true);
+            }
+          }}
+        >
+          {displayValue || <span className="text-muted-foreground">Ã¢â‚¬â€</span>}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SessionOverviewPanels(props: any) {
   const {
-    session,
     isHr,
-    sessionQuestions,
-    categoryOrder,
     total,
     active,
     answered,
     rated,
     answerRate,
     ratingRate,
-    copied,
+    session,
     surveyQuestions,
     surveyExpanded,
     setSurveyExpanded,
@@ -824,6 +862,71 @@ function SessionMainContent(props: any) {
     handleToggleActive,
     handleBulkToggle,
     handleRateSubcategory,
+    sessionQuestions,
+    categoryOrder,
+  } = props;
+  if (isHr) return null;
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-lg border bg-card p-4 text-center">
+          <p className="text-2xl font-bold">{total}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Total Questions</p>
+        </div>
+        <div className="rounded-lg border bg-card p-4 text-center">
+          <p className="text-2xl font-bold text-green-600">{active}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Active</p>
+        </div>
+        <div className="rounded-lg border bg-card p-4 text-center">
+          <p className="text-2xl font-bold text-blue-600">{answered}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Answered ({answerRate}%)</p>
+        </div>
+        <div className="rounded-lg border bg-card p-4 text-center">
+          <p className="text-2xl font-bold text-purple-600">{rated}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Rated ({ratingRate}%)</p>
+        </div>
+      </div>
+      <SessionSurveyPanel
+        session={session}
+        surveyQuestions={surveyQuestions}
+        surveyExpanded={surveyExpanded}
+        setSurveyExpanded={setSurveyExpanded}
+        surveyGenerating={surveyGenerating}
+        surveyActivated={surveyActivated}
+        expandedSurveyId={expandedSurveyId}
+        setExpandedSurveyId={setExpandedSurveyId}
+        surveyAnswerSaving={surveyAnswerSaving}
+        handleGenerateSurvey={handleGenerateSurvey}
+        handleSuggest={handleSuggest}
+        handleOpenActivateDialog={handleOpenActivateDialog}
+        fetchSurvey={fetchSurvey}
+        handleSaveSurveyAnswer={handleSaveSurveyAnswer}
+      />
+      <SessionQuestionsPanel
+        session={session}
+        total={total}
+        questionsExpanded={questionsExpanded}
+        setQuestionsExpanded={setQuestionsExpanded}
+        handleOpenAddQuestions={handleOpenAddQuestions}
+        handleSelectQuestion={handleSelectQuestion}
+        handleToggleActive={handleToggleActive}
+        handleBulkToggle={handleBulkToggle}
+        handleRateSubcategory={handleRateSubcategory}
+        sessionQuestions={sessionQuestions}
+        categoryOrder={categoryOrder}
+      />
+    </>
+  );
+}
+
+function SessionMainContent(props: any) {
+  const {
+    session,
+    isHr,
+    sessionQuestions,
+    categoryOrder,
+    copied,
     editingTemplatePosition,
     setEditingTemplatePosition,
     editTemplatePositionValue,
@@ -855,62 +958,7 @@ function SessionMainContent(props: any) {
       <div className="flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
         {/* Left â€” Overview + Questions tree */}
         <div className="flex-1 md:overflow-y-auto px-4 py-4 space-y-4">
-          {/* Stats cards - hidden from HR */}
-          {!isHr && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-lg border bg-card p-4 text-center">
-              <p className="text-2xl font-bold">{total}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Total Questions</p>
-            </div>
-            <div className="rounded-lg border bg-card p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">{active}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Active</p>
-            </div>
-            <div className="rounded-lg border bg-card p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">{answered}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Answered ({answerRate}%)</p>
-            </div>
-            <div className="rounded-lg border bg-card p-4 text-center">
-              <p className="text-2xl font-bold text-purple-600">{rated}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Rated ({ratingRate}%)</p>
-            </div>
-          </div>
-          )}
-
-          {/* Survey Panel - hidden from HR */}
-          {!isHr && (
-            <SessionSurveyPanel
-              session={session}
-              surveyQuestions={surveyQuestions}
-              surveyExpanded={surveyExpanded}
-              setSurveyExpanded={setSurveyExpanded}
-              surveyGenerating={surveyGenerating}
-              surveyActivated={surveyActivated}
-              expandedSurveyId={expandedSurveyId}
-              setExpandedSurveyId={setExpandedSurveyId}
-              surveyAnswerSaving={surveyAnswerSaving}
-              handleGenerateSurvey={handleGenerateSurvey}
-              handleSuggest={handleSuggest}
-              handleOpenActivateDialog={handleOpenActivateDialog}
-              fetchSurvey={fetchSurvey}
-              handleSaveSurveyAnswer={handleSaveSurveyAnswer}
-            />
-          )}
-          {!isHr && (
-            <SessionQuestionsPanel
-              session={session}
-              total={total}
-              questionsExpanded={questionsExpanded}
-              setQuestionsExpanded={setQuestionsExpanded}
-              handleOpenAddQuestions={handleOpenAddQuestions}
-              handleSelectQuestion={handleSelectQuestion}
-              handleToggleActive={handleToggleActive}
-              handleBulkToggle={handleBulkToggle}
-              handleRateSubcategory={handleRateSubcategory}
-              sessionQuestions={sessionQuestions}
-              categoryOrder={categoryOrder}
-            />
-          )}
+          <SessionOverviewPanels {...props} />
         </div>
         <div className="w-full md:w-80 md:shrink-0 border-t md:border-t-0 md:border-l md:overflow-y-auto px-4 py-4 space-y-5 bg-muted/20">
           {/* Candidate */}
@@ -960,7 +1008,19 @@ function SessionMainContent(props: any) {
             )}
           </div>
 
-          {/* Target Level */}
+          <SessionEditableField
+            label="Target Level"
+            isHr={isHr}
+            editing={editingTargetLevel}
+            value={editTargetLevelValue}
+            displayValue={session.targetLevel}
+            setValue={setEditTargetLevelValue}
+            setEditing={setEditingTargetLevel}
+            onSave={handleSaveTargetLevel}
+            onCancel={() => setEditingTargetLevel(false)}
+          />
+          {/*
+          <>
           <div className="space-y-1">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Target Level</p>
             {!isHr && editingTargetLevel ? (
@@ -991,6 +1051,9 @@ function SessionMainContent(props: any) {
               </button>
             )}
           </div>
+
+          </>
+          */}
 
           {/* Schedule */}
           <div className="space-y-2">

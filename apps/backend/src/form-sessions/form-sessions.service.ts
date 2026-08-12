@@ -5,9 +5,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository, In } from 'typeorm';
-import { createHash, randomBytes, randomInt } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
-import { join } from 'path';
+import { join } from 'node:path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const ejs: { renderFile(path: string, data?: Record<string, unknown>): Promise<string> } = require('ejs');
 
@@ -217,7 +217,7 @@ export class FormSessionsService {
   private toQuestionnaireItemsFromQuestionSet(
     questionSet?: QuestionSetEntity | null,
   ): QuestionnaireItemInput[] {
-    const items = questionSet?.items ?? [];
+    const items = [...(questionSet?.items ?? [])];
     return items
       .sort((left, right) => left.orderIndex - right.orderIndex)
       .map((item) => ({

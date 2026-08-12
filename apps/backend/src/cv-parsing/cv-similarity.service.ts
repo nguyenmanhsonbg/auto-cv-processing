@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 
 export const CV_SIMILARITY_THRESHOLD = 0.98;
 export const CV_EXACT_FILE_HASH_METHOD_VERSION = 'EXACT_ORIGINAL_FILE_HASH_V1' as const;

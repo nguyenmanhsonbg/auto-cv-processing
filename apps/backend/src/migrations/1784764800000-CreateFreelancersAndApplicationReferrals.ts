@@ -157,8 +157,12 @@ export class CreateFreelancersAndApplicationReferrals1784764800000
     constraintName: string,
     onDelete: 'CASCADE' | 'RESTRICT' | 'SET NULL',
   ): Promise<void> {
-    const deleteBehaviorCode =
-      onDelete === 'CASCADE' ? 'c' : onDelete === 'SET NULL' ? 'n' : 'r';
+    const deleteBehaviorCodeByAction: Record<typeof onDelete, string> = {
+      CASCADE: 'c',
+      'SET NULL': 'n',
+      RESTRICT: 'r',
+    };
+    const deleteBehaviorCode = deleteBehaviorCodeByAction[onDelete];
 
     const existing = await queryRunner.query(
       `

@@ -5,7 +5,7 @@ import {
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';
 import { ApplicationEntity } from '../applications/entities/application.entity';

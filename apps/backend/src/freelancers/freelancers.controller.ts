@@ -1,5 +1,5 @@
 import { UserRole } from '@interview-assistant/shared';
-import { createReadStream } from 'fs';
+import { createReadStream } from 'node:fs';
 import {
   Body,
   Controller,

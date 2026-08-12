@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { AmisJobSnapshotDto, SyncAmisJobPostingDto } from '../dto';
 import { ExtensionSourceSystem } from '../enums';
 import { stableStringify } from './stable-json.util';

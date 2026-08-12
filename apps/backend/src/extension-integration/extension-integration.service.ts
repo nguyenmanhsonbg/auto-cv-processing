@@ -289,8 +289,15 @@ export class ExtensionIntegrationService {
       });
       if (!loaded) throw new BadRequestException('Synced AMIS job description was not found.');
 
+      let resultCode: 'CREATED' | 'UPDATED' | 'UNCHANGED' = 'CREATED';
+      if (existing && contentChanged) {
+        resultCode = 'UPDATED';
+      } else if (existing) {
+        resultCode = 'UNCHANGED';
+      }
+
       return {
-        resultCode: existing ? (contentChanged ? 'UPDATED' : 'UNCHANGED') : 'CREATED',
+        resultCode,
         amisRecruitmentId,
         jobDescription: this.toSyncedAmisJobDescriptionResponse(loaded),
       };
@@ -612,11 +619,13 @@ export class ExtensionIntegrationService {
   ) {
     const description = this.requireText(snapshot.description, 'snapshot.description');
     const summary = this.toSummary(snapshot.summary ?? description);
-    const benefits = typeof snapshot.benefits === 'string'
-      ? (this.optionalText(snapshot.benefits) ? { text: snapshot.benefits.trim() } : null)
-      : this.isRecord(snapshot.benefits)
-        ? snapshot.benefits
-        : null;
+    let benefits: Record<string, unknown> | null = null;
+    if (typeof snapshot.benefits === 'string') {
+      const benefitText = this.optionalText(snapshot.benefits);
+      if (benefitText) benefits = { text: benefitText };
+    } else if (this.isRecord(snapshot.benefits)) {
+      benefits = snapshot.benefits;
+    }
 
     return {
       title: this.requireText(snapshot.title, 'snapshot.title'),
@@ -2071,15 +2080,18 @@ export class ExtensionIntegrationService {
       return { data, page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages };
     }
 
+    let statusFilter: FreelancerStatusFilter | undefined;
+    if (query.status === 'ACTIVE') {
+      statusFilter = FreelancerStatusFilter.ACTIVE;
+    } else if (query.status === 'INACTIVE') {
+      statusFilter = FreelancerStatusFilter.INACTIVE;
+    }
+
     const result = await this.freelancersService.findPaginated({
       page: query.page,
       limit: query.limit,
       search: query.search,
-      status: query.status === 'ACTIVE'
-        ? FreelancerStatusFilter.ACTIVE
-        : query.status === 'INACTIVE'
-          ? FreelancerStatusFilter.INACTIVE
-          : undefined,
+      status: statusFilter,
       sortBy: 'createdAt',
       sortOrder: 'DESC',
     });

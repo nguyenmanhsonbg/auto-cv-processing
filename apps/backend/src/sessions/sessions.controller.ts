@@ -26,6 +26,16 @@ import { UpdateSessionDto } from './dto/update-session.dto';
 import { SessionsService } from './sessions.service';
 import { SessionIdentifierPipe } from './pipes/session-identifier.pipe';
 
+type SessionsListQuery = {
+  page?: string;
+  limit?: string;
+  search?: string;
+  status?: SessionStatus;
+  targetLevel?: string;
+  sortBy?: string;
+  sortOrder?: 'ASC' | 'DESC';
+};
+
 @ApiTags('Sessions')
 @Controller('sessions')
 export class SessionsController {
@@ -43,6 +53,22 @@ export class SessionsController {
   ): Promise<string> {
     const session = await this.sessionsService.findByIdOrSlug(identifier, scope);
     return session.id;
+  }
+
+  private async updateSessionByIdentifier(
+    identifier: string,
+    dto: UpdateSessionDto,
+    req: any,
+  ) {
+    const isAdmin = req?.user?.role === 'ADMIN';
+    const session = await this.sessionsService.findByIdOrSlug(identifier, {
+      userId: req?.user?.id,
+      isAdmin,
+    });
+    return this.sessionsService.update(session.id, dto, {
+      userId: req?.user?.id,
+      isAdmin,
+    });
   }
 
   @Get(':id/client-info')
@@ -85,16 +111,16 @@ export class SessionsController {
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'status', enum: SessionStatus, required: false })
   @ApiQuery({ name: 'targetLevel', required: false })
-  findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
-    @Query('status') status?: SessionStatus,
-    @Query('targetLevel') targetLevel?: string,
-    @Query('sortBy') sortBy?: string,
-    @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
-    @Request() req?: any,
-  ) {
+  findAll(@Query() query: SessionsListQuery, @Request() req?: any) {
+    const {
+      page,
+      limit,
+      search,
+      status,
+      targetLevel,
+      sortBy,
+      sortOrder,
+    } = query;
     const role = req?.user?.role;
     const isAdmin = role === UserRole.ADMIN;
     const filterByCandidateOwner = role === UserRole.HR;
@@ -127,9 +153,7 @@ export class SessionsController {
     @Body() dto: UpdateSessionDto,
     @Request() req: any,
   ) {
-    const isAdmin = req?.user?.role === 'ADMIN';
-    const session = await this.sessionsService.findByIdOrSlug(id, { userId: req?.user?.id, isAdmin });
-    return this.sessionsService.update(session.id, dto, { userId: req?.user?.id, isAdmin });
+    return this.updateSessionByIdentifier(id, dto, req);
   }
 
   @Patch(':id')
@@ -142,9 +166,7 @@ export class SessionsController {
     @Body() dto: UpdateSessionDto,
     @Request() req: any,
   ) {
-    const isAdmin = req?.user?.role === 'ADMIN';
-    const session = await this.sessionsService.findByIdOrSlug(id, { userId: req?.user?.id, isAdmin });
-    return this.sessionsService.update(session.id, dto, { userId: req?.user?.id, isAdmin });
+    return this.updateSessionByIdentifier(id, dto, req);
   }
 
   @Delete(':id')

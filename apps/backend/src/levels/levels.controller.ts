@@ -39,7 +39,14 @@ export class LevelsController {
     @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
   ) {
     const statuses = status ? status.split(',').filter(Boolean) : [];
-    const isActive = statuses.length === 1 ? (statuses[0] === 'ACTIVE' ? true : statuses[0] === 'INACTIVE' ? false : undefined) : undefined;
+    let isActive: boolean | undefined;
+    if (statuses.length === 1) {
+      if (statuses[0] === 'ACTIVE') {
+        isActive = true;
+      } else if (statuses[0] === 'INACTIVE') {
+        isActive = false;
+      }
+    }
     return this.service.findPaginated({
       page: page ? Number(page) : undefined, limit: limit ? Number(limit) : undefined,
       search, isActive, sortBy, sortOrder,

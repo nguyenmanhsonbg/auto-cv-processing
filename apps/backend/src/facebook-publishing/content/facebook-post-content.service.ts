@@ -57,13 +57,17 @@ export class FacebookPostContentService {
     const defaultLocation = 'Tòa Keangnam Landmark 72, Phạm Hùng, Nam Từ Liêm, Hà Nội';
     const location = this.asText(input.location) || defaultLocation;
 
+    const hasLevel = Boolean(level?.displayName || level?.name);
+    const levelText = this.asText(level?.displayName ?? level?.name);
+    const levelSuffix = hasLevel ? ` - ${levelText}` : '';
+
     const lines = [
       `[HN] VIETTEL CYBER SECURITY (VCS) TUYỂN DỤNG ${title}`,
       'Bạn có kinh nghiệm và mong muốn tham gia các dự án quy mô lớn, môi trường công nghệ chuyên sâu?',
       'Cơ hội dành cho bạn tại Viettel Cyber Security (VCS)!',
       '',
       'Vị trí tuyển dụng:',
-      `- ${rawTitle}${level?.displayName || level?.name ? ` - ${this.asText(level.displayName ?? level.name)}` : ''}`,
+      `- ${rawTitle}${levelSuffix}`,
       '',
       this.section(' Mô tả công việc', this.asText(input.description)),
       this.section('Yêu cầu', this.formatStructured(input.requirements)),

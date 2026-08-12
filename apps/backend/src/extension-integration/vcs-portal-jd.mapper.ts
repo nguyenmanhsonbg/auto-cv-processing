@@ -320,11 +320,12 @@ export class VcsPortalJdMapper {
       }
 
       if (
-        tagContent.startsWith('/')
-        && ['p', 'div', 'li', 'ul', 'ol', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(normalizedTag)
+        normalizedTag === 'br'
+        || (
+          tagContent.startsWith('/')
+          && ['p', 'div', 'li', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(normalizedTag)
+        )
       ) {
-        result += '\n';
-      } else if (normalizedTag === 'br') {
         result += '\n';
       }
 
@@ -382,7 +383,11 @@ export class VcsPortalJdMapper {
 
   private parseBoolean(value: unknown) {
     if (typeof value === 'boolean') return value;
-    if (typeof value === 'number') return value === 1 ? true : value === 0 ? false : null;
+    if (typeof value === 'number') {
+      if (value === 1) return true;
+      if (value === 0) return false;
+      return null;
+    }
     if (typeof value !== 'string') return null;
 
     const normalized = value.trim().toLowerCase();

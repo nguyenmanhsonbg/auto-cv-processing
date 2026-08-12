@@ -58,8 +58,12 @@ interface GenerateFacebookPreviewContentInput {
 @Injectable()
 export class FacebookPublishingService {
   private readonly logger = new Logger(FacebookPublishingService.name);
-  private readonly IT_RECRUITMENT_GROUP_REGEX =
-    /\b(tuyen\s*dung|viec\s*lam|recruitment|jobs?|it|cntt|dev(eloper)?|tester|cong\s*nghe\s*thong\s*tin|tech(nology)?|engineer|frontend|backend|fullstack|react|node|java(script)?|type\s*script|comtor|ba|brse|lap\s*trinh|coder|qa|qc)\b/i;
+  private readonly IT_RECRUITMENT_GROUP_PATTERNS = [
+    /\b(?:tuyen\s*dung|viec\s*lam|recruitment|jobs?)\b/i,
+    /\b(?:it|cntt|dev(?:eloper)?|tester|engineer|frontend|backend|fullstack|coder|qa|qc)\b/i,
+    /\b(?:cong\s*nghe\s*thong\s*tin|tech(?:nology)?|react|node|java(?:script)?|type\s*script)\b/i,
+    /\b(?:comtor|ba|brse|lap\s*trinh)\b/i,
+  ] as const;
 
   constructor(
     @InjectRepository(FacebookPublishTargetEntity)
@@ -690,11 +694,15 @@ export class FacebookPublishingService {
       syncState.status = reconciliationApplied ? 'READY' : 'PARTIAL';
       syncState.lastScanCompletedAt = reconciliationApplied ? completedAt : null;
       syncState.lastScannedCount = result.valid;
-      syncState.lastError = reconciliationApplied
-        ? null
-        : completePayload
-          ? 'The scan payload was incomplete, so missing groups were not deactivated.'
-          : 'The hidden Facebook scan did not reach its completion guard.';
+      let lastError: string | null = null;
+      if (!reconciliationApplied) {
+        if (completePayload) {
+          lastError = 'The scan payload was incomplete, so missing groups were not deactivated.';
+        } else {
+          lastError = 'The hidden Facebook scan did not reach its completion guard.';
+        }
+      }
+      syncState.lastError = lastError;
       if (reconciliationApplied && !syncState.initialScanCompletedAt) {
         syncState.initialScanCompletedAt = completedAt;
       }
@@ -1403,9 +1411,13 @@ export class FacebookPublishingService {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
-    if (
-      /^(?:account(?:\s+id)?(?:\s+\d+)?|facebook(?:\s+account)?|\(\d+\)\s*facebook|thong\s+bao|notification)$/i.test(comparable)
-    ) {
+    const placeholderPatterns = [
+      /^account(?:\s+id)?(?:\s+\d+)?$/i,
+      /^facebook(?:\s+account)?$/i,
+      /^\(\d+\)\s*facebook$/i,
+      /^(?:thong\s+bao|notification)$/i,
+    ] as const;
+    if (placeholderPatterns.some((pattern) => pattern.test(comparable))) {
       return null;
     }
     if (normalized === facebookExternalId || normalized.length > 100) return null;
@@ -1576,7 +1588,8 @@ export class FacebookPublishingService {
   }
 
   private isItRecruitmentFacebookGroupName(value: string) {
-    return this.IT_RECRUITMENT_GROUP_REGEX.test(this.normalizeTextForSearch(value));
+    const normalizedValue = this.normalizeTextForSearch(value);
+    return this.IT_RECRUITMENT_GROUP_PATTERNS.some((pattern) => pattern.test(normalizedValue));
   }
 
   private normalizeTextForSearch(value: string) {

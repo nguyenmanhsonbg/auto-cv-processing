@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @ApiTags('Export')
 @Controller('export')
 export class ExportController {
-  constructor(private exportService: ExportService) {}
+  constructor(private readonly exportService: ExportService) {}
 
   @Get(':sessionId')
   @UseGuards(JwtAuthGuard)

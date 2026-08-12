@@ -11,7 +11,7 @@ import { CandidateStageNotificationService } from './candidate-stage-notificatio
 export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SchedulerService.name);
   private cronJob: cron.ScheduledTask | null = null;
-  private notifiedSessionIds = new Set<string>();
+  private readonly notifiedSessionIds = new Set<string>();
 
   constructor(
     @InjectRepository(SessionEntity)
@@ -94,8 +94,6 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   private cleanupOldNotifications() {
     // Keep the set size manageable by clearing it periodically
     // In production, you'd want to store this in Redis or a database
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-
     // Simple cleanup: if set is too large, clear it
     // This is safe because we check sessions in a 5-6 minute window
     if (this.notifiedSessionIds.size > 1000) {

@@ -143,11 +143,14 @@ export class JobPostingsController {
     const facebookPublishPlan = canPublishFacebook
       ? await this.prepareFacebookPublishPlan(id, req?.user?.id, dto.facebookTargetIds)
       : undefined;
-    const posting = canPublishPublicPortal
-      ? await this.jobPostingsService.markPublished(id)
-      : canPublishFacebook
-        ? await this.jobPostingsService.markPublishing(id)
-      : await this.jobPostingsService.markManualRequired(id);
+    let posting;
+    if (canPublishPublicPortal) {
+      posting = await this.jobPostingsService.markPublished(id);
+    } else if (canPublishFacebook) {
+      posting = await this.jobPostingsService.markPublishing(id);
+    } else {
+      posting = await this.jobPostingsService.markManualRequired(id);
+    }
     const latestPosting = await this.jobPostingsService.findOne(posting.id);
 
     return {

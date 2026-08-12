@@ -31,11 +31,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { createHash, randomUUID } from 'crypto';
-import { createReadStream } from 'fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import type { Request, Response } from 'express';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { extname } from 'node:path';
 import {
   ApplicationsService,
   CreateApplicationResult,
@@ -779,17 +779,20 @@ export class PublicJobPostingsController {
 
   private toApplyRawPayload(dto: PublicApplyDto, jobPostingId: string) {
     const note = this.optionalText(dto.note);
+    let referralSource: 'INTERNAL' | 'FREELANCER' | null = null;
+    if (dto.internalEmail?.trim()) {
+      referralSource = 'INTERNAL';
+    } else if (dto.freelancerCode?.trim()) {
+      referralSource = 'FREELANCER';
+    }
+
     return {
       jobPostingId,
       candidateNameHash: this.hashIdentityText(dto.fullName, true),
       candidateEmailHash: this.hashIdentityText(dto.email, true),
       candidatePhoneHash: this.hashIdentityText(dto.phone),
       hasNote: Boolean(note),
-      referralSource: dto.internalEmail?.trim()
-        ? 'INTERNAL'
-        : dto.freelancerCode?.trim()
-          ? 'FREELANCER'
-          : null,
+      referralSource,
       freelancerCodeHash: this.hashIdentityText(dto.freelancerCode, true),
       internalEmailHash: this.hashIdentityText(dto.internalEmail, true),
     };

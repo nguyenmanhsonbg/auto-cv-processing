@@ -22,6 +22,7 @@ import { FormAnswerEntity } from '../form-sessions/entities/form-answer.entity';
 import { FormSessionEntity } from '../form-sessions/entities/form-session.entity';
 import { FreelancerEntity } from '../freelancers/entities/freelancer.entity';
 import { FreelancersService } from '../freelancers/freelancers.service';
+import { ApplicationReferralEntity } from '../freelancers/entities/application-referral.entity';
 import { InternalsService } from '../internals/internals.service';
 import { ApplicationReferralSourceType } from '../internals/internals.types';
 import { normalizeInternalEmail } from '../internals/internal-email.util';
@@ -1025,17 +1026,34 @@ export class ApplicationsService {
   ) {
     const existingPayload = this.asRecord(existingSource.rawPayload);
     const incomingPayload = this.asRecord(input.rawPayload);
-    const existingJobPostingId = this.recordText(existingPayload, 'jobPostingId');
-    const incomingJobPostingId = this.recordText(incomingPayload, 'jobPostingId') ?? input.jobPostingId;
+    this.assertJobPostingPayloadMatches(existingPayload, incomingPayload, input.jobPostingId);
+    this.assertCandidateHashesMatch(existingPayload, incomingPayload);
 
-    if (
-      existingJobPostingId
-      && incomingJobPostingId
-      && existingJobPostingId !== incomingJobPostingId
-    ) {
+    if (input.source !== ApplicationSourceType.PORTAL) return;
+
+    const existingReferral = existingSource.application?.freelancerReferral;
+    const incomingReferral = await this.resolvePublicReferralSource(input, manager);
+    if (this.getExistingReferralKey(existingReferral) !== this.getIncomingReferralKey(incomingReferral)) {
       this.throwIdempotencyConflict();
     }
+  }
 
+  private assertJobPostingPayloadMatches(
+    existingPayload: Record<string, unknown> | null,
+    incomingPayload: Record<string, unknown> | null,
+    fallbackJobPostingId: string,
+  ) {
+    const existingJobPostingId = this.recordText(existingPayload, 'jobPostingId');
+    const incomingJobPostingId = this.recordText(incomingPayload, 'jobPostingId') ?? fallbackJobPostingId;
+    if (existingJobPostingId && incomingJobPostingId && existingJobPostingId !== incomingJobPostingId) {
+      this.throwIdempotencyConflict();
+    }
+  }
+
+  private assertCandidateHashesMatch(
+    existingPayload: Record<string, unknown> | null,
+    incomingPayload: Record<string, unknown> | null,
+  ) {
     const hashKeys = ['candidateEmailHash', 'candidatePhoneHash', 'candidateNameHash'];
     for (const key of hashKeys) {
       const existingHash = this.recordText(existingPayload, key);
@@ -1044,31 +1062,26 @@ export class ApplicationsService {
         this.throwIdempotencyConflict();
       }
     }
+  }
 
-    if (input.source !== ApplicationSourceType.PORTAL) return;
-
-    const existingReferral = existingSource.application?.freelancerReferral;
-    const incomingReferral = await this.resolvePublicReferralSource(input, manager);
-    let existingReferralType: ApplicationReferralSourceType | null | undefined = existingReferral?.sourceType;
-    if (existingReferralType == null) {
-      if (existingReferral?.internalId) {
-        existingReferralType = ApplicationReferralSourceType.INTERNAL;
-      } else if (existingReferral?.freelancerId) {
-        existingReferralType = ApplicationReferralSourceType.FREELANCER;
+  private getExistingReferralKey(referral: ApplicationReferralEntity | null | undefined) {
+    let referralType: ApplicationReferralSourceType | null | undefined = referral?.sourceType;
+    if (referralType == null) {
+      if (referral?.internalId) {
+        referralType = ApplicationReferralSourceType.INTERNAL;
+      } else if (referral?.freelancerId) {
+        referralType = ApplicationReferralSourceType.FREELANCER;
       } else {
-        existingReferralType = null;
+        referralType = null;
       }
     }
-    const existingReferralKey = existingReferral && existingReferralType
-      ? `${existingReferralType}:${existingReferral.freelancerId ?? existingReferral.internalId ?? ''}`
+    return referral && referralType
+      ? `${referralType}:${referral.freelancerId ?? referral.internalId ?? ''}`
       : null;
-    const incomingReferralKey = incomingReferral
-      ? `${incomingReferral.type}:${incomingReferral.id}`
-      : null;
+  }
 
-    if (existingReferralKey !== incomingReferralKey) {
-      this.throwIdempotencyConflict();
-    }
+  private getIncomingReferralKey(referral: { type: ApplicationReferralSourceType; id: string } | null) {
+    return referral ? `${referral.type}:${referral.id}` : null;
   }
 
   private async findDuplicateApplicationByIdentity(

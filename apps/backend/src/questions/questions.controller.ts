@@ -25,6 +25,19 @@ import { QuestionsService } from './questions.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
 
+type QuestionsListQuery = {
+  page?: string;
+  limit?: string;
+  search?: string;
+  category?: string;
+  subcategory?: string;
+  targetLevel?: string;
+  type?: QuestionType;
+  isActive?: boolean;
+  sortBy?: string;
+  sortOrder?: 'ASC' | 'DESC';
+};
+
 @ApiTags('Questions')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -50,18 +63,20 @@ export class QuestionsController {
   @ApiQuery({ name: 'targetLevel', required: false })
   @ApiQuery({ name: 'type', enum: QuestionType, required: false })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean })
-  findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
-    @Query('category') category?: string,
-    @Query('subcategory') subcategory?: string,
-    @Query('targetLevel') targetLevel?: string,
-    @Query('type') type?: QuestionType,
-    @Query('isActive') isActive?: boolean,
-    @Query('sortBy') sortBy?: string,
-    @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
-  ) {
+  findAll(@Query() query: QuestionsListQuery) {
+    const {
+      page,
+      limit,
+      search,
+      category,
+      subcategory,
+      targetLevel,
+      type,
+      isActive,
+      sortBy,
+      sortOrder,
+    } = query;
+
     return this.questionsService.findPaginated({
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,

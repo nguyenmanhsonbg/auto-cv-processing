@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Injectable, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,7 +11,7 @@ import { PaginatedResponse } from '@interview-assistant/shared';
 export class PositionsService implements OnModuleInit {
   constructor(
     @InjectRepository(PositionEntity)
-    private repo: Repository<PositionEntity>,
+    private readonly repo: Repository<PositionEntity>,
   ) {}
 
   async onModuleInit() {

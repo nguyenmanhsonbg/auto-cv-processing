@@ -6,10 +6,10 @@ import {
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { createHash } from 'crypto';
-import { createReadStream } from 'fs';
-import { open, stat } from 'fs/promises';
-import * as path from 'path';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { open, stat } from 'node:fs/promises';
+import * as path from 'node:path';
 import { DataSource, EntityManager, FindOptionsWhere } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';

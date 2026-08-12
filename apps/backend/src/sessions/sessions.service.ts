@@ -405,13 +405,11 @@ export class SessionsService {
 
     // Resolve position name: prefer positionId (UUID) over legacy templatePosition string.
     // This avoids passing brittle position names across the wire — clients should send a positionId.
-    let resolvedPositionName = dto.templatePosition || 'Backend Developer';
     if (dto.positionId) {
-      const resolvedPosition = await this.positionsService.findOne(dto.positionId);
-      resolvedPositionName = resolvedPosition.name;
+      await this.positionsService.findOne(dto.positionId);
     }
     const selectedAmisCareer = await this.resolveActiveAmisCareer(dto.amisCareerId);
-    resolvedPositionName = selectedAmisCareer.name;
+    const resolvedPositionName = selectedAmisCareer.name;
 
     const session = this.sessionRepo.create({
       candidateId: dto.candidateId,
