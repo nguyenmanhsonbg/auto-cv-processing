@@ -8,16 +8,12 @@ export {
   CheckCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  ChevronUpIcon,
   CloseIcon,
   CvIcon,
   DoubleBackIcon,
   DoubleChevronRightIcon,
   DownloadIcon,
-  EditIcon,
-  ExternalLinkIcon,
   FacebookGenerateIcon,
-  GearIcon,
   GridIcon,
   HistoryIcon,
   HomeIcon,
@@ -29,10 +25,14 @@ export {
   PinIcon,
   PostingIcon,
   RefreshIcon,
-  SaveIcon,
   SourceIcon,
-  SparklesIcon,
   TrashIcon,
   UploadIcon,
   WarningIcon,
-} from './side-panel-icons';
+} from '../svg/side-panel-icons';
+export { ChevronUpIcon } from '../svg/ChevronUpIcon';
+export { EditIcon } from '../svg/EditIcon';
+export { ExternalLinkIcon } from '../svg/ExternalLinkIcon';
+export { GearIcon } from '../svg/GearIcon';
+export { SaveIcon } from '../svg/SaveIcon';
+export { SparklesIcon } from '../svg/SparklesIcon';

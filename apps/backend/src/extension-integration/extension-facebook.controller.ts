@@ -31,6 +31,7 @@ import {
   GenerateFacebookPreviewContentDto,
   ManualIncludeFacebookGroupDto,
   ReportFacebookPublishResultDto,
+  ReserveFacebookPublishTargetDto,
   ResolveFacebookAccountDto,
   UpdateFacebookGroupDto,
   VerifyFacebookGroupDto,
@@ -74,6 +75,7 @@ export class ExtensionFacebookController {
       facebookExternalId: dto.facebookExternalId,
       displayName: dto.displayName,
       profileUrl: dto.profileUrl,
+      avatarUrl: dto.avatarUrl,
     });
 
     return { success: true, data: account, meta: { timestamp: new Date().toISOString() } };
@@ -325,12 +327,17 @@ export class ExtensionFacebookController {
     @Query('facebookAccountId') facebookAccountId?: string,
   ) {
     const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
-    const group = await this.facebookPublishingService.deleteExtensionGroup(
-      req.user.id,
-      this.requireDeleteTargetId(targetId),
-      extensionInstance?.id ?? null,
-      facebookAccountId?.trim() || null,
-    );
+    let group;
+    try {
+      group = await this.facebookPublishingService.deleteExtensionGroup(
+        req.user.id,
+        this.requireDeleteTargetId(targetId),
+        extensionInstance?.id ?? null,
+        facebookAccountId?.trim() || null,
+      );
+    } catch (error) {
+      this.rethrowMissingFacebookGroupAsNotFound(error);
+    }
 
     return {
       success: true,
@@ -452,6 +459,30 @@ export class ExtensionFacebookController {
       meta: {
         timestamp: new Date().toISOString(),
       },
+    };
+  }
+
+  @Post('publish-reservations')
+  @ApiOperation({ summary: 'Reserve one Facebook group daily quota slot before publishing' })
+  @ApiHeader({ name: 'X-Extension-Instance-Id', required: false })
+  @ApiBody({ type: ReserveFacebookPublishTargetDto })
+  @ApiResponse({ status: 201, description: 'Facebook publish quota reserved.' })
+  async reservePublishTarget(
+    @Body() dto: ReserveFacebookPublishTargetDto,
+    @Request() req: ExtensionFacebookRequest,
+    @Headers('x-extension-instance-id') extensionInstanceId: HeaderValue,
+  ) {
+    const extensionInstance = await this.resolveOptionalExtensionInstance(req, extensionInstanceId);
+    const reservation = await this.facebookPublishingService.reserveExtensionPublishTarget({
+      ...dto,
+      ownerUserId: req.user.id,
+      extensionInstanceId: extensionInstance?.id ?? null,
+    });
+
+    return {
+      success: true,
+      data: { reservationId: reservation.reservationId },
+      meta: { timestamp: new Date().toISOString() },
     };
   }
 

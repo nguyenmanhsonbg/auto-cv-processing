@@ -3,7 +3,6 @@ import {
   IsEmail,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
   MinLength,
   ValidateIf,
@@ -43,8 +42,5 @@ export class PublicApplyDto {
   @ValidateIf((_object, value) => typeof value !== 'string' || value.trim() !== '')
   @IsEmail()
   @MaxLength(255)
-  @Matches(/^[^\s@]+@viettel\.com\.vn$/i, {
-    message: 'Internal email must use the @viettel.com.vn domain.',
-  })
   internalEmail?: string;
 }

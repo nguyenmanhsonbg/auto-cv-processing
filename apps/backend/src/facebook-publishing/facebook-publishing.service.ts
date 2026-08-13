@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Brackets, In, Repository } from 'typeorm';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
 import { JobPostingStatus } from '../recruitment-common';
 import { FacebookPostContentService } from './content/facebook-post-content.service';
@@ -21,6 +22,7 @@ import {
   FacebookPublishResultStatus,
   ListFacebookPublishHistoriesInput,
   ReportFacebookPublishResultInput,
+  ReserveFacebookPublishTargetInput,
   ResolvedFacebookPublishTarget,
   UpdateFacebookGroupVerificationInput,
   UpdateFacebookGroupInput,
@@ -174,7 +176,9 @@ export class FacebookPublishingService {
     const now = new Date();
     const hasDisplayName = Object.prototype.hasOwnProperty.call(input, 'displayName');
     const hasProfileUrl = Object.prototype.hasOwnProperty.call(input, 'profileUrl');
+    const hasAvatarUrl = Object.prototype.hasOwnProperty.call(input, 'avatarUrl');
     const normalizedProfileUrl = this.normalizeFacebookProfileUrl(input.profileUrl, facebookExternalId);
+    const normalizedAvatarUrl = this.normalizeFacebookAvatarUrl(input.avatarUrl);
     const normalizedDisplayName = hasDisplayName
       && (!hasProfileUrl || normalizedProfileUrl)
       ? this.normalizeFacebookAccountDisplayName(input.displayName, facebookExternalId)
@@ -192,6 +196,7 @@ export class FacebookPublishingService {
         facebookExternalId,
         displayName: normalizedDisplayName,
         profileUrl: normalizedProfileUrl,
+        avatarUrl: normalizedAvatarUrl,
         status: 'ACTIVE',
         lastSeenAt: now,
         lastAuthenticatedAt: now,
@@ -218,7 +223,7 @@ export class FacebookPublishingService {
         account.displayName,
         facebookExternalId,
       );
-      if (normalizedDisplayName) {
+      if (hasDisplayName) {
         account.displayName = normalizedDisplayName;
       } else if (!existingDisplayName) {
         // Do not retain generic labels such as "Facebook account" from an
@@ -228,6 +233,9 @@ export class FacebookPublishingService {
       }
       if (normalizedProfileUrl) {
         account.profileUrl = normalizedProfileUrl;
+      }
+      if (hasAvatarUrl) {
+        account.avatarUrl = normalizedAvatarUrl;
       }
       account.status = 'ACTIVE';
       account.lastSeenAt = now;
@@ -307,6 +315,7 @@ export class FacebookPublishingService {
       inactiveTarget.name = name;
       inactiveTarget.url = groupUrl.url;
       inactiveTarget.active = true;
+      inactiveTarget.excludedFromDiscovery = false;
       inactiveTarget.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;
       inactiveTarget.eligibilityReason = 'Group has not been verified yet.';
       inactiveTarget.lastVerifiedAt = null;
@@ -365,6 +374,7 @@ export class FacebookPublishingService {
       target.url = groupUrl.url;
       target.externalId = groupUrl.externalId;
       target.active = true;
+      target.excludedFromDiscovery = false;
       target.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? target.ownerExtensionInstanceId;
       target.facebookAccountId = input.facebookAccountId ?? target.facebookAccountId;
       target.manualIncluded = true;
@@ -528,6 +538,20 @@ export class FacebookPublishingService {
 
       const inactiveTarget = matches.find((target) => !target.active);
       if (inactiveTarget) {
+        if (inactiveTarget.excludedFromDiscovery) {
+          result.filtered += 1;
+          result.skipped += 1;
+          result.items.push({
+            action: 'skipped',
+            targetName: item.targetName,
+            targetUrl: item.targetUrl,
+            targetExternalId: item.externalId,
+            targetId: inactiveTarget.id,
+            reason: 'Group was removed from the system and must be manually included again.',
+          });
+          return nextPriority;
+        }
+
         await this.reactivateDiscoveredGroup(inactiveTarget, item, input, discoveryTime, result);
         return nextPriority;
       }
@@ -853,7 +877,75 @@ export class FacebookPublishingService {
     await this.assertFacebookAccountOwner(ownerUserId, facebookAccountId);
     const target = await this.findOwnedActiveGroup(ownerUserId, targetId, ownerExtensionInstanceId, facebookAccountId);
     target.active = false;
+    target.excludedFromDiscovery = true;
     return this.toResolvedTarget(await this.targetsRepo.save(target));
+  }
+
+  async reserveExtensionPublishTarget(input: ReserveFacebookPublishTargetInput) {
+    const target = await this.findOwnedActiveGroup(
+      input.ownerUserId,
+      input.targetId,
+      input.extensionInstanceId,
+    );
+    const reservationExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    return this.historiesRepo.manager.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `facebook-quota:${target.id}`,
+      ]);
+
+      const lockedTarget = await manager.getRepository(FacebookPublishTargetEntity).findOne({
+        where: {
+          id: target.id,
+          ownerUserId: input.ownerUserId,
+          type: FacebookPublishTargetType.GROUP,
+          active: true,
+        },
+      });
+      if (!lockedTarget) {
+        throw new BadRequestException({
+          code: 'FACEBOOK_GROUP_NOT_FOUND',
+          message: 'Facebook group not found for this account.',
+        });
+      }
+
+      const todayCount = (await this.getTodayPublishCounts([lockedTarget.id], manager)).get(lockedTarget.id) ?? 0;
+      const dailyPublishLimit = this.normalizeDailyPublishLimit(lockedTarget.dailyPublishLimit);
+      if (todayCount >= dailyPublishLimit) {
+        throw new BadRequestException({
+          code: 'FACEBOOK_DAILY_QUOTA_EXCEEDED',
+          message: `Không thể đăng bài do đã đạt tối đa ${dailyPublishLimit} bài trong hôm nay.`,
+        });
+      }
+
+      const history = manager.getRepository(FacebookPublishHistoryEntity).create({
+        jobPostingId: input.jobPostingId,
+        jobDescriptionId: null,
+        jobDescriptionVersionId: null,
+        targetId: lockedTarget.id,
+        extensionInstanceId: input.extensionInstanceId ?? null,
+        targetType: lockedTarget.type,
+        targetName: lockedTarget.name,
+        targetUrl: lockedTarget.url,
+        content: input.content?.trim() ?? '',
+        status: FacebookPublishResultStatus.PENDING,
+        reservationId: randomUUID(),
+        reservationExpiresAt,
+        facebookReviewStatus: FacebookReviewStatus.UNKNOWN,
+        message: 'Facebook daily publish quota reserved.',
+        errorReason: null,
+        externalPostId: null,
+        externalPostUrl: null,
+        submittedAt: null,
+        lastStatusCheckedAt: null,
+        lastStatusCheckMessage: null,
+      });
+      const savedHistory = await manager.getRepository(FacebookPublishHistoryEntity).save(history);
+      return {
+        reservationId: savedHistory.reservationId as string,
+        reservationExpiresAt: savedHistory.reservationExpiresAt,
+      };
+    });
   }
 
   async reportExtensionPublishResult(input: ReportFacebookPublishResultInput) {
@@ -884,7 +976,17 @@ export class FacebookPublishingService {
 
     const content = input.content?.trim() || this.contentService.build(posting);
     const externalPost = this.parseFacebookGroupPostUrl(input.externalPostUrl);
-    const history = this.historiesRepo.create({
+    const existingReservation = input.reservationId
+      ? await this.historiesRepo.findOne({ where: { reservationId: input.reservationId } })
+      : null;
+    if (existingReservation && (
+      existingReservation.jobPostingId !== posting.id
+      || existingReservation.targetId !== (input.targetId ?? null)
+    )) {
+      throw new BadRequestException('Facebook publish reservation does not match the reported target.');
+    }
+
+    const history = existingReservation ?? this.historiesRepo.create({
       jobPostingId: posting.id,
       jobDescriptionId: posting.jobDescriptionId ?? null,
       jobDescriptionVersionId: posting.jobDescriptionVersionId ?? null,
@@ -894,6 +996,8 @@ export class FacebookPublishingService {
       targetName: input.targetName,
       targetUrl: input.targetUrl ?? null,
       content,
+      reservationId: null,
+      reservationExpiresAt: null,
       status: input.status,
       facebookReviewStatus: this.resolveFacebookReviewStatus(
         input.status,
@@ -908,6 +1012,28 @@ export class FacebookPublishingService {
         ? input.submittedAt ?? new Date()
         : null,
     });
+
+    history.jobDescriptionId = posting.jobDescriptionId ?? null;
+    history.jobDescriptionVersionId = posting.jobDescriptionVersionId ?? null;
+    history.extensionInstanceId = input.extensionInstanceId ?? history.extensionInstanceId ?? null;
+    history.targetType = input.targetType;
+    history.targetName = input.targetName;
+    history.targetUrl = input.targetUrl ?? null;
+    history.content = content;
+    history.status = input.status;
+    history.facebookReviewStatus = this.resolveFacebookReviewStatus(
+      input.status,
+      input.message,
+      input.facebookReviewStatus,
+    );
+    history.message = input.message;
+    history.errorReason = input.status === FacebookPublishResultStatus.SUCCESS ? null : input.message;
+    history.externalPostId = externalPost?.postId ?? null;
+    history.externalPostUrl = externalPost?.url ?? null;
+    history.submittedAt = input.status === FacebookPublishResultStatus.SUCCESS
+      ? input.submittedAt ?? new Date()
+      : null;
+    history.reservationExpiresAt = null;
 
     const savedHistory = await this.historiesRepo.save(history);
     if (
@@ -1152,9 +1278,12 @@ export class FacebookPublishingService {
         facebookAccountId,
       ));
       if (selectedTargets.length !== uniqueTargetIds.length) {
+        const isSingleMissingTarget = uniqueTargetIds.length === 1;
         throw new BadRequestException({
-          code: 'FACEBOOK_TARGETS_INVALID',
-          message: 'One or more selected Facebook groups are unavailable for this account.',
+          code: isSingleMissingTarget ? 'FACEBOOK_GROUP_NOT_FOUND' : 'FACEBOOK_TARGETS_INVALID',
+          message: isSingleMissingTarget
+            ? 'Facebook group not found for this account.'
+            : 'One or more selected Facebook groups are unavailable for this account.',
         });
       }
 
@@ -1284,18 +1413,30 @@ export class FacebookPublishingService {
       : status;
   }
 
-  private async getTodayPublishCounts(targetIds: string[]) {
+  private async getTodayPublishCounts(
+    targetIds: string[],
+    manager = this.historiesRepo.manager,
+  ) {
     if (targetIds.length === 0) return new Map<string, number>();
 
     const { start, end } = this.getSaigonDayWindow(new Date());
-    const rows = await this.historiesRepo
+    const now = new Date();
+    const rows = await manager.getRepository(FacebookPublishHistoryEntity)
       .createQueryBuilder('history')
       .select('history.targetId', 'targetId')
       .addSelect('COUNT(*)', 'count')
       .where('history.targetId IN (:...targetIds)', { targetIds })
-      .andWhere('history.status = :status', { status: FacebookPublishResultStatus.SUCCESS })
-      .andWhere('history.submittedAt >= :start', { start })
-      .andWhere('history.submittedAt < :end', { end })
+      .andWhere(new Brackets((query) => {
+        query
+          .where(
+            '(history.status = :successStatus AND history.submittedAt >= :start AND history.submittedAt < :end)',
+            { successStatus: FacebookPublishResultStatus.SUCCESS, start, end },
+          )
+          .orWhere(
+            '(history.status = :pendingStatus AND history.createdAt >= :start AND history.createdAt < :end AND history.reservationExpiresAt > :now)',
+            { pendingStatus: FacebookPublishResultStatus.PENDING, start, end, now },
+          );
+      }))
       .groupBy('history.targetId')
       .getRawMany<{ targetId: string; count: string }>();
 
@@ -1386,6 +1527,7 @@ export class FacebookPublishingService {
       facebookExternalId: account.facebookExternalId,
       displayName: account.displayName,
       profileUrl: account.profileUrl,
+      avatarUrl: account.avatarUrl,
       status: account.status,
       lastSeenAt: account.lastSeenAt?.toISOString() ?? null,
     };
@@ -1412,10 +1554,14 @@ export class FacebookPublishingService {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
     const placeholderPatterns = [
-      /^account(?:\s+id)?(?:\s+\d+)?$/i,
-      /^facebook(?:\s+account)?$/i,
-      /^\(\d+\)\s*facebook$/i,
-      /^(?:thong\s+bao|notification)$/i,
+      /^account(?:\\s+id)?(?:\\s+\\d+)?$/i,
+      /^facebook(?:\\s+account)?$/i,
+      /^\\(\\d+\\)\\s*facebook$/i,
+      /^(?:thong\\s+bao|notification)$/i,
+      /^(?:chat|messenger)$/i,
+      /^group\\s+chat$/i,
+      /^(?:doan|tro)\\s+(?:chat|chuyen)$/i,
+      /^conversation$/i,
     ] as const;
     if (placeholderPatterns.some((pattern) => pattern.test(comparable))) {
       return null;
@@ -1436,6 +1582,25 @@ export class FacebookPublishingService {
 
       const queryId = parsed.searchParams.get('id')?.trim();
       if (queryId && queryId !== facebookExternalId) return null;
+      return parsed.href;
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeFacebookAvatarUrl(value: string | null | undefined) {
+    const normalized = value?.trim();
+    if (!normalized) return null;
+
+    try {
+      const parsed = new URL(normalized);
+      const hostname = parsed.hostname.toLowerCase();
+      if (
+        (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
+        || (!hostname.endsWith('.facebook.com') && !hostname.endsWith('.fbcdn.net') && !hostname.endsWith('.fbsbx.com'))
+      ) {
+        return null;
+      }
       return parsed.href;
     } catch {
       return null;

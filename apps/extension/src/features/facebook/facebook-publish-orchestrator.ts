@@ -1,6 +1,7 @@
-import { ApiClientError, reportFacebookPublishResult } from '@/lib/api-client';
+import { ApiClientError, reportFacebookPublishResult, reserveFacebookPublishTarget } from '@/lib/api-client';
 import { getAccessToken } from '@/features/auth/auth-store';
 import { summarizeFacebookPublishResults } from '@/features/facebook/facebook-channel-status';
+import { toVietnameseErrorMessage } from '@/lib/error-messages';
 import { FACEBOOK_MAX_IMAGE_ATTACHMENTS } from '@/lib/config';
 import { hashText } from '@/hash-text';
 import { secureRandomFraction } from '@/secure-random';
@@ -124,6 +125,7 @@ export interface FacebookAccountIdentity {
   facebookExternalId: string;
   displayName?: string | null;
   profileUrl?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface FacebookSessionCallbacks {
@@ -423,25 +425,38 @@ async function publishAndReportFacebookTarget({
 }: PublishAndReportFacebookTargetInput): Promise<FacebookPublishResultPayload> {
   const execution = new FacebookTargetExecution(target.targetName);
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let reservedTarget = target;
 
   const operation = async () => {
     execution.throwIfCancelled();
+    if (target.targetId) {
+      const reservation = await reserveFacebookPublishTarget(accessToken, {
+        jobPostingId: plan.jobPostingId,
+        targetId: target.targetId,
+        targetType: target.targetType,
+        targetName: target.targetName,
+        targetUrl: target.targetUrl ?? null,
+        content: plan.content,
+      });
+      reservedTarget = { ...target, reservationId: reservation.reservationId };
+    }
+
     const publishResult = await publishTarget(
-      target,
+      reservedTarget,
       plan.content,
       imageAttachments,
       callbacks,
       execution,
     );
     execution.throwIfCancelled();
-    const payload = buildFacebookPublishResultPayload(plan, target, publishResult);
+    const payload = buildFacebookPublishResultPayload(plan, reservedTarget, publishResult);
 
     callbacks.onProgress?.({
       status: 'REPORTING',
       currentIndex,
       total,
-      target,
-      message: `Saving Facebook result for ${target.targetName}.`,
+      target: reservedTarget,
+      message: `Saving Facebook result for ${reservedTarget.targetName}.`,
       results,
     });
     const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
@@ -457,15 +472,22 @@ async function publishAndReportFacebookTarget({
   } catch (error) {
     const message = error instanceof FacebookTargetTimeoutError
       ? `${error.code}: ${error.message}`
+      : error instanceof ApiClientError
+        && error.code === 'FACEBOOK_GROUP_NOT_FOUND'
+        ? toVietnameseErrorMessage(error)
+      : error instanceof ApiClientError
+        && error.status === 400
+        && /quota|đạt tối đa|daily publish limit/i.test(error.message)
+        ? toVietnameseErrorMessage(error)
       : `FB_TARGET_UNEXPECTED_ERROR: Facebook publish target failed before it could produce a result. ${toAutomationErrorMessage(error)}`;
-    const payload = buildUnexpectedFacebookPublishFailurePayload(plan, target, message);
+    const payload = buildUnexpectedFacebookPublishFailurePayload(plan, reservedTarget, message);
 
     callbacks.onProgress?.({
       status: 'REPORTING',
       currentIndex,
       total,
-      target,
-      message: `Saving Facebook failure for ${target.targetName}.`,
+      target: reservedTarget,
+      message: `Saving Facebook failure for ${reservedTarget.targetName}.`,
       results,
     });
     const reportErrorMessage = await reportFacebookPublishResultWithTimeout(accessToken, payload);
@@ -486,6 +508,7 @@ function buildFacebookPublishResultPayload(
 
   return {
     jobPostingId: plan.jobPostingId,
+    reservationId: target.reservationId ?? null,
     targetId: target.targetId ?? null,
     targetType: target.targetType,
     targetName: target.targetName,
@@ -507,6 +530,7 @@ function buildUnexpectedFacebookPublishFailurePayload(
 ): FacebookPublishResultPayload {
   return {
     jobPostingId: plan.jobPostingId,
+    reservationId: target.reservationId ?? null,
     targetId: target.targetId ?? null,
     targetType: target.targetType,
     targetName: target.targetName,
@@ -1836,6 +1860,7 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
   const externalId = cookieExternalId ?? domExternalId;
   let displayName = normalizeFacebookDisplayName(status.account?.displayName);
   let profileUrl = status.account?.profileUrl ?? null;
+  let avatarUrl = status.account?.avatarUrl ?? null;
   const initialDisplayName = displayName;
   const initialProfileUrl = profileUrl;
 
@@ -1858,7 +1883,7 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
 
   const initialIdentityCanBeVerified = Boolean(initialDisplayName && profileUrl);
 
-  if (sourceTabId && (cookieExternalId || !displayName)) {
+  if (sourceTabId && (cookieExternalId || !displayName || !avatarUrl)) {
     // Reuse the authentication tab for the exact profile probe. Facebook's
     // homepage can expose another person's profile link, but c_user gives us
     // the account that must be inspected. Reusing this tab keeps auth and
@@ -1877,6 +1902,10 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
           ? initialDisplayName
           : null);
       profileUrl = verifiedProfileUrl;
+      // The homepage can contain chat/group identities. Only keep the avatar
+      // found by the exact profile probe; never carry an unverified homepage
+      // image into the resolved account.
+      avatarUrl = profileIdentity.avatarUrl;
     } catch {
       // Account identity is still valid without a display name.
     }
@@ -1888,6 +1917,7 @@ async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, s
       facebookExternalId: externalId,
       displayName,
       profileUrl: profileUrl ?? `https://www.facebook.com/profile.php?id=${externalId}`,
+      avatarUrl,
     },
   };
 }
@@ -1904,30 +1934,24 @@ function isFacebookLoginLikeUrl(url: string) {
 interface FacebookProfileIdentityProbe {
   displayName: string | null;
   profileUrl: string;
+  avatarUrl: string | null;
 }
 
 function normalizeFacebookDisplayName(value: string | null | undefined) {
-  const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
+  const normalized = value
+    ?.replace(/^Dòng thời gian của\s+/i, '')
+    ?.replace(/^Đồng thời gian của\s+/i, '')
+    ?.replace(/^Timeline of\s+/i, '')
+    ?.replace(/\s+/g, ' ')
+    .trim() ?? '';
   if (!normalized) return null;
   const comparable = normalized
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-  const genericLabels = new Set([
-    'thong bao',
-    'notification',
-    'dang ky',
-    'sign up',
-    'create new account',
-    'register',
-    'log in',
-    'login',
-  ]);
-  const isAccountLabel = /^account(?:\s+id)?(?:\s+\d+)?$/i.test(comparable)
-    || comparable === 'facebook'
-    || comparable === 'facebook account'
-    || /^\(\d+\)\s*facebook$/i.test(comparable);
-  if (isAccountLabel || genericLabels.has(comparable)) {
+  if (
+    /^(?:account(?:\s+id)?(?:\s+\d+)?|facebook(?:\s+account)?|\(\d+\)\s*facebook|thong\s+bao|notification|dang\s+ky|sign\s+up|create\s+new\s+account|register|log\s+in|login|chat|messenger|group\s+chat|doan\s+chat|tro\s+chuyen|conversation)$/i.test(comparable)
+  ) {
     return null;
   }
   if (normalized.length > 100) return null;
@@ -2010,6 +2034,7 @@ async function readFacebookProfileIdentityWithRetry(tabId: number) {
   let latest: FacebookProfileIdentityProbe = {
     displayName: null,
     profileUrl: '',
+    avatarUrl: null,
   };
 
   while (Date.now() < deadline) {
@@ -2018,6 +2043,8 @@ async function readFacebookProfileIdentityWithRetry(tabId: number) {
       readFacebookProfileIdentityInPage,
       [],
     );
+    // Keep the original identity timing: avatar discovery must not cause the
+    // profile-name probe to finish before Facebook renders the profile name.
     if (latest.displayName) return latest;
     await sleep(400);
   }
@@ -2046,7 +2073,7 @@ function isFacebookAuthTabUnavailableError(error: unknown) {
 }
 
 function toAutomationErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Facebook browser automation failed.';
+  return toVietnameseErrorMessage(error, 'Tác vụ tự động hóa Facebook không thể hoàn tất.');
 }
 
 async function activateTab(tabId: number) {
@@ -3674,33 +3701,13 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
 }
 
 function readFacebookProfileIdentityInPage(): FacebookProfileIdentityProbe {
-  const stripFacebookTitleSuffix = (value: string) => {
-    let normalized = value.replace(/\s+/g, ' ').trim();
-    for (const separator of ['|', '•', '-']) {
-      const separatorIndex = normalized.lastIndexOf(separator);
-      if (separatorIndex < 0) continue;
-      const suffix = normalized.slice(separatorIndex + 1).trim().toLowerCase();
-      if (suffix.startsWith('facebook')) {
-        normalized = normalized.slice(0, separatorIndex).trim();
-        break;
-      }
-    }
-    const facebookSuffix = ' on facebook';
-    if (normalized.toLowerCase().endsWith(facebookSuffix)) {
-      normalized = normalized.slice(0, -facebookSuffix.length).trim();
-    }
-    for (const prefix of ['đồng thời gian của ', 'đồng thời của ', 'timeline of ']) {
-      if (normalized.toLowerCase().startsWith(prefix)) {
-        normalized = normalized.slice(prefix.length).trim();
-        break;
-      }
-    }
-    return normalized;
-  };
   const normalize = (value: string | null | undefined) => {
     const normalized = value
-      ? stripFacebookTitleSuffix(value)
-      : '';
+      ?.replace(/\s+/g, ' ')
+      .replace(/\s*[|•-]\s*Facebook.*$/i, '')
+      .replace(/\s+on Facebook$/i, '')
+      .replace(/^(?:Dòng thời gian của|Đồng thời gian của|Timeline of)\s+/i, '')
+      .trim() ?? '';
     if (!normalized || normalized.length > 100) return null;
     const comparable = normalized
       .normalize('NFD')
@@ -3712,19 +3719,63 @@ function readFacebookProfileIdentityInPage(): FacebookProfileIdentityProbe {
     return normalized;
   };
 
+  const openGraphTitle = normalize(document.querySelector('meta[property="og:title"]')?.getAttribute('content'));
+  const isConversationLabel = (value: string | null) => Boolean(value && /(?:\bchat\b|\bmessenger\b|group\s+chat|đoạn\s+chat|trò\s+chuyện|conversation)/i.test(value));
   const displayName = [
+    openGraphTitle,
     document.querySelector('[role="main"] h1')?.textContent,
     document.querySelector('main h1')?.textContent,
     document.querySelector('h1')?.textContent,
-    document.querySelector('meta[property="og:title"]')?.getAttribute('content'),
     document.title,
   ]
     .map(normalize)
-    .find((value): value is string => Boolean(value)) ?? null;
+    .find((value): value is string => Boolean(value) && !isConversationLabel(value))
+    ?? null;
+
+  const toFacebookAssetUrl = (value: string | null | undefined) => {
+    if (!value) return null;
+    try {
+      const parsed = new URL(value, window.location.href);
+      const hostname = parsed.hostname.toLowerCase();
+      return /^https?:$/.test(parsed.protocol)
+        && (hostname.endsWith('.facebook.com') || hostname.endsWith('.fbcdn.net') || hostname.endsWith('.fbsbx.com'))
+        ? parsed.href
+        : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // The profile photo is not consistently nested under role="main" across
+  // Facebook layouts. Search the whole document, but only accept images whose
+  // accessible label identifies them as a profile photo; never fall back to
+  // an arbitrary page image.
+  const imageCandidates = Array.from(document.querySelectorAll<HTMLImageElement>('img[src], img[srcset]'))
+    .map((image) => ({
+      url: toFacebookAssetUrl(image.currentSrc || image.src || image.srcset.split(',')[0]?.trim().split(' ')[0]),
+      alt: image.alt || image.getAttribute('aria-label') || '',
+    }))
+    .filter((item): item is { url: string; alt: string } => Boolean(item.url));
+  const svgImageCandidates = Array.from(document.querySelectorAll<SVGImageElement>('image'))
+    .map((image) => ({
+      url: toFacebookAssetUrl(image.getAttribute('href') || image.getAttribute('xlink:href')),
+      alt: image.getAttribute('aria-label')
+        || image.closest('[role="img"]')?.getAttribute('aria-label')
+        || image.closest('[role="button"]')?.getAttribute('aria-label')
+        || '',
+    }))
+    .filter((item): item is { url: string; alt: string } => Boolean(item.url));
+  imageCandidates.push(...svgImageCandidates);
+  const avatarUrl = imageCandidates.find(({ alt }) => /profile picture|profile photo|avatar|ảnh đại diện|anh dai dien/i.test(alt) && !isConversationLabel(alt))?.url
+    ?? (!isConversationLabel(openGraphTitle)
+      ? toFacebookAssetUrl(document.querySelector('meta[property="og:image"]')?.getAttribute('content'))
+      : null)
+    ?? null;
 
   return {
     displayName,
     profileUrl: window.location.href,
+    avatarUrl,
   };
 }
 

@@ -35,6 +35,7 @@ import {
 } from '@/integrations/amis/amis-source-column-contract';
 import { clearAccessToken, getAccessToken } from '@/features/auth/auth-store';
 import { getSelectedChannels } from '@/stores/channel-preferences';
+import { toVietnameseErrorMessage } from '@/lib/error-messages';
 import { EXTENSION_TASK_QUEUE_ENABLED, FACEBOOK_MAX_IMAGE_ATTACHMENTS } from '@/lib/config';
 import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from '@/features/facebook/facebook-channel-status';
 import {
@@ -1406,15 +1407,7 @@ function toAutoSyncError(error: unknown) {
 }
 
 function toExtensionErrorMessage(error: unknown, fallbackMessage: string) {
-  if (error instanceof ApiClientError) {
-    return `${error.code}: ${error.message} (status=${error.status})`;
-  }
-
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
-  }
-
-  return fallbackMessage;
+  return toVietnameseErrorMessage(error, fallbackMessage);
 }
 
 function isAmisSourceColumnDataMessage(value: unknown): value is AmisSourceColumnDataRequest {

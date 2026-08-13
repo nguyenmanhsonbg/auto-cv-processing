@@ -179,6 +179,25 @@ export class InternalsService {
     }
   }
 
+  async resolveActiveByEmail(
+    value: string,
+    manager?: EntityManager,
+  ): Promise<InternalEntity> {
+    const existing = await this.findActiveByEmail(value, manager);
+    if (!existing) throw this.invalidInternalEmailError();
+    return existing;
+  }
+
+  async findActiveByEmail(
+    value: string,
+    manager?: EntityManager,
+  ): Promise<InternalEntity | null> {
+    const email = normalizeInternalEmail(value);
+    const repo = manager?.getRepository(InternalEntity) ?? this.internalsRepo;
+    const existing = await repo.findOne({ where: { email } });
+    return existing?.isActive ? existing : null;
+  }
+
   private buildSummaryQuery() {
     return this.internalsRepo
       .createQueryBuilder('internal')

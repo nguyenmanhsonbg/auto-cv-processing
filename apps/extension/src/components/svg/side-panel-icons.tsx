@@ -1,13 +1,9 @@
-type IconProps = {
-  className?: string;
-};
+import type { IconProps } from './types';
 
 export function RefreshIcon({ className }: IconProps) {
   return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="M13 7.2A5 5 0 0 0 4.6 4L3.5 5.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3.4 2.4v2.8h2.8M3 8.8A5 5 0 0 0 11.4 12l1.1-1.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M12.6 13.6v-2.8H9.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    <svg className={className} aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M2.33301 2.33336V5.25002H2.67251M11.6302 6.41669C11.3648 4.3086 9.70917 2.64576 7.60224 2.37135C5.49531 2.09694 3.46895 3.28022 2.67251 5.25002M2.67251 5.25002H5.24967M11.6663 11.6667V8.75002H11.3274M11.3274 8.75002C10.5299 10.7186 8.50396 11.9007 6.39773 11.6264C4.29151 11.3521 2.63593 9.69055 2.36917 7.58335M11.3274 8.75002H8.74967" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -31,8 +27,8 @@ export function CloseIcon({ className }: IconProps) {
 
 export function TrashIcon({ className }: IconProps) {
   return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="M3 4.5h10M6.5 2.8h3L10 4.5H6l.5-1.7ZM5 6v6.3c0 .5.4.9.9.9h4.2c.5 0 .9-.4.9-.9V6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    <svg className={className} aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M11.083 4.08333L10.5773 11.1662C10.5338 11.7768 10.0257 12.25 9.41351 12.25H4.58584C3.97364 12.25 3.46556 11.7768 3.42209 11.1662L2.91634 4.08333M5.83301 6.41667V9.91667M8.16634 6.41667V9.91667M8.74967 4.08333V2.33333C8.74967 2.01138 8.48829 1.75 8.16634 1.75H5.83301C5.51106 1.75 5.24967 2.01138 5.24967 2.33333V4.08333M2.33301 4.08333H11.6663" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -79,15 +75,6 @@ export function CheckCircleIcon({ className }: IconProps) {
   );
 }
 
-export function SparklesIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="M6.8 2.4 8 5.3l2.8 1.1L8 7.6l-1.2 3-1.1-3-2.9-1.2 2.9-1.1 1.1-2.9Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-      <path d="m12.2 9.2.5 1.4 1.3.5-1.3.6-.5 1.3-.6-1.3-1.3-.6 1.3-.5.6-1.4Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export function FacebookGenerateIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -98,9 +85,8 @@ export function FacebookGenerateIcon() {
 
 export function WarningIcon({ className }: IconProps) {
   return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 24 24" fill="none">
-      <path d="M12 3 2.8 19h18.4L12 3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M12 8.5v5M12 17h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <svg className={className} width="37" height="32" viewBox="0 0 37 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M0 31.6667L18.3333 0L36.6667 31.6667H0ZM18.3333 26.6667C18.8056 26.6667 19.2014 26.5069 19.5208 26.1875C19.8403 25.8681 20 25.4722 20 25C20 24.5278 19.8403 24.1319 19.5208 23.8125C19.2014 23.4931 18.8056 23.3333 18.3333 23.3333C17.8611 23.3333 17.4653 23.4931 17.1458 23.8125C16.8264 24.1319 16.6667 24.5278 16.6667 25C16.6667 25.4722 16.8264 25.8681 17.1458 26.1875C17.4653 26.5069 17.8611 26.6667 18.3333 26.6667ZM16.6667 21.6667H20V13.3333H16.6667V21.6667Z" fill="#334155"/>
     </svg>
   );
 }
@@ -225,79 +211,3 @@ export function InfoExportIcon({ className }: IconProps) {
     </svg>
   );
 }
-
-export function ExternalLinkIcon({ className }: IconProps) {
-  return (
-    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="M6.2 4H3.8c-.7 0-1.2.5-1.2 1.2v7c0 .7.5 1.2 1.2 1.2h7c.7 0 1.2-.5 1.2-1.2V9.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8.2 2.8h5v5M7.6 8.4l5.2-5.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-export function SaveIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      height="14"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-      width="14"
-    >
-      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
-      <path d="M17 21v-8H7v8" />
-      <path d="M7 3v5h8" />
-    </svg>
-  );
-}
-
-export function EditIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      height="15"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-      width="15"
-    >
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  );
-}
-
-export function GearIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      height="16"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-      width="16"
-    >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-    </svg>
-  );
-}
-
-export function ChevronUpIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <path d="m3.5 10 4.5-4.5 4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-

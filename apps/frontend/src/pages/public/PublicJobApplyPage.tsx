@@ -53,7 +53,6 @@ interface ApplyResultState {
 
 const EXACT_ORIGINAL_FILE_HASH_METHOD_VERSION = 'EXACT_ORIGINAL_FILE_HASH_V1';
 const FREELANCER_CODE_PATTERN = /^FL[0-9]{6}$/;
-const INTERNAL_EMAIL_PATTERN = /^[^\s@]+@viettel\.com\.vn$/i;
 const INVALID_FREELANCER_CODE_MESSAGE = 'Mã giới thiệu không hợp lệ';
 
 const INITIAL_FORM: ApplyFormState = {
@@ -77,10 +76,6 @@ function isEmail(value: string) {
 
 function isFreelancerCode(value: string) {
   return FREELANCER_CODE_PATTERN.test(value);
-}
-
-function isInternalEmail(value: string) {
-  return INTERNAL_EMAIL_PATTERN.test(value);
 }
 
 function isApplyOpen(job: PublicJobPostingDetail) {
@@ -198,11 +193,6 @@ export function PublicJobApplyPage() {
       && !isFreelancerCode(form.freelancerCode.trim())) {
       nextErrors.freelancerCode = INVALID_FREELANCER_CODE_MESSAGE;
     }
-    if (form.referralSource === 'internal'
-      && form.internalEmail.trim() !== ''
-      && !isInternalEmail(form.internalEmail.trim())) {
-      nextErrors.internalEmail = 'Email nội bộ phải có đuôi @viettel.com.vn.';
-    }
     if (!cvFile) {
       nextErrors.cvFile = 'Vui long tai len CV.';
     } else {
@@ -264,7 +254,7 @@ export function PublicJobApplyPage() {
       if (errorCode === API_ERROR_CODES.INVALID_INTERNAL_EMAIL) {
         setFieldErrors((prev) => ({
           ...prev,
-          internalEmail: 'Email nội bộ phải có đuôi @viettel.com.vn và đang hoạt động.',
+          internalEmail: 'Email nội bộ không tồn tại hoặc chưa được kích hoạt.',
         }));
         return;
       }

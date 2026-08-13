@@ -70,6 +70,7 @@ import {
   type RecruitmentPagination,
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
+import { formatRecruitmentDateTime } from '@/lib/date-time';
 import type { ParsedProfile } from '@interview-assistant/shared';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -81,20 +82,6 @@ import {
 const EXTENSION_PDF_REQUEST_SOURCE = 'vcs-recruitment-extension';
 const EXTENSION_PDF_REQUEST = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_FROM_PAGE';
 const EXTENSION_PDF_RESULT = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_RESULT';
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
 
 function valueOrDash(value?: string | number | null) {
   if (value === undefined || value === null || value === '') return '-';
@@ -864,7 +851,7 @@ export function ApplicationDetailPage() {
                         <TableCell>{valueOrDash(source.channel)}</TableCell>
                         <TableCell>{valueOrDash(source.externalLeadId)}</TableCell>
                         <TableCell>{valueOrDash(source.externalApplicationId)}</TableCell>
-                        <TableCell>{formatDate(source.receivedAt)}</TableCell>
+                        <TableCell>{formatRecruitmentDateTime(source.receivedAt)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -958,18 +945,18 @@ export function ApplicationDetailPage() {
 
                       <div className="rounded-lg border bg-muted/30 border-border p-4 space-y-1">
                         <p className="text-xs font-semibold text-muted-foreground uppercase">Ngày tạo</p>
-                        <p className="text-sm font-bold text-foreground">{formatDate(formDetails.sentAt)}</p>
+                        <p className="text-sm font-bold text-foreground">{formatRecruitmentDateTime(formDetails.sentAt)}</p>
                       </div>
 
                       <div className="rounded-lg border bg-muted/30 border-border p-4 space-y-1">
                         <p className="text-xs font-semibold text-muted-foreground uppercase">Hạn hiệu lực</p>
-                        <p className="text-sm font-bold text-amber-500">{formatDate(formDetails.expiresAt)}</p>
+                        <p className="text-sm font-bold text-amber-500">{formatRecruitmentDateTime(formDetails.expiresAt)}</p>
                       </div>
 
                       <div className="rounded-lg border bg-muted/30 border-border p-4 space-y-1">
                         <p className="text-xs font-semibold text-muted-foreground uppercase">Ngày nộp</p>
                         <p className="text-sm font-bold text-foreground">
-                          {formDetails.submittedAt ? formatDate(formDetails.submittedAt) : 'Chưa hoàn thành'}
+                          {formDetails.submittedAt ? formatRecruitmentDateTime(formDetails.submittedAt) : 'Chưa hoàn thành'}
                         </p>
                       </div>
                     </div>

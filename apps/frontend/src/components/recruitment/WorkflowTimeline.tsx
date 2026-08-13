@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import type { ApplicationTimelineRecord } from '@/lib/recruitment-api';
+import { formatRecruitmentDateTime } from '@/lib/date-time';
 import { cn } from '@/lib/utils';
 
 interface WorkflowTimelineProps {
@@ -19,20 +20,6 @@ interface WorkflowTimelineProps {
   loading?: boolean;
   error?: string | null;
   onRefresh?: () => void;
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }
 
 function formatEventType(value?: string | null) {
@@ -163,7 +150,7 @@ export function WorkflowTimeline({
                   <div>
                     <span className="text-muted-foreground">Created</span>
                     <p className="mt-1 break-words font-medium">
-                      {formatDate(event.createdAt)}
+                    {formatRecruitmentDateTime(event.createdAt)}
                     </p>
                   </div>
                 </div>

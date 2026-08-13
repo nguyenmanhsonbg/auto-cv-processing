@@ -20,6 +20,7 @@ import type {
   RecruitmentPagination,
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
+import { formatRecruitmentDateTime } from '@/lib/date-time';
 
 interface ApplicationAuditLogProps {
   logs: ApplicationAuditLogRecord[];
@@ -51,20 +52,6 @@ const BLOCKED_METADATA_PATTERNS = [
   'stack',
   'body',
 ];
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
 
 function valueOrDash(value?: string | number | null) {
   if (value === undefined || value === null || value === '') return '-';
@@ -213,7 +200,7 @@ export function ApplicationAuditLog({
                       </div>
                     )}
                   </TableCell>
-                  <TableCell>{formatDate(log.createdAt)}</TableCell>
+                  <TableCell>{formatRecruitmentDateTime(log.createdAt)}</TableCell>
                 </TableRow>
               );
             })}
