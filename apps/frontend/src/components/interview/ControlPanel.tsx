@@ -37,6 +37,24 @@ interface ControlPanelProps {
   isReadOnly?: boolean;
 }
 
+function toggleSelectedIds(previous: Set<string>, ids: string[]) {
+  const anySelected = ids.some((id) => previous.has(id));
+  const next = new Set(previous);
+  if (anySelected) {
+    ids.forEach((id) => next.delete(id));
+  } else {
+    ids.forEach((id) => next.add(id));
+  }
+  return next;
+}
+
+function getBulkRemoveLabel(removing: boolean, selectedCount: number) {
+  if (removing) return 'Removing...';
+  let countLabel = '';
+  if (selectedCount > 0) countLabel = String(selectedCount);
+  return 'Remove ' + countLabel + ' Question(s)';
+}
+
 export function ControlPanel({ session, sessionQuestions, onRefresh, onSelectQuestion, selectedSqId, candidateCurrentSqId, onForceActivate, categoryOrder, categories, onCategoryRatingsChange, hideUnrated, isReadOnly }: ControlPanelProps) {
   const handleBulkToggle = useCallback(
     async (sqIds: string[], isActive: boolean) => {
@@ -225,30 +243,8 @@ export function ControlPanel({ session, sessionQuestions, onRefresh, onSelectQue
     });
   };
 
-  const handleBulkToggleAddCategory = (questionIds: string[]) => {
-    setSelectedBankIds((prev) => {
-      const anySelected = questionIds.some((id) => prev.has(id));
-      const next = new Set(prev);
-      if (anySelected) {
-        questionIds.forEach((id) => next.delete(id));
-      } else {
-        questionIds.forEach((id) => next.add(id));
-      }
-      return next;
-    });
-  };
-
-  const handleBulkToggleAddSubcategory = (questionIds: string[]) => {
-    setSelectedBankIds((prev) => {
-      const anySelected = questionIds.some((id) => prev.has(id));
-      const next = new Set(prev);
-      if (anySelected) {
-        questionIds.forEach((id) => next.delete(id));
-      } else {
-        questionIds.forEach((id) => next.add(id));
-      }
-      return next;
-    });
+  const handleBulkToggleAdd = (questionIds: string[]) => {
+    setSelectedBankIds((prev) => toggleSelectedIds(prev, questionIds));
   };
 
   const toggleRemoveQuestion = (sqId: string) => {
@@ -259,30 +255,8 @@ export function ControlPanel({ session, sessionQuestions, onRefresh, onSelectQue
     });
   };
 
-  const handleBulkToggleRemoveCategory = (sqIds: string[]) => {
-    setRemoveSelectedIds((prev) => {
-      const anySelected = sqIds.some((id) => prev.has(id));
-      const next = new Set(prev);
-      if (anySelected) {
-        sqIds.forEach((id) => next.delete(id));
-      } else {
-        sqIds.forEach((id) => next.add(id));
-      }
-      return next;
-    });
-  };
-
-  const handleBulkToggleRemoveSubcategory = (sqIds: string[]) => {
-    setRemoveSelectedIds((prev) => {
-      const anySelected = sqIds.some((id) => prev.has(id));
-      const next = new Set(prev);
-      if (anySelected) {
-        sqIds.forEach((id) => next.delete(id));
-      } else {
-        sqIds.forEach((id) => next.add(id));
-      }
-      return next;
-    });
+  const handleBulkToggleRemove = (sqIds: string[]) => {
+    setRemoveSelectedIds((prev) => toggleSelectedIds(prev, sqIds));
   };
 
   return (
@@ -364,8 +338,8 @@ export function ControlPanel({ session, sessionQuestions, onRefresh, onSelectQue
                 onToggle={toggleRemoveQuestion}
                 searchQuery={removeSearchQuery}
                 categoryOrder={categoryOrder}
-                onBulkToggleCategory={handleBulkToggleRemoveCategory}
-                onBulkToggleSubcategory={handleBulkToggleRemoveSubcategory}
+                onBulkToggleCategory={handleBulkToggleRemove}
+                onBulkToggleSubcategory={handleBulkToggleRemove}
               />
             )}
           </div>
@@ -377,7 +351,7 @@ export function ControlPanel({ session, sessionQuestions, onRefresh, onSelectQue
               disabled={removeSelectedIds.size === 0 || removing}
             >
               <Trash2 className="h-3.5 w-3.5 mr-1" />
-              {removing ? 'Removing...' : `Remove ${removeSelectedIds.size > 0 ? removeSelectedIds.size : ''} Question(s)`}
+              {getBulkRemoveLabel(removing, removeSelectedIds.size)}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -403,8 +377,8 @@ export function ControlPanel({ session, sessionQuestions, onRefresh, onSelectQue
               onToggle={toggleBankQuestion}
               searchQuery={bankSearchQuery}
               categoryOrder={categoryOrder}
-              onBulkToggleCategory={handleBulkToggleAddCategory}
-              onBulkToggleSubcategory={handleBulkToggleAddSubcategory}
+              onBulkToggleCategory={handleBulkToggleAdd}
+              onBulkToggleSubcategory={handleBulkToggleAdd}
             />
           </div>
           <DialogFooter>

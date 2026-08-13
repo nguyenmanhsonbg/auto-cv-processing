@@ -253,12 +253,30 @@ function CandidateAnswerSection({
 function CodeSubmissionResults({ codeSubmissions }: { codeSubmissions?: any[] }) {
   if (!codeSubmissions || codeSubmissions.length === 0) return null;
 
+  const occurrences = new Map<string, number>();
+  const keyedSubmissions = codeSubmissions.map((sub: any) => {
+    const identity = [
+      sub.id,
+      sub.language,
+      sub.status,
+      sub.code ?? sub.sourceCode,
+      sub.createdAt ?? sub.submittedAt,
+    ].map((part) => String(part ?? '')).join('|');
+    const base = 'submission-' + (identity || 'item');
+    const occurrence = occurrences.get(base) ?? 0;
+    occurrences.set(base, occurrence + 1);
+    return {
+      sub,
+      key: occurrence === 0 ? base : base + '-' + occurrence,
+    };
+  });
+
   return (
     <div>
       <Label className="text-xs text-muted-foreground">Code Submission Results</Label>
       <div className="mt-1 space-y-1">
-        {codeSubmissions.map((sub: any, i: number) => (
-          <div key={i} className="flex items-center gap-2 text-xs">
+        {keyedSubmissions.map(({ sub, key }) => (
+          <div key={key} className="flex items-center gap-2 text-xs">
             <Badge variant={sub.status === 'PASSED' ? 'default' : 'destructive'} className="text-[10px]">
               {sub.status}
             </Badge>

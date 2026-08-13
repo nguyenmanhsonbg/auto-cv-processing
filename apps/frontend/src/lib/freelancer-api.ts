@@ -213,6 +213,12 @@ function mapFreelancerApplicationRecord(
   };
 }
 
+function getStatusFilter(isActive?: boolean) {
+  if (isActive === undefined) return undefined;
+  if (isActive) return 'ACTIVE';
+  return 'INACTIVE';
+}
+
 export function listFreelancers(
   params: ListFreelancersParams = {},
 ) {
@@ -221,11 +227,7 @@ export function listFreelancers(
       page: params.page,
       limit: params.limit,
       search: params.search,
-      status: params.isActive === undefined
-        ? undefined
-        : params.isActive
-          ? 'ACTIVE'
-          : 'INACTIVE',
+      status: getStatusFilter(params.isActive),
     })
     .then((response) => unwrapPaginated<ApiFreelancerRecord, FreelancerRecord>(
       response,

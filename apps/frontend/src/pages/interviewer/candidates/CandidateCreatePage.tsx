@@ -41,10 +41,33 @@ const STAGE_PROGRESS: Record<UploadItem['stage'], number> = {
   error: 100,
 };
 
+function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string, prefix: string) {
+  const occurrences = new Map<string, number>();
+  return items.map((item, position) => {
+    const base = `${prefix}-${keyFor(item) || 'item'}`;
+    const occurrence = occurrences.get(base) ?? 0;
+    occurrences.set(base, occurrence + 1);
+    return {
+      item,
+      key: occurrence === 0 ? base : `${base}-${occurrence}`,
+      position,
+    };
+  });
+}
+
 function FileProgressCard({ item }: { item: UploadItem }) {
   const pct = STAGE_PROGRESS[item.stage];
   const isError = item.stage === 'error';
   const isDone = item.stage === 'done';
+  let statusClass = '';
+  let progressClass = 'bg-primary';
+  if (isError) {
+    statusClass = 'text-destructive';
+    progressClass = 'bg-destructive';
+  } else if (isDone) {
+    statusClass = 'text-green-600';
+    progressClass = 'bg-green-500';
+  }
 
   return (
     <div className="rounded-lg border bg-card p-3 space-y-2">
@@ -61,16 +84,14 @@ function FileProgressCard({ item }: { item: UploadItem }) {
 
       <div className="space-y-1">
         <div className="flex justify-between items-center text-xs text-muted-foreground">
-          <span className={isError ? 'text-destructive' : isDone ? 'text-green-600' : ''}>
+          <span className={statusClass}>
             {STAGE_LABELS[item.stage]}
           </span>
           <span>{pct}%</span>
         </div>
         <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all duration-300 ease-out ${
-              isError ? 'bg-destructive' : isDone ? 'bg-green-500' : 'bg-primary'
-            }`}
+            className={`h-full rounded-full transition-all duration-300 ease-out ${progressClass}`}
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -171,6 +192,20 @@ export function CandidateCreatePage() {
   };
 
   const isDone = result !== null;
+  const keyedFiles = stableKeyedItems(
+    files,
+    (file) => `${file.name}|${file.size}|${file.lastModified}`,
+    'file',
+  );
+  const keyedErrors = stableKeyedItems(
+    result?.errors ?? [],
+    (item) => `${item.fileName}|${item.error}`,
+    'error',
+  );
+  let uploadButtonContent = <><Upload className="h-4 w-4 mr-2" />Upload & Create</>;
+  if (uploading) {
+    uploadButtonContent = <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploadingâ€¦</>;
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -214,8 +249,8 @@ export function CandidateCreatePage() {
 
           {files.length > 0 && !uploading && !isDone && (
             <div className="space-y-1.5">
-              {files.map((f, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+              {keyedFiles.map(({ item: f, key, position }) => (
+                <div key={key} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
                   <div className="flex items-center gap-2 min-w-0">
                     <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="truncate">{f.name}</span>
@@ -225,7 +260,7 @@ export function CandidateCreatePage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => removeFile(i)}
+                    onClick={() => removeFile(position)}
                     className="shrink-0 text-muted-foreground hover:text-destructive"
                     aria-label="Remove file"
                   >
@@ -247,10 +282,7 @@ export function CandidateCreatePage() {
                 onClick={handleUpload}
                 disabled={uploading || files.length === 0}
               >
-                {uploading
-                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading…</>
-                  : <><Upload className="h-4 w-4 mr-2" />Upload & Create</>
-                }
+                {uploadButtonContent}
               </Button>
               <Button type="button" variant="outline" onClick={() => navigate('/candidates')} disabled={uploading}>
                 Cancel
@@ -280,8 +312,8 @@ export function CandidateCreatePage() {
           <CardContent className="pt-6 space-y-3">
             {result.errors.length > 0 && (
               <div className="space-y-1">
-                {result.errors.map((e, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm text-destructive">
+                {keyedErrors.map(({ item: e, key }) => (
+                  <div key={key} className="flex items-center gap-2 text-sm text-destructive">
                     <XCircle className="h-4 w-4 shrink-0" />
                     <span className="truncate">{e.fileName}: {e.error}</span>
                   </div>

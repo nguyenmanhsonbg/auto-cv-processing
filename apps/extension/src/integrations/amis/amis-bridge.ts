@@ -517,11 +517,12 @@ function mapAmisRecruitmentRoundsResponse(response: unknown): AmisRecruitmentRou
   if ((response.Success ?? response.success) === false) return [];
 
   const responseData = response.Data ?? response.data;
-  const rows = Array.isArray(responseData)
-    ? responseData
-    : isObject(responseData)
-      ? responseData.RecruitmentRounds ?? responseData.recruitmentRounds
-      : null;
+  let rows: unknown = null;
+  if (Array.isArray(responseData)) {
+    rows = responseData;
+  } else if (isObject(responseData)) {
+    rows = responseData.RecruitmentRounds ?? responseData.recruitmentRounds;
+  }
   if (!Array.isArray(rows)) return [];
 
   return rows
@@ -1726,7 +1727,7 @@ function isEditableVisibleAmisInput(input: HTMLInputElement) {
 
 function getAmisDropdownSearchQuery(optionText: string) {
   const cleaned = cleanText(optionText);
-  return cleaned.split(/\s+/).filter(Boolean)[0] ?? cleaned;
+  return cleaned.split(/\s+/).find(Boolean) ?? cleaned;
 }
 
 async function waitForAmisDropdownOption(params: {

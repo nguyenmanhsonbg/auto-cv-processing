@@ -58,14 +58,27 @@ function list(value: unknown) {
   return typeof value === 'string' && value.trim() ? [value.trim()] : [];
 }
 
+function withStableTextKeys(values: string[], prefix: string) {
+  const occurrences = new Map<string, number>();
+  return values.map((value) => {
+    const identity = value.trim();
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    return { value, key: `${prefix}-${identity}-${occurrence}` };
+  });
+}
+
 function projectTechstack(value: unknown) {
-  const values = Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-      ? [value]
-      : value && typeof value === 'object'
-        ? Object.values(value as Record<string, unknown>).flatMap((item) => Array.isArray(item) ? item : [item])
-        : [];
+  let values: unknown[] = [];
+  if (Array.isArray(value)) {
+    values = value;
+  } else if (typeof value === 'string') {
+    values = [value];
+  } else if (value && typeof value === 'object') {
+    values = Object.values(value as Record<string, unknown>)
+      .flatMap((item) => (Array.isArray(item) ? item : [item]));
+  }
+
   return values.map((item) => String(item).trim()).filter((item) => item && !/^\[?\s*redacted\s*\]?$/i.test(item));
 }
 
@@ -85,11 +98,17 @@ function recommendation(value?: string | null) {
 }
 
 function scoreColor(score: number) {
-  return score >= 8 ? '#22c55e' : score >= 6 ? '#3b82f6' : score >= 4 ? '#fb923c' : '#f87171';
+  if (score >= 8) return '#22c55e';
+  if (score >= 6) return '#3b82f6';
+  if (score >= 4) return '#fb923c';
+  return '#f87171';
 }
 
 function matchColor(score: number) {
-  return score >= 70 ? '#16a34a' : score >= 50 ? '#2563eb' : score >= 35 ? '#f97316' : '#dc2626';
+  if (score >= 70) return '#16a34a';
+  if (score >= 50) return '#2563eb';
+  if (score >= 35) return '#f97316';
+  return '#dc2626';
 }
 
 function companyTypeColor(type?: string) {
@@ -104,9 +123,16 @@ function deriveProjects(entry: WorkExperience): NonNullable<WorkExperience['proj
     const name = match[1];
     const start = (match.index ?? 0) + match[0].lastIndexOf(name) + name.length;
     const end = matches[index + 1]?.index ?? entry.rawDescription!.length;
-    const description = entry.rawDescription!.slice(start, end).replace(/^\s*\([^\n]+\)\s*(?:\|[^\n]*)?/i, '').replace(/[Ã¢â€”Â¦Ã¢â‚¬Â¢]/g, '').replace(/\s+/g, ' ').trim();
+    const description = entry.rawDescription!.slice(start, end).replace(/^\s*\([^\n]+\)\s*(?:\|[^\n]*)?/i, '').replace(/[\u00c3\u00a2\u00e2\u20ac\u201d\u00c2\u00a6\u201a\u00ac]/g, '').replace(/\s+/g, ' ').trim();
     return { name, role: entry.role, techstack: entry.technologies ?? [], description: description.slice(0, 420), rawDescription: description };
   });
+}
+
+function projectPeriod(project: NonNullable<WorkExperience['projects']>[number]) {
+  if (project.startYear == null && project.endYear == null) return '';
+  const startYear = project.startYear ?? '?';
+  const endYear = project.endYear == null ? 'present' : project.endYear;
+  return ` (${startYear} - ${endYear})`;
 }
 
 function period(entry: WorkExperience) {
@@ -124,6 +150,8 @@ function scoreRow(label: string, score: ProfileSectionScore) {
 
 function WorkCard({ entry, companyType }: { entry: WorkExperience; companyType?: string }) {
   const projects = deriveProjects(entry);
+  const responsibilities = withStableTextKeys(list(entry.responsibilities), 'responsibility');
+  const achievements = withStableTextKeys(list(entry.achievements), 'achievement');
   return <View style={styles.card}>
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
       <Text style={{ ...styles.cardTitle, flex: 1, marginBottom: 0, marginRight: 8 }}>{entry.company}</Text>
@@ -135,22 +163,29 @@ function WorkCard({ entry, companyType }: { entry: WorkExperience; companyType?:
     {entry.role && <Text style={styles.muted}>{entry.role}</Text>}
     {entry.summary && <Text style={{ marginTop: 4 }}>{entry.summary}</Text>}
     {list(entry.responsibilities).length ? <Text style={{ ...styles.cardTitle, marginTop: 5 }}>Responsibilities</Text> : null}
-    {list(entry.responsibilities).map((item, index) => <Text key={`responsibility-${index}`} style={styles.bullet}>- {item}</Text>)}
+    {responsibilities.map(({ value, key }) => <Text key={key} style={styles.bullet}>- {value}</Text>)}
     {list(entry.achievements).length ? <Text style={{ ...styles.cardTitle, marginTop: 5 }}>Achievements</Text> : null}
-    {list(entry.achievements).map((item, index) => <Text key={`achievement-${index}`} style={styles.bullet}>- {item}</Text>)}
+    {achievements.map(({ value, key }) => <Text key={key} style={styles.bullet}>- {value}</Text>)}
     {list(entry.technologies).length ? <Text style={styles.tagLine}>Technologies: {list(entry.technologies).join(', ')}</Text> : null}
-    {projects.map((project, index) => <View key={`project-${index}`} style={{ marginTop: 6, marginLeft: 8 }}>
-      <Text style={styles.cardTitle}>{project.name}{project.role ? ` - ${project.role}` : ''}{project.startYear != null || project.endYear != null ? ` (${project.startYear ?? '?'} - ${project.endYear == null ? 'present' : project.endYear})` : ''}</Text>
-      {project.projectType && <Text style={styles.muted}>Project type: {project.projectType}</Text>}
-      {project.description && <Text style={{ marginTop: 3 }}>{project.description}</Text>}
-      {projectTechstack(project.techstack).length ? <Text style={styles.tagLine}>Technologies: {projectTechstack(project.techstack).join(', ')}</Text> : null}
-      {list(project.responsibilities).map((item, itemIndex) => <Text key={`project-item-${itemIndex}`} style={styles.bullet}>- {item}</Text>)}
-      {list(project.achievements).map((item, itemIndex) => <Text key={`project-achievement-${itemIndex}`} style={styles.bullet}>- {item}</Text>)}
-    </View>)}
+    {withStableProjectKeys(projects).map(({ project, key }) => {
+      const responsibilities = withStableTextKeys(list(project.responsibilities), `${key}-responsibility`);
+      const achievements = withStableTextKeys(list(project.achievements), `${key}-achievement`);
+      return <View key={key} style={{ marginTop: 6, marginLeft: 8 }}>
+        <Text style={styles.cardTitle}>{project.name}{project.role ? ` - ${project.role}` : ''}{projectPeriod(project)}</Text>
+        {project.projectType && <Text style={styles.muted}>Project type: {project.projectType}</Text>}
+        {project.description && <Text style={{ marginTop: 3 }}>{project.description}</Text>}
+        {projectTechstack(project.techstack).length ? <Text style={styles.tagLine}>Technologies: {projectTechstack(project.techstack).join(', ')}</Text> : null}
+        {responsibilities.map(({ value, key: itemKey }) => <Text key={itemKey} style={styles.bullet}>- {value}</Text>)}
+        {achievements.map(({ value, key: itemKey }) => <Text key={itemKey} style={styles.bullet}>- {value}</Text>)}
+      </View>;
+    })}
   </View>;
 }
 
 function ProjectCard({ project }: { project: NonNullable<ParsedProfile['projects']>[number] }) {
+  const projectKey = `side-${projectIdentity(project)}`;
+  const responsibilities = withStableTextKeys(list(project.responsibilities), `${projectKey}-responsibility`);
+  const achievements = withStableTextKeys(list(project.achievements), `${projectKey}-achievement`);
   return <View style={styles.card} wrap={false}>
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
       <Text style={{ ...styles.cardTitle, flex: 1 }}>{project.name}{project.role ? ` - ${project.role}` : ''}</Text>
@@ -159,8 +194,8 @@ function ProjectCard({ project }: { project: NonNullable<ParsedProfile['projects
     {project.projectType && <Text style={styles.muted}>Project type: {project.projectType}</Text>}
     {projectTechstack(project.techstack).length ? <Text style={styles.tagLine}>Technologies: {projectTechstack(project.techstack).join(', ')}</Text> : null}
     {project.description && <Text style={{ marginTop: 4 }}>{project.description}</Text>}
-    {list(project.responsibilities).map((item, index) => <Text key={`side-project-${index}`} style={styles.bullet}>- {item}</Text>)}
-    {list(project.achievements).map((item, index) => <Text key={`side-achievement-${index}`} style={styles.bullet}>- {item}</Text>)}
+    {responsibilities.map(({ value, key }) => <Text key={key} style={styles.bullet}>- {value}</Text>)}
+    {achievements.map(({ value, key }) => <Text key={key} style={styles.bullet}>- {value}</Text>)}
   </View>;
 }
 
@@ -523,6 +558,22 @@ function isRecordObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function anomalyIdentity(item: ProfileAnomalyDetection['anomalies'][number]) {
+  return [item.type, item.severity, item.description, item.evidence, item.affectedFields.join('|')]
+    .map((value) => String(value ?? ''))
+    .join('|');
+}
+
+function withStableAnomalyKeys(anomalies: ProfileAnomalyDetection['anomalies']) {
+  const occurrences = new Map<string, number>();
+  return anomalies.map((item) => {
+    const identity = anomalyIdentity(item);
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    return { item, key: `anomaly-${identity}-${occurrence}` };
+  });
+}
+
 function AnomalySection({ anomaly }: { anomaly: ProfileAnomalyDetection }) {
   return <View wrap={false}>
     <View style={styles.matchScoreRow}>
@@ -530,6 +581,6 @@ function AnomalySection({ anomaly }: { anomaly: ProfileAnomalyDetection }) {
       <Text style={{ ...styles.matchScoreText, color: '#c2410c' }}>{anomaly.overallRiskScore}/100</Text>
     </View>
     {anomaly.summary && <Text style={{ marginBottom: 5 }}>{anomaly.summary}</Text>}
-    {anomaly.anomalies.map((item, index) => <View key={`anomaly-${index}`} style={styles.card} wrap={false}><Text style={styles.cardTitle}>{item.type}</Text><Text>{item.description}</Text><Text style={styles.muted}>{item.evidence}</Text></View>)}
+    {withStableAnomalyKeys(anomaly.anomalies).map(({ item, key }) => <View key={key} style={styles.card} wrap={false}><Text style={styles.cardTitle}>{item.type}</Text><Text>{item.description}</Text><Text style={styles.muted}>{item.evidence}</Text></View>)}
   </View>;
 }

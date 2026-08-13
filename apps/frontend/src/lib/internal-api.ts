@@ -149,17 +149,19 @@ function mapInternalApplicationRecord(
   };
 }
 
+function getStatusFilter(isActive?: boolean) {
+  if (isActive === undefined) return undefined;
+  if (isActive) return 'ACTIVE';
+  return 'INACTIVE';
+}
+
 export function listInternals(params: ListInternalsParams = {}) {
   return apiClient
     .get<unknown>('/internals', {
       page: params.page,
       limit: params.limit,
       search: params.search,
-      status: params.isActive === undefined
-        ? undefined
-        : params.isActive
-          ? 'ACTIVE'
-          : 'INACTIVE',
+      status: getStatusFilter(params.isActive),
     })
     .then((response) => unwrapPaginated<ApiInternalRecord, InternalRecord>(
       response,

@@ -12,8 +12,15 @@ interface SortableHeaderProps {
   className?: string;
 }
 
+function getSortIcon(isActive: boolean, sortOrder: SortOrder) {
+  if (!isActive) return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />;
+  if (sortOrder === 'ASC') return <ArrowUp className="h-3.5 w-3.5" />;
+  return <ArrowDown className="h-3.5 w-3.5" />;
+}
+
 export function SortableHeader({ label, field, sortBy, sortOrder, onSort, className }: SortableHeaderProps) {
   const isActive = sortBy === field;
+  const sortIcon = getSortIcon(isActive, sortOrder);
 
   const handleClick = () => {
     if (!isActive) {
@@ -30,11 +37,7 @@ export function SortableHeader({ label, field, sortBy, sortOrder, onSort, classN
       onClick={handleClick}
     >
       {label}
-      {isActive ? (
-        sortOrder === 'ASC' ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />
-      ) : (
-        <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
-      )}
+      {sortIcon}
     </button>
   );
 }

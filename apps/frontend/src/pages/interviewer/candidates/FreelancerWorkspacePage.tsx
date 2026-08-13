@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import {
   getApplicationStatusClassName,
@@ -239,29 +240,38 @@ export function FreelancerWorkspacePage() {
   };
   const hideTablePagination = tableLoading && !pagination && applications.length === 0;
 
+  let freelancerSummaryContent: ReactNode;
+  if (summaryLoading && !freelancer) {
+    freelancerSummaryContent = (
+      <p className="text-sm text-muted-foreground">
+        Đang tải thông tin freelancer...
+      </p>
+    );
+  } else if (freelancer) {
+    freelancerSummaryContent = (
+      <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">{freelancer.name}</span>
+        <span>•</span>
+        <span>{freelancer.identifier}</span>
+        <span>•</span>
+        <span>{freelancer.applicationCount} hồ sơ</span>
+      </div>
+    );
+  } else {
+    freelancerSummaryContent = (
+      <p className="text-sm text-muted-foreground">
+        Không tải được thông tin freelancer.
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
         <p className="text-sm text-muted-foreground">Candidates</p>
         <h1 className="text-2xl font-semibold">Freelancer workspace</h1>
 
-        {summaryLoading && !freelancer ? (
-          <p className="text-sm text-muted-foreground">
-            Đang tải thông tin freelancer...
-          </p>
-        ) : freelancer ? (
-          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{freelancer.name}</span>
-            <span>•</span>
-            <span>{freelancer.identifier}</span>
-            <span>•</span>
-            <span>{freelancer.applicationCount} hồ sơ</span>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Không tải được thông tin freelancer.
-          </p>
-        )}
+        {freelancerSummaryContent}
 
         <p className="text-sm text-muted-foreground">
           Chỉ hiển thị thông tin tối thiểu. Số điện thoại, email và dữ liệu nhạy cảm của ứng viên

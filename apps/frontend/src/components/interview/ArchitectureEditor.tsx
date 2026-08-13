@@ -282,6 +282,12 @@ export function ArchitectureEditor({ value, onChange, readOnly }: ArchitectureEd
     const isHovered = hoveredNodeId === node.id;
     const isEditing = editingLabel === node.id;
     const showHandles = !readOnly && (isSelected || isHovered);
+    let cursor: 'default' | 'grabbing' | 'grab' = 'grab';
+    if (readOnly) {
+      cursor = 'default';
+    } else if (dragging?.nodeId === node.id) {
+      cursor = 'grabbing';
+    }
 
     return (
       <g
@@ -292,7 +298,7 @@ export function ArchitectureEditor({ value, onChange, readOnly }: ArchitectureEd
         onDoubleClick={(e) => handleDoubleClick(e, node.id)}
         onMouseEnter={() => !readOnly && setHoveredNodeId(node.id)}
         onMouseLeave={() => setHoveredNodeId(null)}
-        style={{ cursor: readOnly ? 'default' : dragging?.nodeId === node.id ? 'grabbing' : 'grab' }}
+        style={{ cursor }}
       >
         <rect
           width={NODE_W}
@@ -372,6 +378,16 @@ export function ArchitectureEditor({ value, onChange, readOnly }: ArchitectureEd
       lineType === 'forward' || lineType === 'bidirectional' ? `url(#arrow-end${suffix})` : undefined;
     const markerStart =
       lineType === 'backward' || lineType === 'bidirectional' ? `url(#arrow-start${suffix})` : undefined;
+    const connectionLabel = conn.label && (
+      <text
+        x={midX} y={midY - 6}
+        textAnchor="middle" fontSize={10}
+        fill={isSelected ? '#3b82f6' : '#6b7280'}
+        pointerEvents="none"
+      >
+        {conn.label}
+      </text>
+    );
 
     return (
       <g
@@ -414,16 +430,7 @@ export function ArchitectureEditor({ value, onChange, readOnly }: ArchitectureEd
               }}
             />
           </foreignObject>
-        ) : conn.label ? (
-          <text
-            x={midX} y={midY - 6}
-            textAnchor="middle" fontSize={10}
-            fill={isSelected ? '#3b82f6' : '#6b7280'}
-            pointerEvents="none"
-          >
-            {conn.label}
-          </text>
-        ) : null}
+        ) : connectionLabel}
       </g>
     );
   };

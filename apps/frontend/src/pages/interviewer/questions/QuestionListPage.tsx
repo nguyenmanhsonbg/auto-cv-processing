@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
+import type { ReactNode } from 'react';
 import { useAuthContext } from '@/lib/auth-context';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { SortableHeader, SortOrder } from '@/components/ui/sortable-header';
@@ -37,6 +38,7 @@ interface Level { id: string; name: string; displayName: string; orderIndex: num
 // ── Form state ──────────────────────────────────────────────────────────────
 
 interface TestCaseEntry {
+  id: string;
   input: string;
   expectedOutput: string;
   description?: string;
@@ -86,6 +88,22 @@ const emptyForm: NewQuestionForm = {
 };
 
 const STARTER_CODE_LANGUAGES = ['javascript', 'typescript', 'python', 'java', 'go'];
+
+function createTestCaseId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `test-case-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function addTestCaseIds(items: Array<Omit<TestCaseEntry, 'id'>>): TestCaseEntry[] {
+  return items.map((item) => ({ ...item, id: createTestCaseId() }));
+}
+
+function stripTestCaseIds(items: TestCaseEntry[]) {
+  return items.map((item) => ({
+    input: item.input,
+    expectedOutput: item.expectedOutput,
+    ...(item.description !== undefined ? { description: item.description } : {}),
+  }));
+}
 
 function hasOptions(type: string): boolean {
   return type === QuestionType.SINGLE_CHOICE || type === QuestionType.MULTIPLE_CHOICE;
@@ -198,7 +216,13 @@ export function QuestionListPage() {
       ),
     ).then((results) => {
       const seen = new Set<string>();
-      const unique = results.flat().filter((s) => { if (seen.has(s.name)) return false; seen.add(s.name); return true; });
+      const unique = results.flat().filter((s) => {
+        if (seen.has(s.name)) {
+          return false;
+        }
+        seen.add(s.name);
+        return true;
+      });
       setFilterSubs(unique);
     });
   }, [categoryFilter, categories]);
@@ -247,8 +271,8 @@ export function QuestionListPage() {
       options: q.options || [],
       correctAnswers: q.correctAnswers || [],
       architectureTemplate: (q as any).architectureTemplate ?? null,
-      testCases: (q as any).testCases || [],
-      hiddenTestCases: (q as any).hiddenTestCases || [],
+      testCases: addTestCaseIds((q as any).testCases || []),
+      hiddenTestCases: addTestCaseIds((q as any).hiddenTestCases || []),
       starterCode: (q as any).starterCode || [],
       timeLimit: (q as any).timeLimit ?? '',
       memoryLimit: (q as any).memoryLimit ?? '',
@@ -279,8 +303,8 @@ export function QuestionListPage() {
     ...(hasOptions(form.type) ? { options: form.options, correctAnswers: form.correctAnswers } : {}),
     ...(form.type === QuestionType.ARCHITECTURE ? { architectureTemplate: form.architectureTemplate } : {}),
     ...(form.type === QuestionType.CODING ? {
-      testCases: form.testCases,
-      hiddenTestCases: form.hiddenTestCases,
+      testCases: stripTestCaseIds(form.testCases),
+      hiddenTestCases: stripTestCaseIds(form.hiddenTestCases),
       starterCode: form.starterCode,
       ...(form.timeLimit !== '' ? { timeLimit: Number(form.timeLimit) } : {}),
       ...(form.memoryLimit !== '' ? { memoryLimit: Number(form.memoryLimit) } : {}),
@@ -370,7 +394,7 @@ export function QuestionListPage() {
   // ── Coding helpers ────────────────────────────────────────────────────────
 
   const addTestCase = (hidden = false) => {
-    const entry: TestCaseEntry = { input: '', expectedOutput: '', description: '' };
+    const entry: TestCaseEntry = { id: createTestCaseId(), input: '', expectedOutput: '', description: '' };
     if (hidden) {
       setForm((f) => ({ ...f, hiddenTestCases: [...f.hiddenTestCases, entry] }));
     } else {
@@ -378,26 +402,26 @@ export function QuestionListPage() {
     }
   };
 
-  const updateTestCase = (hidden: boolean, idx: number, field: keyof TestCaseEntry, value: string) => {
-    if (hidden) {
-      setForm((f) => {
-        const updated = f.hiddenTestCases.map((tc, i) => i === idx ? { ...tc, [field]: value } : tc);
-        return { ...f, hiddenTestCases: updated };
-      });
-    } else {
-      setForm((f) => {
-        const updated = f.testCases.map((tc, i) => i === idx ? { ...tc, [field]: value } : tc);
-        return { ...f, testCases: updated };
-      });
-    }
+  const updateVisibleTestCase = (idx: number, field: keyof TestCaseEntry, value: string) => {
+    setForm((f) => {
+      const updated = f.testCases.map((tc, i) => i === idx ? { ...tc, [field]: value } : tc);
+      return { ...f, testCases: updated };
+    });
   };
 
-  const removeTestCase = (hidden: boolean, idx: number) => {
-    if (hidden) {
-      setForm((f) => ({ ...f, hiddenTestCases: f.hiddenTestCases.filter((_, i) => i !== idx) }));
-    } else {
-      setForm((f) => ({ ...f, testCases: f.testCases.filter((_, i) => i !== idx) }));
-    }
+  const updateHiddenTestCase = (idx: number, field: keyof TestCaseEntry, value: string) => {
+    setForm((f) => {
+      const updated = f.hiddenTestCases.map((tc, i) => i === idx ? { ...tc, [field]: value } : tc);
+      return { ...f, hiddenTestCases: updated };
+    });
+  };
+
+  const removeVisibleTestCase = (idx: number) => {
+    setForm((f) => ({ ...f, testCases: f.testCases.filter((_, i) => i !== idx) }));
+  };
+
+  const removeHiddenTestCase = (idx: number) => {
+    setForm((f) => ({ ...f, hiddenTestCases: f.hiddenTestCases.filter((_, i) => i !== idx) }));
   };
 
   const addStarterCode = () => {
@@ -521,13 +545,20 @@ export function QuestionListPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {loading ? (
+          {(() => {
+            let questionTableContent: ReactNode;
+            if (loading) {
+              questionTableContent = (
             <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-          ) : result.data.length === 0 ? (
+              );
+            } else if (result.data.length === 0) {
+              questionTableContent = (
             <TableRow>
               <TableCell colSpan={9} className="text-center text-muted-foreground">No questions found.</TableCell>
             </TableRow>
-          ) : (
+              );
+            } else {
+              questionTableContent = (
             result.data.map((q) => (
               <TableRow
                 key={q.id}
@@ -592,7 +623,10 @@ export function QuestionListPage() {
                 </TableCell>
               </TableRow>
             ))
-          )}
+              );
+            }
+            return questionTableContent;
+          })()}
         </TableBody>
       </Table>
       </div>
@@ -839,8 +873,15 @@ export function QuestionListPage() {
                   {form.starterCode.length === 0 && (
                     <p className="text-xs text-muted-foreground">No starter code. Candidate will start with an empty editor.</p>
                   )}
-                  {form.starterCode.map((sc, idx) => (
-                    <div key={idx} className="rounded-md border p-3 space-y-2">
+                  {form.starterCode.map((sc, idx) => {
+                    let editorLanguage = sc.language;
+                    if (sc.language === 'typescript') {
+                      editorLanguage = 'typescript';
+                    } else if (sc.language === 'javascript') {
+                      editorLanguage = 'javascript';
+                    }
+                    return (
+                    <div key={sc.language} className="rounded-md border p-3 space-y-2">
                       <div className="flex items-center gap-2">
                         <Select
                           value={sc.language}
@@ -868,7 +909,7 @@ export function QuestionListPage() {
                       <div className="rounded overflow-hidden border">
                         <Editor
                           height="150px"
-                          language={sc.language === 'typescript' ? 'typescript' : sc.language === 'javascript' ? 'javascript' : sc.language}
+                           language={editorLanguage}
                           value={sc.code}
                           theme="vs-dark"
                           options={{
@@ -883,7 +924,8 @@ export function QuestionListPage() {
                         />
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Visible Test Cases */}
@@ -904,7 +946,7 @@ export function QuestionListPage() {
                     <p className="text-xs text-muted-foreground">No test cases. Code will run without validation.</p>
                   )}
                   {form.testCases.map((tc, idx) => (
-                    <div key={idx} className="rounded-md border p-3 space-y-2 bg-muted/20">
+                    <div key={tc.id} className="rounded-md border p-3 space-y-2 bg-muted/20">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-medium text-muted-foreground">Test Case {idx + 1}</span>
                         <Button
@@ -912,7 +954,7 @@ export function QuestionListPage() {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-destructive"
-                          onClick={() => removeTestCase(false, idx)}
+                          onClick={() => removeVisibleTestCase(idx)}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -923,7 +965,7 @@ export function QuestionListPage() {
                           <Textarea
                             className="text-xs font-mono min-h-[60px] resize-y"
                             value={tc.input}
-                            onChange={(e) => updateTestCase(false, idx, 'input', e.target.value)}
+                            onChange={(e) => updateVisibleTestCase(idx, 'input', e.target.value)}
                             placeholder="e.g. [1, 2, 3]"
                           />
                         </div>
@@ -932,7 +974,7 @@ export function QuestionListPage() {
                           <Textarea
                             className="text-xs font-mono min-h-[60px] resize-y"
                             value={tc.expectedOutput}
-                            onChange={(e) => updateTestCase(false, idx, 'expectedOutput', e.target.value)}
+                            onChange={(e) => updateVisibleTestCase(idx, 'expectedOutput', e.target.value)}
                             placeholder="e.g. 6"
                           />
                         </div>
@@ -942,7 +984,7 @@ export function QuestionListPage() {
                         <Input
                           className="text-xs h-7"
                           value={tc.description ?? ''}
-                          onChange={(e) => updateTestCase(false, idx, 'description', e.target.value)}
+                            onChange={(e) => updateVisibleTestCase(idx, 'description', e.target.value)}
                           placeholder="e.g. Sum of array"
                         />
                       </div>
@@ -988,7 +1030,7 @@ export function QuestionListPage() {
                         <p className="text-xs text-muted-foreground">No hidden test cases.</p>
                       )}
                       {form.hiddenTestCases.map((tc, idx) => (
-                        <div key={idx} className="rounded-md border p-3 space-y-2 bg-muted/20">
+                        <div key={tc.id} className="rounded-md border p-3 space-y-2 bg-muted/20">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-muted-foreground">Hidden {idx + 1}</span>
                             <Button
@@ -996,7 +1038,7 @@ export function QuestionListPage() {
                               variant="ghost"
                               size="icon"
                               className="h-6 w-6 text-destructive"
-                              onClick={() => removeTestCase(true, idx)}
+                              onClick={() => removeHiddenTestCase(idx)}
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>
@@ -1007,7 +1049,7 @@ export function QuestionListPage() {
                               <Textarea
                                 className="text-xs font-mono min-h-[60px] resize-y"
                                 value={tc.input}
-                                onChange={(e) => updateTestCase(true, idx, 'input', e.target.value)}
+                                onChange={(e) => updateHiddenTestCase(idx, 'input', e.target.value)}
                                 placeholder="e.g. [1, 2, 3]"
                               />
                             </div>
@@ -1016,7 +1058,7 @@ export function QuestionListPage() {
                               <Textarea
                                 className="text-xs font-mono min-h-[60px] resize-y"
                                 value={tc.expectedOutput}
-                                onChange={(e) => updateTestCase(true, idx, 'expectedOutput', e.target.value)}
+                                onChange={(e) => updateHiddenTestCase(idx, 'expectedOutput', e.target.value)}
                                 placeholder="e.g. 6"
                               />
                             </div>
@@ -1026,7 +1068,7 @@ export function QuestionListPage() {
                             <Input
                               className="text-xs h-7"
                               value={tc.description ?? ''}
-                              onChange={(e) => updateTestCase(true, idx, 'description', e.target.value)}
+                                onChange={(e) => updateHiddenTestCase(idx, 'description', e.target.value)}
                               placeholder="e.g. Edge case: empty array"
                             />
                           </div>

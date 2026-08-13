@@ -195,7 +195,14 @@ export function SessionSurveyPage() {
 
       {/* Phase indicators */}
       <div className="flex items-center gap-2 text-sm">
-        {(['generate', 'fill', 'review'] as Phase[]).map((p, i) => (
+        {(['generate', 'fill', 'review'] as Phase[]).map((p, i) => {
+          let phaseLabel = 'Review & Activate';
+          if (p === 'generate') {
+            phaseLabel = 'Generate';
+          } else if (p === 'fill') {
+            phaseLabel = 'Fill Answers';
+          }
+          return (
           <div key={p} className="flex items-center gap-2">
             {i > 0 && <div className="w-8 h-px bg-border" />}
             <div className={cn(
@@ -205,10 +212,11 @@ export function SessionSurveyPage() {
               {p === 'generate' && <ClipboardList className="h-3 w-3" />}
               {p === 'fill' && <MessageSquare className="h-3 w-3" />}
               {p === 'review' && <CheckSquare2 className="h-3 w-3" />}
-              {p === 'generate' ? 'Generate' : p === 'fill' ? 'Fill Answers' : 'Review & Activate'}
+              {phaseLabel}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Phase 1 — Generate */}

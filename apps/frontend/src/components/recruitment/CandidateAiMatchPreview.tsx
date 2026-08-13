@@ -33,14 +33,37 @@ const TOP_UNIVERSITY_LABELS: Record<string, string> = {
   PTIT: 'PTIT - Hoc vien Buu chinh Vien thong',
 };
 
+function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string, prefix: string) {
+  const occurrences = new Map<string, number>();
+  return items.map((item, position) => {
+    const base = `${prefix}-${keyFor(item) || 'item'}`;
+    const occurrence = occurrences.get(base) ?? 0;
+    occurrences.set(base, occurrence + 1);
+    return {
+      item,
+      key: occurrence === 0 ? base : `${base}-${occurrence}`,
+      position,
+    };
+  });
+}
+
+function projectIdentity(project: ParsedProject) {
+  return [project.name, project.role, project.startYear, project.endYear, project.description]
+    .map((part) => String(part ?? ''))
+    .join('|');
+}
+
+function workIdentity(entry: WorkExperience) {
+  return [entry.company, entry.role, entry.startYear, entry.endYear, entry.summary, entry.rawDescription]
+    .map((part) => String(part ?? ''))
+    .join('|');
+}
+
 function SectionScoreBadge({ score }: { score: ProfileSectionScore }) {
-  const colorClass = score.score >= 8
-    ? 'text-green-700 bg-green-50 border-green-200'
-    : score.score >= 6
-      ? 'text-blue-700 bg-blue-50 border-blue-200'
-      : score.score >= 4
-        ? 'text-orange-700 bg-orange-50 border-orange-200'
-        : 'text-red-700 bg-red-50 border-red-200';
+  let colorClass = 'text-red-700 bg-red-50 border-red-200';
+  if (score.score >= 8) colorClass = 'text-green-700 bg-green-50 border-green-200';
+  else if (score.score >= 6) colorClass = 'text-blue-700 bg-blue-50 border-blue-200';
+  else if (score.score >= 4) colorClass = 'text-orange-700 bg-orange-50 border-orange-200';
 
   return (
     <span className={`text-xs font-normal px-2 py-0.5 rounded border ${colorClass}`}>
@@ -54,15 +77,14 @@ function yearRange(start?: number | null, end?: number | null) {
   return `${start ?? '?'} - ${end == null ? 'present' : end}`;
 }
 
-function companyTypeBadge(type?: string) {
+function companyTypeBadge(type = 'UNKNOWN') {
   const styles: Record<string, string> = {
     PRODUCT: 'bg-blue-600 text-white',
     STARTUP: 'bg-purple-600 text-white',
     ENTERPRISE: 'bg-slate-600 text-white',
     OUTSOURCE: 'bg-orange-500 text-white',
   };
-  const resolvedType = type ?? 'UNKNOWN';
-  return <Badge className={`text-xs ${styles[resolvedType] ?? 'bg-slate-500 text-white'}`}>{resolvedType}</Badge>;
+  return <Badge className={`text-xs ${styles[type] ?? 'bg-slate-500 text-white'}`}>{type}</Badge>;
 }
 
 function ProjectRow({ project, showCvExcerpt = true }: { project: ParsedProject; showCvExcerpt?: boolean }) {
@@ -112,13 +134,17 @@ function ProjectBulletList({ label, items }: { label: string; items: string[] })
 }
 
 function normalizeProjectTechstack(value: unknown) {
-  const values = Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-      ? [value]
-      : value && typeof value === 'object'
-        ? Object.values(value as Record<string, unknown>).flatMap((item) => Array.isArray(item) ? item : [item])
-        : [];
+  let values: unknown[] = [];
+  if (Array.isArray(value)) {
+    values = value;
+  } else if (typeof value === 'string') {
+    values = [value];
+  } else if (value && typeof value === 'object') {
+    values = Object.values(value as Record<string, unknown>).flatMap((item) => {
+      if (Array.isArray(item)) return item;
+      return [item];
+    });
+  }
 
   return values
     .map((item) => String(item).trim())
@@ -126,13 +152,16 @@ function normalizeProjectTechstack(value: unknown) {
 }
 
 function normalizeStringList(value: unknown) {
-  const values = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+  let values: unknown[] = [];
+  if (Array.isArray(value)) values = value;
+  else if (typeof value === 'string') values = [value];
   return values.map((item) => String(item).trim()).filter(Boolean);
 }
 
 function CompanyRow({ entry, companyTypeByName }: { entry: WorkExperience; companyTypeByName?: Record<string, string> }) {
   const [open, setOpen] = useState(true);
   const projects = entry.projects?.length ? entry.projects : deriveProjectsFromRawDescription(entry);
+  const keyedProjects = stableKeyedItems(projects, projectIdentity, 'project');
   const responsibilities = normalizeStringList(entry.responsibilities);
   const achievements = normalizeStringList(entry.achievements);
   const technologies = normalizeStringList(entry.technologies);
@@ -150,7 +179,7 @@ function CompanyRow({ entry, companyTypeByName }: { entry: WorkExperience; compa
         {responsibilities.length ? <ProjectBulletList label="Responsibilities" items={responsibilities} /> : null}
         {achievements.length ? <ProjectBulletList label="Achievements" items={achievements} /> : null}
         {technologies.length ? <div className="flex flex-wrap gap-1 pl-7">{technologies.map((technology) => <Badge key={technology} variant="secondary" className="text-xs">{technology}</Badge>)}</div> : null}
-        {projects.length ? <div className="space-y-1 pl-4">{projects.map((project, index) => <ProjectRow key={index} project={project} showCvExcerpt={false} />)}</div> : null}
+        {keyedProjects.length ? <div className="space-y-1 pl-4">{keyedProjects.map(({ item: project, key }) => <ProjectRow key={key} project={project} showCvExcerpt={false} />)}</div> : null}
         {!responsibilities.length && !achievements.length && !technologies.length && !projects.length && !entry.summary && <p className="pl-7 text-xs text-muted-foreground italic">No details listed</p>}
       </div>}
     </div>
@@ -182,7 +211,8 @@ function deriveProjectsFromRawDescription(entry: WorkExperience): ParsedProject[
 }
 
 function WorkExperienceCard({ workExperience, sectionScore, companyTypeByName }: { workExperience: WorkExperience[]; sectionScore?: ProfileSectionScore; companyTypeByName?: Record<string, string> }) {
-  return <Card><CardHeader><CardTitle className="flex items-center gap-3">Work Experience {sectionScore && <SectionScoreBadge score={sectionScore} />}</CardTitle></CardHeader><CardContent className="space-y-3">{workExperience.map((entry, index) => <CompanyRow key={index} entry={entry} companyTypeByName={companyTypeByName} />)}</CardContent></Card>;
+  const keyedWorkExperience = stableKeyedItems(workExperience, workIdentity, 'company');
+  return <Card><CardHeader><CardTitle className="flex items-center gap-3">Work Experience {sectionScore && <SectionScoreBadge score={sectionScore} />}</CardTitle></CardHeader><CardContent className="space-y-3">{keyedWorkExperience.map(({ item: entry, key }) => <CompanyRow key={key} entry={entry} companyTypeByName={companyTypeByName} />)}</CardContent></Card>;
 }
 
 function formatExperienceYears(value?: number | null) {
@@ -223,15 +253,26 @@ function ExperienceByLanguage({ data }: { data: Record<string, number> }) {
 }
 
 function ScoreBar({ score }: { score: number }) {
-  const color = score >= 8 ? 'bg-green-500' : score >= 6 ? 'bg-blue-500' : score >= 4 ? 'bg-orange-400' : 'bg-red-400';
+  let color = 'bg-red-400';
+  if (score >= 8) color = 'bg-green-500';
+  else if (score >= 6) color = 'bg-blue-500';
+  else if (score >= 4) color = 'bg-orange-400';
   return <div className="flex items-center gap-2 min-w-0"><div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden"><div className={`h-full rounded-full ${color}`} style={{ width: `${Math.round((score / 10) * 100)}%` }} /></div></div>;
+}
+
+function completenessLabel(score: number) {
+  if (score >= 80) return 'Good';
+  if (score >= 60) return 'Fair';
+  return 'Weak';
 }
 
 function AiAnalysisCard({ validation }: { validation?: AiValidation; screening?: ApplicationAiScreeningSummary | null }) {
   if (!validation) return null;
   const completeness = validation.completenessScore;
-  const overallLabel = completeness >= 80 ? 'Good' : completeness >= 60 ? 'Fair' : 'Weak';
-  return <Card><CardHeader><CardTitle className="flex items-center gap-3">AI Profile Analysis <span className="text-sm font-normal px-2 py-0.5 rounded border text-green-700 bg-green-50 border-green-200">Overall: {completeness}/100 - {overallLabel}</span></CardTitle></CardHeader><CardContent className="space-y-4 text-sm">{validation.summary && <p className="text-muted-foreground leading-relaxed">{validation.summary}</p>}{validation.sectionScores?.length ? <div><p className="font-semibold mb-3">Category Scores</p><div className="space-y-2">{validation.sectionScores.map((score) => <div key={score.section} className="grid grid-cols-[120px_1fr_60px_56px] items-center gap-2"><span className="text-muted-foreground text-xs">{SECTION_LABELS[score.section] ?? score.section}</span><ScoreBar score={score.score} /><span className="text-xs text-muted-foreground text-right">{score.score}/10</span><span className="text-xs font-semibold">{score.label}</span></div>)}</div></div> : null}{validation.highlights?.length ? <div><p className="font-semibold mb-2 text-green-700">Highlights</p><ul className="space-y-1">{validation.highlights.map((item, index) => <li key={index} className="flex gap-2"><span className="text-green-600">✓</span><span>{item}</span></li>)}</ul></div> : null}{validation.concerns?.length ? <div><p className="font-semibold mb-2 text-destructive">Concerns</p><ul className="space-y-1">{validation.concerns.map((item, index) => <li key={index} className="flex gap-2"><span className="text-destructive">!</span><span>{item}</span></li>)}</ul></div> : null}</CardContent></Card>;
+  const overallLabel = completenessLabel(completeness);
+  const keyedHighlights = stableKeyedItems(validation.highlights ?? [], (item) => item, 'highlight');
+  const keyedConcerns = stableKeyedItems(validation.concerns ?? [], (item) => item, 'concern');
+  return <Card><CardHeader><CardTitle className="flex items-center gap-3">AI Profile Analysis <span className="text-sm font-normal px-2 py-0.5 rounded border text-green-700 bg-green-50 border-green-200">Overall: {completeness}/100 - {overallLabel}</span></CardTitle></CardHeader><CardContent className="space-y-4 text-sm">{validation.summary && <p className="text-muted-foreground leading-relaxed">{validation.summary}</p>}{validation.sectionScores?.length ? <div><p className="font-semibold mb-3">Category Scores</p><div className="space-y-2">{validation.sectionScores.map((score) => <div key={score.section} className="grid grid-cols-[120px_1fr_60px_56px] items-center gap-2"><span className="text-muted-foreground text-xs">{SECTION_LABELS[score.section] ?? score.section}</span><ScoreBar score={score.score} /><span className="text-xs text-muted-foreground text-right">{score.score}/10</span><span className="text-xs font-semibold">{score.label}</span></div>)}</div></div> : null}{keyedHighlights.length ? <div><p className="font-semibold mb-2 text-green-700">Highlights</p><ul className="space-y-1">{keyedHighlights.map(({ item, key }) => <li key={key} className="flex gap-2"><span className="text-green-600">✓</span><span>{item}</span></li>)}</ul></div> : null}{keyedConcerns.length ? <div><p className="font-semibold mb-2 text-destructive">Concerns</p><ul className="space-y-1">{keyedConcerns.map(({ item, key }) => <li key={key} className="flex gap-2"><span className="text-destructive">!</span><span>{item}</span></li>)}</ul></div> : null}</CardContent></Card>;
 }
 
 function AiStrengthsWeaknessesCard({ validation, screening }: { validation?: AiValidation; screening?: ApplicationAiScreeningSummary | null }) {
@@ -244,10 +285,12 @@ function AiStrengthsWeaknessesCard({ validation, screening }: { validation?: AiV
     ...(validation?.concerns ?? []).map((title): AiListItem => ({ title })),
     ...(screening?.gaps ?? []),
   ];
+  const keyedStrengths = stableKeyedItems(strengths, (item) => `${item.title ?? ''}|${item.evidence ?? ''}`, 'strength');
+  const keyedWeaknesses = stableKeyedItems(weaknesses, (item) => `${item.title ?? ''}|${item.evidence ?? ''}`, 'weakness');
 
   return <Card><CardHeader><CardTitle>AI Strengths &amp; Weaknesses</CardTitle></CardHeader><CardContent className="grid gap-5 lg:grid-cols-2">
-    <div><p className="mb-2 font-semibold text-green-700">Strengths</p>{strengths.length ? <ul className="space-y-2">{strengths.map((item, index) => <li key={`strength-${index}`} className="rounded border border-green-200 bg-green-50/40 p-3"><p className="font-medium">{item.title ?? `Strength ${index + 1}`}</p>{item.evidence && <p className="mt-1 text-sm text-muted-foreground">{item.evidence}</p>}</li>)}</ul> : <p className="rounded border border-dashed p-3 text-sm text-muted-foreground">No strengths recorded.</p>}</div>
-    <div><p className="mb-2 font-semibold text-orange-700">Weaknesses / Gaps</p>{weaknesses.length ? <ul className="space-y-2">{weaknesses.map((item, index) => <li key={`weakness-${index}`} className="rounded border border-orange-200 bg-orange-50/40 p-3"><p className="font-medium">{item.title ?? `Gap ${index + 1}`}</p>{item.evidence && <p className="mt-1 text-sm text-muted-foreground">{item.evidence}</p>}</li>)}</ul> : <p className="rounded border border-dashed p-3 text-sm text-muted-foreground">No weaknesses or gaps recorded.</p>}</div>
+    <div><p className="mb-2 font-semibold text-green-700">Strengths</p>{keyedStrengths.length ? <ul className="space-y-2">{keyedStrengths.map(({ item, key, position }) => <li key={key} className="rounded border border-green-200 bg-green-50/40 p-3"><p className="font-medium">{item.title ?? `Strength ${position + 1}`}</p>{item.evidence && <p className="mt-1 text-sm text-muted-foreground">{item.evidence}</p>}</li>)}</ul> : <p className="rounded border border-dashed p-3 text-sm text-muted-foreground">No strengths recorded.</p>}</div>
+    <div><p className="mb-2 font-semibold text-orange-700">Weaknesses / Gaps</p>{keyedWeaknesses.length ? <ul className="space-y-2">{keyedWeaknesses.map(({ item, key, position }) => <li key={key} className="rounded border border-orange-200 bg-orange-50/40 p-3"><p className="font-medium">{item.title ?? `Gap ${position + 1}`}</p>{item.evidence && <p className="mt-1 text-sm text-muted-foreground">{item.evidence}</p>}</li>)}</ul> : <p className="rounded border border-dashed p-3 text-sm text-muted-foreground">No weaknesses or gaps recorded.</p>}</div>
   </CardContent></Card>;
 }
 
@@ -256,8 +299,18 @@ function Evidence({ text }: { text?: string | null }) { return text ? <p classNa
 function SignalRow({ icon, label, ok, children }: { icon: string; label: string; ok: boolean; children: ReactNode }) { return <div className="space-y-1.5"><div className="flex items-center justify-between"><span className="font-semibold text-sm flex items-center gap-2"><span>{icon}</span>{label}</span><OkBadge ok={ok} /></div><div className="pl-6 space-y-1">{children}</div></div>; }
 
 function MatchScoreBar({ score }: { score: number }) {
-  const color = score >= 70 ? 'bg-green-500' : score >= 50 ? 'bg-blue-500' : score >= 35 ? 'bg-orange-400' : 'bg-red-400';
+  let color = 'bg-red-400';
+  if (score >= 70) color = 'bg-green-500';
+  else if (score >= 50) color = 'bg-blue-500';
+  else if (score >= 35) color = 'bg-orange-400';
   return <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${Math.max(0, Math.min(100, score))}%` }} /></div>;
+}
+
+function matchScoreTone(score?: number | null) {
+  if (score == null) return 'text-muted-foreground';
+  if (score >= 70) return 'text-green-700';
+  if (score >= 50) return 'text-blue-700';
+  return 'text-orange-700';
 }
 
 function recommendationLabel(value?: string | null) {
@@ -270,7 +323,7 @@ function MatchAssessmentCard({ mapping, screening }: { mapping?: ApplicationMapp
   const score = screening?.score ?? mapping?.score;
   const scoreLabel = score == null ? '—' : String(score);
   const recommendation = screening?.recommendation ?? mapping?.recommendation;
-  const scoreTone = score == null ? 'text-muted-foreground' : score >= 70 ? 'text-green-700' : score >= 50 ? 'text-blue-700' : 'text-orange-700';
+  const scoreTone = matchScoreTone(score);
 
   return <Card className="overflow-hidden border border-indigo-200 shadow-sm"><CardHeader className="bg-indigo-50/50 pb-3"><div className="flex items-start justify-between gap-4"><div><CardTitle className="text-lg">CV–JD Match</CardTitle><p className="mt-1 text-xs text-muted-foreground">How well the candidate fits this job description</p></div><Badge className="bg-indigo-600 text-white">{screening?.status ?? mapping?.status ?? 'PENDING'}</Badge></div></CardHeader><CardContent className="space-y-4 pt-4"><div className="flex items-center gap-3"><div className="flex-1">{score != null ? <MatchScoreBar score={score} /> : <div className="h-2 rounded-full bg-muted" />}</div><span className={`min-w-14 text-right text-sm font-semibold ${scoreTone}`}>{scoreLabel}/100</span></div>{screening?.summary && <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3"><p className="mb-1 text-sm font-semibold text-indigo-900">JD Fit Assessment</p><p className="text-sm leading-6 text-foreground">{screening.summary}</p></div>}<div className="grid gap-3 border-t pt-3 sm:grid-cols-2"><div><p className="text-xs text-muted-foreground">Recommendation</p><p className="text-sm font-semibold capitalize">{recommendationLabel(recommendation)}</p></div><div><p className="text-xs text-muted-foreground">Screening status</p><p className="text-sm font-semibold">{screening?.status ?? mapping?.status ?? '—'}</p></div></div></CardContent></Card>;
 }
@@ -293,12 +346,27 @@ function CandidateInformationCard({
 }
 
 function InterestedInformationCard({ signals }: { signals: VcsSignals }) {
+  const keyedAdvancedSkills = stableKeyedItems(
+    signals.advancedSkills.items ?? [],
+    (item) => `${item.skill}|${item.evidence ?? ''}`,
+    'advanced-skill',
+  );
+  const keyedTechnicalChallenges = stableKeyedItems(
+    signals.technicalChallenges.items ?? [],
+    (item) => `${item.challenge}|${item.projectSize ?? ''}|${item.evidence ?? ''}`,
+    'technical-challenge',
+  );
+  const keyedSeniorRoles = stableKeyedItems(
+    signals.seniorRoles.items ?? [],
+    (item) => `${item.role}|${item.projectSize ?? ''}|${item.evidence ?? ''}`,
+    'senior-role',
+  );
   const rows = [
     { icon: 'Education', label: 'Education', signal: signals.university, content: <>{signals.university.name && <div className="flex flex-wrap items-center gap-2"><span className="text-sm">{signals.university.name}</span>{signals.university.topMatch && <Badge className="bg-green-600 text-white text-xs">{TOP_UNIVERSITY_LABELS[signals.university.topMatch]}</Badge>}</div>}<Evidence text={signals.university.evidence} /></> },
     { icon: 'Company', label: 'Company Type', signal: signals.companyType, content: <>{signals.companyType.companies?.length ? <div className="flex flex-wrap gap-1">{signals.companyType.companies.map((item) => <Badge key={item} variant="outline" className="text-xs">{item}</Badge>)}</div> : null}<Evidence text={signals.companyType.evidence || (signals.companyType.ok ? 'Product-company experience detected.' : 'No qualifying product-company evidence found.')} /></> },
-    { icon: 'Skills', label: 'Advanced Skills', signal: signals.advancedSkills, content: <>{signals.advancedSkills.items?.length ? signals.advancedSkills.items.map((item, index) => <div key={index}><Badge className="bg-blue-600 text-white text-xs">{item.skill}</Badge><Evidence text={item.evidence} /></div>) : <Evidence text={signals.advancedSkills.evidence} />}</> },
-    { icon: 'Projects', label: 'Technical Challenges', signal: signals.technicalChallenges, content: <>{signals.technicalChallenges.items?.length ? signals.technicalChallenges.items.map((item, index) => <div key={index}><p className="text-sm">- {item.challenge}{item.projectSize && <span className="ml-1.5 text-xs text-muted-foreground">({item.projectSize})</span>}</p><Evidence text={item.evidence} /></div>) : <Evidence text={signals.technicalChallenges.evidence} />}</> },
-    { icon: 'Roles', label: 'Senior Roles', signal: signals.seniorRoles, content: <>{signals.seniorRoles.items?.length ? signals.seniorRoles.items.map((item, index) => <div key={index}><p className="text-sm">- {item.role}{item.projectSize && <span className="ml-1.5 text-xs text-muted-foreground">({item.projectSize})</span>}</p><Evidence text={item.evidence} /></div>) : <Evidence text={signals.seniorRoles.evidence} />}</> },
+    { icon: 'Skills', label: 'Advanced Skills', signal: signals.advancedSkills, content: <>{signals.advancedSkills.items?.length ? keyedAdvancedSkills.map(({ item, key }) => <div key={key}><Badge className="bg-blue-600 text-white text-xs">{item.skill}</Badge><Evidence text={item.evidence} /></div>) : <Evidence text={signals.advancedSkills.evidence} />}</> },
+    { icon: 'Projects', label: 'Technical Challenges', signal: signals.technicalChallenges, content: <>{signals.technicalChallenges.items?.length ? keyedTechnicalChallenges.map(({ item, key }) => <div key={key}><p className="text-sm">- {item.challenge}{item.projectSize && <span className="ml-1.5 text-xs text-muted-foreground">({item.projectSize})</span>}</p><Evidence text={item.evidence} /></div>) : <Evidence text={signals.technicalChallenges.evidence} />}</> },
+    { icon: 'Roles', label: 'Senior Roles', signal: signals.seniorRoles, content: <>{signals.seniorRoles.items?.length ? keyedSeniorRoles.map(({ item, key }) => <div key={key}><p className="text-sm">- {item.role}{item.projectSize && <span className="ml-1.5 text-xs text-muted-foreground">({item.projectSize})</span>}</p><Evidence text={item.evidence} /></div>) : <Evidence text={signals.seniorRoles.evidence} />}</> },
   ];
   return <Card className="border-2 border-blue-300 shadow-md"><CardHeader className="bg-blue-50/60 rounded-t-lg pb-3"><CardTitle className="text-lg flex items-center gap-2">Interested Information</CardTitle><p className="text-xs text-muted-foreground">AI evaluated from CV content</p></CardHeader><CardContent className="pt-5 space-y-5 divide-y divide-muted">{rows.map((row, index) => <div key={row.label} className={index ? 'pt-4' : ''}><SignalRow icon={row.icon} label={row.label} ok={row.signal.ok}>{row.content}</SignalRow></div>)}</CardContent></Card>;
 }
@@ -313,9 +381,19 @@ const EMPTY_VCS_SIGNALS: VcsSignals = {
 
 
 function AiRiskAssessmentCard({ anomalyDetection, risks }: { anomalyDetection?: ProfileAnomalyDetection; risks?: ApplicationAiScreeningInsight[] }) {
+  const keyedAnomalies = stableKeyedItems(
+    anomalyDetection?.anomalies ?? [],
+    (item) => `${item.type}|${item.description}|${item.evidence}`,
+    'anomaly',
+  );
+  const keyedRisks = stableKeyedItems(
+    risks ?? [],
+    (item) => `${item.title ?? ''}|${item.severity ?? ''}|${item.evidence ?? ''}`,
+    'risk',
+  );
   return <Card><CardHeader><CardTitle className="flex items-center gap-3">AI Risk &amp; Anomaly Assessment <Badge variant="outline">{anomalyDetection?.riskLevel?.toUpperCase() ?? 'NOT ANALYZED'}</Badge></CardTitle></CardHeader><CardContent className="space-y-4 text-sm">
-    {anomalyDetection ? <div className="space-y-2"><div className="flex items-center gap-3"><div className="h-2 flex-1 rounded-full bg-muted overflow-hidden"><div className="h-full bg-orange-500" style={{ width: `${anomalyDetection.overallRiskScore}%` }} /></div><span className="font-semibold">{anomalyDetection.overallRiskScore}/100</span></div><p className="text-muted-foreground">{anomalyDetection.summary}</p>{anomalyDetection.anomalies.length ? anomalyDetection.anomalies.map((anomaly, index) => <div key={`anomaly-${index}`} className="rounded border p-3"><div className="flex items-center gap-2 font-medium"><AlertTriangle className="h-4 w-4" />{anomaly.type}</div><p className="mt-1">{anomaly.description}</p><p className="mt-1 text-xs text-muted-foreground">{anomaly.evidence}</p></div>) : <p className="text-muted-foreground">No anomaly detected.</p>}</div> : <div className="rounded border border-dashed p-3 text-muted-foreground">Risk score and parsed-profile anomaly analysis are not available yet.</div>}
-    {risks?.length ? <div className="space-y-2"><p className="font-semibold">AI screening risks</p>{risks.map((risk, index) => <div key={`risk-${index}`} className="rounded border p-3"><div className="flex items-center justify-between gap-3"><span className="font-medium">{risk.title ?? `Risk ${index + 1}`}</span>{risk.severity && <Badge variant="outline">{risk.severity}</Badge>}</div>{risk.evidence && <p className="mt-1 text-muted-foreground">{risk.evidence}</p>}</div>)}</div> : <div className="rounded border border-dashed p-3 text-muted-foreground">No AI screening risks recorded.</div>}
+    {anomalyDetection ? <div className="space-y-2"><div className="flex items-center gap-3"><div className="h-2 flex-1 rounded-full bg-muted overflow-hidden"><div className="h-full bg-orange-500" style={{ width: `${anomalyDetection.overallRiskScore}%` }} /></div><span className="font-semibold">{anomalyDetection.overallRiskScore}/100</span></div><p className="text-muted-foreground">{anomalyDetection.summary}</p>{keyedAnomalies.length ? keyedAnomalies.map(({ item: anomaly, key }) => <div key={key} className="rounded border p-3"><div className="flex items-center gap-2 font-medium"><AlertTriangle className="h-4 w-4" />{anomaly.type}</div><p className="mt-1">{anomaly.description}</p><p className="mt-1 text-xs text-muted-foreground">{anomaly.evidence}</p></div>) : <p className="text-muted-foreground">No anomaly detected.</p>}</div> : <div className="rounded border border-dashed p-3 text-muted-foreground">Risk score and parsed-profile anomaly analysis are not available yet.</div>}
+    {keyedRisks.length ? <div className="space-y-2"><p className="font-semibold">AI screening risks</p>{keyedRisks.map(({ item: risk, key, position }) => <div key={key} className="rounded border p-3"><div className="flex items-center justify-between gap-3"><span className="font-medium">{risk.title ?? `Risk ${position + 1}`}</span>{risk.severity && <Badge variant="outline">{risk.severity}</Badge>}</div>{risk.evidence && <p className="mt-1 text-muted-foreground">{risk.evidence}</p>}</div>)}</div> : <div className="rounded border border-dashed p-3 text-muted-foreground">No AI screening risks recorded.</div>}
   </CardContent></Card>;
 }
 
@@ -428,6 +506,13 @@ export function CandidateAiMatchPreview({
   const hasEducationSkills = Boolean(data.education || data.totalYearsExperience != null || Object.keys(groupedSkills).length || skills.length || certifications.length || Object.keys(data.experienceByLanguage ?? {}).length);
   const hasAnyResult = Boolean(data.vcsSignals || validation || data.anomalyDetection || data.workExperience?.length || data.projects?.length || hasEducationSkills || mapping || aiScreening);
   const getSectionScore = (section: ProfileSectionScore['section']) => validation?.sectionScores?.find((score) => score.section === section);
+  const experienceYears = formatExperienceYears(data.totalYearsExperience);
+  let groupedSkillsContent: ReactNode = null;
+  if (Object.keys(groupedSkills).length) {
+    groupedSkillsContent = <GroupedSkillsSection data={groupedSkills} />;
+  } else if (skills.length) {
+    groupedSkillsContent = <TagSection label="Skills" items={skills} />;
+  }
 
   if (!hasAnyResult) return <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">AI match result is not available yet. Upload a profile file or run AI analysis first.</CardContent></Card>;
 
@@ -436,7 +521,7 @@ export function CandidateAiMatchPreview({
     <InterestedInformationCard signals={data.vcsSignals ?? EMPTY_VCS_SIGNALS} />
     {data.workExperience?.length ? <WorkExperienceCard workExperience={data.workExperience} sectionScore={getSectionScore('workExperience')} companyTypeByName={companyTypeByName} /> : null}
     {data.projects?.length ? <Card><CardHeader><CardTitle>Side Projects</CardTitle></CardHeader><CardContent className="space-y-1">{data.projects.map((project, index) => <ProjectRow key={`${project.name}-${index}`} project={project} />)}</CardContent></Card> : null}
-    {hasEducationSkills && <Card><CardHeader><CardTitle className="flex items-center gap-3">Education &amp; Skills {getSectionScore('education') && <SectionScoreBadge score={getSectionScore('education')!} />}</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3"><InfoRow label="Education" value={data.education} /><InfoRow label="Total Experience" value={formatExperienceYears(data.totalYearsExperience) ? `${formatExperienceYears(data.totalYearsExperience)} years` : undefined} /></div>{Object.keys(groupedSkills).length ? <GroupedSkillsSection data={groupedSkills} /> : skills.length ? <TagSection label="Skills" items={skills} /> : null}{certifications.length ? <TagSection label="Certifications" items={certifications} /> : null}{data.experienceByLanguage && typeof data.experienceByLanguage === 'object' && !Array.isArray(data.experienceByLanguage) && <ExperienceByLanguage data={data.experienceByLanguage} />}</CardContent></Card>}
+    {hasEducationSkills && <Card><CardHeader><CardTitle className="flex items-center gap-3">Education &amp; Skills {getSectionScore('education') && <SectionScoreBadge score={getSectionScore('education')!} />}</CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3"><InfoRow label="Education" value={data.education} /><InfoRow label="Total Experience" value={experienceYears ? `${experienceYears} years` : undefined} /></div>{groupedSkillsContent}{certifications.length ? <TagSection label="Certifications" items={certifications} /> : null}{data.experienceByLanguage && typeof data.experienceByLanguage === 'object' && !Array.isArray(data.experienceByLanguage) && <ExperienceByLanguage data={data.experienceByLanguage} />}</CardContent></Card>}
     <AiAnalysisCard validation={validation} screening={aiScreening} />
     <MatchAssessmentCard mapping={mapping} screening={aiScreening} />
     <AiStrengthsWeaknessesCard validation={validation} screening={aiScreening} />

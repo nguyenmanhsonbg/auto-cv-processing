@@ -528,7 +528,12 @@ export function CandidateMirror({
   const [forceActivating, setForceActivating] = useState(false);
   const [forceActivatingNext, setForceActivatingNext] = useState(false);
   const [suggestion, setSuggestion] = useState<QuestionSuggestion | null>(null);
-  const questions: any[] = allQuestions.length > 0 ? allQuestions : (Array.isArray(session.questions) ? session.questions : []);
+  let questions: any[] = [];
+  if (allQuestions.length > 0) {
+    questions = allQuestions;
+  } else if (Array.isArray(session.questions)) {
+    questions = session.questions;
+  }
   const activeQuestions = questions.filter((sq) => sq.isActive === true);
   const sq = focusedSqId ? questions.find((q) => q.id === focusedSqId) : activeQuestions[0];
   const questionIdx = sq ? questions.indexOf(sq) : -1;

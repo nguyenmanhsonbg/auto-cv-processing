@@ -18,6 +18,19 @@ interface MultiSelectProps {
   className?: string;
 }
 
+function getMultiSelectLabel(
+  options: MultiSelectOption[],
+  selected: string[],
+  allSelected: boolean,
+  placeholder: string,
+) {
+  if (selected.length === 0 || allSelected) return placeholder;
+  if (selected.length === 1) {
+    return options.find((option) => option.value === selected[0])?.label ?? selected[0];
+  }
+  return `${selected.length} selected`;
+}
+
 export function MultiSelect({ options, selected, onChange, placeholder = 'Select…', className }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
 
@@ -27,40 +40,28 @@ export function MultiSelect({ options, selected, onChange, placeholder = 'Select
 
   const allSelected = selected.length === options.length;
 
-  const label =
-    selected.length === 0 || allSelected
-      ? placeholder
-      : selected.length === 1
-      ? (options.find((o) => o.value === selected[0])?.label ?? selected[0])
-      : `${selected.length} selected`;
+  const label = getMultiSelectLabel(options, selected, allSelected, placeholder);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" className={cn('justify-between font-normal h-9 px-3', className)}>
-          <span className="truncate text-sm">{label}</span>
-          <div className="flex items-center gap-1 ml-2 shrink-0">
-            {selected.length > 0 && !allSelected && (
-              <span
-                role="button"
-                tabIndex={0}
-                aria-label="Clear selected options"
-                onClick={(e) => { e.stopPropagation(); onChange([]); }}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onChange([]);
-                }}
-                className="rounded-sm opacity-50 hover:opacity-100"
-              >
-                <X className="h-3 w-3" />
-              </span>
-            )}
+      <div className="relative">
+        <PopoverTrigger asChild>
+          <Button variant="outline" className={cn('justify-between font-normal h-9 px-3 pr-14', className)}>
+            <span className="truncate text-sm">{label}</span>
             <ChevronDown className="h-4 w-4 opacity-50" />
-          </div>
-        </Button>
-      </PopoverTrigger>
+          </Button>
+        </PopoverTrigger>
+        {selected.length > 0 && !allSelected && (
+          <button
+            type="button"
+            aria-label="Clear selected options"
+            onClick={(event) => { event.stopPropagation(); onChange([]); }}
+            className="absolute right-8 top-1/2 -translate-y-1/2 rounded-sm opacity-50 hover:opacity-100"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
       <PopoverContent
         className="p-1"
         style={{ minWidth: 'var(--radix-popover-trigger-width)' }}

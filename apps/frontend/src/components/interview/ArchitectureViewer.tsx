@@ -1,4 +1,4 @@
-import type { ArchitectureAnswer, ArchitectureNode, ArchitectureAnchor } from '@interview-assistant/shared';
+import type { ArchitectureAnswer, ArchitectureNode, ArchitectureAnchor, ArchitectureConnection } from '@interview-assistant/shared';
 import { NODE_W, NODE_H, getNodeColor } from './ArchitectureEditor';
 
 interface ArchitectureViewerProps {
@@ -17,6 +17,27 @@ function getAnchorPoint(node: ArchitectureNode, anchor: ArchitectureAnchor = 'ce
   }
 }
 
+function stableConnectionKeys(connections: ArchitectureConnection[]) {
+  const occurrences = new Map<string, number>();
+  return connections.map((connection) => {
+    const identity = [
+      connection.from,
+      connection.to,
+      connection.fromAnchor,
+      connection.toAnchor,
+      connection.lineType,
+      connection.label,
+    ].map((part) => String(part ?? '')).join('|');
+    const base = 'connection-' + (identity || 'item');
+    const occurrence = occurrences.get(base) ?? 0;
+    occurrences.set(base, occurrence + 1);
+    return {
+      connection,
+      key: occurrence === 0 ? base : base + '-' + occurrence,
+    };
+  });
+}
+
 export function ArchitectureViewer({ value }: ArchitectureViewerProps) {
   if (!value || (!value.nodes?.length && !value.description)) {
     return <p className="text-sm text-muted-foreground italic">No architecture submitted</p>;
@@ -24,6 +45,7 @@ export function ArchitectureViewer({ value }: ArchitectureViewerProps) {
 
   const { nodes = [], connections = [], description = '' } = value;
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const keyedConnections = stableConnectionKeys(connections);
 
   return (
     <div className="space-y-3">
@@ -43,7 +65,7 @@ export function ArchitectureViewer({ value }: ArchitectureViewerProps) {
             </defs>
             <rect width="650" height="450" fill="url(#grid-viewer)" />
 
-            {connections.map((conn, i) => {
+            {keyedConnections.map(({ connection: conn, key }) => {
               const fromNode = nodeMap.get(conn.from);
               const toNode = nodeMap.get(conn.to);
               if (!fromNode || !toNode) return null;
@@ -61,7 +83,7 @@ export function ArchitectureViewer({ value }: ArchitectureViewerProps) {
                   ? 'url(#v-arrow-start)'
                   : undefined;
               return (
-                <g key={`conn-${i}`}>
+                <g key={key}>
                   <line
                     x1={from.x} y1={from.y} x2={to.x} y2={to.y}
                     stroke="#64748b" strokeWidth={1.5}

@@ -2823,6 +2823,285 @@ async function runFacebookLoginProbe(tabId: number): Promise<FacebookLoginCheckR
   throw new Error('Facebook login check did not return a result.');
 }
 
+type FacebookPageProbeUtilities = {
+  normalize(value: string): string;
+  textOf(element: Element): string;
+  elementAttributeLabel(element: Element): string;
+  isVisible(element: Element): boolean;
+  isSemanticLink(element: Element, clickable: Element): boolean;
+  containsPhrase(text: string, sample: string): boolean;
+  containsTitlePhrase(text: string, sample: string): boolean;
+  scoreSamplesInText(text: string, samples: string[], exactMultiplier: number): number;
+  scoreTitleSamplesInText(text: string, titleSamples: string[]): number;
+  isChatEditor(element: Element): boolean;
+  hasChatControls(root: Document | Element): boolean;
+  isDockedChatLikeSurface(element: Element): boolean;
+  isChatSurface(element: Element): boolean;
+  isDisabled(element: Element): boolean;
+  isInsideCommentSurface(element: Element): boolean;
+  hasPostSubmitControl(root: Document | Element): boolean;
+  hasPostComposerCue(root: Document | Element): boolean;
+  findPostSurfaceForEditor(editor: HTMLElement): Element | null;
+  findPostEditor(root: Document | Element): HTMLElement | null;
+};
+
+type FacebookPageProbeGlobal = typeof globalThis & {
+  __vcsFacebookPageProbeUtilities?: FacebookPageProbeUtilities;
+};
+
+function ensureFacebookPageProbeUtilitiesInPage() {
+  const page = globalThis as FacebookPageProbeGlobal;
+  if (page.__vcsFacebookPageProbeUtilities) return;
+
+  const normalize = (value: string) => {
+    const normalized = value.normalize('NFD');
+    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
+    const translated = withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
+    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
+  };
+  const queryAll = (root: Document | Element, selector: string) => Array.from(root.querySelectorAll(selector));
+  const elementLabel = (element: Element) => normalize([
+    element.textContent ?? '',
+    element.getAttribute('aria-label') ?? '',
+    element.getAttribute('aria-placeholder') ?? '',
+    element.getAttribute('placeholder') ?? '',
+    element.getAttribute('title') ?? '',
+  ].join(' '));
+  const elementAttributeLabel = (element: Element) => normalize([
+    element.getAttribute('aria-label') ?? '',
+    element.getAttribute('aria-placeholder') ?? '',
+    element.getAttribute('placeholder') ?? '',
+    element.getAttribute('title') ?? '',
+  ].join(' '));
+  const isVisible = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.visibility !== 'hidden'
+      && style.display !== 'none';
+  };
+  const isSemanticLink = (element: Element, clickable: Element) => {
+    const elementIsLink = element instanceof HTMLAnchorElement || element.getAttribute('role') === 'link';
+    const clickableIsLink = clickable instanceof HTMLAnchorElement || clickable.getAttribute('role') === 'link';
+    return elementIsLink || clickableIsLink;
+  };
+  const isBoundaryCharacter = (value: string | undefined) => !value || !/[a-z0-9]/i.test(value);
+  const containsPhrase = (text: string, sample: string) => {
+    let index = text.indexOf(sample);
+    while (index >= 0) {
+      const before = text[index - 1];
+      const after = text[index + sample.length];
+      if (isBoundaryCharacter(before) && isBoundaryCharacter(after)) return true;
+      index = text.indexOf(sample, index + 1);
+    }
+
+    return false;
+  };
+  const containsTitlePhrase = (text: string, sample: string) => {
+    let index = text.indexOf(sample);
+    while (index >= 0) {
+      const before = text[index - 1];
+      const after = text[index + sample.length];
+      const facebookJoinedNextWord = /\d$/.test(sample) && Boolean(after) && /[a-z]/i.test(after);
+      if (isBoundaryCharacter(before) && (isBoundaryCharacter(after) || facebookJoinedNextWord)) return true;
+      index = text.indexOf(sample, index + 1);
+    }
+
+    return false;
+  };
+  const scoreSamplesInText = (text: string, samples: string[], exactMultiplier: number) => (
+    samples.reduce((score, sample) => {
+      if (containsPhrase(text, sample)) return score + Math.min(360, sample.length * exactMultiplier);
+      if (text.includes(sample)) return score + Math.min(240, sample.length * 3);
+      if (sample.length >= 40 && text.includes(sample.slice(0, 40))) return score + 80;
+      if (sample.length >= 24 && text.includes(sample.slice(0, 24))) return score + 40;
+      return score;
+    }, 0)
+  );
+  const scoreTitleSamplesInText = (text: string, titleSamples: string[]) => (
+    titleSamples.reduce((score, sample) => (
+      containsTitlePhrase(text, sample) ? score + Math.min(360, sample.length * 6) : score
+    ), 0)
+  );
+  const POST_BUTTON_PATTERNS = [
+    /^post$/,
+    /^dang$/,
+    /^post post$/,
+    /^dang dang$/,
+    /^post to group$/,
+    /^dang bai$/,
+    /^dang tin$/,
+    /^dang len nhom$/,
+    /^dang vao nhom$/,
+  ];
+  const COMMENT_PATTERNS = [
+    /write a comment/,
+    /add a comment/,
+    /comment as/,
+    /reply/,
+    /binh luan/,
+    /viet binh luan/,
+    /tra loi/,
+    /viet phan hoi/,
+  ];
+  const POST_COMPOSER_PATTERNS = [
+    /write something/,
+    /create a public post/,
+    /create post/,
+    /start a post/,
+    /what.?s on your mind/,
+    /ban viet gi/,
+    /viet gi/,
+    /tao bai viet/,
+  ];
+  const CHAT_SURFACE_PATTERNS = [
+    /messenger/,
+    /^chats?$/,
+    /chat/,
+    /message/,
+    /write a message/,
+    /nhap tin nhan/,
+    /tin nhan/,
+    /doan chat/,
+    /cuoc tro chuyen/,
+    /goi thoai/,
+    /goi video/,
+    /voice call/,
+    /video call/,
+    /minimize chat/,
+    /close chat/,
+    /dong doan chat/,
+    /thu nho/,
+    /dang hoat dong/,
+    /active now/,
+  ];
+  const CHAT_EDITOR_PATTERNS = [
+    /^aa$/,
+    /write a message/,
+    /nhap tin nhan/,
+    /message/,
+    /tin nhan/,
+  ];
+  const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
+  const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
+  const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
+  const isChatEditor = (element: Element) => {
+    const attributeLabel = elementAttributeLabel(element);
+    const shortText = normalize((element.textContent ?? '').trim());
+    return matchesAny(attributeLabel, CHAT_EDITOR_PATTERNS) || shortText === 'aa';
+  };
+  const hasChatControls = (root: Document | Element) => queryAll(
+    root,
+    '[aria-label], [title], button, [role="button"]',
+  ).some((element) => matchesAny(elementAttributeLabel(element), CHAT_SURFACE_PATTERNS));
+  const isDockedChatLikeSurface = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 180
+      && rect.width <= 560
+      && rect.height > 80
+      && rect.height <= Math.max(640, window.innerHeight * 0.9)
+      && rect.bottom >= window.innerHeight - 12
+      && rect.right >= window.innerWidth * 0.45
+      && hasChatControls(element);
+  };
+  const isChatSurface = (element: Element) => {
+    const attributeLabel = elementAttributeLabel(element);
+    const text = normalize((element.textContent ?? '').trim());
+    const compactText = text.length <= 80 ? text : '';
+    return isChatEditor(element)
+      || matchesAny(attributeLabel, CHAT_SURFACE_PATTERNS)
+      || /^aa$|dang hoat dong|active now|doan chat|cuoc tro chuyen/.test(compactText)
+      || isDockedChatLikeSurface(element);
+  };
+  const getClickableElement = (element: Element) => (
+    element.closest('button, [role="button"], [tabindex], a') ?? element
+  );
+  const isDisabled = (element: Element) => {
+    const clickable = getClickableElement(element);
+    return clickable.hasAttribute('disabled') || clickable.getAttribute('aria-disabled') === 'true';
+  };
+  const isInsideCommentSurface = (element: Element) => {
+    if (isCommentLabel(elementLabel(element)) || isChatSurface(element)) return true;
+
+    let current = element.parentElement;
+    let depth = 0;
+    while (current && depth < 9) {
+      const label = elementLabel(current);
+      if (matchesAny(label, POST_COMPOSER_PATTERNS) || isSubmitLabel(label)) return false;
+      if (isCommentLabel(label) || isChatSurface(current)) return true;
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return false;
+  };
+  const hasPostSubmitControl = (root: Document | Element) => {
+    const uniqueClickables = new Set<Element>();
+    return queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
+      .map((element) => ({ source: element, clickable: getClickableElement(element) }))
+      .some(({ source, clickable }) => {
+        if (uniqueClickables.has(clickable)) return false;
+        uniqueClickables.add(clickable);
+        if (!isVisible(clickable) || isInsideCommentSurface(source)) return false;
+        const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
+        return labels.some(isSubmitLabel);
+      });
+  };
+  const hasPostComposerCue = (root: Document | Element) => {
+    const rootElement = root instanceof Document ? root.body : root;
+    if (rootElement && matchesAny(elementLabel(rootElement), POST_COMPOSER_PATTERNS)) return true;
+    return queryAll(root, '[aria-label], [aria-placeholder], [placeholder], [title]')
+      .some((element) => matchesAny(elementAttributeLabel(element), POST_COMPOSER_PATTERNS));
+  };
+  const findPostSurfaceForEditor = (editor: HTMLElement): Element | null => {
+    if (isInsideCommentSurface(editor)) return null;
+
+    let current = editor.parentElement;
+    let depth = 0;
+    while (current && current !== document.body && depth < 10) {
+      if (isInsideCommentSurface(current)) return null;
+      const hasComposerCue = hasPostComposerCue(current);
+      const hasSubmitControl = hasPostSubmitControl(current);
+      const isDialog = current.getAttribute('role') === 'dialog';
+      if ((hasComposerCue && (hasSubmitControl || isDialog)) || (isDialog && hasSubmitControl)) return current;
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return null;
+  };
+  const findPostEditor = (root: Document | Element) => queryAll(
+    root,
+    '[contenteditable="true"][role="textbox"], [contenteditable="true"]',
+  )
+    .filter((element): element is HTMLElement => element instanceof HTMLElement)
+    .filter((element) => isVisible(element))
+    .find((element) => Boolean(findPostSurfaceForEditor(element))) ?? null;
+
+  page.__vcsFacebookPageProbeUtilities = {
+    normalize,
+    textOf: elementLabel,
+    elementAttributeLabel,
+    isVisible,
+    isSemanticLink,
+    containsPhrase,
+    containsTitlePhrase,
+    scoreSamplesInText,
+    scoreTitleSamplesInText,
+    isChatEditor,
+    hasChatControls,
+    isDockedChatLikeSurface,
+    isChatSurface,
+    isDisabled,
+    isInsideCommentSurface,
+    hasPostSubmitControl,
+    hasPostComposerCue,
+    findPostSurfaceForEditor,
+    findPostEditor,
+  };
+}
+
 async function runScript<Args extends unknown[], Result>(
   tabId: number,
   func: (...args: Args) => Result | Promise<Result>,
@@ -2832,6 +3111,11 @@ async function runScript<Args extends unknown[], Result>(
     throw new Error('Chrome scripting API is unavailable.');
   }
 
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: ensureFacebookPageProbeUtilitiesInPage,
+    args: [],
+  });
   const [result] = await chrome.scripting.executeScript<Args, Result>({
     target: { tabId },
     func,
@@ -3712,6 +3996,12 @@ async function prepareFacebookPostInPage(
   imageAttachments: FacebookPublishImageAttachment[] = [],
 ): Promise<FacebookPreparedPostResult> {
   const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const utilities = (globalThis as FacebookPageProbeGlobal).__vcsFacebookPageProbeUtilities;
+  if (!utilities) throw new Error('Facebook page probe utilities are unavailable.');
+  const {
+    isChatSurface,
+    hasPostComposerCue,
+  } = utilities;
   const normalize = (value: string) => {
     const withoutDiacritics = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const translated = withoutDiacritics.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
@@ -3765,34 +4055,6 @@ async function prepareFacebookPostInPage(
     /tra loi/,
     /viet phan hoi/,
   ];
-  const CHAT_SURFACE_PATTERNS = [
-    /messenger/,
-    /^chats?$/,
-    /chat/,
-    /message/,
-    /write a message/,
-    /nhap tin nhan/,
-    /tin nhan/,
-    /doan chat/,
-    /cuoc tro chuyen/,
-    /goi thoai/,
-    /goi video/,
-    /voice call/,
-    /video call/,
-    /minimize chat/,
-    /close chat/,
-    /dong doan chat/,
-    /thu nho/,
-    /dang hoat dong/,
-    /active now/,
-  ];
-  const CHAT_EDITOR_PATTERNS = [
-    /^aa$/,
-    /write a message/,
-    /nhap tin nhan/,
-    /message/,
-    /tin nhan/,
-  ];
   const queryAll = (root: Document | Element, selector: string) => (
     Array.from(root.querySelectorAll(selector))
   );
@@ -3816,45 +4078,9 @@ async function prepareFacebookPostInPage(
     ];
     return normalize(label.join(' '));
   };
-  const elementAttributeLabel = (element: Element) => normalize([
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('aria-placeholder') ?? '',
-    element.getAttribute('placeholder') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
-  const isChatEditor = (element: Element) => {
-    const attributeLabel = elementAttributeLabel(element);
-    const shortText = normalize((element.textContent ?? '').trim());
-    return matchesAny(attributeLabel, CHAT_EDITOR_PATTERNS)
-      || shortText === 'aa';
-  };
-  const hasChatControls = (root: Document | Element) => queryAll(
-    root,
-    '[aria-label], [title], button, [role="button"]',
-  )
-    .some((element) => matchesAny(elementAttributeLabel(element), CHAT_SURFACE_PATTERNS));
-  const isDockedChatLikeSurface = (element: Element) => {
-    const rect = element.getBoundingClientRect();
-    return rect.width > 180
-      && rect.width <= 560
-      && rect.height > 80
-      && rect.height <= Math.max(640, window.innerHeight * 0.9)
-      && rect.bottom >= window.innerHeight - 12
-      && rect.right >= window.innerWidth * 0.45
-      && hasChatControls(element);
-  };
-  const isChatSurface = (element: Element) => {
-    const attributeLabel = elementAttributeLabel(element);
-    const text = normalize((element.textContent ?? '').trim());
-    const compactText = text.length <= 80 ? text : '';
-    return isChatEditor(element)
-      || matchesAny(attributeLabel, CHAT_SURFACE_PATTERNS)
-      || /^aa$|dang hoat dong|active now|doan chat|cuoc tro chuyen/.test(compactText)
-      || isDockedChatLikeSurface(element);
-  };
   const clickableSelector = 'button, [role="button"], [tabindex], a';
   const getClickableElement = (element: Element) => element.closest(clickableSelector) ?? element;
   const isDisabled = (element: Element) => {
@@ -4039,13 +4265,6 @@ async function prepareFacebookPostInPage(
         const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
         return labels.some(isSubmitLabel);
       });
-  };
-  const hasPostComposerCue = (root: Document | Element) => {
-    const rootElement = root instanceof Document ? root.body : root;
-    if (rootElement && matchesAny(elementLabel(rootElement), POST_COMPOSER_PATTERNS)) return true;
-
-    return queryAll(root, '[aria-label], [aria-placeholder], [placeholder], [title]')
-      .some((element) => matchesAny(elementAttributeLabel(element), POST_COMPOSER_PATTERNS));
   };
   const findPostSurfaceForEditor = (editor: HTMLElement): Element | null => {
     if (isInsideCommentSurface(editor)) return null;
@@ -4496,20 +4715,23 @@ async function prepareFacebookPostInPage(
   };
   const visibleText = normalize(document.body?.innerText ?? '');
 
-  if (/\/login|checkpoint|recover|two_step/i.test(window.location.href)) {
+  const getAccessFailureMessage = () => {
+    if (/\/login|checkpoint|recover|two_step/i.test(window.location.href)) {
+      return 'Facebook session expired or requires checkpoint.';
+    }
+    if (
+      /content isn.?t available|this content isn.?t available|you can.?t post|not allowed to post/.test(visibleText)
+      || /ban hien khong xem duoc noi dung nay|khong co quyen|khong the dang/.test(visibleText)
+    ) {
+      return 'Facebook account cannot access or post to this group.';
+    }
+    return null;
+  };
+  const accessFailureMessage = getAccessFailureMessage();
+  if (accessFailureMessage) {
     return {
       status: 'FAILED',
-      message: 'Facebook session expired or requires checkpoint.',
-    };
-  }
-
-  if (
-    /content isn.?t available|this content isn.?t available|you can.?t post|not allowed to post/.test(visibleText)
-    || /ban hien khong xem duoc noi dung nay|khong co quyen|khong the dang/.test(visibleText)
-  ) {
-    return {
-      status: 'FAILED',
-      message: 'Facebook account cannot access or post to this group.',
+      message: accessFailureMessage,
     };
   }
 
@@ -4601,16 +4823,6 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
     /^dang len nhom$/,
     /^dang vao nhom$/,
   ];
-  const COMMENT_PATTERNS = [
-    /write a comment/,
-    /add a comment/,
-    /comment as/,
-    /reply/,
-    /binh luan/,
-    /viet binh luan/,
-    /tra loi/,
-    /viet phan hoi/,
-  ];
   const queryAll = (root: Document | Element, selector: string) => (
     Array.from(root.querySelectorAll(selector))
   );
@@ -4631,6 +4843,16 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
   ].join(' '));
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
+  const COMMENT_PATTERNS = [
+    /write a comment/,
+    /add a comment/,
+    /comment as/,
+    /reply/,
+    /binh luan/,
+    /viet binh luan/,
+    /tra loi/,
+    /viet phan hoi/,
+  ];
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex], a') ?? element
@@ -4737,7 +4959,7 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
         };
       });
 
-    return eligibleCandidates.sort((left, right) => right.score - left.score)[0]?.element ?? null;
+    return [...eligibleCandidates].sort((left, right) => right.score - left.score)[0]?.element ?? null;
   };
 
   const dialogs = queryAll(document, '[role="dialog"]')
@@ -4997,6 +5219,14 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
       .replaceAll('\u0110', 'D');
     return plainText.toLowerCase().replace(/\s+/g, ' ').trim();
   };
+  const utilities = (globalThis as FacebookPageProbeGlobal).__vcsFacebookPageProbeUtilities;
+  if (!utilities) throw new Error('Facebook page probe utilities are unavailable.');
+  const {
+    textOf: elementLabel,
+    isVisible,
+    isInsideCommentSurface,
+    findPostEditor,
+  } = utilities;
   const POST_BUTTON_PATTERNS = [
     /^post$/,
     /^dang$/,
@@ -5008,109 +5238,11 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
     /^dang len nhom$/,
     /^dang vao nhom$/,
   ];
-  const COMMENT_PATTERNS = [
-    /write a comment/,
-    /add a comment/,
-    /comment as/,
-    /reply/,
-    /binh luan/,
-    /viet binh luan/,
-    /tra loi/,
-    /viet phan hoi/,
-  ];
-  const CHAT_SURFACE_PATTERNS = [
-    /messenger/,
-    /^chats?$/,
-    /chat/,
-    /message/,
-    /write a message/,
-    /nhap tin nhan/,
-    /tin nhan/,
-    /doan chat/,
-    /cuoc tro chuyen/,
-    /goi thoai/,
-    /goi video/,
-    /voice call/,
-    /video call/,
-    /minimize chat/,
-    /close chat/,
-    /dong doan chat/,
-    /thu nho/,
-    /dang hoat dong/,
-    /active now/,
-  ];
-  const CHAT_EDITOR_PATTERNS = [
-    /^aa$/,
-    /write a message/,
-    /nhap tin nhan/,
-    /message/,
-    /tin nhan/,
-  ];
-  const POST_COMPOSER_PATTERNS = [
-    /write something/,
-    /create a public post/,
-    /create post/,
-    /start a post/,
-    /what.?s on your mind/,
-    /ban viet gi/,
-    /viet gi/,
-    /tao bai viet/,
-  ];
   const queryAll = (root: Document | Element, selector: string) => (
     Array.from(root.querySelectorAll(selector))
   );
-  const isVisible = (element: Element) => {
-    const rect = element.getBoundingClientRect();
-    const style = window.getComputedStyle(element);
-    const hasRenderableBox = rect.width > 0 && rect.height > 0;
-    const hasVisibleStyle = style.visibility !== 'hidden' && style.display !== 'none';
-    return hasRenderableBox && hasVisibleStyle;
-  };
-  const elementLabel = (element: Element) => normalize([
-    element.textContent ?? '',
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('aria-placeholder') ?? '',
-    element.getAttribute('placeholder') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
-  const elementAttributeLabel = (element: Element) => {
-    const attributes = ['aria-label', 'aria-placeholder', 'placeholder', 'title'];
-    return normalize(attributes
-      .map((attribute) => element.getAttribute(attribute) ?? '')
-      .join(' '));
-  };
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
-  const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
-  const isChatEditor = (element: Element) => {
-    const attributeLabel = elementAttributeLabel(element);
-    if (matchesAny(attributeLabel, CHAT_EDITOR_PATTERNS)) return true;
-    return normalize((element.textContent ?? '').trim()) === 'aa';
-  };
-  const hasChatControls = (root: Document | Element) => {
-    for (const element of queryAll(root, '[aria-label], [title], button, [role="button"]')) {
-      if (matchesAny(elementAttributeLabel(element), CHAT_SURFACE_PATTERNS)) return true;
-    }
-    return false;
-  };
-  const isDockedChatLikeSurface = (element: Element) => {
-    const rect = element.getBoundingClientRect();
-    const withinDockBounds = rect.width > 180
-      && rect.width <= 560
-      && rect.height > 80
-      && rect.height <= Math.max(640, window.innerHeight * 0.9)
-      && rect.bottom >= window.innerHeight - 12
-      && rect.right >= window.innerWidth * 0.45;
-    return withinDockBounds && hasChatControls(element);
-  };
-  const isChatSurface = (element: Element) => {
-    const attributeLabel = elementAttributeLabel(element);
-    const text = normalize((element.textContent ?? '').trim());
-    const compactText = text.length <= 80 ? text : '';
-    if (isChatEditor(element) || matchesAny(attributeLabel, CHAT_SURFACE_PATTERNS)) return true;
-    if (/^aa$|dang hoat dong|active now|doan chat|cuoc tro chuyen/.test(compactText)) return true;
-    return isDockedChatLikeSurface(element);
-  };
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex], a') ?? element
   );
@@ -5118,21 +5250,6 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
     const clickable = getClickableElement(element);
     return clickable.hasAttribute('disabled')
       || clickable.getAttribute('aria-disabled') === 'true';
-  };
-  const isInsideCommentSurface = (element: Element) => {
-    if (isCommentLabel(elementLabel(element)) || isChatSurface(element)) return true;
-
-    let current = element.parentElement;
-    let depth = 0;
-    while (current && depth < 9) {
-      const label = elementLabel(current);
-      if (matchesAny(label, POST_COMPOSER_PATTERNS) || isSubmitLabel(label)) return false;
-      if (isCommentLabel(label) || isChatSurface(current)) return true;
-      current = current.parentElement;
-      depth += 1;
-    }
-
-    return false;
   };
   const findSubmitButton = (root: Document | Element) => {
     const uniqueClickables = new Set<Element>();
@@ -5150,60 +5267,6 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
         return labels.some(isSubmitLabel);
       })?.clickable ?? null;
   };
-  const hasPostSubmitControl = (root: Document | Element) => {
-    const uniqueClickables = new Set<Element>();
-
-    return queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
-      .map((element) => ({
-        source: element,
-        clickable: getClickableElement(element),
-      }))
-      .some(({ source, clickable }) => {
-        if (uniqueClickables.has(clickable)) return false;
-        uniqueClickables.add(clickable);
-        if (!isVisible(clickable) || isInsideCommentSurface(source)) return false;
-        const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
-        return labels.some(isSubmitLabel);
-      });
-  };
-  const hasPostComposerCue = (root: Document | Element) => {
-    const rootElement = root instanceof Document ? root.body : root;
-    if (rootElement && matchesAny(elementLabel(rootElement), POST_COMPOSER_PATTERNS)) return true;
-
-    for (const element of queryAll(root, '[aria-label], [aria-placeholder], [placeholder], [title]')) {
-      if (matchesAny(elementAttributeLabel(element), POST_COMPOSER_PATTERNS)) return true;
-    }
-    return false;
-  };
-  const findPostSurfaceForEditor = (editor: HTMLElement): Element | null => {
-    if (isInsideCommentSurface(editor)) return null;
-
-    for (let current = editor.parentElement, depth = 0;
-      current && current !== document.body && depth < 10;
-      current = current.parentElement, depth += 1) {
-      if (isInsideCommentSurface(current)) return null;
-
-      const hasComposerCue = hasPostComposerCue(current);
-      const hasSubmitControl = hasPostSubmitControl(current);
-      const isDialog = current.getAttribute('role') === 'dialog';
-      if (
-        (hasComposerCue && (hasSubmitControl || isDialog))
-        || (isDialog && hasSubmitControl)
-      ) {
-        return current;
-      }
-
-    }
-
-    return null;
-  };
-  const findPostEditor = (root: Document | Element) => queryAll(
-    root,
-    '[contenteditable="true"][role="textbox"], [contenteditable="true"]',
-  )
-    .filter((element): element is HTMLElement => element instanceof HTMLElement)
-    .filter((element) => isVisible(element))
-    .find((element) => Boolean(findPostSurfaceForEditor(element))) ?? null;
   const dialogs = queryAll(document, '[role="dialog"]')
     .filter((element) => isVisible(element))
     .filter((element) => !isInsideCommentSurface(element));
@@ -5402,12 +5465,14 @@ async function recoverFacebookPendingPostUrlInPage(
   input: FacebookPendingPostUrlRecoveryInput,
 ): Promise<FacebookPostReviewStatusProbeResult> {
   const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  const normalize = (value: string) => {
-    const normalized = value.normalize('NFD');
-    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
-    const translated = withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
-    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
-  };
+  const utilities = (globalThis as FacebookPageProbeGlobal).__vcsFacebookPageProbeUtilities;
+  if (!utilities) throw new Error('Facebook page probe utilities are unavailable.');
+  const {
+    normalize,
+    containsPhrase,
+    scoreTitleSamplesInText,
+    isSemanticLink,
+  } = utilities;
   const parsePostUrl = (value: string | null | undefined) => {
     if (!value) return null;
     let parsedUrl: URL;
@@ -5573,30 +5638,6 @@ async function recoverFacebookPendingPostUrlInPage(
       .flatMap((line) => [line.trim(), line.trim().slice(0, 140)])
       .filter((sample) => sample.length >= 24),
   )];
-  const isBoundaryCharacter = (value: string | undefined) => !value || !/[a-z0-9]/i.test(value);
-  const containsPhrase = (text: string, sample: string) => {
-    let index = text.indexOf(sample);
-    while (index >= 0) {
-      const before = text[index - 1];
-      const after = text[index + sample.length];
-      if (isBoundaryCharacter(before) && isBoundaryCharacter(after)) return true;
-      index = text.indexOf(sample, index + 1);
-    }
-
-    return false;
-  };
-  const containsTitlePhrase = (text: string, sample: string) => {
-    let index = text.indexOf(sample);
-    while (index >= 0) {
-      const before = text[index - 1];
-      const after = text[index + sample.length];
-      const facebookJoinedNextWord = /\d$/.test(sample) && Boolean(after) && /[a-z]/i.test(after);
-      if (isBoundaryCharacter(before) && (isBoundaryCharacter(after) || facebookJoinedNextWord)) return true;
-      index = text.indexOf(sample, index + 1);
-    }
-
-    return false;
-  };
   const scoreSamplesInText = (text: string, sampleValues: string[], exactMultiplier: number) => (
     sampleValues.reduce((score, sample) => {
       if (containsPhrase(text, sample)) return score + Math.min(360, sample.length * exactMultiplier);
@@ -5606,11 +5647,7 @@ async function recoverFacebookPendingPostUrlInPage(
       return score;
     }, 0)
   );
-  const scoreTitleSamplesInText = (text: string) => (
-    titleSamples.reduce((score, sample) => (
-      containsTitlePhrase(text, sample) ? score + Math.min(360, sample.length * 6) : score
-    ), 0)
-  );
+  const scoreTitleSamples = (text: string) => scoreTitleSamplesInText(text, titleSamples);
   const titleTokens = normalize(input.title ?? '')
     .split(/[^a-z0-9]+/i)
     .filter((word) => word.length >= 3);
@@ -5628,7 +5665,7 @@ async function recoverFacebookPendingPostUrlInPage(
       };
     }
 
-    const titleScore = scoreTitleSamplesInText(text) + getTitleTokenScore(text);
+    const titleScore = scoreTitleSamples(text) + getTitleTokenScore(text);
     const previewScore = scoreSamplesInText(text, contentPreviewSamples, 4);
     const sampleScore = scoreSamplesInText(text, samples, 3);
     const hasTitleRequirement = titleSamples.length > 0;
@@ -6016,11 +6053,6 @@ async function recoverFacebookPendingPostUrlInPage(
     return parsedUrl.searchParams.has('__cft__[0]')
       || parsedUrl.searchParams.has('__tn__')
       || /daf/i.test(parsedUrl.hash);
-  };
-  const isSemanticLink = (element: Element, clickable: Element) => {
-    const elementIsLink = element instanceof HTMLAnchorElement || element.getAttribute('role') === 'link';
-    const clickableIsLink = clickable instanceof HTMLAnchorElement || clickable.getAttribute('role') === 'link';
-    return elementIsLink || clickableIsLink;
   };
   const getTimestampScopes = (card: Element) => {
     const scopes = new Set<Element>([card]);
@@ -6659,12 +6691,9 @@ async function recoverFacebookPendingPostUrlInPage(
 async function inspectFacebookPendingPostOpenSurfaceInPage(
   input: FacebookPendingPostOpenSurfaceProbeInput,
 ): Promise<FacebookPendingPostOpenSurfaceProbeResult> {
-  const normalize = (value: string) => {
-    const normalized = value.normalize('NFD');
-    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
-    const translated = withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
-    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
-  };
+  const utilities = (globalThis as FacebookPageProbeGlobal).__vcsFacebookPageProbeUtilities;
+  if (!utilities) throw new Error('Facebook page probe utilities are unavailable.');
+  const { normalize, textOf, isSemanticLink } = utilities;
   const shorten = (value: string | null | undefined, maxLength = 140) => {
     const normalized = normalize(value ?? '');
     return normalized.length <= maxLength ? normalized : `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
@@ -6753,14 +6782,6 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
     const isWithinViewport = rect.bottom >= 0 && rect.top <= window.innerHeight + 80;
     return hasRenderableBox && hasVisibleStyle && isWithinViewport;
   };
-  const textOf = (element: Element) => {
-    const textParts = [
-      element.textContent ?? '',
-      element.getAttribute('aria-label') ?? '',
-      element.getAttribute('title') ?? '',
-    ];
-    return normalize(textParts.join(' '));
-  };
   const elementAttributeText = (element: Element) => {
     const attributeTextParts = [
       element.getAttribute('aria-label') ?? '',
@@ -6816,11 +6837,6 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
   const hasPostOpenActionText = (text: string) => postOpenActionPhrases.some(
     (phrase) => hasPostOpenActionPhrase(text, phrase),
   );
-  const isSemanticLink = (element: Element, clickable: Element) => {
-    const elementIsLink = element instanceof HTMLAnchorElement || element.getAttribute('role') === 'link';
-    const clickableIsLink = clickable instanceof HTMLAnchorElement || clickable.getAttribute('role') === 'link';
-    return elementIsLink || clickableIsLink;
-  };
   const buildPoint = (rect: DOMRect, label: string): FacebookSubmitButtonPoint => ({
     clientX: Math.round(rect.left + rect.width / 2),
     clientY: Math.round(rect.top + rect.height / 2),
@@ -6988,12 +7004,15 @@ async function checkFacebookPostReviewStatusInPage(
   input: FacebookPostReviewStatusProbeInput,
 ): Promise<FacebookPostReviewStatusProbeResult> {
   const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  const normalize = (value: string) => {
-    const normalized = value.normalize('NFD');
-    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
-    const translated = withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
-    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
-  };
+  const utilities = (globalThis as FacebookPageProbeGlobal).__vcsFacebookPageProbeUtilities;
+  if (!utilities) throw new Error('Facebook page probe utilities are unavailable.');
+  const {
+    normalize,
+    isVisible,
+    containsPhrase,
+    scoreSamplesInText,
+    scoreTitleSamplesInText,
+  } = utilities;
   const bodyText = () => normalize(document.body?.innerText ?? '');
   const hasRejectedCue = (text: string) => (
     /rejected|declined|not approved|was removed|has been removed|tu choi|bi tu choi|khong duoc phe duyet|da bi go/.test(text)
@@ -7008,13 +7027,6 @@ async function checkFacebookPostReviewStatusInPage(
     /chua co bai viet nao de xem xet|khong co bai viet nao dang cho xem xet|no posts? to review|no posts? (are )?waiting for review|nothing to review/.test(text)
   );
   const queryAll = (root: Document | Element, selector: string) => Array.from(root.querySelectorAll(selector));
-  const hasLayout = (element: Element) => {
-    const rect = element.getBoundingClientRect();
-    const style = window.getComputedStyle(element);
-    const hasRenderableBox = rect.width > 0 && rect.height > 0;
-    const hasVisibleStyle = style.visibility !== 'hidden' && style.display !== 'none';
-    return hasRenderableBox && hasVisibleStyle;
-  };
   const elementLabel = (element: Element) => normalize([
     element.textContent ?? '',
     element.getAttribute('aria-label') ?? '',
@@ -7047,44 +7059,7 @@ async function checkFacebookPostReviewStatusInPage(
       .flatMap((line) => [line.trim(), line.trim().slice(0, 140)])
       .filter((sample) => sample.length >= 24),
   )];
-  const isBoundaryCharacter = (value: string | undefined) => !value || !/[a-z0-9]/i.test(value);
-  const containsPhrase = (text: string, sample: string) => {
-    let index = text.indexOf(sample);
-    while (index >= 0) {
-      const before = text[index - 1];
-      const after = text[index + sample.length];
-      if (isBoundaryCharacter(before) && isBoundaryCharacter(after)) return true;
-      index = text.indexOf(sample, index + 1);
-    }
-
-    return false;
-  };
-  const containsTitlePhrase = (text: string, sample: string) => {
-    let index = text.indexOf(sample);
-    while (index >= 0) {
-      const before = text[index - 1];
-      const after = text[index + sample.length];
-      const facebookJoinedNextWord = /\d$/.test(sample) && Boolean(after) && /[a-z]/i.test(after);
-      if (isBoundaryCharacter(before) && (isBoundaryCharacter(after) || facebookJoinedNextWord)) return true;
-      index = text.indexOf(sample, index + 1);
-    }
-
-    return false;
-  };
-  const scoreSamplesInText = (text: string, sampleValues: string[], exactMultiplier: number) => (
-    sampleValues.reduce((score, sample) => {
-      if (containsPhrase(text, sample)) return score + Math.min(360, sample.length * exactMultiplier);
-      if (text.includes(sample)) return score + Math.min(240, sample.length * 3);
-      if (sample.length >= 40 && text.includes(sample.slice(0, 40))) return score + 80;
-      if (sample.length >= 24 && text.includes(sample.slice(0, 24))) return score + 40;
-      return score;
-    }, 0)
-  );
-  const scoreTitleSamplesInText = (text: string) => (
-    titleSamples.reduce((score, sample) => (
-      containsTitlePhrase(text, sample) ? score + Math.min(360, sample.length * 6) : score
-    ), 0)
-  );
+  const scoreTitleSamples = (text: string) => scoreTitleSamplesInText(text, titleSamples);
   const titleTokens = normalize(input.title ?? '')
     .split(/[^a-z0-9]+/i)
     .filter((word) => word.length >= 3);
@@ -7097,7 +7072,7 @@ async function checkFacebookPostReviewStatusInPage(
     const text = normalize(value);
     if (text.length < 8) return samples.length === 0;
 
-    const titleScore = scoreTitleSamplesInText(text) + getTitleTokenScore(text);
+    const titleScore = scoreTitleSamples(text) + getTitleTokenScore(text);
     const previewScore = scoreSamplesInText(text, contentPreviewSamples, 4);
     const sampleScore = scoreSamplesInText(text, samples, 3);
     const hasTitleRequirement = titleSamples.length > 0;
@@ -7122,18 +7097,18 @@ async function checkFacebookPostReviewStatusInPage(
   const getSubmittedPostRoots = () => {
     const candidates = queryAll(document, '[role="dialog"], [role="article"], article, [data-pagelet*="FeedUnit"]');
     const roots = candidates
-      .filter(hasLayout)
+    .filter(isVisible)
       .filter((element) => hasSubmittedContentMatch(elementLabel(element)));
 
     if (roots.length > 0) return roots;
 
     const dialogs = candidates.filter((element) => (
-      element.getAttribute('role') === 'dialog' && hasLayout(element)
+      element.getAttribute('role') === 'dialog' && isVisible(element)
     ));
     if (dialogs.length === 1) return dialogs;
 
     const articles = candidates.filter((element) => (
-      element.matches('[role="article"], article, [data-pagelet*="FeedUnit"]') && hasLayout(element)
+      element.matches('[role="article"], article, [data-pagelet*="FeedUnit"]') && isVisible(element)
     ));
     if (articles.length === 1) return articles;
 
@@ -7198,10 +7173,10 @@ async function checkFacebookPostReviewStatusInPage(
     const seenTargets = new Set<Element>();
     const actions = sourceRoots
       .flatMap((root) => queryAll(root, '[role="button"], button, a[href], [tabindex]'))
-      .filter(hasLayout)
+      .filter(isVisible)
       .map((element) => {
         const target = getClickableElement(element);
-        if (seenTargets.has(target) || !hasLayout(target)) return null;
+        if (seenTargets.has(target) || !isVisible(target)) return null;
         seenTargets.add(target);
 
         const label = normalize(`${elementLabel(element)} ${elementLabel(target)}`);
@@ -7353,12 +7328,15 @@ async function waitForFacebookSubmissionInPage(
   diagnosticInput: FacebookSubmitDiagnosticInput = {},
 ): Promise<FacebookPagePublishResult> {
   const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  const normalize = (value: string) => {
-    const normalized = value.normalize('NFD');
-    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
-    const translated = withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
-    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
-  };
+  const utilities = (globalThis as FacebookPageProbeGlobal).__vcsFacebookPageProbeUtilities;
+  if (!utilities) throw new Error('Facebook page probe utilities are unavailable.');
+  const {
+    normalize,
+    isDisabled,
+    isVisible,
+    isInsideCommentSurface,
+    findPostEditor,
+  } = utilities;
   const shorten = (value: string | null | undefined, maxLength = 160) => {
     const normalized = normalize(value ?? '');
     if (normalized.length <= maxLength) return normalized || 'none';
@@ -7475,65 +7453,9 @@ async function waitForFacebookSubmissionInPage(
     /^dang len nhom$/,
     /^dang vao nhom$/,
   ];
-  const COMMENT_PATTERNS = [
-    /write a comment/,
-    /add a comment/,
-    /comment as/,
-    /reply/,
-    /binh luan/,
-    /viet binh luan/,
-    /tra loi/,
-    /viet phan hoi/,
-  ];
-  const CHAT_SURFACE_PATTERNS = [
-    /messenger/,
-    /^chats?$/,
-    /chat/,
-    /message/,
-    /write a message/,
-    /nhap tin nhan/,
-    /tin nhan/,
-    /doan chat/,
-    /cuoc tro chuyen/,
-    /goi thoai/,
-    /goi video/,
-    /voice call/,
-    /video call/,
-    /minimize chat/,
-    /close chat/,
-    /dong doan chat/,
-    /thu nho/,
-    /dang hoat dong/,
-    /active now/,
-  ];
-  const CHAT_EDITOR_PATTERNS = [
-    /^aa$/,
-    /write a message/,
-    /nhap tin nhan/,
-    /message/,
-    /tin nhan/,
-  ];
-  const POST_COMPOSER_PATTERNS = [
-    /write something/,
-    /create a public post/,
-    /create post/,
-    /start a post/,
-    /what.?s on your mind/,
-    /ban viet gi/,
-    /viet gi/,
-    /tao bai viet/,
-  ];
   const queryAll = (root: Document | Element, selector: string) => (
     Array.from(root.querySelectorAll(selector))
   );
-  const isVisible = (element: Element) => {
-    const rect = element.getBoundingClientRect();
-    const style = window.getComputedStyle(element);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== 'hidden'
-      && style.display !== 'none';
-  };
   const elementLabel = (element: Element) => {
     const labelParts = [
       element.textContent ?? '',
@@ -7544,68 +7466,11 @@ async function waitForFacebookSubmissionInPage(
     ];
     return normalize(labelParts.join(' '));
   };
-  const elementAttributeLabel = (element: Element) => normalize([
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('aria-placeholder') ?? '',
-    element.getAttribute('placeholder') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
-  const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
-  const isChatEditor = (element: Element) => {
-    const attributeLabel = elementAttributeLabel(element);
-    const shortText = normalize((element.textContent ?? '').trim());
-    return matchesAny(attributeLabel, CHAT_EDITOR_PATTERNS)
-      || shortText === 'aa';
-  };
-  const hasChatControls = (root: Document | Element) => queryAll(
-    root,
-    '[aria-label], [title], button, [role="button"]',
-  )
-    .some((element) => matchesAny(elementAttributeLabel(element), CHAT_SURFACE_PATTERNS));
-  const isDockedChatLikeSurface = (element: Element) => {
-    const rect = element.getBoundingClientRect();
-    return rect.width > 180
-      && rect.width <= 560
-      && rect.height > 80
-      && rect.height <= Math.max(640, window.innerHeight * 0.9)
-      && rect.bottom >= window.innerHeight - 12
-      && rect.right >= window.innerWidth * 0.45
-      && hasChatControls(element);
-  };
-  const isChatSurface = (element: Element) => {
-    const attributeLabel = elementAttributeLabel(element);
-    const text = normalize((element.textContent ?? '').trim());
-    const compactText = text.length <= 80 ? text : '';
-    return isChatEditor(element)
-      || matchesAny(attributeLabel, CHAT_SURFACE_PATTERNS)
-      || /^aa$|dang hoat dong|active now|doan chat|cuoc tro chuyen/.test(compactText)
-      || isDockedChatLikeSurface(element);
-  };
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex], a') ?? element
   );
-  const isDisabled = (element: Element) => {
-    const clickable = getClickableElement(element);
-    return clickable.hasAttribute('disabled')
-      || clickable.getAttribute('aria-disabled') === 'true';
-  };
-  const isInsideCommentSurface = (element: Element) => {
-    if (isCommentLabel(elementLabel(element)) || isChatSurface(element)) return true;
-
-    let current = element.parentElement;
-    let depth = 0;
-    while (current && depth < 9) {
-      const label = elementLabel(current);
-      if (matchesAny(label, POST_COMPOSER_PATTERNS) || isSubmitLabel(label)) return false;
-      if (isCommentLabel(label) || isChatSurface(current)) return true;
-      current = current.parentElement;
-      depth += 1;
-    }
-
-    return false;
-  };
   const findSubmitButton = (root: Document | Element) => {
     const uniqueClickables = new Set<Element>();
 
@@ -7614,68 +7479,14 @@ async function waitForFacebookSubmissionInPage(
         source: element,
         clickable: getClickableElement(element),
       }))
-      .filter(({ source, clickable }) => {
+      .find(({ source, clickable }) => {
         if (uniqueClickables.has(clickable)) return false;
         uniqueClickables.add(clickable);
         if (!isVisible(clickable) || isInsideCommentSurface(source)) return false;
         const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
         return labels.some(isSubmitLabel);
-      })[0]?.clickable ?? null;
+      })?.clickable ?? null;
   };
-  const hasPostSubmitControl = (root: Document | Element) => {
-    const uniqueClickables = new Set<Element>();
-
-    return queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
-      .map((element) => ({
-        source: element,
-        clickable: getClickableElement(element),
-      }))
-      .some(({ source, clickable }) => {
-        if (uniqueClickables.has(clickable)) return false;
-        uniqueClickables.add(clickable);
-        if (!isVisible(clickable) || isInsideCommentSurface(source)) return false;
-        const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
-        return labels.some(isSubmitLabel);
-      });
-  };
-  const hasPostComposerCue = (root: Document | Element) => {
-    const rootElement = root instanceof Document ? root.body : root;
-    if (rootElement && matchesAny(elementLabel(rootElement), POST_COMPOSER_PATTERNS)) return true;
-
-    return queryAll(root, '[aria-label], [aria-placeholder], [placeholder], [title]')
-      .some((element) => matchesAny(elementAttributeLabel(element), POST_COMPOSER_PATTERNS));
-  };
-  const findPostSurfaceForEditor = (editor: HTMLElement): Element | null => {
-    if (isInsideCommentSurface(editor)) return null;
-
-    let current = editor.parentElement;
-    let depth = 0;
-    while (current && current !== document.body && depth < 10) {
-      if (isInsideCommentSurface(current)) return null;
-
-      const hasComposerCue = hasPostComposerCue(current);
-      const hasSubmitControl = hasPostSubmitControl(current);
-      const isDialog = current.getAttribute('role') === 'dialog';
-      if (
-        (hasComposerCue && (hasSubmitControl || isDialog))
-        || (isDialog && hasSubmitControl)
-      ) {
-        return current;
-      }
-
-      current = current.parentElement;
-      depth += 1;
-    }
-
-    return null;
-  };
-  const findPostEditor = (root: Document | Element) => queryAll(
-    root,
-    '[contenteditable="true"][role="textbox"], [contenteditable="true"]',
-  )
-    .filter((element): element is HTMLElement => element instanceof HTMLElement)
-    .filter((element) => isVisible(element))
-    .find((element) => Boolean(findPostSurfaceForEditor(element))) ?? null;
   const readPostSurfaceState = () => {
     const dialogs = queryAll(document, '[role="dialog"]')
       .filter((element) => isVisible(element))
@@ -7720,7 +7531,11 @@ async function waitForFacebookSubmissionInPage(
 
     const hit = document.elementFromPoint(point.clientX, point.clientY);
     const clickable = hit?.closest?.('button, [role="button"], [tabindex], a') ?? hit;
-    const label = clickable ? elementLabel(clickable) || (hit ? elementLabel(hit) : '') : 'none';
+    let label = 'none';
+    if (clickable) {
+      label = elementLabel(clickable);
+      if (!label && hit) label = elementLabel(hit);
+    }
     return {
       label: shorten(label, 120),
       tag: clickable?.tagName?.toLowerCase?.() ?? hit?.tagName?.toLowerCase?.() ?? 'none',

@@ -1,4 +1,4 @@
-const { spawnSync } = require('child_process');
+const { spawnSync } = require('node:child_process');
 
 const tscScript = require.resolve('typescript/bin/tsc');
 const projects = ['tsconfig.json', 'tsconfig.esm.json'];

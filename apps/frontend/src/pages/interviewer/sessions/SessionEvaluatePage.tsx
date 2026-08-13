@@ -173,10 +173,11 @@ type EvaluationSubcategory = { categoryId: string; name: string; orderIndex: num
 
 function buildEvaluationCategoryOrder(cats: EvaluationCategory[], subs: EvaluationSubcategory[]) {
   const map = new Map<string, string[]>();
-  cats.sort((a, b) => a.orderIndex - b.orderIndex).forEach(({ id: catId, name }) => {
+  const orderedCategories = [...cats].sort((a, b) => a.orderIndex - b.orderIndex);
+  orderedCategories.forEach(({ id: catId, name }) => {
     map.set(name, subs.filter((sub) => sub.categoryId === catId).sort((a, b) => a.orderIndex - b.orderIndex).map((sub) => sub.name));
   });
-  const techCats = cats.filter(({ name }) => name !== 'SOFT_SKILL' && name !== 'PERSONALITY');
+  const techCats = orderedCategories.filter(({ name }) => name !== 'SOFT_SKILL' && name !== 'PERSONALITY');
   const mustCat = techCats[0]?.name ?? '';
   const shouldCat = techCats[1]?.name ?? '';
   return {
@@ -453,7 +454,7 @@ export function SessionEvaluatePage() {
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 

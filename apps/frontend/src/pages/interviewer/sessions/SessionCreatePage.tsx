@@ -116,7 +116,7 @@ export function SessionCreatePage() {
     });
   };
 
-  const handleBulkToggleCategory = (questionIds: string[]) => {
+  const toggleQuestionGroup = (questionIds: string[]) => {
     setAutoSelectHint('');
     setSelectedQuestions((prev) => {
       const anySelected = questionIds.some((id) => prev.has(id));
@@ -130,19 +130,8 @@ export function SessionCreatePage() {
     });
   };
 
-  const handleBulkToggleSubcategory = (questionIds: string[]) => {
-    setAutoSelectHint('');
-    setSelectedQuestions((prev) => {
-      const anySelected = questionIds.some((id) => prev.has(id));
-      const next = new Set(prev);
-      if (anySelected) {
-        questionIds.forEach((id) => next.delete(id));
-      } else {
-        questionIds.forEach((id) => next.add(id));
-      }
-      return next;
-    });
-  };
+  const handleBulkToggleCategory = toggleQuestionGroup;
+  const handleBulkToggleSubcategory = toggleQuestionGroup;
 
   const isHR = user?.role === UserRole.HR;
 

@@ -1,6 +1,210 @@
 import type { AmisExtractionResult } from '@/types/types';
 import { removeHorizontalWhitespaceBeforeNewlines } from '@/text-normalization';
 
+function readControlValue(control: Element) {
+  if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {
+    return control.value;
+  }
+
+  return (control as HTMLElement).innerText ?? control.textContent ?? '';
+}
+
+function getControlFromLabel(labelElement: Element) {
+  if (!(labelElement instanceof HTMLLabelElement)) return undefined;
+  if (labelElement.control) return labelElement.control;
+  return labelElement.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]') ?? undefined;
+}
+
+function findNearbyLabel(control: Element) {
+  const parent = control.parentElement;
+  const grandparent = parent?.parentElement;
+  return [
+    parent?.querySelector('label, .label, [class*="label" i]')?.textContent ?? '',
+    grandparent?.querySelector('label, .label, [class*="label" i]')?.textContent ?? '',
+    control.previousElementSibling?.textContent ?? '',
+  ].join(' ');
+}
+
+function matchesControl(element: Element) {
+  return element.matches('input, textarea, [contenteditable="true"], [role="textbox"]');
+}
+
+function trimText(value: string, maxLength: number) {
+  return removeHorizontalWhitespaceBeforeNewlines(value
+    .replaceAll('\u00a0', ' ')
+  )
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+    .slice(0, maxLength)
+    .trim();
+}
+
+function normalizeText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replaceAll('\u00c4\u2018', 'd')
+    .replaceAll('\u00c4\u0090', 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function domSource(element: Element) {
+  const parts = [element.tagName.toLowerCase()];
+  const name = element.getAttribute('name');
+  const id = element.getAttribute('id');
+  const dataId = element instanceof HTMLElement ? element.dataset.id : undefined;
+  const ariaLabel = element.getAttribute('aria-label');
+
+  if (id) parts.push('#' + id.slice(0, 60));
+  if (name) parts.push('[name="' + name.slice(0, 60) + '"]');
+  if (dataId) parts.push('[data-id]');
+  if (ariaLabel) parts.push('[aria-label="' + ariaLabel.slice(0, 60) + '"]');
+
+  return parts.join('');
+}
+
+function normalizeDeadline(value: string) {
+  const compact = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(compact)) return compact;
+
+  const dateMatch = compact.match(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b/);
+  if (!dateMatch) return undefined;
+
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const year = Number(dateMatch[3]);
+  if (day < 1 || day > 31 || month < 1 || month > 12 || year < 2000) return undefined;
+
+  return [
+    String(year).padStart(4, '0'),
+    String(month).padStart(2, '0'),
+    String(day).padStart(2, '0'),
+  ].join('-');
+}
+
+function cssEscape(value: string) {
+  if (typeof CSS !== 'undefined' && CSS.escape) {
+    return CSS.escape(value);
+  }
+
+  return value.replace(/["\\]/g, '\\$&');
+}
+
+function detectPageContext(hostname: string, pageTitle: string) {
+  const pageText = normalizeText([
+    pageTitle,
+    document.body?.innerText.slice(0, 20000) ?? '',
+  ].join('\n'));
+  const normalizedHost = normalizeText(hostname);
+  const markers: string[] = [];
+
+  if (normalizedHost.includes('amis')) markers.push('host:amis');
+  if (normalizeText(pageTitle).includes('amis')) markers.push('title:amis');
+
+  [
+    ['text:tuyen-dung', 'tuyen dung'],
+    ['text:tin-tuyen-dung', 'tin tuyen dung'],
+    ['text:vi-tri-tuyen-dung', 'vi tri tuyen dung'],
+    ['text:mo-ta-cong-viec', 'mo ta cong viec'],
+    ['text:yeu-cau-cong-viec', 'yeu cau cong viec'],
+    ['text:job-description', 'job description'],
+    ['text:recruitment', 'recruitment'],
+  ].forEach(([marker, keyword]) => {
+    if (pageText.includes(keyword)) markers.push(marker);
+  });
+
+  const hasAmisMarker = markers.some((marker) => marker.includes('amis'));
+  const hasRecruitmentMarker = markers.some((marker) => !marker.includes('amis'));
+
+  return {
+    detected: hasAmisMarker && hasRecruitmentMarker,
+    markers,
+  };
+}
+
+function isGenericIdCandidate(value: string) {
+  return [
+    'amis',
+    'app',
+    'create',
+    'detail',
+    'edit',
+    'hrm',
+    'job',
+    'job-postings',
+    'jobs',
+    'recruitment',
+    'recruitments',
+    'tuyen-dung',
+    'vacancy',
+    'vacancies',
+  ].includes(normalizeText(value));
+}
+
+function cleanId(value: string | null) {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 120) return undefined;
+  if (isGenericIdCandidate(trimmed)) return undefined;
+
+  const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f-]{13,}$/i.test(trimmed);
+  const looksLikeNumericId = /^\d{4,}$/.test(trimmed);
+  const looksLikeCode = /^(?=.*\d)[A-Z0-9][A-Z0-9_-]{5,}$/i.test(trimmed);
+  return looksLikeUuid || looksLikeNumericId || looksLikeCode ? trimmed : undefined;
+}
+
+function findControlNear(labelElement: Element) {
+  const labeledControl = getControlFromLabel(labelElement);
+  if (labeledControl) return labeledControl;
+
+  const parent = labelElement.closest('label, .form-group, .form-item, .field, .row, .col, div');
+  const parentControl = parent?.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]');
+  if (parentControl && parentControl !== labelElement) return parentControl;
+
+  let sibling = labelElement.nextElementSibling;
+  for (let index = 0; sibling && index < 4; index += 1) {
+    if (matchesControl(sibling)) return sibling;
+    const nested = sibling.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]');
+    if (nested) return nested;
+    sibling = sibling.nextElementSibling;
+  }
+
+  return undefined;
+}
+
+function findAssociatedLabel(control: Element) {
+  if (control.id) {
+    const label = document.querySelector('label[for="' + cssEscape(control.id) + '"]');
+    if (label?.textContent) return label.textContent;
+  }
+
+  const wrapperLabel = control.closest('label');
+  return wrapperLabel?.textContent ?? '';
+}
+
+function isGenericHeading(value: string) {
+  const normalized = normalizeText(value);
+  return [
+    'tuyen dung',
+    'tin tuyen dung',
+    'thong tin chung',
+    'chi tiet tin tuyen dung',
+    'recruitment',
+    'job posting',
+  ].includes(normalized);
+}
+
+function isLikelyNavigationText(value: string) {
+  const normalized = normalizeText(value);
+  return normalized.includes('dang tin')
+    && normalized.includes('huy')
+    && normalized.includes('luu')
+    && normalized.length < 300;
+}
+
 export function extractAmisJobFromPage(): AmisExtractionResult {
   type FieldValue = {
     value: string;
@@ -155,38 +359,6 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     };
   }
 
-  function detectPageContext(hostname: string, pageTitle: string) {
-    const pageText = normalizeText([
-      pageTitle,
-      document.body?.innerText.slice(0, 20000) ?? '',
-    ].join('\n'));
-    const normalizedHost = normalizeText(hostname);
-    const markers: string[] = [];
-
-    if (normalizedHost.includes('amis')) markers.push('host:amis');
-    if (normalizeText(pageTitle).includes('amis')) markers.push('title:amis');
-
-    [
-      ['text:tuyen-dung', 'tuyen dung'],
-      ['text:tin-tuyen-dung', 'tin tuyen dung'],
-      ['text:vi-tri-tuyen-dung', 'vi tri tuyen dung'],
-      ['text:mo-ta-cong-viec', 'mo ta cong viec'],
-      ['text:yeu-cau-cong-viec', 'yeu cau cong viec'],
-      ['text:job-description', 'job description'],
-      ['text:recruitment', 'recruitment'],
-    ].forEach(([marker, keyword]) => {
-      if (pageText.includes(keyword)) markers.push(marker);
-    });
-
-    const hasAmisMarker = markers.some((marker) => marker.includes('amis'));
-    const hasRecruitmentMarker = markers.some((marker) => !marker.includes('amis'));
-
-    return {
-      detected: hasAmisMarker && hasRecruitmentMarker,
-      markers,
-    };
-  }
-
   function extractRecruitmentId(pageUrl: string, fieldSources: FieldSources) {
     const parsedUrl = new URL(pageUrl);
     const paramNames = [
@@ -256,37 +428,6 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     }
 
     return undefined;
-  }
-
-  function cleanId(value: string | null) {
-    if (!value) return undefined;
-    const trimmed = value.trim();
-    if (!trimmed || trimmed.length > 120) return undefined;
-    if (isGenericIdCandidate(trimmed)) return undefined;
-
-    const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f-]{13,}$/i.test(trimmed);
-    const looksLikeNumericId = /^\d{4,}$/.test(trimmed);
-    const looksLikeCode = /^(?=.*\d)[A-Z0-9][A-Z0-9_-]{5,}$/i.test(trimmed);
-    return looksLikeUuid || looksLikeNumericId || looksLikeCode ? trimmed : undefined;
-  }
-
-  function isGenericIdCandidate(value: string) {
-    return [
-      'amis',
-      'app',
-      'create',
-      'detail',
-      'edit',
-      'hrm',
-      'job',
-      'job-postings',
-      'jobs',
-      'recruitment',
-      'recruitments',
-      'tuyen-dung',
-      'vacancy',
-      'vacancies',
-    ].includes(normalizeText(value));
   }
 
   function findFieldByKeywords(
@@ -378,14 +519,6 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     return undefined;
   }
 
-  function readControlValue(control: Element) {
-    if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {
-      return control.value;
-    }
-
-    return (control as HTMLElement).innerText ?? control.textContent ?? '';
-  }
-
   function readSectionValue(labelElement: Element) {
     const directControl = findControlNear(labelElement);
     if (directControl) return readControlValue(directControl);
@@ -403,25 +536,6 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     return lines.join('\n');
   }
 
-  function findControlNear(labelElement: Element) {
-    const labeledControl = getControlFromLabel(labelElement);
-    if (labeledControl) return labeledControl;
-
-    const parent = labelElement.closest('label, .form-group, .form-item, .field, .row, .col, div');
-    const parentControl = parent?.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]');
-    if (parentControl && parentControl !== labelElement) return parentControl;
-
-    let sibling = labelElement.nextElementSibling;
-    for (let index = 0; sibling && index < 4; index += 1) {
-      if (matchesControl(sibling)) return sibling;
-      const nested = sibling.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]');
-      if (nested) return nested;
-      sibling = sibling.nextElementSibling;
-    }
-
-    return undefined;
-  }
-
   function findReadableContainer(labelElement: Element) {
     let sibling = labelElement.nextElementSibling;
     for (let index = 0; sibling && index < 4; index += 1) {
@@ -433,92 +547,11 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     return labelElement.parentElement;
   }
 
-  function findAssociatedLabel(control: Element) {
-    if (control.id) {
-      const label = document.querySelector(`label[for="${cssEscape(control.id)}"]`);
-      if (label?.textContent) return label.textContent;
-    }
+  /*
 
-    const wrapperLabel = control.closest('label');
-    return wrapperLabel?.textContent ?? '';
-  }
-
-  function getControlFromLabel(labelElement: Element) {
-    if (!(labelElement instanceof HTMLLabelElement)) return undefined;
-    if (labelElement.control) return labelElement.control;
-    return labelElement.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]') ?? undefined;
-  }
-
-  function findNearbyLabel(control: Element) {
-    const parent = control.parentElement;
-    const grandparent = parent?.parentElement;
-    return [
-      parent?.querySelector('label, .label, [class*="label" i]')?.textContent ?? '',
-      grandparent?.querySelector('label, .label, [class*="label" i]')?.textContent ?? '',
-      control.previousElementSibling?.textContent ?? '',
-    ].join(' ');
-  }
-
-  function matchesControl(element: Element) {
-    return element.matches('input, textarea, [contenteditable="true"], [role="textbox"]');
-  }
-
-  function trimText(value: string, maxLength: number) {
-    return removeHorizontalWhitespaceBeforeNewlines(value
-      .replaceAll('\u00a0', ' ')
-    )
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim()
-      .slice(0, maxLength)
-      .trim();
-  }
-
-  function normalizeText(value: string) {
-    return value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
       .replaceAll('đ', 'd')
       .replaceAll('Đ', 'D')
-      .toLowerCase()
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  function domSource(element: Element) {
-    const parts = [element.tagName.toLowerCase()];
-    const name = element.getAttribute('name');
-    const id = element.getAttribute('id');
-    const dataId = element instanceof HTMLElement ? element.dataset.id : undefined;
-    const ariaLabel = element.getAttribute('aria-label');
-
-    if (id) parts.push(`#${id.slice(0, 60)}`);
-    if (name) parts.push(`[name="${name.slice(0, 60)}"]`);
-    if (dataId) parts.push('[data-id]');
-    if (ariaLabel) parts.push(`[aria-label="${ariaLabel.slice(0, 60)}"]`);
-
-    return parts.join('');
-  }
-
-  function isGenericHeading(value: string) {
-    const normalized = normalizeText(value);
-    return [
-      'tuyen dung',
-      'tin tuyen dung',
-      'thong tin chung',
-      'chi tiet tin tuyen dung',
-      'recruitment',
-      'job posting',
-    ].includes(normalized);
-  }
-
-  function isLikelyNavigationText(value: string) {
-    const normalized = normalizeText(value);
-    return normalized.includes('dang tin')
-      && normalized.includes('huy')
-      && normalized.includes('luu')
-      && normalized.length < 300;
-  }
+  */
 
   function buildWarnings(
     missingFields: string[],
@@ -544,25 +577,6 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     return warnings;
   }
 
-  function normalizeDeadline(value: string) {
-    const compact = value.trim();
-    if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(compact)) return compact;
-
-    const dateMatch = compact.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/);
-    if (!dateMatch) return undefined;
-
-    const day = Number(dateMatch[1]);
-    const month = Number(dateMatch[2]);
-    const year = Number(dateMatch[3]);
-    if (day < 1 || day > 31 || month < 1 || month > 12 || year < 2000) return undefined;
-
-    return [
-      String(year).padStart(4, '0'),
-      String(month).padStart(2, '0'),
-      String(day).padStart(2, '0'),
-    ].join('-');
-  }
-
   function getConfidence(
     missingFields: string[],
     fieldSources: FieldSources,
@@ -581,11 +595,4 @@ export function extractAmisJobFromPage(): AmisExtractionResult {
     return 'LOW';
   }
 
-  function cssEscape(value: string) {
-    if (typeof CSS !== 'undefined' && CSS.escape) {
-      return CSS.escape(value);
-    }
-
-    return value.replace(/["\\]/g, '\\$&');
-  }
 }

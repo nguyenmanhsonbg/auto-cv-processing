@@ -173,8 +173,8 @@ function QuestionInput({
     return <div className="space-y-2"><Label>Your Answer</Label><RadioGroup value={answers[sq.id] || ''} onValueChange={(value) => onAnswerChange(sq.id, value)} disabled={isCompleted}>{options.map((option) => <div key={option.id} className="flex items-center space-x-2"><RadioGroupItem value={option.id} id={`${sq.id}-${option.id}`} /><Label htmlFor={`${sq.id}-${option.id}`} className="text-sm font-normal cursor-pointer">{option.text}</Label></div>)}</RadioGroup></div>;
   }
   if (questionType === QuestionType.MULTIPLE_CHOICE && options.length > 0) {
-    const selectedIds = (answers[sq.id] || '').split(',').filter(Boolean);
-    return <div className="space-y-2"><Label>Your Answer (select all that apply)</Label><div className="space-y-2">{options.map((option) => <div key={option.id} className="flex items-center space-x-2"><Checkbox checked={selectedIds.includes(option.id)} onCheckedChange={() => onToggleMultiple(sq.id, option.id)} disabled={isCompleted} /><Label className="text-sm font-normal cursor-pointer">{option.text}</Label></div>)}</div></div>;
+    const selectedIds = new Set((answers[sq.id] || '').split(',').filter(Boolean));
+    return <div className="space-y-2"><Label>Your Answer (select all that apply)</Label><div className="space-y-2">{options.map((option) => <div key={option.id} className="flex items-center space-x-2"><Checkbox checked={selectedIds.has(option.id)} onCheckedChange={() => onToggleMultiple(sq.id, option.id)} disabled={isCompleted} /><Label className="text-sm font-normal cursor-pointer">{option.text}</Label></div>)}</div></div>;
   }
   if (questionType === QuestionType.ARCHITECTURE) {
     return <div className="space-y-2"><Label>Your Architecture Design</Label><ArchitectureEditor value={architectureState[sq.id] || { nodes: [], connections: [], description: '' }} onChange={(value) => onArchitectureChange(sq.id, value)} readOnly={isCompleted} /></div>;

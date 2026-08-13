@@ -729,8 +729,21 @@ function SessionSurveyPanel(props: any) {
   } = props;
   const surveyAnsweredCount = surveyQuestions.filter((q: any) => q.answer).length;
   const allSurveyAnswered = surveyQuestions.length > 0 && surveyAnsweredCount === surveyQuestions.length;
-  const surveyStep = surveyQuestions.length === 0 ? 1 : allSurveyAnswered ? 3 : 2;
-  const stepClass = (step: number) => cn("px-2 py-0.5 rounded-full text-xs font-medium", surveyStep === step ? "bg-primary text-primary-foreground" : surveyStep > step ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground");
+  let surveyStep = 2;
+  if (surveyQuestions.length === 0) {
+    surveyStep = 1;
+  } else if (allSurveyAnswered) {
+    surveyStep = 3;
+  }
+  const stepClass = (step: number) => {
+    let statusClass = "bg-muted text-muted-foreground";
+    if (surveyStep === step) {
+      statusClass = "bg-primary text-primary-foreground";
+    } else if (surveyStep > step) {
+      statusClass = "bg-green-100 text-green-700";
+    }
+    return cn("px-2 py-0.5 rounded-full text-xs font-medium", statusClass);
+  };
 
   return (
     <div className="rounded-lg border bg-card">
@@ -1301,11 +1314,18 @@ function SessionDetailDialogs(props: any) {
             {detailSq?.question?.type === "CODING" && detailSq?.submissions?.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Latest Submission</p>
-                {detailSq.submissions.slice(-1).map((sub: any) => (
+                {detailSq.submissions.slice(-1).map((sub: any) => {
+                  let submissionVariant: "default" | "destructive" | "secondary" = "secondary";
+                  if (sub.status === "PASSED") {
+                    submissionVariant = "default";
+                  } else if (sub.status === "FAILED") {
+                    submissionVariant = "destructive";
+                  }
+                  return (
                   <div key={sub.id} className="rounded-md bg-slate-900 px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs text-slate-400">{sub.language}</span>
-                      <Badge className="text-xs h-4" variant={sub.status === "PASSED" ? "default" : sub.status === "FAILED" ? "destructive" : "secondary"}>
+                      <Badge className="text-xs h-4" variant={submissionVariant}>
                         {sub.status}
                       </Badge>
                     </div>
@@ -1313,14 +1333,15 @@ function SessionDetailDialogs(props: any) {
                     {sub.results?.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {sub.results.map((r: any, i: number) => (
-                          <span key={i} className={cn("text-xs px-1.5 py-0.5 rounded", r.passed ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300")}>
+                          <span key={`${sub.id}-test-${r.testCaseIndex}`} className={cn("text-xs px-1.5 py-0.5 rounded", r.passed ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300")}>
                             T{i + 1} {r.passed ? "âœ“" : "âœ—"}
                           </span>
                         ))}
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 

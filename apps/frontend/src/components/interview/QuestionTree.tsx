@@ -70,6 +70,12 @@ const typeColors: Record<string, string> = {
   SCENARIO: 'text-teal-500',
 };
 
+function getQuestionRowStateClass(isSelected: boolean, isCandidateCurrent: boolean) {
+  if (isSelected) return 'bg-primary/10 border-l-primary';
+  if (isCandidateCurrent) return 'bg-amber-50 border-l-amber-500 ring-1 ring-inset ring-amber-200';
+  return 'border-l-transparent hover:bg-muted/50';
+}
+
 export function QuestionTree({
   questions,
   selectedId,
@@ -471,11 +477,7 @@ export function QuestionTree({
                                   key={sq.id}
                                   className={cn(
                                     'group flex items-center gap-2 px-2 py-1 rounded cursor-pointer border-l-2',
-                                    isSelected
-                                      ? 'bg-primary/10 border-l-primary'
-                                      : isCandidateCurrent
-                                      ? 'bg-amber-50 border-l-amber-500 ring-1 ring-inset ring-amber-200'
-                                      : 'border-l-transparent hover:bg-muted/50',
+                                    getQuestionRowStateClass(isSelected, isCandidateCurrent),
                                   )}
                                 >
                                   <Checkbox

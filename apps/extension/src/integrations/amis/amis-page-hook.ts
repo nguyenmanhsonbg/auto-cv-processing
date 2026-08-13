@@ -417,11 +417,12 @@ function mapAmisRecruitmentRoundsResponse(
   if ((response.Success ?? response.success) === false) return null;
 
   const responseData = response.Data ?? response.data;
-  const rows = Array.isArray(responseData)
-    ? responseData
-    : isObject(responseData)
-      ? responseData.RecruitmentRounds ?? responseData.recruitmentRounds
-      : null;
+  let rows: unknown = null;
+  if (Array.isArray(responseData)) {
+    rows = responseData;
+  } else if (isObject(responseData)) {
+    rows = responseData.RecruitmentRounds ?? responseData.recruitmentRounds;
+  }
   if (!Array.isArray(rows)) return null;
 
   const rounds = rows

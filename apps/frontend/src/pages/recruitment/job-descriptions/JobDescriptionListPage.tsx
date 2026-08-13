@@ -233,6 +233,13 @@ export function JobDescriptionListPage() {
   const totalPages = pagination?.totalPages ?? 1;
   const canPrevious = page > 1 && !loading;
   const canNext = page < totalPages && !loading;
+  let resultSummary: string;
+  if (pagination) {
+    resultSummary = `Page ${pagination.page} of ${pagination.totalPages} - ${pagination.total} total`;
+  } else {
+    const resultLabel = items.length === 1 ? '' : 's';
+    resultSummary = `${items.length} result${resultLabel}`;
+  }
 
   return (
     <div className="space-y-6">
@@ -384,11 +391,7 @@ export function JobDescriptionListPage() {
           </Table>
 
           <div className="mt-4 flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <span>
-              {pagination
-                ? `Page ${pagination.page} of ${pagination.totalPages} - ${pagination.total} total`
-                : `${items.length} result${items.length === 1 ? '' : 's'}`}
-            </span>
+            <span>{resultSummary}</span>
             <div className="flex gap-2">
               <Button
                 type="button"

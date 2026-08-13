@@ -193,6 +193,10 @@ export function JobDescriptionForm({
     });
   };
 
+  let submitLabel = 'Save changes';
+  if (submitting) submitLabel = 'Saving...';
+  else if (mode === 'create') submitLabel = 'Create draft';
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="grid gap-4 md:grid-cols-2">
@@ -334,11 +338,7 @@ export function JobDescriptionForm({
         )}
         <Button type="submit" disabled={submitting}>
           <Save className="mr-2 h-4 w-4" />
-          {submitting
-            ? 'Saving...'
-            : mode === 'create'
-              ? 'Create draft'
-              : 'Save changes'}
+          {submitLabel}
         </Button>
       </div>
     </form>

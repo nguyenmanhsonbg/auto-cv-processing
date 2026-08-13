@@ -342,9 +342,12 @@ function injectSourceColumnIntoColGroup(
   if (sourceCol.style.width !== `${SOURCE_COLUMN_WIDTH_PX}px`) {
     sourceCol.style.width = `${SOURCE_COLUMN_WIDTH_PX}px`;
   }
-  const insertIndex = isFixedTable
-    ? Math.max(0, colGroup.children.length - 1)
-    : actionColumnIndex >= 0 ? actionColumnIndex : colGroup.children.length;
+  let insertIndex = colGroup.children.length;
+  if (isFixedTable) {
+    insertIndex = Math.max(0, colGroup.children.length - 1);
+  } else if (actionColumnIndex >= 0) {
+    insertIndex = actionColumnIndex;
+  }
   insertElementAtPosition(colGroup, sourceCol, colGroup.children[insertIndex] ?? null);
 }
 

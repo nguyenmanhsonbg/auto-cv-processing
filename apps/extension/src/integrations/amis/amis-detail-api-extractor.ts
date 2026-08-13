@@ -1,6 +1,102 @@
 import type { AmisExtractionResult, AmisJobSnapshot } from '@/types/types';
 import { removeHorizontalWhitespaceBeforeNewlines } from '@/text-normalization';
 
+function readValue(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' || typeof value === 'number') return String(value);
+  }
+  return '';
+}
+
+function cleanText(value: unknown) {
+  return typeof value === 'string' || typeof value === 'number'
+    ? String(value).replaceAll('\u00a0', ' ').replace(/\s+/g, ' ').trim()
+    : '';
+}
+
+function htmlToText(value: unknown) {
+  const html = cleanText(value);
+  if (!html) return '';
+
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  return removeHorizontalWhitespaceBeforeNewlines((container.innerText || container.textContent || '')
+    .replaceAll('\r', ''))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractLocation(value: unknown) {
+  if (!Array.isArray(value)) return '';
+  const firstLocation = value.find((item): item is Record<string, unknown> => (
+    typeof item === 'object' && item !== null
+  ));
+  if (!firstLocation) return '';
+  if (firstLocation.IsNationwide === true) return 'Toan quoc';
+
+  return cleanText(
+    firstLocation.WorkLocationDisplayName
+    ?? firstLocation.WorkLocationName
+    ?? firstLocation.Province
+    ?? firstLocation.Address,
+  );
+}
+
+function normalizeDeadline(value: unknown) {
+  const normalized = cleanText(value);
+  if (!normalized) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(normalized)) return normalized;
+
+  const dateMatch = normalized.match(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b/);
+  if (!dateMatch) return undefined;
+
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const year = Number(dateMatch[3]);
+  if (day < 1 || day > 31 || month < 1 || month > 12 || year < 2000) return undefined;
+
+  return [
+    String(year).padStart(4, '0'),
+    String(month).padStart(2, '0'),
+    String(day).padStart(2, '0'),
+  ].join('-');
+}
+
+function buildSnapshotFields(recruitment: Record<string, unknown>) {
+  const summary = cleanText(readValue(recruitment, ['Summary']));
+  const description = htmlToText(readValue(recruitment, ['Description'])) || summary;
+  const requirements = htmlToText(readValue(recruitment, ['Requirement']));
+  const benefits = htmlToText(readValue(recruitment, ['Benifit', 'Benefit']));
+  const title = cleanText(readValue(recruitment, [
+    'TitleWebsite',
+    'Title',
+    'JobPositionName',
+  ]));
+  const location = extractLocation(readValue(recruitment, ['RecruitmentWorkLocations']));
+  const deadline = normalizeDeadline(readValue(recruitment, [
+    'RegistrationExpiryDate',
+    'CloseDate',
+    'ExpectedTime',
+  ]));
+
+  return {
+    title,
+    benefits,
+    location,
+    deadline,
+    snapshot: {
+      title,
+      ...(summary ? { summary: summary.slice(0, 500) } : {}),
+      description,
+      requirements: { rawText: requirements },
+      ...(benefits ? { benefits: { rawText: benefits } } : {}),
+      ...(location ? { location } : {}),
+      ...(deadline ? { deadline } : {}),
+    } satisfies AmisJobSnapshot,
+  };
+}
+
 async function fetchRecruitmentDetail(recruitmentId: string) {
   const response = await fetch(
     `/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-info/${encodeURIComponent(recruitmentId)}`,
@@ -109,40 +205,6 @@ export async function extractAmisJobFromDetailApi(
     return buildFailure(error instanceof Error ? error.message : 'AMIS detail API extraction failed.');
   }
 
-  function buildSnapshotFields(recruitment: Record<string, unknown>) {
-    const summary = cleanText(readValue(recruitment, ['Summary']));
-    const description = htmlToText(readValue(recruitment, ['Description'])) || summary;
-    const requirements = htmlToText(readValue(recruitment, ['Requirement']));
-    const benefits = htmlToText(readValue(recruitment, ['Benifit', 'Benefit']));
-    const title = cleanText(readValue(recruitment, [
-      'TitleWebsite',
-      'Title',
-      'JobPositionName',
-    ]));
-    const location = extractLocation(readValue(recruitment, ['RecruitmentWorkLocations']));
-    const deadline = normalizeDeadline(readValue(recruitment, [
-      'RegistrationExpiryDate',
-      'CloseDate',
-      'ExpectedTime',
-    ]));
-
-    return {
-      title,
-      benefits,
-      location,
-      deadline,
-      snapshot: {
-        title,
-        ...(summary ? { summary: summary.slice(0, 500) } : {}),
-        description,
-        requirements: { rawText: requirements },
-        ...(benefits ? { benefits: { rawText: benefits } } : {}),
-        ...(location ? { location } : {}),
-        ...(deadline ? { deadline } : {}),
-      } satisfies AmisJobSnapshot,
-    };
-  }
-
   function buildFailure(message: string): AmisExtractionResult {
     return {
       status: 'EXTRACTION_FAILED',
@@ -161,61 +223,4 @@ export async function extractAmisJobFromDetailApi(
     };
   }
 
-  function readValue(record: Record<string, unknown>, keys: string[]) {
-    for (const key of keys) {
-      const value = record[key];
-      if (typeof value === 'string' || typeof value === 'number') return String(value);
-    }
-    return '';
-  }
-
-  function cleanText(value: unknown) {
-    return typeof value === 'string' || typeof value === 'number'
-      ? String(value).replaceAll('\u00a0', ' ').replace(/\s+/g, ' ').trim()
-      : '';
-  }
-
-  function htmlToText(value: unknown) {
-    const html = cleanText(value);
-    if (!html) return '';
-
-    const container = document.createElement('div');
-    container.innerHTML = html;
-    return removeHorizontalWhitespaceBeforeNewlines((container.innerText || container.textContent || '')
-      .replaceAll('\r', ''))
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  }
-
-  function extractLocation(value: unknown) {
-    if (!Array.isArray(value)) return '';
-    const firstLocation = value.find((item): item is Record<string, unknown> => (
-      typeof item === 'object' && item !== null
-    ));
-    if (!firstLocation) return '';
-    if (firstLocation.IsNationwide === true) return 'Toan quoc';
-
-    return cleanText(
-      firstLocation.WorkLocationDisplayName
-      ?? firstLocation.WorkLocationName
-      ?? firstLocation.Province
-      ?? firstLocation.Address,
-    );
-  }
-
-  function normalizeDeadline(value: unknown) {
-    const normalized = cleanText(value);
-    if (!normalized) return undefined;
-    if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(normalized)) return normalized;
-
-    const dateMatch = normalized.match(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})\b/);
-    if (!dateMatch) return undefined;
-
-    const day = Number(dateMatch[1]);
-    const month = Number(dateMatch[2]);
-    const year = Number(dateMatch[3]);
-    if (day < 1 || day > 31 || month < 1 || month > 12 || year < 2000) return undefined;
-
-    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  }
 }

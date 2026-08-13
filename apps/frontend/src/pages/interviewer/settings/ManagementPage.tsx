@@ -158,13 +158,20 @@ export function PositionsTab() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {loading ? (
+          {(() => {
+            if (loading) {
+              return (
             <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-          ) : result.data.length === 0 ? (
+              );
+            }
+            if (result.data.length === 0) {
+              return (
             <TableRow>
               <TableCell colSpan={5} className="text-center text-muted-foreground">No positions found.</TableCell>
             </TableRow>
-          ) : result.data.map((p) => (
+              );
+            }
+            return result.data.map((p) => (
             <TableRow key={p.id}>
               <TableCell className="font-medium">
                 <div className="flex items-center gap-2">
@@ -197,7 +204,8 @@ export function PositionsTab() {
                 </div>
               </TableCell>
             </TableRow>
-          ))}
+            ));
+          })()}
         </TableBody>
       </Table>
       </div>
@@ -363,15 +371,22 @@ function AmisCareersTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {(() => {
+              if (loading) {
+                return (
               <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Loading...</TableCell></TableRow>
-            ) : result.data.length === 0 ? (
+                );
+              }
+              if (result.data.length === 0) {
+                return (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground">
                   No AMIS careers found. Open AMIS and interact with the career selector so the extension can sync them.
                 </TableCell>
               </TableRow>
-            ) : result.data.map((career) => (
+                );
+              }
+              return result.data.map((career) => (
               <TableRow key={career.id}>
                 <TableCell className="font-medium">{career.name}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{career.amisCareerId}</TableCell>
@@ -397,7 +412,8 @@ function AmisCareersTab() {
                   </Button>
                 </TableCell>
               </TableRow>
-            ))}
+              ));
+            })()}
           </TableBody>
         </Table>
       </div>
@@ -921,13 +937,20 @@ function UsersTab() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {loading ? (
+          {(() => {
+            if (loading) {
+              return (
             <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-          ) : result.data.length === 0 ? (
+              );
+            }
+            if (result.data.length === 0) {
+              return (
             <TableRow>
               <TableCell colSpan={5} className="text-center text-muted-foreground">No users found.</TableCell>
             </TableRow>
-          ) : result.data.map((u) => (
+              );
+            }
+            return result.data.map((u) => (
             <TableRow key={u.id}>
               <TableCell className="font-medium">{u.name}{isSelf(u) && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}</TableCell>
               <TableCell className="text-sm">{u.email}</TableCell>
@@ -949,7 +972,8 @@ function UsersTab() {
                 </div>
               </TableCell>
             </TableRow>
-          ))}
+            ));
+          })()}
         </TableBody>
       </Table>
       </div>
@@ -1151,13 +1175,20 @@ function LevelsTab() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {loading ? (
+          {(() => {
+            if (loading) {
+              return (
             <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-          ) : result.data.length === 0 ? (
+              );
+            }
+            if (result.data.length === 0) {
+              return (
             <TableRow>
               <TableCell colSpan={6} className="text-center text-muted-foreground">No levels found.</TableCell>
             </TableRow>
-          ) : result.data.map((l) => (
+              );
+            }
+            return result.data.map((l) => (
             <TableRow key={l.id}>
               <TableCell className="font-medium font-mono text-sm">
                 <div className="flex items-center gap-2">
@@ -1193,7 +1224,8 @@ function LevelsTab() {
                 </div>
               </TableCell>
             </TableRow>
-          ))}
+            ));
+          })()}
         </TableBody>
       </Table>
       </div>
@@ -1276,6 +1308,19 @@ interface AvailableModel {
   key: string;
   identifier: string;
   family: string;
+}
+
+function getModelBadgeClass(model: string | null | undefined): string {
+  if (model?.includes('sonnet')) {
+    return 'bg-blue-100 text-blue-800';
+  }
+  if (model?.includes('opus')) {
+    return 'bg-purple-100 text-purple-800';
+  }
+  if (model?.includes('haiku')) {
+    return 'bg-green-100 text-green-800';
+  }
+  return 'bg-gray-100 text-gray-800';
 }
 
 function PromptsTab() {
@@ -1402,12 +1447,7 @@ function PromptsTab() {
                 <Badge variant="outline" className="font-mono text-xs">{p.key}</Badge>
               </TableCell>
               <TableCell>
-                <Badge className={
-                  p.model?.includes('sonnet') ? 'bg-blue-100 text-blue-800' :
-                  p.model?.includes('opus') ? 'bg-purple-100 text-purple-800' :
-                  p.model?.includes('haiku') ? 'bg-green-100 text-green-800' :
-                  'bg-gray-100 text-gray-800'
-                }>{p.model || 'claude-sonnet-4.6'}</Badge>
+                <Badge className={getModelBadgeClass(p.model)}>{p.model || 'claude-sonnet-4.6'}</Badge>
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">{p.description}</TableCell>
               <TableCell className="text-xs text-muted-foreground">
@@ -1642,15 +1682,22 @@ function ModelsTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {(() => {
+              if (loading) {
+                return (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-muted-foreground py-8">Loading…</TableCell>
               </TableRow>
-            ) : rows.length === 0 ? (
+                );
+              }
+              if (rows.length === 0) {
+                return (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No prompts found.</TableCell>
               </TableRow>
-            ) : rows.map((r) => {
+                );
+              }
+              return rows.map((r) => {
               const selectedValue = r.model ?? '__default__';
               const isSaving = savingKey === r.promptKey;
               return (
@@ -1682,7 +1729,8 @@ function ModelsTab() {
                   </TableCell>
                 </TableRow>
               );
-            })}
+              });
+            })()}
           </TableBody>
         </Table>
       </div>

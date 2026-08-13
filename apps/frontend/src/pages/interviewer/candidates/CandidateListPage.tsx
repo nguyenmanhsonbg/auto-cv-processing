@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/api-client';
 import { useAuthContext } from '@/lib/auth-context';
@@ -113,6 +114,50 @@ export function CandidateListPage() {
   const handleSort = (field: string, order: SortOrder) => { setSortBy(field); setSortOrder(order); };
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  let candidateTableContent: ReactNode;
+  if (loading) {
+    candidateTableContent = (
+      <TableRow>
+        <TableCell colSpan={isAdmin ? 8 : 7} className="text-center text-muted-foreground py-8">{'Loading\u2026'}</TableCell>
+      </TableRow>
+    );
+  } else if (result.data.length === 0) {
+    candidateTableContent = (
+      <TableRow>
+        <TableCell colSpan={isAdmin ? 8 : 7} className="text-center text-muted-foreground">No candidates found.</TableCell>
+      </TableRow>
+    );
+  } else {
+    candidateTableContent = result.data.map((c) => (
+      <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/candidates/${c.slug || c.id}`)}>
+        <TableCell className="font-medium text-blue-600 underline">{c.name}</TableCell>
+        <TableCell>{(c as any).email || '-'}</TableCell>
+        <TableCell>{(c as any).position}</TableCell>
+        <TableCell>{c.level}</TableCell>
+        <TableCell className="text-sm text-muted-foreground">{(c as any).createdBy?.email ?? '\u2014'}</TableCell>
+        <TableCell>
+          {c.assignees?.length
+            ? (
+              <div className="flex flex-wrap gap-1">
+                {c.assignees.map(u => (
+                  <Badge key={u.id} variant="secondary" className="text-xs font-normal">{u.email}</Badge>
+                ))}
+              </div>
+            )
+            : <span className="text-sm text-muted-foreground">{'\u2014'}</span>}
+        </TableCell>
+        <TableCell>{new Date(c.createdAt).toLocaleDateString()}</TableCell>
+        {isAdmin && (
+          <TableCell onClick={(e) => e.stopPropagation()}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => handleDelete(e, c.id)} disabled={deletingId === c.id} title="Delete candidate">
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </TableCell>
+        )}
+      </TableRow>
+    ));
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -157,46 +202,7 @@ export function CandidateListPage() {
             {isAdmin && <TableHead className="w-24">Actions</TableHead>}
           </TableRow>
         </TableHeader>
-        <TableBody>
-          {loading ? (
-            <TableRow>
-              <TableCell colSpan={isAdmin ? 8 : 7} className="text-center text-muted-foreground py-8">Loading…</TableCell>
-            </TableRow>
-          ) : result.data.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={isAdmin ? 8 : 7} className="text-center text-muted-foreground">No candidates found.</TableCell>
-            </TableRow>
-          ) : (
-            result.data.map((c) => (
-              <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/candidates/${c.slug || c.id}`)}>
-                <TableCell className="font-medium text-blue-600 underline">{c.name}</TableCell>
-                <TableCell>{(c as any).email || '-'}</TableCell>
-                <TableCell>{(c as any).position}</TableCell>
-                <TableCell>{c.level}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{(c as any).createdBy?.email ?? '—'}</TableCell>
-                <TableCell>
-                  {c.assignees?.length
-                    ? (
-                      <div className="flex flex-wrap gap-1">
-                        {c.assignees.map(u => (
-                          <Badge key={u.id} variant="secondary" className="text-xs font-normal">{u.email}</Badge>
-                        ))}
-                      </div>
-                    )
-                    : <span className="text-sm text-muted-foreground">—</span>}
-                </TableCell>
-                <TableCell>{new Date(c.createdAt).toLocaleDateString()}</TableCell>
-                {isAdmin && (
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => handleDelete(e, c.id)} disabled={deletingId === c.id} title="Delete candidate">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </TableCell>
-                )}
-              </TableRow>
-            ))
-          )}
-        </TableBody>
+        <TableBody>{candidateTableContent}</TableBody>
       </Table>
       </div>
 

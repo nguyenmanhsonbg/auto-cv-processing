@@ -1,4 +1,4 @@
-import { type ChangeEvent, type Dispatch, type FormEvent, type Ref, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
+import { type ChangeEvent, type Dispatch, type FormEvent, type ReactNode, type Ref, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -1251,11 +1251,12 @@ function FacebookGroupList({ model }: { model: JobPostingDetailViewModel }) {
       {facebookGroups.map((group) => {
         const isGroupChecking = Boolean(group.targetId && verifyingFacebookGroupIds.includes(group.targetId));
         const isGroupQueued = Boolean(group.targetId && queuedFacebookGroupIds.includes(group.targetId));
-        const groupStatusMessage = isGroupChecking
-          ? 'Checking with the current Facebook browser session...'
-          : isGroupQueued
-            ? 'Queued for checking.'
-            : getFacebookGroupDisabledReason(group);
+        let groupStatusMessage = getFacebookGroupDisabledReason(group);
+        if (isGroupChecking) {
+          groupStatusMessage = 'Checking with the current Facebook browser session...';
+        } else if (isGroupQueued) {
+          groupStatusMessage = 'Queued for checking.';
+        }
 
         return (
           <div
@@ -1638,6 +1639,12 @@ function JobPostingPublishDialog({ model }: { model: JobPostingDetailViewModel }
     publishSubmitDisabled,
     isFacebookImageReading,
   } = model;
+  let publishButtonLabel = 'Publish';
+  if (submitting) {
+    publishButtonLabel = 'Publishing...';
+  } else if (isFacebookImageReading) {
+    publishButtonLabel = 'Loading image...';
+  }
   return (
       <Dialog
         open={publishOpen}
@@ -1710,7 +1717,7 @@ function JobPostingPublishDialog({ model }: { model: JobPostingDetailViewModel }
               </Button>
               <Button type="submit" disabled={publishSubmitDisabled}>
                 <CheckCircle className="mr-2 h-4 w-4" />
-                {submitting ? 'Publishing...' : isFacebookImageReading ? 'Loading image...' : 'Publish'}
+                {publishButtonLabel}
               </Button>
             </div>
           </form>
@@ -1965,7 +1972,26 @@ function JobPostingDetailView({ model }: { model: JobPostingDetailViewModel }) {
                 </TableRow>
               )}
 
-              {!channelsLoading && channels.map((channel) => (
+              {!channelsLoading && channels.map((channel) => {
+                let channelInstructionContent: ReactNode;
+                if (channel.publishedUrl) {
+                  channelInstructionContent = (
+                    <a
+                      href={channel.publishedUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 hover:underline"
+                    >
+                      Open
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  );
+                } else if (channel.manualInstruction) {
+                  channelInstructionContent = channel.manualInstruction;
+                } else {
+                  channelInstructionContent = '-';
+                }
+                return (
                 <TableRow key={`${channel.channel}-${channel.publishedUrl ?? channel.updatedAt ?? ''}`}>
                   <TableCell className="font-medium">{channelLabel(channel.channel)}</TableCell>
                   <TableCell>
@@ -1973,24 +1999,11 @@ function JobPostingDetailView({ model }: { model: JobPostingDetailViewModel }) {
                       {getStatusLabel(channel.status)}
                     </Badge>
                   </TableCell>
-                  <TableCell>
-                    {channel.publishedUrl ? (
-                      <a
-                        href={channel.publishedUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 hover:underline"
-                      >
-                        Open
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    ) : channel.manualInstruction ? (
-                      channel.manualInstruction
-                    ) : '-'}
-                  </TableCell>
+                  <TableCell>{channelInstructionContent}</TableCell>
                   <TableCell>{formatDate(channel.updatedAt ?? channel.publishedAt)}</TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>

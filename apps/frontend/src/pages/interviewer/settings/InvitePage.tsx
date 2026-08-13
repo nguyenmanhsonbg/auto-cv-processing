@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -135,18 +136,20 @@ export function InvitePage() {
           ) : (
             invites.map((inv) => {
               const link = `${window.location.origin}/register?token=${inv.token}`;
+              let inviteStatusContent: ReactNode;
+              if (inv.usedAt) {
+                inviteStatusContent = <Badge className="bg-green-100 text-green-800">Used</Badge>;
+              } else if (isExpired(inv.expiresAt)) {
+                inviteStatusContent = <Badge variant="destructive">Expired</Badge>;
+              } else {
+                inviteStatusContent = <Badge className="bg-blue-100 text-blue-800">Active</Badge>;
+              }
               return (
                 <TableRow key={inv.id}>
                   <TableCell>{inv.email || <span className="text-muted-foreground">Any</span>}</TableCell>
                   <TableCell><Badge variant="outline">{inv.role}</Badge></TableCell>
                   <TableCell>
-                    {inv.usedAt ? (
-                      <Badge className="bg-green-100 text-green-800">Used</Badge>
-                    ) : isExpired(inv.expiresAt) ? (
-                      <Badge variant="destructive">Expired</Badge>
-                    ) : (
-                      <Badge className="bg-blue-100 text-blue-800">Active</Badge>
-                    )}
+                    {inviteStatusContent}
                   </TableCell>
                   <TableCell className="text-sm">{new Date(inv.expiresAt).toLocaleDateString()}</TableCell>
                   <TableCell className="text-sm">{new Date(inv.createdAt).toLocaleDateString()}</TableCell>

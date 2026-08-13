@@ -84,13 +84,17 @@ function formatSignalItem(label: string, projectSize?: string | null) {
 }
 
 function projectTechstack(value: unknown) {
-  const values = Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-      ? [value]
-      : value && typeof value === 'object'
-        ? Object.values(value as Record<string, unknown>).flatMap((item) => Array.isArray(item) ? item : [item])
-        : [];
+  let values: unknown[] = [];
+  if (Array.isArray(value)) {
+    values = value;
+  } else if (typeof value === 'string') {
+    values = [value];
+  } else if (value && typeof value === 'object') {
+    values = Object.values(value as Record<string, unknown>).flatMap((item) => {
+      if (Array.isArray(item)) return item;
+      return [item];
+    });
+  }
   return values.map((item) => String(item).trim()).filter((item) => item && !/^\[?\s*redacted\s*\]?$/i.test(item));
 }
 
@@ -110,11 +114,17 @@ function recommendation(value?: string | null) {
 }
 
 function scoreColor(score: number) {
-  return score >= 8 ? '#22c55e' : score >= 6 ? '#3b82f6' : score >= 4 ? '#fb923c' : '#f87171';
+  if (score >= 8) return '#22c55e';
+  if (score >= 6) return '#3b82f6';
+  if (score >= 4) return '#fb923c';
+  return '#f87171';
 }
 
 function matchColor(score: number) {
-  return score >= 70 ? '#16a34a' : score >= 50 ? '#2563eb' : score >= 35 ? '#f97316' : '#dc2626';
+  if (score >= 70) return '#16a34a';
+  if (score >= 50) return '#2563eb';
+  if (score >= 35) return '#f97316';
+  return '#dc2626';
 }
 
 function companyTypeColor(type?: string) {
@@ -156,9 +166,9 @@ function WorkCard({ entry, companyType }: { entry: WorkExperience; companyType?:
     {entry.role && <Text style={styles.muted}>{entry.role}</Text>}
     {entry.summary && <Text style={{ marginTop: 4 }}>{entry.summary}</Text>}
     {list(entry.responsibilities).length ? <Text style={{ ...styles.cardTitle, marginTop: 5 }}>Responsibilities</Text> : null}
-    {list(entry.responsibilities).map((item, index) => <Text key={`responsibility-${index}`} style={styles.bullet}>- {item}</Text>)}
+    {stableKeyedItems(list(entry.responsibilities), (item) => item, 'responsibility').map(({ item, key }) => <Text key={key} style={styles.bullet}>- {item}</Text>)}
     {list(entry.achievements).length ? <Text style={{ ...styles.cardTitle, marginTop: 5 }}>Achievements</Text> : null}
-    {list(entry.achievements).map((item, index) => <Text key={`achievement-${index}`} style={styles.bullet}>- {item}</Text>)}
+    {stableKeyedItems(list(entry.achievements), (item) => item, 'achievement').map(({ item, key }) => <Text key={key} style={styles.bullet}>- {item}</Text>)}
     {list(entry.technologies).length ? <Text style={styles.tagLine}>Technologies: {list(entry.technologies).join(', ')}</Text> : null}
     {keyedProjects.map(({ item: project, key }) => <View key={key} style={{ marginTop: 6, marginLeft: 8 }}><Text style={styles.cardTitle}>{project.name}{project.role ? ` - ${project.role}` : ''}{projectDateRange(project)}</Text>{project.projectType && <Text style={styles.muted}>Project type: {project.projectType}</Text>}{project.description && <Text style={{ marginTop: 3 }}>{project.description}</Text>}{projectTechstack(project.techstack).length ? <Text style={styles.tagLine}>Technologies: {projectTechstack(project.techstack).join(', ')}</Text> : null}{stableKeyedItems(list(project.responsibilities), (item) => item, 'project-item').map(({ item, key: itemKey }) => <Text key={itemKey} style={styles.bullet}>- {item}</Text>)}{stableKeyedItems(list(project.achievements), (item) => item, 'project-achievement').map(({ item, key: itemKey }) => <Text key={itemKey} style={styles.bullet}>- {item}</Text>)}</View>)}
   </View>;

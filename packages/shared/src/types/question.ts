@@ -1,8 +1,3 @@
-// Category codes are dynamic (stored in the categories DB table).
-// String literals are used instead of a hardcoded enum so new tracks
-// (e.g. FRONTEND, MOBILE) can be added without a code change.
-export type QuestionCategoryCode = string;
-
 export enum CompetencyType {
   KNOWLEDGE = 'KNOWLEDGE',
   SKILL = 'SKILL',

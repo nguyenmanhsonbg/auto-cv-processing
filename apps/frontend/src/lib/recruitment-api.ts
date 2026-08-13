@@ -629,6 +629,17 @@ export function listJobDescriptionVersions(id: string) {
     });
 }
 
+function getReadinessLabel(
+  isArchived: boolean,
+  isReady: boolean,
+  activeVersionId?: string,
+) {
+  if (isArchived) return 'Archived JD cannot be used for posting';
+  if (!isReady) return 'Draft JD will be marked ready before creating posting';
+  if (!activeVersionId) return 'JD will be snapshotted before creating posting';
+  return undefined;
+}
+
 export async function listReadyJobDescriptionOptions() {
   const jobDescriptions = await listJobDescriptions({
     page: 1,
@@ -650,13 +661,7 @@ export async function listReadyJobDescriptionOptions() {
       const isArchived = jobDescription.status === 'ARCHIVED' || jobDescription.status === 'JD_ARCHIVED';
       const isReady = jobDescription.status === 'ACTIVE' || jobDescription.status === 'READY' || jobDescription.status === 'JD_READY';
       const readyForPosting = Boolean(!isArchived && isReady && activeVersionId);
-      const readinessLabel = isArchived
-        ? 'Archived JD cannot be used for posting'
-        : !isReady
-          ? 'Draft JD will be marked ready before creating posting'
-          : !activeVersionId
-            ? 'JD will be snapshotted before creating posting'
-            : undefined;
+      const readinessLabel = getReadinessLabel(isArchived, isReady, activeVersionId);
 
       return {
         jobDescriptionId,

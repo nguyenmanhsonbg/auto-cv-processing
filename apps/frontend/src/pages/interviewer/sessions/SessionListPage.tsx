@@ -138,11 +138,18 @@ export function SessionListPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {loading ? (
+          {(() => {
+            if (loading) {
+              return (
             <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-          ) : result.data.length === 0 ? (
+              );
+            }
+            if (result.data.length === 0) {
+              return (
             <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No sessions found.</TableCell></TableRow>
-          ) : (
+              );
+            }
+            return (
             result.data.map((s) => (
               <TableRow key={s.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/sessions/${s.slug}`)}>
                 <TableCell className="font-medium">{s.candidate?.name || 'Unknown'}</TableCell>
@@ -166,7 +173,8 @@ export function SessionListPage() {
                 </TableCell>
               </TableRow>
             ))
-          )}
+            );
+          })()}
         </TableBody>
       </Table>
       </div>

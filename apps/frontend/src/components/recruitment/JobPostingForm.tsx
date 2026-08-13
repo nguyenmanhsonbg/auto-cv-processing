@@ -239,6 +239,16 @@ export function JobPostingForm({
     });
   };
 
+  let jobDescriptionPlaceholder = 'Select job description';
+  if (jobDescriptionOptionsLoading) {
+    jobDescriptionPlaceholder = 'Loading job descriptions...';
+  } else if ((initialVersionId || initialJobDescriptionId) && mode === 'edit') {
+    jobDescriptionPlaceholder = fallbackVersionLabel(initialValue);
+  }
+  let submitLabel = 'Save changes';
+  if (submitting) submitLabel = 'Saving...';
+  else if (mode === 'create') submitLabel = 'Create posting';
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="space-y-2">
@@ -250,13 +260,7 @@ export function JobPostingForm({
         >
           <SelectTrigger id="posting-version">
             <SelectValue
-              placeholder={
-                jobDescriptionOptionsLoading
-                  ? 'Loading job descriptions...'
-                  : (initialVersionId || initialJobDescriptionId) && mode === 'edit'
-                    ? fallbackVersionLabel(initialValue)
-                    : 'Select job description'
-              }
+              placeholder={jobDescriptionPlaceholder}
             />
           </SelectTrigger>
           <SelectContent>
@@ -375,11 +379,7 @@ export function JobPostingForm({
         )}
         <Button type="submit" disabled={submitting}>
           <Save className="mr-2 h-4 w-4" />
-          {submitting
-            ? 'Saving...'
-            : mode === 'create'
-              ? 'Create posting'
-              : 'Save changes'}
+          {submitLabel}
         </Button>
       </div>
     </form>
