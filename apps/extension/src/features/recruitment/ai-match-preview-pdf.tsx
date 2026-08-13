@@ -302,7 +302,7 @@ function SideProjectsSection({ projects }: { projects: ParsedProfile['projects']
   if (!projects?.length) return null;
   return <View style={styles.sectionCard}>
     <Text style={styles.sectionTitle}>Side Projects</Text>
-    {projects.map((project, index) => <ProjectCard key={`side-${index}`} project={project} />)}
+    {withStableProjectKeys(projects).map(({ project, key }) => <ProjectCard key={key} project={project} />)}
   </View>;
 }
 
@@ -344,11 +344,12 @@ function ValidationSection({ validation }: { validation?: AiValidation }) {
 
 function ValidationHeader({ validation }: { validation: AiValidation }) {
   const score = validation.completenessScore;
-  const tone = score >= 80
-    ? { color: '#15803d', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', label: 'Good' }
-    : score >= 60
-      ? { color: '#1d4ed8', backgroundColor: '#eff6ff', borderColor: '#bfdbfe', label: 'Fair' }
-      : { color: '#c2410c', backgroundColor: '#fff7ed', borderColor: '#fed7aa', label: 'Weak' };
+  let tone = { color: '#c2410c', backgroundColor: '#fff7ed', borderColor: '#fed7aa', label: 'Weak' };
+  if (score >= 80) {
+    tone = { color: '#15803d', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', label: 'Good' };
+  } else if (score >= 60) {
+    tone = { color: '#1d4ed8', backgroundColor: '#eff6ff', borderColor: '#bfdbfe', label: 'Fair' };
+  }
   return <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7, borderBottomWidth: 1, borderBottomColor: '#cbd5e1', paddingBottom: 4 }}>
     <Text style={{ ...styles.sectionTitle, marginBottom: 0, borderBottomWidth: 0, paddingBottom: 0 }}>AI Profile Analysis</Text>
     <Text style={{ fontSize: 8, fontWeight: 700, color: tone.color, backgroundColor: tone.backgroundColor, borderColor: tone.borderColor, borderWidth: 1, borderRadius: 3, paddingVertical: 2, paddingHorizontal: 6, marginLeft: 8 }}>
@@ -440,18 +441,54 @@ function StrengthColumn({
   </View>;
 }
 
+function projectIdentity(project: NonNullable<ParsedProfile['projects']>[number]) {
+  return [
+    project.name,
+    project.role,
+    project.startYear,
+    project.endYear,
+    project.projectType,
+    project.description,
+  ].map((value) => String(value ?? '')).join('|');
+}
+
+function withStableProjectKeys(projects: NonNullable<ParsedProfile['projects']>) {
+  const occurrences = new Map<string, number>();
+  return projects.map((project) => {
+    const identity = projectIdentity(project);
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    return { project, key: `side-${identity}-${occurrence}` };
+  });
+}
+
+function riskIdentity(risk: NonNullable<ApplicationAiScreeningSummary['risks']>[number]) {
+  return [risk.title, risk.evidence, risk.confidence, risk.severity]
+    .map((value) => String(value ?? '')).join('|');
+}
+
+function withStableRiskKeys(risks: NonNullable<ApplicationAiScreeningSummary['risks']>) {
+  const occurrences = new Map<string, number>();
+  return risks.map((risk) => {
+    const identity = riskIdentity(risk);
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    return { risk, key: `risk-${identity}-${occurrence}` };
+  });
+}
+
 function RiskSection({
   anomaly,
   risks,
 }: {
   anomaly?: ProfileAnomalyDetection | null;
-  risks?: ApplicationAiScreeningSummary['risks'];
+  risks: ApplicationAiScreeningSummary['risks'];
 }) {
   if (!anomaly && !risks?.length) return null;
   return <View style={styles.sectionCard}>
     <RiskHeader anomaly={anomaly} />
     {anomaly && <AnomalySection anomaly={anomaly} />}
-    {risks?.map((risk, index) => <RiskCard key={`risk-${index}`} risk={risk} index={index} />)}
+    {risks && withStableRiskKeys(risks).map(({ risk, key }, index) => <RiskCard key={key} risk={risk} index={index} />)}
   </View>;
 }
 
@@ -467,11 +504,12 @@ function RiskHeader({ anomaly }: { anomaly?: ProfileAnomalyDetection | null }) {
 
 function RiskCard({ risk, index }: { risk: NonNullable<ApplicationAiScreeningSummary['risks']>[number]; index: number }) {
   const severity = risk.severity?.toUpperCase();
-  const colors = severity === 'HIGH'
-    ? { color: '#dc2626', backgroundColor: '#fef2f2', borderColor: '#fca5a5' }
-    : severity === 'MEDIUM'
-      ? { color: '#c2410c', backgroundColor: '#fff7ed', borderColor: '#fed7aa' }
-      : { color: '#475569', backgroundColor: '#f8fafc', borderColor: '#e2e8f0' };
+  let colors = { color: '#475569', backgroundColor: '#f8fafc', borderColor: '#e2e8f0' };
+  if (severity === 'HIGH') {
+    colors = { color: '#dc2626', backgroundColor: '#fef2f2', borderColor: '#fca5a5' };
+  } else if (severity === 'MEDIUM') {
+    colors = { color: '#c2410c', backgroundColor: '#fff7ed', borderColor: '#fed7aa' };
+  }
   return <View style={styles.card} wrap={false}>
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: risk.evidence ? 3 : 0 }}>
       <Text style={{ ...styles.cardTitle, flex: 1, marginBottom: 0, marginRight: 8 }}>{risk.title ?? `Risk ${index + 1}`}</Text>

@@ -23,7 +23,6 @@ import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
 import { FilterDropdown, MultiSelectFilter } from '@/components/filters';
 import { ReferralFilters } from './components/ReferralFilters';
 
-type CvStatusFilter = string;
 type JdFilter = string[];
 type AccountStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 type ModalMode = 'CREATE' | 'CREDENTIALS' | 'STATUS' | null;
@@ -420,8 +419,8 @@ function ReferralCreateModal({
   saving,
 }: Pick<ReferralManagementModalsProps, 'source' | 'title' | 'onClose' | 'onSubmit' | 'name' | 'setName' | 'email' | 'setEmail' | 'phone' | 'setPhone' | 'formError' | 'nameFieldError' | 'emailFieldError' | 'setNameFieldError' | 'setEmailFieldError' | 'saving'>) {
   return (
-    <div className="referral-modal-backdrop" role="presentation">
-      <section className="referral-modal" role="dialog" aria-modal="true" aria-labelledby="referral-create-title">
+    <div className="referral-modal-backdrop">
+      <dialog open className="referral-modal" aria-modal="true" aria-labelledby="referral-create-title">
         <div className="referral-modal-header">
           <h2 id="referral-create-title">Thêm {title} mới</h2>
           <button type="button" onClick={onClose} aria-label="Đóng">×</button>
@@ -496,7 +495,7 @@ function ReferralCreateModal({
             </button>
           </div>
         </form>
-      </section>
+      </dialog>
     </div>
   );
 }
@@ -508,8 +507,8 @@ function ReferralCredentialsModal({
 }: Pick<ReferralManagementModalsProps, 'onClose' | 'createdFreelancer' | 'onCopyCredentials'>) {
   if (!createdFreelancer) return null;
   return (
-    <div className="referral-modal-backdrop" role="presentation">
-      <section className="referral-modal" role="dialog" aria-modal="true" aria-labelledby="referral-credentials-title">
+    <div className="referral-modal-backdrop">
+      <dialog open className="referral-modal" aria-modal="true" aria-labelledby="referral-credentials-title">
         <div className="referral-modal-header">
           <h2 id="referral-credentials-title">Đã thêm Freelancer</h2>
           <button type="button" onClick={onClose} aria-label="Đóng">×</button>
@@ -522,7 +521,7 @@ function ReferralCredentialsModal({
             Sao chép thông tin
           </button>
         </div>
-      </section>
+      </dialog>
     </div>
   );
 }
@@ -545,8 +544,8 @@ function ReferralStatusModal({
     : 'Nhân sự này sẽ có thể tiếp tục được chọn làm nguồn giới thiệu.';
 
   return (
-    <div className="referral-modal-backdrop" role="presentation">
-      <section className="referral-modal referral-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="referral-status-title">
+    <div className="referral-modal-backdrop">
+      <dialog open className="referral-modal referral-confirm-modal" aria-modal="true" aria-labelledby="referral-status-title">
         <div className="referral-modal-header">
           <h2 id="referral-status-title">{title}</h2>
           <button type="button" onClick={onClose} aria-label="Đóng">×</button>
@@ -571,7 +570,7 @@ function ReferralStatusModal({
             {saving ? 'Đang lưu...' : 'Xác nhận'}
           </button>
         </div>
-      </section>
+      </dialog>
     </div>
   );
 }
@@ -1125,7 +1124,7 @@ export function ReferralManagementPanel({
             disabled={source === 'FREELANCER' && roundsLoading}
             options={cvRoundOptions.map((option) => ({ value: option.value, label: option.label }))}
             onChange={(value) => {
-              setCvStatusFilter(value as CvStatusFilter);
+              setCvStatusFilter(value as string);
               setPage(1);
             }}
           />
@@ -1264,10 +1263,17 @@ function addReferralRoundEntry(
     return;
   }
 
+  let kind: ReferralRoundOptionKind = 'ROUND';
+  if (normalizedName === 'DA TUYEN') {
+    kind = 'HIRED';
+  } else if (normalizedName === 'LOAI') {
+    kind = 'REJECTED';
+  }
+
   groupedRounds.set(normalizedName, {
     value: 'ROUND:' + normalizedName,
     label,
-    kind: normalizedName === 'DA TUYEN' ? 'HIRED' : normalizedName === 'LOAI' ? 'REJECTED' : 'ROUND',
+    kind,
     roundIds: roundId ? [roundId] : [],
     normalizedName,
     sortOrder,

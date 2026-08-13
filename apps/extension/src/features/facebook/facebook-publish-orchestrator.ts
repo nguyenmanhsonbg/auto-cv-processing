@@ -3796,11 +3796,15 @@ async function prepareFacebookPostInPage(
   const queryAll = (root: Document | Element, selector: string) => (
     Array.from(root.querySelectorAll(selector))
   );
-  const isVisible = (element: Element) => {
+  const hasVisibleLayout = (element: Element) => {
     const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+  const isVisible = (element: Element) => {
     const style = window.getComputedStyle(element);
-    const hidden = style.visibility === 'hidden' || style.display === 'none';
-    return rect.width > 0 && rect.height > 0 && !hidden;
+    return hasVisibleLayout(element)
+      && style.visibility !== 'hidden'
+      && style.display !== 'none';
   };
   const elementLabel = (element: Element) => {
     const label = [
@@ -3851,26 +3855,31 @@ async function prepareFacebookPostInPage(
       || /^aa$|dang hoat dong|active now|doan chat|cuoc tro chuyen/.test(compactText)
       || isDockedChatLikeSurface(element);
   };
-  const getClickableElement = (element: Element) => (
-    element.closest('button, [role="button"], [tabindex], a') ?? element
-  );
+  const clickableSelector = 'button, [role="button"], [tabindex], a';
+  const getClickableElement = (element: Element) => element.closest(clickableSelector) ?? element;
   const isDisabled = (element: Element) => {
     const clickable = getClickableElement(element);
-    const state = {
-      disabled: clickable.hasAttribute('disabled'),
-      ariaDisabled: clickable.getAttribute('aria-disabled') === 'true',
-    };
-    return state.disabled || state.ariaDisabled;
+    const nativeDisabled = clickable.hasAttribute('disabled');
+    const ariaDisabled = clickable.getAttribute('aria-disabled') === 'true';
+    return nativeDisabled || ariaDisabled;
   };
   const isInsideCommentSurface = (element: Element) => {
-    if (isCommentLabel(elementLabel(element)) || isChatSurface(element)) return true;
+    const directLabel = elementLabel(element);
+    const isDirectSurface = isCommentLabel(directLabel) || isChatSurface(element);
+    if (isDirectSurface) return true;
 
+    const classifyAncestorSurface = (ancestor: Element) => {
+      const label = elementLabel(ancestor);
+      if (matchesAny(label, POST_COMPOSER_PATTERNS)) return 'post';
+      if (isCommentLabel(label) || isChatSurface(ancestor)) return 'comment';
+      return 'none';
+    };
     let current = element.parentElement;
     let depth = 0;
     while (current && depth < 9) {
-      const label = elementLabel(current);
-      if (matchesAny(label, POST_COMPOSER_PATTERNS)) return false;
-      if (isCommentLabel(label) || isChatSurface(current)) return true;
+      const ancestorSurface = classifyAncestorSurface(current);
+      if (ancestorSurface === 'post') return false;
+      if (ancestorSurface === 'comment') return true;
       current = current.parentElement;
       depth += 1;
     }
@@ -3902,10 +3911,11 @@ async function prepareFacebookPostInPage(
       }
     }
 
-    return {
+    const centerPoint = {
       clientX: Math.round(rect.left + rect.width / 2),
       clientY: Math.round(rect.top + rect.height / 2),
     };
+    return centerPoint;
   };
   const isUsableClickPoint = (element: Element) => {
     const point = resolveClickPoint(element);
@@ -4604,11 +4614,15 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
   const queryAll = (root: Document | Element, selector: string) => (
     Array.from(root.querySelectorAll(selector))
   );
+  const hasRenderableBox = (element: Element) => {
+    const { width, height } = element.getBoundingClientRect();
+    return width > 0 && height > 0;
+  };
   const isVisible = (element: Element) => {
-    const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
-    const hidden = style.visibility === 'hidden' || style.display === 'none';
-    return rect.width > 0 && rect.height > 0 && !hidden;
+    return hasRenderableBox(element)
+      && style.visibility !== 'hidden'
+      && style.display !== 'none';
   };
   const elementLabel = (element: Element) => normalize([
     element.textContent ?? '',
@@ -4687,7 +4701,7 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
   const findSubmitButton = (root: Document | Element) => {
     const uniqueClickables = new Set<Element>();
 
-    return queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
+    const candidateElements = queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
       .map((element) => ({
         source: element,
         clickable: getClickableElement(element),
@@ -4698,8 +4712,8 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
         if (!isVisible(clickable) || isDisabled(clickable) || isInsideCommentSurface(source)) return false;
         const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
         return labels.some(isSubmitLabel);
-      })
-      .map(({ source, clickable }) => {
+      });
+    const eligibleCandidates = candidateElements.map(({ source, clickable }) => {
         const rect = clickable.getBoundingClientRect();
         const label = elementLabel(clickable) || elementLabel(source);
         const role = clickable.getAttribute('role');
@@ -4721,8 +4735,9 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
             + (clickable.closest('[role="dialog"]') ? 60 : 0)
             - Math.min(60, (rect.width * rect.height) / 1800),
         };
-      })
-      .sort((left, right) => right.score - left.score)[0]?.element ?? null;
+      });
+
+    return eligibleCandidates.sort((left, right) => right.score - left.score)[0]?.element ?? null;
   };
 
   const dialogs = queryAll(document, '[role="dialog"]')
@@ -4974,14 +4989,14 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
 }
 
 function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitPreflightResult {
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replaceAll('\u0111', 'd')
-    .replaceAll('\u0110', 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalize = (value: string) => {
+    const plainText = value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replaceAll('\u0111', 'd')
+      .replaceAll('\u0110', 'D');
+    return plainText.toLowerCase().replace(/\s+/g, ' ').trim();
+  };
   const POST_BUTTON_PATTERNS = [
     /^post$/,
     /^dang$/,
@@ -5047,10 +5062,9 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
   const isVisible = (element: Element) => {
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== 'hidden'
-      && style.display !== 'none';
+    const hasRenderableBox = rect.width > 0 && rect.height > 0;
+    const hasVisibleStyle = style.visibility !== 'hidden' && style.display !== 'none';
+    return hasRenderableBox && hasVisibleStyle;
   };
   const elementLabel = (element: Element) => normalize([
     element.textContent ?? '',
@@ -5059,44 +5073,43 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
     element.getAttribute('placeholder') ?? '',
     element.getAttribute('title') ?? '',
   ].join(' '));
-  const elementAttributeLabel = (element: Element) => normalize([
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('aria-placeholder') ?? '',
-    element.getAttribute('placeholder') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
+  const elementAttributeLabel = (element: Element) => {
+    const attributes = ['aria-label', 'aria-placeholder', 'placeholder', 'title'];
+    return normalize(attributes
+      .map((attribute) => element.getAttribute(attribute) ?? '')
+      .join(' '));
+  };
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
   const isChatEditor = (element: Element) => {
     const attributeLabel = elementAttributeLabel(element);
-    const shortText = normalize((element.textContent ?? '').trim());
-    return matchesAny(attributeLabel, CHAT_EDITOR_PATTERNS)
-      || shortText === 'aa';
+    if (matchesAny(attributeLabel, CHAT_EDITOR_PATTERNS)) return true;
+    return normalize((element.textContent ?? '').trim()) === 'aa';
   };
-  const hasChatControls = (root: Document | Element) => queryAll(
-    root,
-    '[aria-label], [title], button, [role="button"]',
-  )
-    .some((element) => matchesAny(elementAttributeLabel(element), CHAT_SURFACE_PATTERNS));
+  const hasChatControls = (root: Document | Element) => {
+    for (const element of queryAll(root, '[aria-label], [title], button, [role="button"]')) {
+      if (matchesAny(elementAttributeLabel(element), CHAT_SURFACE_PATTERNS)) return true;
+    }
+    return false;
+  };
   const isDockedChatLikeSurface = (element: Element) => {
     const rect = element.getBoundingClientRect();
-    return rect.width > 180
+    const withinDockBounds = rect.width > 180
       && rect.width <= 560
       && rect.height > 80
       && rect.height <= Math.max(640, window.innerHeight * 0.9)
       && rect.bottom >= window.innerHeight - 12
-      && rect.right >= window.innerWidth * 0.45
-      && hasChatControls(element);
+      && rect.right >= window.innerWidth * 0.45;
+    return withinDockBounds && hasChatControls(element);
   };
   const isChatSurface = (element: Element) => {
     const attributeLabel = elementAttributeLabel(element);
     const text = normalize((element.textContent ?? '').trim());
     const compactText = text.length <= 80 ? text : '';
-    return isChatEditor(element)
-      || matchesAny(attributeLabel, CHAT_SURFACE_PATTERNS)
-      || /^aa$|dang hoat dong|active now|doan chat|cuoc tro chuyen/.test(compactText)
-      || isDockedChatLikeSurface(element);
+    if (isChatEditor(element) || matchesAny(attributeLabel, CHAT_SURFACE_PATTERNS)) return true;
+    if (/^aa$|dang hoat dong|active now|doan chat|cuoc tro chuyen/.test(compactText)) return true;
+    return isDockedChatLikeSurface(element);
   };
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex], a') ?? element
@@ -5129,13 +5142,13 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
         source: element,
         clickable: getClickableElement(element),
       }))
-      .filter(({ source, clickable }) => {
+      .find(({ source, clickable }) => {
         if (uniqueClickables.has(clickable)) return false;
         uniqueClickables.add(clickable);
         if (!isVisible(clickable) || isDisabled(clickable) || isInsideCommentSurface(source)) return false;
         const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
         return labels.some(isSubmitLabel);
-      })[0]?.clickable ?? null;
+      })?.clickable ?? null;
   };
   const hasPostSubmitControl = (root: Document | Element) => {
     const uniqueClickables = new Set<Element>();
@@ -5157,15 +5170,17 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
     const rootElement = root instanceof Document ? root.body : root;
     if (rootElement && matchesAny(elementLabel(rootElement), POST_COMPOSER_PATTERNS)) return true;
 
-    return queryAll(root, '[aria-label], [aria-placeholder], [placeholder], [title]')
-      .some((element) => matchesAny(elementAttributeLabel(element), POST_COMPOSER_PATTERNS));
+    for (const element of queryAll(root, '[aria-label], [aria-placeholder], [placeholder], [title]')) {
+      if (matchesAny(elementAttributeLabel(element), POST_COMPOSER_PATTERNS)) return true;
+    }
+    return false;
   };
   const findPostSurfaceForEditor = (editor: HTMLElement): Element | null => {
     if (isInsideCommentSurface(editor)) return null;
 
-    let current = editor.parentElement;
-    let depth = 0;
-    while (current && current !== document.body && depth < 10) {
+    for (let current = editor.parentElement, depth = 0;
+      current && current !== document.body && depth < 10;
+      current = current.parentElement, depth += 1) {
       if (isInsideCommentSurface(current)) return null;
 
       const hasComposerCue = hasPostComposerCue(current);
@@ -5178,8 +5193,6 @@ function verifyFacebookPostReadyToSubmitInPage(content: string): FacebookSubmitP
         return current;
       }
 
-      current = current.parentElement;
-      depth += 1;
     }
 
     return null;
@@ -5369,11 +5382,13 @@ async function scanFacebookPendingPostCards({
     await sleepInPage(700);
   }
 
-  const message = matchedCardSeen
-    ? `Matched pending post card but could not find a post-opening control or timestamp click point. cardsScanned=${cardsScanned}; openCandidates=${openCandidatesSeen}; timestampCandidates=${timestampCandidatesSeen}; groupId=${expectedGroupId ?? 'unknown'}.`
-    : sawSimilarButNotRecent
-      ? 'Found similar pending post cards, but none were recent enough to confirm this submit.'
-      : 'Could not find a matching pending post in the group pending posts manager.';
+  let message = 'Could not find a matching pending post in the group pending posts manager.';
+  if (sawSimilarButNotRecent) {
+    message = 'Found similar pending post cards, but none were recent enough to confirm this submit.';
+  }
+  if (matchedCardSeen) {
+    message = `Matched pending post card but could not find a post-opening control or timestamp click point. cardsScanned=${cardsScanned}; openCandidates=${openCandidatesSeen}; timestampCandidates=${timestampCandidatesSeen}; groupId=${expectedGroupId ?? 'unknown'}.`;
+  }
 
   return {
     facebookReviewStatus: matchedCardSeen ? 'PENDING_REVIEW' : 'UNKNOWN',
@@ -5387,14 +5402,12 @@ async function recoverFacebookPendingPostUrlInPage(
   input: FacebookPendingPostUrlRecoveryInput,
 ): Promise<FacebookPostReviewStatusProbeResult> {
   const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replaceAll('\u0111', 'd')
-    .replaceAll('\u0110', 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalize = (value: string) => {
+    const normalized = value.normalize('NFD');
+    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
+    const translated = withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
+    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
+  };
   const parsePostUrl = (value: string | null | undefined) => {
     if (!value) return null;
     let parsedUrl: URL;
@@ -5486,20 +5499,49 @@ async function recoverFacebookPendingPostUrlInPage(
       && rect.bottom >= 0
       && rect.top <= window.innerHeight + 80;
   };
-  const textOf = (element: Element) => normalize([
-    element.textContent ?? '',
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
+  const textOf = (element: Element) => {
+    const textParts = [
+      element.textContent ?? '',
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    return normalize(textParts.join(' '));
+  };
   const hasNoPendingReviewCue = (text: string) => (
     /chua co bai viet nao de xem xet|khong co bai viet nao dang cho xem xet|no posts to review|no pending posts|no posts pending review/.test(text)
   );
   const hasPendingCue = (text: string) => (
     /pending|waiting for approval|awaiting approval|reviewing|under review|cho duyet|cho phe duyet|cho xet duyet|dang cho|dang cho xet duyet|quan tri vien phe duyet|admin approval/.test(text)
   );
-  const hasPostOpenActionText = (text: string) => (
-    /(^|\s)(quan ly bai viet|manage (?:your )?posts?|xem bai viet|view post|open post|go to post|see post|review post|xem chi tiet|chi tiet bai viet|xem bai dang|mo bai viet)(?=\s|$|[.,;:!?])/.test(text)
-  );
+  const postOpenActionPhrases = [
+    'quan ly bai viet',
+    'manage post',
+    'manage posts',
+    'manage your post',
+    'manage your posts',
+    'xem bai viet',
+    'view post',
+    'open post',
+    'go to post',
+    'see post',
+    'review post',
+    'xem chi tiet',
+    'chi tiet bai viet',
+    'xem bai dang',
+    'mo bai viet',
+  ];
+  const hasPostOpenActionText = (text: string) => postOpenActionPhrases.some((phrase) => {
+    let start = text.indexOf(phrase);
+    while (start >= 0) {
+      const before = text[start - 1];
+      const after = text[start + phrase.length];
+      const hasStartBoundary = !before || /\s/.test(before);
+      const hasEndBoundary = !after || /\s|[.,;:!?]/.test(after);
+      if (hasStartBoundary && hasEndBoundary) return true;
+      start = text.indexOf(phrase, start + 1);
+    }
+    return false;
+  });
   const makeSearchSamples = () => {
     const values = [input.title, input.contentPreview]
       .filter((value): value is string => Boolean(value?.trim()));
@@ -5681,11 +5723,9 @@ async function recoverFacebookPendingPostUrlInPage(
     const anyTimestampScored = input.requireRecent
       ? scored.filter((item) => hasAnyTimestampCue(item.card))
       : [];
-    const candidateList = recentScored.length > 0
-      ? recentScored
-      : anyTimestampScored.length > 0
-        ? anyTimestampScored
-        : scored;
+    let candidateList = scored;
+    if (anyTimestampScored.length > 0) candidateList = anyTimestampScored;
+    if (recentScored.length > 0) candidateList = recentScored;
 
     return {
       cards: [...new Set(candidateList.map((item) => item.card))].slice(0, 8),
@@ -5811,7 +5851,8 @@ async function recoverFacebookPendingPostUrlInPage(
       }
     }
 
-    return candidates.sort((left, right) => right.score - left.score)[0]?.postUrl ?? null;
+    candidates.sort((left, right) => right.score - left.score);
+    return candidates[0]?.postUrl ?? null;
   };
   const findContentElement = (card: Element) => {
     const candidates = Array.from(card.querySelectorAll('div, span, p'))
@@ -5844,14 +5885,15 @@ async function recoverFacebookPendingPostUrlInPage(
   ].join(' '));
   const getTimestampTextSamples = (element: Element) => {
     const clickable = getClickableElement(element);
-    const rawSamples = [
+    const elementSamples = [
       textOf(element),
       directTextOf(element),
       elementAttributeText(element),
-      clickable !== element ? textOf(clickable) : null,
-      clickable !== element ? directTextOf(clickable) : null,
-      clickable !== element ? elementAttributeText(clickable) : null,
-    ]
+    ];
+    const clickableSamples = clickable === element
+      ? []
+      : [textOf(clickable), directTextOf(clickable), elementAttributeText(clickable)];
+    const rawSamples = [...elementSamples, ...clickableSamples]
       .filter((value): value is string => Boolean(value?.trim()));
 
     return [...new Set(rawSamples)];
@@ -5870,24 +5912,59 @@ async function recoverFacebookPendingPostUrlInPage(
       || new RegExp(`(^|\\s)\\d{1,2}\\s*thang\\s*\\d{1,2}(\\s*,?\\s*\\d{4})?${boundary}`).test(value)
       || new RegExp(`(^|\\s)\\d{1,2}\\/\\d{1,2}(\\/\\d{2,4})?${boundary}`).test(value);
   };
-  const isTimestampLike = (element: Element) => (
-    getTimestampTextSamples(element)
-      .some((value) => (
-        (value.length <= 220 && hasTimestampText(value, false))
-        || hasTimestampText(value.slice(0, 320), false)
-      ))
-    );
-  const isRecentTimestampLike = (element: Element) => (
-    getTimestampTextSamples(element)
-      .some((value) => (
-        (value.length <= 220 && hasTimestampText(value, true))
-        || hasTimestampText(value.slice(0, 320), true)
-      ))
-  );
-  const hasActionMenuText = (value: string) => (
-    value.includes('...')
-      || /(^|\s)(more|more options|actions?|options?|menu|see more|xem them|khac|tuy chon|chinh sua|edit|xoa|delete|moi nhat truoc|newest|tim hieu them|learn more|quan ly bai viet|manage posts|binh luan|comment|thich|like|gui|send)(\s|$)/.test(value)
-  );
+  const isTimestampLike = (element: Element) => getTimestampTextSamples(element).some((value) => {
+    const isShortTimestamp = value.length <= 220 && hasTimestampText(value, false);
+    const isTruncatedTimestamp = hasTimestampText(value.slice(0, 320), false);
+    return isShortTimestamp || isTruncatedTimestamp;
+  });
+  const isRecentTimestampLike = (element: Element) => getTimestampTextSamples(element).some((value) => {
+    const isShortRecentTimestamp = value.length <= 220 && hasTimestampText(value, true);
+    const isTruncatedRecentTimestamp = hasTimestampText(value.slice(0, 320), true);
+    return isShortRecentTimestamp || isTruncatedRecentTimestamp;
+  });
+  const actionMenuPhrases = [
+    'more',
+    'more options',
+    'action',
+    'actions',
+    'option',
+    'options',
+    'menu',
+    'see more',
+    'xem them',
+    'khac',
+    'tuy chon',
+    'chinh sua',
+    'edit',
+    'xoa',
+    'delete',
+    'moi nhat truoc',
+    'newest',
+    'tim hieu them',
+    'learn more',
+    'quan ly bai viet',
+    'manage posts',
+    'binh luan',
+    'comment',
+    'thich',
+    'like',
+    'gui',
+    'send',
+  ];
+  const hasActionMenuPhrase = (value: string, phrase: string) => {
+    let start = value.indexOf(phrase);
+    while (start >= 0) {
+      const before = value[start - 1];
+      const after = value[start + phrase.length];
+      if ((!before || /\s/.test(before)) && (!after || /\s/.test(after))) return true;
+      start = value.indexOf(phrase, start + 1);
+    }
+    return false;
+  };
+  const hasActionMenuText = (value: string) => {
+    if (value.includes('...')) return true;
+    return actionMenuPhrases.some((phrase) => hasActionMenuPhrase(value, phrase));
+  };
   const isBadTimestampCandidate = (element: Element, card: Element) => {
     const value = textOf(element);
     const directValue = directTextOf(element);
@@ -5940,12 +6017,11 @@ async function recoverFacebookPendingPostUrlInPage(
       || parsedUrl.searchParams.has('__tn__')
       || /daf/i.test(parsedUrl.hash);
   };
-  const isSemanticLink = (element: Element, clickable: Element) => (
-    element instanceof HTMLAnchorElement
-      || clickable instanceof HTMLAnchorElement
-      || element.getAttribute('role') === 'link'
-      || clickable.getAttribute('role') === 'link'
-  );
+  const isSemanticLink = (element: Element, clickable: Element) => {
+    const elementIsLink = element instanceof HTMLAnchorElement || element.getAttribute('role') === 'link';
+    const clickableIsLink = clickable instanceof HTMLAnchorElement || clickable.getAttribute('role') === 'link';
+    return elementIsLink || clickableIsLink;
+  };
   const getTimestampScopes = (card: Element) => {
     const scopes = new Set<Element>([card]);
     const cardRect = card.getBoundingClientRect();
@@ -6043,13 +6119,15 @@ async function recoverFacebookPendingPostUrlInPage(
       clickable !== element && clickableText.length <= 180 ? clickableText : '',
     ].join(' '));
   };
-  const getPostOpenActionPrimaryScore = (actionText: string) => (
-    /(^|\s)(quan ly bai viet|manage (?:your )?posts?)(?=\s|$|[.,;:!?])/.test(actionText)
-      ? 260
-      : /(^|\s)(xem bai viet|view post|open post|go to post|see post|review post)(?=\s|$|[.,;:!?])/.test(actionText)
-        ? 230
-        : 160
-  );
+  const getPostOpenActionPrimaryScore = (actionText: string) => {
+    let score = 160;
+    if (/(^|\s)(quan ly bai viet|manage (?:your )?posts?)(?=\s|$|[.,;:!?])/.test(actionText)) {
+      score = 260;
+    } else if (/(^|\s)(xem bai viet|view post|open post|go to post|see post|review post)(?=\s|$|[.,;:!?])/.test(actionText)) {
+      score = 230;
+    }
+    return score;
+  };
   const isPostOpenActionGeometryValid = (
     rect: DOMRect,
     cardRect: DOMRect,
@@ -6581,14 +6659,12 @@ async function recoverFacebookPendingPostUrlInPage(
 async function inspectFacebookPendingPostOpenSurfaceInPage(
   input: FacebookPendingPostOpenSurfaceProbeInput,
 ): Promise<FacebookPendingPostOpenSurfaceProbeResult> {
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replaceAll('\u0111', 'd')
-    .replaceAll('\u0110', 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalize = (value: string) => {
+    const normalized = value.normalize('NFD');
+    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
+    const translated = withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
+    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
+  };
   const shorten = (value: string | null | undefined, maxLength = 140) => {
     const normalized = normalize(value ?? '');
     return normalized.length <= maxLength ? normalized : `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
@@ -6602,8 +6678,9 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
       return null;
     }
 
-    const match = parsedUrl.pathname.match(/^\/groups\/([^/]+)/i);
-    return match?.[1] ? decodeURIComponent(match[1]).trim() : null;
+    const groupPathMatch = parsedUrl.pathname.match(/^\/groups\/([^/]+)/i);
+    const encodedGroupId = groupPathMatch?.[1];
+    return encodedGroupId ? decodeURIComponent(encodedGroupId).trim() : null;
   };
   const expectedGroupIds = [
     getGroupIdFromUrl(input.targetUrl),
@@ -6649,18 +6726,18 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
   };
   const readNumericSearchParam = (parsedUrl: URL, names: string[]) => {
     for (const name of names) {
-      const value = parsedUrl.searchParams.get(name);
-      const match = value?.match(/\d{5,}/);
-      if (match?.[0]) return match[0];
+      const parameterValue = parsedUrl.searchParams.get(name);
+      const numericMatch = parameterValue?.match(/\d{5,}/);
+      if (numericMatch?.[0]) return numericMatch[0];
     }
 
     return null;
   };
   const readPostIdSearchParam = (parsedUrl: URL, names: string[]) => {
     for (const name of names) {
-      const value = parsedUrl.searchParams.get(name);
-      const match = value?.match(/(?:\d{5,}|pfbid[a-z0-9]+)/i);
-      if (match?.[0]) return match[0];
+      const parameterValue = parsedUrl.searchParams.get(name);
+      const postIdMatch = parameterValue?.match(/(?:\d{5,}|pfbid[a-z0-9]+)/i);
+      if (postIdMatch?.[0]) return postIdMatch[0];
     }
 
     return null;
@@ -6671,42 +6748,79 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
   const isVisible = (element: Element) => {
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== 'hidden'
-      && style.display !== 'none'
-      && rect.bottom >= 0
-      && rect.top <= window.innerHeight + 80;
+    const hasRenderableBox = rect.width > 0 && rect.height > 0;
+    const hasVisibleStyle = style.visibility !== 'hidden' && style.display !== 'none';
+    const isWithinViewport = rect.bottom >= 0 && rect.top <= window.innerHeight + 80;
+    return hasRenderableBox && hasVisibleStyle && isWithinViewport;
   };
-  const textOf = (element: Element) => normalize([
-    element.textContent ?? '',
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
-  const elementAttributeText = (element: Element) => normalize([
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('title') ?? '',
-    element.getAttribute('aria-haspopup') ?? '',
-  ].join(' '));
-  const directTextOf = (element: Element) => normalize([
-    Array.from(element.childNodes)
-      .filter((node) => node.nodeType === Node.TEXT_NODE)
-      .map((node) => node.textContent ?? '')
-      .join(' '),
-    elementAttributeText(element),
-  ].join(' '));
+  const textOf = (element: Element) => {
+    const textParts = [
+      element.textContent ?? '',
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    return normalize(textParts.join(' '));
+  };
+  const elementAttributeText = (element: Element) => {
+    const attributeTextParts = [
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('title') ?? '',
+      element.getAttribute('aria-haspopup') ?? '',
+    ];
+    return normalize(attributeTextParts.join(' '));
+  };
+  const directTextOf = (element: Element) => {
+    const directTextParts = [
+      Array.from(element.childNodes)
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent ?? '')
+        .join(' '),
+      elementAttributeText(element),
+    ];
+    return normalize(directTextParts.join(' '));
+  };
   const getClickableElement = (element: Element) => (
     element.closest('a[href], [role="link"], [role="button"], button, [tabindex]') ?? element
   );
-  const hasPostOpenActionText = (text: string) => (
-    /(^|\s)(quan ly bai viet|manage (?:your )?posts?|xem bai viet|view (?:your )?post|open post|go to post|see post|review post|xem chi tiet|chi tiet bai viet|xem bai dang|mo bai viet|truy cap bai viet)(?=\s|$|[.,;:!?])/.test(text)
+  const postOpenActionPhrases = [
+    'quan ly bai viet',
+    'manage post',
+    'manage posts',
+    'manage your post',
+    'manage your posts',
+    'xem bai viet',
+    'view post',
+    'view your post',
+    'open post',
+    'go to post',
+    'see post',
+    'review post',
+    'xem chi tiet',
+    'chi tiet bai viet',
+    'xem bai dang',
+    'mo bai viet',
+    'truy cap bai viet',
+  ];
+  const hasPostOpenActionPhrase = (text: string, phrase: string) => {
+    let start = text.indexOf(phrase);
+    while (start >= 0) {
+      const before = text[start - 1];
+      const after = text[start + phrase.length];
+      const hasStartBoundary = !before || /\s/.test(before);
+      const hasEndBoundary = !after || /\s|[.,;:!?]/.test(after);
+      if (hasStartBoundary && hasEndBoundary) return true;
+      start = text.indexOf(phrase, start + 1);
+    }
+    return false;
+  };
+  const hasPostOpenActionText = (text: string) => postOpenActionPhrases.some(
+    (phrase) => hasPostOpenActionPhrase(text, phrase),
   );
-  const isSemanticLink = (element: Element, clickable: Element) => (
-    element instanceof HTMLAnchorElement
-      || clickable instanceof HTMLAnchorElement
-      || element.getAttribute('role') === 'link'
-      || clickable.getAttribute('role') === 'link'
-  );
+  const isSemanticLink = (element: Element, clickable: Element) => {
+    const elementIsLink = element instanceof HTMLAnchorElement || element.getAttribute('role') === 'link';
+    const clickableIsLink = clickable instanceof HTMLAnchorElement || clickable.getAttribute('role') === 'link';
+    return elementIsLink || clickableIsLink;
+  };
   const buildPoint = (rect: DOMRect, label: string): FacebookSubmitButtonPoint => ({
     clientX: Math.round(rect.left + rect.width / 2),
     clientY: Math.round(rect.top + rect.height / 2),
@@ -6756,13 +6870,11 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
     document.body,
   ].filter((root): root is Element => Boolean(root));
   const seenTargets = new Set<Element>();
-  const getPendingSurfaceHref = (element: Element, target: Element) => (
-    target instanceof HTMLAnchorElement
-      ? target.href
-      : element instanceof HTMLAnchorElement
-        ? element.href
-        : target.getAttribute('href') ?? element.getAttribute('href')
-  );
+  const getPendingSurfaceHref = (element: Element, target: Element) => {
+    if (target instanceof HTMLAnchorElement) return target.href;
+    if (element instanceof HTMLAnchorElement) return element.href;
+    return target.getAttribute('href') ?? element.getAttribute('href');
+  };
   const getPendingSurfaceActionText = (element: Element, clickable: Element, target: Element) => {
     const targetText = textOf(target);
     const elementText = textOf(element);
@@ -6876,14 +6988,12 @@ async function checkFacebookPostReviewStatusInPage(
   input: FacebookPostReviewStatusProbeInput,
 ): Promise<FacebookPostReviewStatusProbeResult> {
   const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replaceAll('\u0111', 'd')
-    .replaceAll('\u0110', 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalize = (value: string) => {
+    const normalized = value.normalize('NFD');
+    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
+    const translated = withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
+    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
+  };
   const bodyText = () => normalize(document.body?.innerText ?? '');
   const hasRejectedCue = (text: string) => (
     /rejected|declined|not approved|was removed|has been removed|tu choi|bi tu choi|khong duoc phe duyet|da bi go/.test(text)
@@ -6901,10 +7011,9 @@ async function checkFacebookPostReviewStatusInPage(
   const hasLayout = (element: Element) => {
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== 'hidden'
-      && style.display !== 'none';
+    const hasRenderableBox = rect.width > 0 && rect.height > 0;
+    const hasVisibleStyle = style.visibility !== 'hidden' && style.display !== 'none';
+    return hasRenderableBox && hasVisibleStyle;
   };
   const elementLabel = (element: Element) => normalize([
     element.textContent ?? '',
@@ -7244,14 +7353,12 @@ async function waitForFacebookSubmissionInPage(
   diagnosticInput: FacebookSubmitDiagnosticInput = {},
 ): Promise<FacebookPagePublishResult> {
   const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replaceAll('\u0111', 'd')
-    .replaceAll('\u0110', 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalize = (value: string) => {
+    const normalized = value.normalize('NFD');
+    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
+    const translated = withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
+    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
+  };
   const shorten = (value: string | null | undefined, maxLength = 160) => {
     const normalized = normalize(value ?? '');
     if (normalized.length <= maxLength) return normalized || 'none';
@@ -7427,13 +7534,16 @@ async function waitForFacebookSubmissionInPage(
       && style.visibility !== 'hidden'
       && style.display !== 'none';
   };
-  const elementLabel = (element: Element) => normalize([
-    element.textContent ?? '',
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('aria-placeholder') ?? '',
-    element.getAttribute('placeholder') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
+  const elementLabel = (element: Element) => {
+    const labelParts = [
+      element.textContent ?? '',
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('aria-placeholder') ?? '',
+      element.getAttribute('placeholder') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    return normalize(labelParts.join(' '));
+  };
   const elementAttributeLabel = (element: Element) => normalize([
     element.getAttribute('aria-label') ?? '',
     element.getAttribute('aria-placeholder') ?? '',

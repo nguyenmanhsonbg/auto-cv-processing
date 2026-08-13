@@ -8263,10 +8263,13 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .referral-modal {
   width: min(430px, 100%);
+  margin: 0;
   overflow: hidden;
   border: 1px solid #dbe3eb;
   border-radius: 9px;
+  padding: 0;
   background: #ffffff;
+  color: inherit;
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.2);
   font-family: Inter, sans-serif;
 }
@@ -9322,8 +9325,10 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   padding: 0 13px;
   color: #2f4a36;
   background: #effff5;
-  font-size: 12px;
-  font-weight: 950;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -9345,13 +9350,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-weight: 700;
   text-transform: uppercase;
   white-space: nowrap;
-}
-
-.cv-bulk-sync-button {
-  font-family: Roboto, sans-serif;
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 700;
 }
 
 .cv-bulk-sync-button svg {
