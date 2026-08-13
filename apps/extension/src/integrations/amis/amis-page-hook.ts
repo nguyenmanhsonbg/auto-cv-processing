@@ -593,9 +593,7 @@ function mapAmisCandidateStageRequest(
 
 function readAmisCandidateStageIds(value: unknown) {
   const candidateIds = new Set<string>();
-  const values = typeof value === 'string' || typeof value === 'number'
-    ? String(value).split(/[;,]/)
-    : Array.isArray(value) ? value : [];
+  const values = normalizeCandidateIdValues(value);
 
   for (const candidateId of values) {
     const normalizedCandidateId = cleanText(candidateId);
@@ -603,6 +601,14 @@ function readAmisCandidateStageIds(value: unknown) {
   }
 
   return candidateIds;
+}
+
+function normalizeCandidateIdValues(value: unknown): unknown[] {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value).split(/[;,]/);
+  }
+  if (Array.isArray(value)) return value;
+  return [];
 }
 
 function readAmisCandidateStageRoundTimes(

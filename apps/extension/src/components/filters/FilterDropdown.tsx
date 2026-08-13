@@ -51,18 +51,25 @@ export function FilterDropdown<Value extends string>({
   return (
     <div ref={dropdownRef} className={`cv-filter-dropdown ${className}${isOpen ? ' is-open' : ''}`.trim()}>
       <span className={labelClassName}>{label}</span>
-      <button type="button" className={triggerClassName} aria-haspopup="listbox" aria-expanded={isOpen} disabled={disabled} onClick={onToggle}>
+      <button type="button" className={triggerClassName} aria-expanded={isOpen} disabled={disabled} onClick={onToggle}>
         <span>{selectedLabel}</span>
         <svg aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="m3.5 6 4.5 4.5L12.5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </button>
       {isOpen ? (
-        <div className={menuClassName} role="listbox" aria-label={label}>
+        <select
+          className={menuClassName}
+          aria-label={label}
+          value={value}
+          size={Math.max(1, Math.min(options.length, 6))}
+          disabled={disabled}
+          onChange={(event) => onSelect(event.currentTarget.value as Value)}
+        >
           {options.map((option) => (
-            <button key={option.value} type="button" role="option" aria-selected={option.value === value} className={`${optionClassName}${option.value === value ? ' is-selected' : ''}`} onClick={() => onSelect(option.value)}>
+            <option key={option.value} value={option.value} className={`${optionClassName}${option.value === value ? ' is-selected' : ''}`}>
               {option.label}
-            </button>
+            </option>
           ))}
-        </div>
+        </select>
       ) : null}
     </div>
   );

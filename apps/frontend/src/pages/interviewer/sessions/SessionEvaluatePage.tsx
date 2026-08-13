@@ -136,6 +136,12 @@ function buildEvaluationPayload(
   };
 }
 
+function getSuggestionPrefix(subcategory: string, softSubs: readonly string[], mustSubs: readonly string[]) {
+  if (softSubs.includes(subcategory)) return 'softSkill';
+  if (mustSubs.includes(subcategory)) return 'technicalMust';
+  return 'technicalShould';
+}
+
 function applyAiEvaluationSuggestion(
   suggestion: AiEvaluationSuggestion,
   setValue: (name: any, value: any) => void,
@@ -144,7 +150,7 @@ function applyAiEvaluationSuggestion(
   persSubs: readonly string[],
 ) {
   suggestion.technicalRatings.forEach(({ subcategory, suggestedRating, reasoning }) => {
-    const prefix = softSubs.includes(subcategory) ? 'softSkill' : mustSubs.includes(subcategory) ? 'technicalMust' : 'technicalShould';
+    const prefix = getSuggestionPrefix(subcategory, softSubs, mustSubs);
     setValue(prefix + '.' + subcategory + '.rating', suggestedRating.toString());
     setValue(prefix + '.' + subcategory + '.comment', reasoning);
   });

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { ApiClientError, completePasswordReset, requestPasswordReset, verifyPasswordReset } from '@/lib/api-client';
 import { ChangePasswordForm } from './ChangePasswordForm';
 
@@ -87,44 +87,53 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
     return <ChangePasswordForm error={error} isSaving={loading} isResetPassword onCancel={onCancel} onSubmit={completeReset} />;
   }
 
+  let stepContent: ReactNode;
+  if (step === 'IDENTIFIER') {
+    stepContent = (
+      <ForgotPasswordIdentifierStep
+        login={login}
+        error={error}
+        onLoginChange={(value) => { setLogin(value); setError(null); }}
+        onCancel={onCancel}
+        onContinue={() => { setError(null); setStep('METHOD'); }}
+      />
+    );
+  } else if (step === 'METHOD') {
+    stepContent = (
+      <ForgotPasswordMethodStep
+        method={method}
+        error={error}
+        loading={loading}
+        onMethodChange={(nextMethod) => { setMethod(nextMethod); setError(null); }}
+        onBack={() => setStep('IDENTIFIER')}
+        onConfirm={() => void confirmMethod()}
+      />
+    );
+  } else {
+    stepContent = (
+      <ForgotPasswordOtpStep
+        error={error}
+        loading={loading}
+        otp={otp}
+        targetEmail={targetEmail}
+        resendRemaining={resendRemaining}
+        otpInputRefs={otpInputRefs}
+        onOtpChange={(index, digit) => {
+          setOtp((current) => `${current.slice(0, index)}${digit}${current.slice(index + 1)}`.slice(0, 6));
+          setError(null);
+        }}
+        onPaste={(value) => { setOtp(value); setError(null); }}
+        onBack={() => setStep('METHOD')}
+        onResend={() => void resendOtp()}
+        onConfirm={() => void confirmOtp()}
+      />
+    );
+  }
+
   return (
     <section className="extension-forgot-password-card">
       <h1>{step === 'OTP' ? 'Kiểm tra mã xác nhận từ Gmail' : 'Quên mật khẩu'}</h1>
-      {step === 'IDENTIFIER' ? (
-        <ForgotPasswordIdentifierStep
-          login={login}
-          error={error}
-          onLoginChange={(value) => { setLogin(value); setError(null); }}
-          onCancel={onCancel}
-          onContinue={() => { setError(null); setStep('METHOD'); }}
-        />
-      ) : step === 'METHOD' ? (
-        <ForgotPasswordMethodStep
-          method={method}
-          error={error}
-          loading={loading}
-          onMethodChange={(nextMethod) => { setMethod(nextMethod); setError(null); }}
-          onBack={() => setStep('IDENTIFIER')}
-          onConfirm={() => void confirmMethod()}
-        />
-      ) : (
-        <ForgotPasswordOtpStep
-          error={error}
-          loading={loading}
-          otp={otp}
-          targetEmail={targetEmail}
-          resendRemaining={resendRemaining}
-          otpInputRefs={otpInputRefs}
-          onOtpChange={(index, digit) => {
-            setOtp((current) => `${current.slice(0, index)}${digit}${current.slice(index + 1)}`.slice(0, 6));
-            setError(null);
-          }}
-          onPaste={(value) => { setOtp(value); setError(null); }}
-          onBack={() => setStep('METHOD')}
-          onResend={() => void resendOtp()}
-          onConfirm={() => void confirmOtp()}
-        />
-      )}
+      {stepContent}
     </section>
   );
 }

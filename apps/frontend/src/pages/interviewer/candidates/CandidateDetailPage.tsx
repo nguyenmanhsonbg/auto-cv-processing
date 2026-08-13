@@ -561,7 +561,7 @@ function UploadFilesDialog({ uploadOpen, setUploadOpen, uploadFiles, setUploadFi
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">Upload profile files (PDF, XLSX, DOCX) to update this candidate's parsed profile.</p>
           <label htmlFor="dialog-upload" className={['flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-lg cursor-pointer transition-colors', uploading ? 'border-muted bg-muted/20 cursor-not-allowed' : 'border-muted-foreground/30 hover:border-primary hover:bg-primary/5'].join(' ')}>
-            <div className="flex flex-col items-center gap-1.5 text-muted-foreground"><Upload className="h-5 w-5" /><span className="text-sm">{uploadFiles.length > 0 ? uploadFiles.length + ' file' + (uploadFiles.length !== 1 ? 's' : '') + ' selected' : 'Click to select files'}</span><span className="text-xs">.pdf - .xlsx - .xls - .docx</span></div>
+            <div className="flex flex-col items-center gap-1.5 text-muted-foreground"><Upload className="h-5 w-5" /><span className="text-sm">{uploadFiles.length > 0 ? formatSelectedFileLabel(uploadFiles.length) : 'Click to select files'}</span><span className="text-xs">.pdf - .xlsx - .xls - .docx</span></div>
             <input id="dialog-upload" type="file" multiple accept=".pdf,.xlsx,.xls,.docx" className="hidden" disabled={uploading} onChange={(event) => { setUploadFiles(Array.from(event.target.files ?? [])); setUploadItems([]); }} />
           </label>
           <UploadProgressList uploadItems={uploadItems} />
@@ -581,8 +581,8 @@ function UploadProgressList({ uploadItems }: { uploadItems: UploadItem[] }) {
     <div className="space-y-2">
       {uploadItems.map((item) => (
         <div key={item.fileIndex} className="space-y-1">
-          <div className="flex justify-between items-center text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /><span className="truncate max-w-[260px]">{item.fileName}</span></span><span className={item.stage === 'error' ? 'text-destructive' : item.stage === 'done' ? 'text-green-600' : ''}>{STAGE_LABELS[item.stage]}</span></div>
-          <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden"><div className={['h-full rounded-full transition-all duration-300', item.stage === 'error' ? 'bg-destructive' : item.stage === 'done' ? 'bg-green-500' : 'bg-primary'].join(' ')} style={{ width: STAGE_PROGRESS[item.stage] + '%' }} /></div>
+          <div className="flex justify-between items-center text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /><span className="truncate max-w-[260px]">{item.fileName}</span></span><span className={getUploadStageTextClass(item.stage)}>{STAGE_LABELS[item.stage]}</span></div>
+          <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden"><div className={['h-full rounded-full transition-all duration-300', getUploadProgressClass(item.stage)].join(' ')} style={{ width: STAGE_PROGRESS[item.stage] + '%' }} /></div>
           {item.stage === 'error' && item.error && <p className="text-xs text-destructive">{item.error}</p>}
         </div>
       ))}
@@ -590,12 +590,48 @@ function UploadProgressList({ uploadItems }: { uploadItems: UploadItem[] }) {
   );
 }
 
+function formatSelectedFileLabel(fileCount: number) {
+  return `${fileCount} file${fileCount !== 1 ? 's' : ''} selected`;
+}
+
+function getUploadStageTextClass(stage: UploadItem['stage']) {
+  if (stage === 'error') return 'text-destructive';
+  if (stage === 'done') return 'text-green-600';
+  return '';
+}
+
+function getUploadProgressClass(stage: UploadItem['stage']) {
+  if (stage === 'error') return 'bg-destructive';
+  if (stage === 'done') return 'bg-green-500';
+  return 'bg-primary';
+}
+
+function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string | undefined, prefix: string) {
+  const occurrences = new Map<string, number>();
+  return items.map((item) => {
+    const base = `${prefix}-${keyFor(item) || 'item'}`;
+    const occurrence = occurrences.get(base) ?? 0;
+    occurrences.set(base, occurrence + 1);
+    return { item, key: occurrence === 0 ? base : `${base}-${occurrence}` };
+  });
+}
+
+function renderPdfViewerContent(pdfLoading: boolean, pdfBlobUrl: string | null) {
+  if (pdfLoading) {
+    return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
+  }
+  if (pdfBlobUrl) {
+    return <iframe src={pdfBlobUrl} className="w-full h-full rounded border" title="Resume PDF" />;
+  }
+  return null;
+}
+
 function PdfViewerDialog({ pdfViewOpen, closePdfView, pdfLoading, pdfBlobUrl }: CandidateDetailViewProps) {
   return (
     <Dialog open={pdfViewOpen} onOpenChange={(open) => { if (!open) closePdfView(); }}>
       <DialogContent className="max-w-5xl w-full h-[90vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6 pb-2"><DialogTitle>Resume - PDF Preview</DialogTitle></DialogHeader>
-        <div className="flex-1 overflow-hidden px-6 pb-6">{pdfLoading ? <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div> : pdfBlobUrl ? <iframe src={pdfBlobUrl} className="w-full h-full rounded border" title="Resume PDF" /> : null}</div>
+        <div className="flex-1 overflow-hidden px-6 pb-6">{renderPdfViewerContent(pdfLoading, pdfBlobUrl)}</div>
       </DialogContent>
     </Dialog>
   );
@@ -614,10 +650,12 @@ function XlsxViewerDialog({ xlsxViewOpen, setXlsxViewOpen, xlsxLoading, xlsxShee
 
 function SpreadsheetPreview({ sheets, activeSheet, setActiveSheet }: { sheets: SheetData[]; activeSheet: number; setActiveSheet: (index: number) => void }) {
   if (!sheets.length) return null;
+  const keyedRows = stableKeyedItems(sheets[activeSheet]?.rows ?? [], (row) => JSON.stringify(row), 'sheet-row');
+  const firstRowKey = keyedRows[0]?.key;
   return (
     <>
       {sheets.length > 1 && <div className="flex gap-2 flex-wrap">{sheets.map((sheet, index) => <button type="button" key={sheet.name} onClick={() => setActiveSheet(index)} className={['px-3 py-1 rounded text-sm border transition-colors', index === activeSheet ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-foreground border-border hover:bg-muted'].join(' ')}>{sheet.name}</button>)}</div>}
-      <div className="flex-1 overflow-auto"><table className="text-xs border-collapse w-full"><tbody>{sheets[activeSheet]?.rows.map((row, rowIndex) => <tr key={rowIndex} className={rowIndex === 0 ? 'bg-muted font-semibold' : 'hover:bg-muted/40'}>{row.map((cell, cellIndex) => <td key={cellIndex} className="border border-border px-2 py-1 break-words whitespace-pre-wrap">{String(cell ?? '')}</td>)}</tr>)}</tbody></table></div>
+      <div className="flex-1 overflow-auto"><table className="text-xs border-collapse w-full"><tbody>{keyedRows.map(({ item: row, key: rowKey }) => { const keyedCells = stableKeyedItems(row, (cell) => String(cell ?? ''), `${rowKey}-cell`); return <tr key={rowKey} className={rowKey === firstRowKey ? 'bg-muted font-semibold' : 'hover:bg-muted/40'}>{keyedCells.map(({ item: cell, key: cellKey }) => <td key={cellKey} className="border border-border px-2 py-1 break-words whitespace-pre-wrap">{String(cell ?? '')}</td>)}</tr>; })}</tbody></table></div>
     </>
   );
 }
@@ -636,11 +674,24 @@ function SkillsContent({ profile }: { profile: any }) {
   const hasLanguageExperience = profile.experienceByLanguage && typeof profile.experienceByLanguage === 'object' && !Array.isArray(profile.experienceByLanguage) && Object.keys(profile.experienceByLanguage).length > 0;
   return (
     <>
-      {hasGroupedSkills ? <GroupedSkillsSection data={profile.groupedSkills} /> : profile.skills?.length ? <TagSection label="Skills" items={profile.skills} /> : null}
+      {renderSkillsSection(profile, hasGroupedSkills)}
       {profile.certifications?.length ? <TagSection label="Certifications" items={profile.certifications} /> : null}
       {hasLanguageExperience && <ExperienceByLanguage data={profile.experienceByLanguage as Record<string, number>} />}
     </>
   );
+}
+
+function renderSkillsSection(profile: any, hasGroupedSkills: boolean) {
+  if (hasGroupedSkills) return <GroupedSkillsSection data={profile.groupedSkills} />;
+  if (profile.skills?.length) return <TagSection label="Skills" items={profile.skills} />;
+  return null;
+}
+
+function getSectionScoreColorClass(score: number) {
+  if (score >= 8) return 'text-green-700 bg-green-50 border-green-200';
+  if (score >= 6) return 'text-blue-700 bg-blue-50 border-blue-200';
+  if (score >= 4) return 'text-orange-700 bg-orange-50 border-orange-200';
+  return 'text-red-700 bg-red-50 border-red-200';
 }
 
 function SessionsCard({ candidate }: { candidate: CandidateRecord }) {
@@ -673,13 +724,7 @@ function EditCandidateDialog({ editOpen, setEditOpen, editForm, setEditForm, sav
 }
 
 function SectionScoreBadge({ score }: { score: ProfileSectionScore }) {
-  const colorClass = score.score >= 8
-    ? 'text-green-700 bg-green-50 border-green-200'
-    : score.score >= 6
-      ? 'text-blue-700 bg-blue-50 border-blue-200'
-      : score.score >= 4
-        ? 'text-orange-700 bg-orange-50 border-orange-200'
-        : 'text-red-700 bg-red-50 border-red-200';
+  const colorClass = getSectionScoreColorClass(score.score);
   return <span className={['text-xs font-normal px-2 py-0.5 rounded border', colorClass].join(' ')}>{score.score}/10 {score.label}</span>;
 }
 
@@ -719,11 +764,12 @@ function ProjectRow({ project }: { project: ParsedProject & { description?: stri
 }
 
 function WorkExperienceCard({ workExperience, sectionScore }: { workExperience: WorkExperience[]; sectionScore?: ProfileSectionScore }) {
+  const keyedEntries = stableKeyedItems(workExperience, (entry) => JSON.stringify(entry), 'work-experience');
   return (
     <Card>
       <CardHeader><CardTitle className="flex items-center gap-3">Work Experience {sectionScore && <SectionScoreBadge score={sectionScore} />}</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {workExperience.map((entry, index) => <CompanyRow key={index} entry={entry} />)}
+        {keyedEntries.map(({ item: entry, key }) => <CompanyRow key={key} entry={entry} />)}
       </CardContent>
     </Card>
   );
@@ -732,6 +778,7 @@ function WorkExperienceCard({ workExperience, sectionScore }: { workExperience: 
 function CompanyRow({ entry }: { entry: WorkExperience }) {
   const [open, setOpen] = useState(true);
   const projects = entry.projects ?? [];
+  const keyedProjects = stableKeyedItems(projects, (project) => JSON.stringify(project), 'company-project');
   return (
     <div className="rounded-lg border bg-card">
       <button type="button" className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/20 transition-colors rounded-lg" onClick={() => setOpen((value) => !value)}>
@@ -744,7 +791,7 @@ function CompanyRow({ entry }: { entry: WorkExperience }) {
         {entry.role && <p className="text-xs text-muted-foreground pl-7">{entry.role}</p>}
         {entry.summary && <p className="pl-7 text-muted-foreground">{entry.summary}</p>}
         {entry.technologies?.length ? <div className="flex flex-wrap gap-1 pl-7">{entry.technologies.map((technology) => <Badge key={technology} variant="secondary" className="text-xs">{technology}</Badge>)}</div> : null}
-        {projects.length > 0 && <div className="space-y-1 pl-4">{projects.map((project, index) => <ProjectRow key={index} project={project} />)}</div>}
+        {projects.length > 0 && <div className="space-y-1 pl-4">{keyedProjects.map(({ item: project, key }) => <ProjectRow key={key} project={project} />)}</div>}
         {!entry.summary && !entry.technologies?.length && !projects.length && <p className="pl-7 text-xs text-muted-foreground italic">No details listed</p>}
       </div>}
     </div>
@@ -792,12 +839,21 @@ function SignalLine({ label, ok, children }: { label: string; ok?: boolean; chil
   return <div className="flex items-start justify-between gap-4 border-b pb-3 last:border-b-0"><div><p className="font-semibold text-sm">{label}</p><p className="text-xs text-muted-foreground mt-1">{children || 'No evidence available.'}</p></div><Badge variant="outline" className={ok ? 'text-green-700 border-green-300' : 'text-muted-foreground'}>{ok ? 'OK' : 'Not OK'}</Badge></div>;
 }
 
+function getCompletenessLabel(completeness: number) {
+  if (completeness >= 80) return 'Good';
+  if (completeness >= 60) return 'Fair';
+  return 'Weak';
+}
+
 function AiAnalysisCard({ validation }: { validation: any }) {
   const completeness = validation.completenessScore;
-  const overallLabel = completeness >= 80 ? 'Good' : completeness >= 60 ? 'Fair' : 'Weak';
-  return <Card><CardHeader><CardTitle className="flex items-center gap-3">AI Profile Analysis <span className="text-sm font-normal px-2 py-0.5 rounded border text-green-700 bg-green-50 border-green-200">Overall: {completeness}/100 - {overallLabel}</span></CardTitle></CardHeader><CardContent className="space-y-4 text-sm">{validation.summary && <p className="text-muted-foreground leading-relaxed">{validation.summary}</p>}{validation.sectionScores?.length ? <div><p className="font-semibold mb-3">Category Scores</p><div className="space-y-2">{validation.sectionScores.map((score: ProfileSectionScore) => <div key={score.section} className="flex items-center justify-between gap-3"><span className="text-muted-foreground text-xs">{score.section}</span><span className="text-xs font-semibold">{score.score}/10 - {score.label}</span></div>)}</div></div> : null}{validation.highlights?.length ? <div><p className="font-semibold mb-2 text-green-700">Highlights</p><ul className="space-y-1">{validation.highlights.map((item: string, index: number) => <li key={index} className="flex gap-2"><span className="text-green-600">✓</span><span>{item}</span></li>)}</ul></div> : null}{validation.concerns?.length ? <div><p className="font-semibold mb-2 text-destructive">Concerns</p><ul className="space-y-1">{validation.concerns.map((item: string, index: number) => <li key={index} className="flex gap-2"><span className="text-destructive">!</span><span>{item}</span></li>)}</ul></div> : null}</CardContent></Card>;
+  const overallLabel = getCompletenessLabel(completeness);
+  const keyedHighlights = stableKeyedItems(validation.highlights ?? [], (item: string) => item, 'highlight');
+  const keyedConcerns = stableKeyedItems(validation.concerns ?? [], (item: string) => item, 'concern');
+  return <Card><CardHeader><CardTitle className="flex items-center gap-3">AI Profile Analysis <span className="text-sm font-normal px-2 py-0.5 rounded border text-green-700 bg-green-50 border-green-200">Overall: {completeness}/100 - {overallLabel}</span></CardTitle></CardHeader><CardContent className="space-y-4 text-sm">{validation.summary && <p className="text-muted-foreground leading-relaxed">{validation.summary}</p>}{validation.sectionScores?.length ? <div><p className="font-semibold mb-3">Category Scores</p><div className="space-y-2">{validation.sectionScores.map((score: ProfileSectionScore) => <div key={score.section} className="flex items-center justify-between gap-3"><span className="text-muted-foreground text-xs">{score.section}</span><span className="text-xs font-semibold">{score.score}/10 - {score.label}</span></div>)}</div></div> : null}{keyedHighlights.length ? <div><p className="font-semibold mb-2 text-green-700">Highlights</p><ul className="space-y-1">{keyedHighlights.map(({ item, key }) => <li key={key} className="flex gap-2"><span className="text-green-600">✓</span><span>{item}</span></li>)}</ul></div> : null}{keyedConcerns.length ? <div><p className="font-semibold mb-2 text-destructive">Concerns</p><ul className="space-y-1">{keyedConcerns.map(({ item, key }) => <li key={key} className="flex gap-2"><span className="text-destructive">!</span><span>{item}</span></li>)}</ul></div> : null}</CardContent></Card>;
 }
 
 function AnomalyDetectionCard({ anomalyDetection }: { anomalyDetection: ProfileAnomalyDetection }) {
-  return <Card><CardHeader><CardTitle className="flex items-center gap-3"><ShieldAlert className="h-5 w-5 text-orange-500" />AI Risk &amp; Anomaly Assessment <Badge variant="outline">{anomalyDetection.riskLevel?.toUpperCase() ?? 'NOT ANALYZED'}</Badge></CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="flex items-center gap-3"><TrendingDown className="h-4 w-4 text-orange-500" /><span className="font-semibold">{anomalyDetection.overallRiskScore}/100</span></div><p className="text-muted-foreground">{anomalyDetection.summary}</p>{anomalyDetection.anomalies?.length ? anomalyDetection.anomalies.map((anomaly, index) => <div key={index} className="rounded border p-3"><div className="flex items-center gap-2 font-medium"><AlertTriangle className="h-4 w-4" />{anomaly.type}</div><p className="mt-1">{anomaly.description}</p><p className="mt-1 text-xs text-muted-foreground">{anomaly.evidence}</p></div>) : <p className="text-muted-foreground">No anomaly detected.</p>}</CardContent></Card>;
+  const keyedAnomalies = stableKeyedItems(anomalyDetection.anomalies ?? [], (anomaly) => JSON.stringify(anomaly), 'anomaly');
+  return <Card><CardHeader><CardTitle className="flex items-center gap-3"><ShieldAlert className="h-5 w-5 text-orange-500" />AI Risk &amp; Anomaly Assessment <Badge variant="outline">{anomalyDetection.riskLevel?.toUpperCase() ?? 'NOT ANALYZED'}</Badge></CardTitle></CardHeader><CardContent className="space-y-4 text-sm"><div className="flex items-center gap-3"><TrendingDown className="h-4 w-4 text-orange-500" /><span className="font-semibold">{anomalyDetection.overallRiskScore}/100</span></div><p className="text-muted-foreground">{anomalyDetection.summary}</p>{keyedAnomalies.length ? keyedAnomalies.map(({ item: anomaly, key }) => <div key={key} className="rounded border p-3"><div className="flex items-center gap-2 font-medium"><AlertTriangle className="h-4 w-4" />{anomaly.type}</div><p className="mt-1">{anomaly.description}</p><p className="mt-1 text-xs text-muted-foreground">{anomaly.evidence}</p></div>) : <p className="text-muted-foreground">No anomaly detected.</p>}</CardContent></Card>;
 }

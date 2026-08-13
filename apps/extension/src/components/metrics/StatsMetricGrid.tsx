@@ -13,8 +13,9 @@ type StatsMetricGridProps = {
 };
 
 export function StatsMetricGrid({ items, ariaLabel = 'Statistics', className }: StatsMetricGridProps) {
+  const gridClassName = className ? `stats-metric-grid ${className}` : 'stats-metric-grid';
   return (
-    <div className={`stats-metric-grid${className ? ` ${className}` : ''}`} aria-label={ariaLabel}>
+    <div className={gridClassName} aria-label={ariaLabel}>
       {items.map((item) => (
         <div className={`stats-metric-card${item.accent ? ' is-accent' : ''}`} key={item.label}>
           <span>{item.label}</span>

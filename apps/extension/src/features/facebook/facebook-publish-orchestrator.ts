@@ -365,16 +365,16 @@ export async function publishFacebookPlan(
       results,
     });
 
-    results.push(await publishAndReportFacebookTarget(
+    results.push(await publishAndReportFacebookTarget({
       accessToken,
       plan,
       target,
       imageAttachments,
       callbacks,
-      index + 1,
+      currentIndex: index + 1,
       total,
       results,
-    ));
+    }));
 
     if (index < plan.targets.length - 1) {
       const delayMs = randomDelay(plan.delay.minMs, plan.delay.maxMs);
@@ -400,16 +400,27 @@ export async function publishFacebookPlan(
   return results;
 }
 
-async function publishAndReportFacebookTarget(
-  accessToken: string,
-  plan: FacebookPublishPlan,
-  target: FacebookPublishTarget,
-  imageAttachments: FacebookPublishImageAttachment[],
-  callbacks: FacebookPublishCallbacks,
-  currentIndex: number,
-  total: number,
-  results: FacebookPublishResultPayload[],
-): Promise<FacebookPublishResultPayload> {
+type PublishAndReportFacebookTargetInput = {
+  accessToken: string;
+  plan: FacebookPublishPlan;
+  target: FacebookPublishTarget;
+  imageAttachments: FacebookPublishImageAttachment[];
+  callbacks: FacebookPublishCallbacks;
+  currentIndex: number;
+  total: number;
+  results: FacebookPublishResultPayload[];
+};
+
+async function publishAndReportFacebookTarget({
+  accessToken,
+  plan,
+  target,
+  imageAttachments,
+  callbacks,
+  currentIndex,
+  total,
+  results,
+}: PublishAndReportFacebookTargetInput): Promise<FacebookPublishResultPayload> {
   const execution = new FacebookTargetExecution(target.targetName);
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
@@ -1226,17 +1237,29 @@ type FreshTabAttemptResult =
   | { kind: 'PUBLISHED'; result: FacebookPagePublishResult }
   | { kind: 'RETRY'; preparedPost: FacebookPreparedPostResult };
 
-async function runFreshTabPublishAttempt(
-  tabId: number,
-  attempt: number,
-  targetUrl: string,
-  targetExternalId: string | null | undefined,
-  content: string,
-  target: FacebookPublishTarget,
-  imageAttachments: FacebookPublishImageAttachment[],
-  callbacks: FacebookPublishCallbacks,
-  execution: FacebookTargetExecution,
-): Promise<FreshTabAttemptResult> {
+type FreshTabPublishAttemptOptions = {
+  tabId: number;
+  attempt: number;
+  targetUrl: string;
+  targetExternalId: string | null | undefined;
+  content: string;
+  target: FacebookPublishTarget;
+  imageAttachments: FacebookPublishImageAttachment[];
+  callbacks: FacebookPublishCallbacks;
+  execution: FacebookTargetExecution;
+};
+
+async function runFreshTabPublishAttempt({
+  tabId,
+  attempt,
+  targetUrl,
+  targetExternalId,
+  content,
+  target,
+  imageAttachments,
+  callbacks,
+  execution,
+}: FreshTabPublishAttemptOptions): Promise<FreshTabAttemptResult> {
   await waitForTabComplete(tabId, execution);
   await execution.wait(randomDelay(attempt === 0 ? 2_500 : 4_000, attempt === 0 ? 6_000 : 8_000));
   const preparedPost = await runScript<[string, FacebookPublishImageAttachment[]], FacebookPreparedPostResult>(
@@ -1319,8 +1342,8 @@ async function publishTargetInFreshTab(
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       execution.throwIfCancelled();
-      const attemptResult = await runFreshTabPublishAttempt(
-        tab.id,
+      const attemptResult = await runFreshTabPublishAttempt({
+        tabId: tab.id,
         attempt,
         targetUrl,
         targetExternalId,
@@ -1329,7 +1352,7 @@ async function publishTargetInFreshTab(
         imageAttachments,
         callbacks,
         execution,
-      );
+      });
       if (attemptResult.kind === 'PUBLISHED') return attemptResult.result;
       latestFailure = attemptResult.preparedPost;
       if (!shouldRetryPrepareFailure(attemptResult.preparedPost.message)) {
@@ -1890,9 +1913,21 @@ function normalizeFacebookDisplayName(value: string | null | undefined) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-  if (
-    /^(?:account(?:\s+id)?(?:\s+\d+)?|facebook(?:\s+account)?|\(\d+\)\s*facebook|thong\s+bao|notification|dang\s+ky|sign\s+up|create\s+new\s+account|register|log\s+in|login)$/i.test(comparable)
-  ) {
+  const genericLabels = new Set([
+    'thong bao',
+    'notification',
+    'dang ky',
+    'sign up',
+    'create new account',
+    'register',
+    'log in',
+    'login',
+  ]);
+  const isAccountLabel = /^account(?:\s+id)?(?:\s+\d+)?$/i.test(comparable)
+    || comparable === 'facebook'
+    || comparable === 'facebook account'
+    || /^\(\d+\)\s*facebook$/i.test(comparable);
+  if (isAccountLabel || genericLabels.has(comparable)) {
     return null;
   }
   if (normalized.length > 100) return null;
@@ -2145,7 +2180,7 @@ async function clickAndWaitForSubmission(
 
   const tabBeforeClick = await chrome.tabs?.get(tabId).catch(() => null);
   let graphqlCapture: FacebookPublishGraphqlCapture | null = null;
-  let clickPoint = submitButton;
+  let clickPoint: FacebookSubmitButtonPoint;
   try {
     graphqlCapture = await startFacebookPublishGraphqlCapture(
       tabId,
@@ -3284,12 +3319,19 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
               && !/^(your|my)\s+(profile|account)$/i.test(normalized)
               && !/^(?:profile|facebook|log\s+in|login|sign\s+up|create\s+new\s+account|register|dang\s+ky)$/i.test(comparable);
           });
+          const pathSegments = pathname.split('/').filter(Boolean);
+          const excludedPathSegments = new Set([
+            'groups', 'home', 'watch', 'marketplace', 'friends', 'notifications', 'messages',
+            'settings', 'help', 'login', 'r.php', 'reg', 'register', 'signup', 'reel', 'reels',
+            'story', 'stories', 'share', 'sharer', 'photo', 'photos', 'video', 'gaming', 'events',
+            'jobs', 'pages',
+          ]);
           return pathname.startsWith('/profile/')
             || (parsed.search === ''
               && pathname.length > 1
-              && pathname.split('/').filter(Boolean).length === 1
+              && pathSegments.length === 1
               && hasHumanLabel
-              && !/^\/(groups|home|watch|marketplace|friends|notifications|messages|settings|help|login|r\.php|reg|register|signup|reel|reels|story|stories|share|sharer|photo|photos|video|gaming|events|jobs|pages)(\/|$)/.test(pathname));
+              && !excludedPathSegments.has(pathSegments[0] ?? ''));
         } catch {
           return false;
         }
@@ -3458,26 +3500,28 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
   const isVisible = (element: Element) => {
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== 'hidden'
-      && style.display !== 'none';
+    const hidden = style.visibility === 'hidden' || style.display === 'none';
+    return rect.width > 0 && rect.height > 0 && !hidden;
   };
-  const elementLabel = (element: Element) => normalize([
-    element.textContent ?? '',
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('aria-placeholder') ?? '',
-    element.getAttribute('placeholder') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
+  const elementLabel = (element: Element) => {
+    const text = element.textContent ?? '';
+    const attributes = [
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('aria-placeholder') ?? '',
+      element.getAttribute('placeholder') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    return normalize([text, ...attributes].join(' '));
+  };
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex], a') ?? element
   );
   const isDisabled = (element: Element) => {
     const clickable = getClickableElement(element);
-    return clickable.hasAttribute('disabled')
-      || clickable.getAttribute('aria-disabled') === 'true';
+    const disabled = clickable.hasAttribute('disabled');
+    const ariaDisabled = clickable.getAttribute('aria-disabled') === 'true';
+    return disabled || ariaDisabled;
   };
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
   const isInsideCommentSurface = (element: Element) => {
@@ -3504,13 +3548,13 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
     verifiedAt: new Date().toISOString(),
   });
   const clickElement = async (element: Element) => {
-    const clickable = getClickableElement(element);
-    clickable.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-    if (clickable instanceof HTMLElement) {
-      clickable.focus({ preventScroll: true });
+    const target = getClickableElement(element);
+    target.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+    if (target instanceof HTMLElement) {
+      target.focus({ preventScroll: true });
     }
     await sleepInPage(150);
-    (clickable as HTMLElement).click();
+    (target as HTMLElement).click();
   };
   const findClickable = (
     root: Document | Element,
@@ -3541,7 +3585,9 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
           const nearTop = inViewport && rect.top < window.innerHeight * 0.85;
           const role = clickable.getAttribute('role');
           const roleScore = clickable.tagName === 'BUTTON' || role === 'button' ? 90 : 0;
-          const conciseLabelScore = label.length <= 80 ? 70 : label.length <= 140 ? 30 : 0;
+          let conciseLabelScore = 0;
+          if (label.length <= 80) conciseLabelScore = 70;
+          else if (label.length <= 140) conciseLabelScore = 30;
           const areaPenalty = Math.min(90, (rect.width * rect.height) / 1600);
           return {
             element,
@@ -3666,14 +3712,11 @@ async function prepareFacebookPostInPage(
   imageAttachments: FacebookPublishImageAttachment[] = [],
 ): Promise<FacebookPreparedPostResult> {
   const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replaceAll('\u0111', 'd')
-    .replaceAll('\u0110', 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalize = (value: string) => {
+    const withoutDiacritics = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const translated = withoutDiacritics.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
+    return translated.toLowerCase().replace(/\s+/g, ' ').trim();
+  };
   const CLICKABLE_SELECTOR = 'button, [role="button"], [tabindex], a, span, div';
   const POST_COMPOSER_PATTERNS = [
     /write something/,
@@ -3756,18 +3799,19 @@ async function prepareFacebookPostInPage(
   const isVisible = (element: Element) => {
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== 'hidden'
-      && style.display !== 'none';
+    const hidden = style.visibility === 'hidden' || style.display === 'none';
+    return rect.width > 0 && rect.height > 0 && !hidden;
   };
-  const elementLabel = (element: Element) => normalize([
-    element.textContent ?? '',
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('aria-placeholder') ?? '',
-    element.getAttribute('placeholder') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
+  const elementLabel = (element: Element) => {
+    const label = [
+      element.textContent ?? '',
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('aria-placeholder') ?? '',
+      element.getAttribute('placeholder') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    return normalize(label.join(' '));
+  };
   const elementAttributeLabel = (element: Element) => normalize([
     element.getAttribute('aria-label') ?? '',
     element.getAttribute('aria-placeholder') ?? '',
@@ -3812,8 +3856,11 @@ async function prepareFacebookPostInPage(
   );
   const isDisabled = (element: Element) => {
     const clickable = getClickableElement(element);
-    return clickable.hasAttribute('disabled')
-      || clickable.getAttribute('aria-disabled') === 'true';
+    const state = {
+      disabled: clickable.hasAttribute('disabled'),
+      ariaDisabled: clickable.getAttribute('aria-disabled') === 'true',
+    };
+    return state.disabled || state.ariaDisabled;
   };
   const isInsideCommentSurface = (element: Element) => {
     if (isCommentLabel(elementLabel(element)) || isChatSurface(element)) return true;
@@ -3833,7 +3880,7 @@ async function prepareFacebookPostInPage(
   const resolveClickPoint = (element: Element) => {
     const clickable = getClickableElement(element);
     const rect = clickable.getBoundingClientRect();
-    const candidates = [
+    const ratios = [
       [0.5, 0.5],
       [0.15, 0.5],
       [0.85, 0.5],
@@ -3845,9 +3892,9 @@ async function prepareFacebookPostInPage(
       [0.85, 0.75],
     ];
 
-    for (const [xRatio, yRatio] of candidates) {
-      const clientX = Math.round(rect.left + rect.width * xRatio);
-      const clientY = Math.round(rect.top + rect.height * yRatio);
+    for (const ratio of ratios) {
+      const clientX = Math.round(rect.left + rect.width * ratio[0]);
+      const clientY = Math.round(rect.top + rect.height * ratio[1]);
       const hit = document.elementFromPoint(clientX, clientY);
       const hitClickable = hit?.closest?.('button, [role="button"], [tabindex], a');
       if (hit && (hit === clickable || clickable.contains(hit) || hitClickable === clickable)) {
@@ -3865,17 +3912,19 @@ async function prepareFacebookPostInPage(
     const clickable = getClickableElement(element);
     const hit = document.elementFromPoint(point.clientX, point.clientY);
     const hitClickable = hit?.closest?.('button, [role="button"], [tabindex], a');
-    return Boolean(hit && (hit === clickable || clickable.contains(hit) || hitClickable === clickable));
+    const isSameTarget = hit === clickable || clickable.contains(hit) || hitClickable === clickable;
+    return Boolean(hit && isSameTarget);
   };
   const clickElement = async (element: Element) => {
-    const clickable = getClickableElement(element);
-    clickable.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-    if (clickable instanceof HTMLElement) {
-      clickable.focus({ preventScroll: true });
+    const target = getClickableElement(element);
+    const scrollOptions: ScrollIntoViewOptions = { behavior: 'auto', block: 'center', inline: 'center' };
+    target.scrollIntoView(scrollOptions);
+    if (target instanceof HTMLElement) {
+      target.focus({ preventScroll: true });
     }
     await sleepInPage(150);
 
-    (clickable as HTMLElement).click();
+    (target as HTMLElement).click();
   };
   const findClickable = (
     root: Document | Element,
@@ -3908,7 +3957,9 @@ async function prepareFacebookPostInPage(
         const clickable = getClickableElement(element);
         const role = clickable.getAttribute('role');
         const roleScore = clickable.tagName === 'BUTTON' || role === 'button' ? 90 : 0;
-        const conciseLabelScore = label.length <= 80 ? 70 : label.length <= 140 ? 30 : 0;
+        let conciseLabelScore = 0;
+        if (label.length <= 80) conciseLabelScore = 70;
+        else if (label.length <= 140) conciseLabelScore = 30;
         const areaPenalty = Math.min(90, (rect.width * rect.height) / 1600);
         return {
           element,
@@ -3944,7 +3995,9 @@ async function prepareFacebookPostInPage(
         const inDialog = Boolean(clickable.closest('[role="dialog"]'));
         const exactSubmitScore = /^post$|^dang$/.test(label) ? 100 : 40;
         const roleScore = clickable.tagName === 'BUTTON' || role === 'button' ? 80 : 0;
-        const conciseLabelScore = label.length <= 40 ? 50 : label.length <= 80 ? 20 : -50;
+        let conciseLabelScore = -50;
+        if (label.length <= 40) conciseLabelScore = 50;
+        else if (label.length <= 80) conciseLabelScore = 20;
         const viewportScore = rect.bottom > 0 && rect.top < window.innerHeight ? 30 : 0;
         const hitScore = isUsableClickPoint(clickable) ? 40 : -120;
 
@@ -4522,14 +4575,11 @@ async function prepareFacebookPostInPage(
 }
 
 function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProbe {
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replaceAll('\u0111', 'd')
-    .replaceAll('\u0110', 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalize = (value: string) => {
+    const normalized = value.normalize('NFD');
+    const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
+    return withoutMarks.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D').toLowerCase().replace(/\s+/g, ' ').trim();
+  };
   const POST_BUTTON_PATTERNS = [
     /^post$/,
     /^dang$/,
@@ -4557,10 +4607,8 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
   const isVisible = (element: Element) => {
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== 'hidden'
-      && style.display !== 'none';
+    const hidden = style.visibility === 'hidden' || style.display === 'none';
+    return rect.width > 0 && rect.height > 0 && !hidden;
   };
   const elementLabel = (element: Element) => normalize([
     element.textContent ?? '',
@@ -4575,13 +4623,16 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
   );
   const isDisabled = (element: Element) => {
     const clickable = getClickableElement(element);
-    return clickable.hasAttribute('disabled')
-      || clickable.getAttribute('aria-disabled') === 'true';
+    const state = [
+      clickable.hasAttribute('disabled'),
+      clickable.getAttribute('aria-disabled') === 'true',
+    ];
+    return state.some(Boolean);
   };
   const resolveClickPoint = (element: Element) => {
     const clickable = getClickableElement(element);
     const rect = clickable.getBoundingClientRect();
-    const candidates = [
+    const probePoints: Array<[number, number]> = [
       [0.5, 0.5],
       [0.15, 0.5],
       [0.85, 0.5],
@@ -4593,13 +4644,15 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
       [0.85, 0.75],
     ];
 
-    for (const [xRatio, yRatio] of candidates) {
-      const clientX = Math.round(rect.left + rect.width * xRatio);
-      const clientY = Math.round(rect.top + rect.height * yRatio);
-      const hit = document.elementFromPoint(clientX, clientY);
+    for (const [horizontalRatio, verticalRatio] of probePoints) {
+      const point = {
+        clientX: Math.round(rect.left + rect.width * horizontalRatio),
+        clientY: Math.round(rect.top + rect.height * verticalRatio),
+      };
+      const hit = document.elementFromPoint(point.clientX, point.clientY);
       const hitClickable = hit?.closest?.('button, [role="button"], [tabindex], a');
       if (hit && (hit === clickable || clickable.contains(hit) || hitClickable === clickable)) {
-        return { clientX, clientY };
+        return point;
       }
     }
 
@@ -4628,7 +4681,8 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
     const clickable = getClickableElement(element);
     const hit = document.elementFromPoint(point.clientX, point.clientY);
     const hitClickable = hit?.closest?.('button, [role="button"], [tabindex], a');
-    return Boolean(hit && (hit === clickable || clickable.contains(hit) || hitClickable === clickable));
+    const hitIsUsable = hit === clickable || clickable.contains(hit) || hitClickable === clickable;
+    return Boolean(hit) && hitIsUsable;
   };
   const findSubmitButton = (root: Document | Element) => {
     const uniqueClickables = new Set<Element>();
@@ -4651,7 +4705,9 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
         const role = clickable.getAttribute('role');
         const exactSubmitScore = /^post$|^dang$/.test(label) ? 100 : 40;
         const roleScore = clickable.tagName === 'BUTTON' || role === 'button' ? 80 : 0;
-        const conciseLabelScore = label.length <= 40 ? 50 : label.length <= 80 ? 20 : -50;
+        let conciseLabelScore = -50;
+        if (label.length <= 40) conciseLabelScore = 50;
+        else if (label.length <= 80) conciseLabelScore = 20;
         const viewportScore = rect.bottom > 0 && rect.top < window.innerHeight ? 30 : 0;
         const hitScore = isUsableClickPoint(clickable) ? 40 : -120;
 
@@ -4699,14 +4755,12 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
 }
 
 function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActivationResult {
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replaceAll('\u0111', 'd')
-    .replaceAll('\u0110', 'D')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalize = (value: string) => {
+    const decomposed = value.normalize('NFD');
+    const plainText = decomposed.replace(/[\u0300-\u036f]/g, '');
+    const translatedText = plainText.replaceAll('\u0111', 'd').replaceAll('\u0110', 'D');
+    return translatedText.toLowerCase().replace(/\s+/g, ' ').trim();
+  };
   const POST_BUTTON_PATTERNS = [
     /^post$/,
     /^dang$/,
@@ -4744,18 +4798,20 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
   const isVisible = (element: Element) => {
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== 'hidden'
-      && style.display !== 'none';
+    const hasSize = rect.width > 0 && rect.height > 0;
+    const isRendered = style.visibility !== 'hidden' && style.display !== 'none';
+    return hasSize && isRendered;
   };
-  const elementLabel = (element: Element) => normalize([
-    element.textContent ?? '',
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('aria-placeholder') ?? '',
-    element.getAttribute('placeholder') ?? '',
-    element.getAttribute('title') ?? '',
-  ].join(' '));
+  const elementLabel = (element: Element) => {
+    const fields = [
+      element.textContent ?? '',
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('aria-placeholder') ?? '',
+      element.getAttribute('placeholder') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    return normalize(fields.join(' '));
+  };
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
@@ -4764,8 +4820,11 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
   );
   const isDisabled = (element: Element) => {
     const clickable = getClickableElement(element);
-    return clickable.hasAttribute('disabled')
-      || clickable.getAttribute('aria-disabled') === 'true';
+    return ['disabled', 'aria-disabled'].some((attribute) => (
+      attribute === 'disabled'
+        ? clickable.hasAttribute(attribute)
+        : clickable.getAttribute(attribute) === 'true'
+    ));
   };
   const isInsideCommentSurface = (element: Element) => {
     if (isCommentLabel(elementLabel(element))) return true;
@@ -5252,16 +5311,27 @@ function inspectFacebookPendingPostCard(
   };
 }
 
-async function scanFacebookPendingPostCards(
-  expectedGroupId: string | null,
-  findBestCards: () => PendingPageCardMatch,
-  findPostUrlInCard: (card: Element) => PendingPagePostUrl | null,
-  resolveTimestampInCard: (card: Element) => PendingPageTimestampResolution,
-  getBodyText: () => string,
-  hasNoPendingReviewCue: (text: string) => boolean,
-  scrollPage: () => void,
-  sleepInPage: (ms: number) => Promise<void>,
-): Promise<FacebookPostReviewStatusProbeResult> {
+type ScanFacebookPendingPostCardsOptions = {
+  expectedGroupId: string | null;
+  findBestCards: () => PendingPageCardMatch;
+  findPostUrlInCard: (card: Element) => PendingPagePostUrl | null;
+  resolveTimestampInCard: (card: Element) => PendingPageTimestampResolution;
+  getBodyText: () => string;
+  hasNoPendingReviewCue: (text: string) => boolean;
+  scrollPage: () => void;
+  sleepInPage: (ms: number) => Promise<void>;
+};
+
+async function scanFacebookPendingPostCards({
+  expectedGroupId,
+  findBestCards,
+  findPostUrlInCard,
+  resolveTimestampInCard,
+  getBodyText,
+  hasNoPendingReviewCue,
+  scrollPage,
+  sleepInPage,
+}: ScanFacebookPendingPostCardsOptions): Promise<FacebookPostReviewStatusProbeResult> {
   const deadline = Date.now() + 15_000;
   let sawSimilarButNotRecent = false;
   let matchedCardSeen = false;
@@ -6496,16 +6566,16 @@ async function recoverFacebookPendingPostUrlInPage(
     };
   }
 
-  return scanFacebookPendingPostCards(
-    expectedGroupIds[0] ?? null,
+  return scanFacebookPendingPostCards({
+    expectedGroupId: expectedGroupIds[0] ?? null,
     findBestCards,
     findPostUrlInCard,
     resolveTimestampInCard,
-    () => normalize(document.body?.innerText ?? ''),
+    getBodyText: () => normalize(document.body?.innerText ?? ''),
     hasNoPendingReviewCue,
-    () => window.scrollBy({ top: Math.max(420, window.innerHeight * 0.7), behavior: 'auto' }),
+    scrollPage: () => window.scrollBy({ top: Math.max(420, window.innerHeight * 0.7), behavior: 'auto' }),
     sleepInPage,
-  );
+  });
 }
 
 async function inspectFacebookPendingPostOpenSurfaceInPage(

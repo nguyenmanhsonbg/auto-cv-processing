@@ -223,7 +223,7 @@ chrome.runtime?.onConnect?.addListener((port) => {
   });
 });
 
-await Promise.all([
+void Promise.all([
   runExtensionTaskPoll(),
   attachToOpenAmisTabs(),
 ]);

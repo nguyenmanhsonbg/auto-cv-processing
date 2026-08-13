@@ -7040,7 +7040,10 @@ dd {
   width: min(520px, calc(100vw - 24px));
   padding: 20px 8px 14px;
   border: 1px solid #e5e7eb;
+  margin: 0;
+  max-width: none;
   background: #fff;
+  color: inherit;
   box-shadow: 0 5px 14px rgba(15, 23, 42, 0.08);
 }
 
@@ -9066,10 +9069,11 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .cv-candidate-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 
 .cv-candidate-footer small {
@@ -9307,8 +9311,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-size: 22px;
 }
 
-.cv-bulk-sync-button,
-.cv-sync-amis-button {
+.cv-bulk-sync-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -9322,6 +9325,26 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-size: 12px;
   font-weight: 950;
   text-transform: uppercase;
+}
+
+.cv-sync-amis-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 82px;
+  min-height: 34px;
+  border: 1px solid #52dc8c;
+  border-radius: 11px;
+  padding: 0 17px;
+  color: #3e5e4d;
+  background: #effff5;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .cv-bulk-sync-button {
@@ -9592,10 +9615,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .cv-score-pill.is-danger {
   color: #b91c1c;
   background: #fff1f1;
-}
-
-.cv-sync-amis-button {
-  min-width: 100px;
 }
 
 .cv-list-toolbar-heading {
@@ -9963,12 +9982,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   color: #dc2626;
 }
 
-.cv-candidate-footer {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  padding-top: 8px;
-}
-
 .cv-candidate-note {
   display: grid;
   gap: 6px;
@@ -9990,22 +10003,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
-}
-
-.cv-sync-amis-button {
-  min-width: 82px;
-  min-height: 34px;
-  border: 1px solid #52dc8c;
-  border-radius: 11px;
-  padding: 0 17px;
-  color: #3e5e4d;
-  background: #effff5;
-  font-family: Roboto, sans-serif;
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 700;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 
 .cv-candidate-footer .cv-sync-amis-button {

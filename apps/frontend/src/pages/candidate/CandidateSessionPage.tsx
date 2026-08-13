@@ -28,6 +28,38 @@ const LANGUAGES = [
   { value: 'cpp', label: 'C++' },
 ];
 
+function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string, prefix: string) {
+  const occurrences = new Map<string, number>();
+  return items.map((item) => {
+    const base = `${prefix}-${keyFor(item) || 'item'}`;
+    const occurrence = occurrences.get(base) ?? 0;
+    occurrences.set(base, occurrence + 1);
+    return { item, key: occurrence === 0 ? base : `${base}-${occurrence}` };
+  });
+}
+
+function testCaseIdentity(testCase: any) {
+  return [testCase.id, testCase.description, testCase.input, testCase.expectedOutput].map((value) => String(value ?? '')).join('|');
+}
+
+function getSubmitAnswerLabel(isSubmitting: boolean, hasAnswer: boolean) {
+  if (isSubmitting) return 'Submitting...';
+  if (hasAnswer) return 'Update Answer';
+  return 'Submit Answer';
+}
+
+function getSubmittedAnswer(
+  questionType: QuestionType | undefined,
+  sessionQuestionId: string,
+  architectureState: Record<string, ArchitectureAnswer>,
+  codeState: Record<string, { code: string; language: string }>,
+  answers: Record<string, string>,
+) {
+  if (questionType === QuestionType.ARCHITECTURE) return JSON.stringify(architectureState[sessionQuestionId] || {});
+  if (questionType === QuestionType.CODING) return codeState[sessionQuestionId]?.code || '';
+  return answers[sessionQuestionId] || '';
+}
+
 function KickedView() {
   return <div className="min-h-screen flex items-center justify-center bg-background"><div className="text-center space-y-4 max-w-md mx-auto px-6"><div className="flex justify-center"><div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center"><span className="text-3xl">⚠</span></div></div><h2 className="text-2xl font-semibold">Session opened on another device</h2><p className="text-muted-foreground">This interview session was accessed from another browser or device. You have been disconnected from this tab.</p><p className="text-sm text-muted-foreground">Please close this tab and continue on the other device.</p></div></div>;
 }
@@ -97,7 +129,8 @@ function RunResults({ result }: { result: any }) {
 }
 
 function TestCases({ testCases }: { testCases: any[] }) {
-  return <div className="space-y-2"><Label className="text-xs text-muted-foreground">Test Cases</Label>{testCases.map((testCase, index) => <div key={index} className="rounded-md border p-2 text-xs"><p className="text-muted-foreground">{testCase.description || `Test ${index + 1}`}</p><div className="grid grid-cols-2 gap-2 mt-1"><div><span className="font-medium">Input:</span><pre className="bg-muted p-1 rounded mt-0.5">{testCase.input}</pre></div><div><span className="font-medium">Expected:</span><pre className="bg-muted p-1 rounded mt-0.5">{testCase.expectedOutput}</pre></div></div></div>)}</div>;
+  const keyedTestCases = stableKeyedItems(testCases, testCaseIdentity, 'test-case');
+  return <div className="space-y-2"><Label className="text-xs text-muted-foreground">Test Cases</Label>{keyedTestCases.map(({ item: testCase, key }, index) => <div key={key} className="rounded-md border p-2 text-xs"><p className="text-muted-foreground">{testCase.description || `Test ${index + 1}`}</p><div className="grid grid-cols-2 gap-2 mt-1"><div><span className="font-medium">Input:</span><pre className="bg-muted p-1 rounded mt-0.5">{testCase.input}</pre></div><div><span className="font-medium">Expected:</span><pre className="bg-muted p-1 rounded mt-0.5">{testCase.expectedOutput}</pre></div></div></div>)}</div>;
 }
 
 function QuestionInput({
@@ -193,7 +226,7 @@ function ActiveQuestionCard({
   onRun: (sqId: string) => void;
   onSubmit: (sqId: string) => void;
 }) {
-  return <Card><CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Question {index + 1} of {total}</CardTitle><div className="flex items-center gap-2">{question.question?.type && <Badge variant="outline" className="text-xs">{question.question.type}</Badge>}{!!question.candidateAnswer && <Badge className="bg-green-100 text-green-800" variant="outline"><Check className="h-3 w-3 mr-1" />Answered</Badge>}</div></div></CardHeader><CardContent className="space-y-4"><p className="text-sm whitespace-pre-wrap">{question.question?.text || 'Question text'}</p><QuestionInput sq={question} answers={answers} codeState={codeState} architectureState={architectureState} isCompleted={isCompleted} runResults={runResults} runningId={runningId} editorRefs={editorRefs} onAnswerChange={onAnswerChange} onToggleMultiple={onToggleMultiple} onArchitectureChange={onArchitectureChange} onCodeChange={onCodeChange} onLanguageChange={onLanguageChange} onFormat={onFormat} onRun={onRun} />{!isCompleted && <Button size="sm" onClick={() => onSubmit(question.id)} disabled={submittingId === question.id}>{submittingId === question.id ? 'Submitting...' : question.candidateAnswer ? 'Update Answer' : 'Submit Answer'}</Button>}</CardContent></Card>;
+  return <Card><CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Question {index + 1} of {total}</CardTitle><div className="flex items-center gap-2">{question.question?.type && <Badge variant="outline" className="text-xs">{question.question.type}</Badge>}{!!question.candidateAnswer && <Badge className="bg-green-100 text-green-800" variant="outline"><Check className="h-3 w-3 mr-1" />Answered</Badge>}</div></div></CardHeader><CardContent className="space-y-4"><p className="text-sm whitespace-pre-wrap">{question.question?.text || 'Question text'}</p><QuestionInput sq={question} answers={answers} codeState={codeState} architectureState={architectureState} isCompleted={isCompleted} runResults={runResults} runningId={runningId} editorRefs={editorRefs} onAnswerChange={onAnswerChange} onToggleMultiple={onToggleMultiple} onArchitectureChange={onArchitectureChange} onCodeChange={onCodeChange} onLanguageChange={onLanguageChange} onFormat={onFormat} onRun={onRun} />{!isCompleted && <Button size="sm" onClick={() => onSubmit(question.id)} disabled={submittingId === question.id}>{getSubmitAnswerLabel(submittingId === question.id, !!question.candidateAnswer)}</Button>}</CardContent></Card>;
 }
 
 function CandidateSessionContent({
@@ -235,7 +268,18 @@ function CandidateSessionContent({
   onRun: (sqId: string) => void;
 }) {
   const navigationVisible = questions.length > 0 && !isSequential;
-  return <div className="max-w-3xl mx-auto space-y-6"><div><h1 className="text-3xl font-bold">Interview Session</h1><p className="text-muted-foreground mt-1">{session.templatePosition}</p></div><Separator />{!candidateViewEnabled ? <Card><CardContent className="py-10 text-center space-y-3"><div className="flex justify-center"><div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center"><AlignLeft className="h-6 w-6 text-muted-foreground" /></div></div><p className="font-medium">Questions are temporarily hidden</p><p className="text-sm text-muted-foreground">The interviewer has paused question display. Please wait.</p></CardContent></Card> : questions.length === 0 ? <Card><CardContent className="py-10 text-center space-y-3"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /><p className="text-muted-foreground">The interviewer will share questions with you shortly.</p></CardContent></Card> : currentQuestion ? <ActiveQuestionCard question={currentQuestion} index={safeIndex} total={questions.length} isCompleted={isCompleted} onSubmit={onSubmit} {...inputProps} /> : null}{navigationVisible && <div className="flex items-center justify-between"><Button variant="outline" size="sm" onClick={onPrevious} disabled={safeIndex === 0}><ChevronLeft className="h-4 w-4 mr-1" />Previous</Button><Button variant="outline" size="sm" onClick={onNext} disabled={safeIndex === questions.length - 1}>Next<ChevronRight className="h-4 w-4 ml-1" /></Button></div>}</div>;
+  const renderQuestionContent = () => {
+    if (!candidateViewEnabled) {
+      return <Card><CardContent className="py-10 text-center space-y-3"><div className="flex justify-center"><div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center"><AlignLeft className="h-6 w-6 text-muted-foreground" /></div></div><p className="font-medium">Questions are temporarily hidden</p><p className="text-sm text-muted-foreground">The interviewer has paused question display. Please wait.</p></CardContent></Card>;
+    }
+    if (questions.length === 0) {
+      return <Card><CardContent className="py-10 text-center space-y-3"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /><p className="text-muted-foreground">The interviewer will share questions with you shortly.</p></CardContent></Card>;
+    }
+    if (!currentQuestion) return null;
+    return <ActiveQuestionCard question={currentQuestion} index={safeIndex} total={questions.length} isCompleted={isCompleted} onSubmit={onSubmit} {...inputProps} />;
+  };
+
+  return <div className="max-w-3xl mx-auto space-y-6"><div><h1 className="text-3xl font-bold">Interview Session</h1><p className="text-muted-foreground mt-1">{session.templatePosition}</p></div><Separator />{renderQuestionContent()}{navigationVisible && <div className="flex items-center justify-between"><Button variant="outline" size="sm" onClick={onPrevious} disabled={safeIndex === 0}><ChevronLeft className="h-4 w-4 mr-1" />Previous</Button><Button variant="outline" size="sm" onClick={onNext} disabled={safeIndex === questions.length - 1}>Next<ChevronRight className="h-4 w-4 ml-1" /></Button></div>}</div>;
 }
 
 export function CandidateSessionPage() {
@@ -309,7 +353,15 @@ export function CandidateSessionPage() {
     const socket = getSocket();
     const handleActivated = () => { if (mounted) { setCurrentIndex(0); fetchSession(); } };
     const handleDeactivated = () => { if (mounted) { fetchSession(); setCurrentIndex(0); } };
-    const handleViewToggled = (payload: { enabled: boolean }) => { if (mounted) { setCandidateViewEnabled(payload.enabled); if (!payload.enabled) setCurrentIndex(0); fetchSession(); } };
+    const handleViewToggled = (payload: { enabled: boolean }) => {
+      if (mounted) {
+        setCandidateViewEnabled(payload.enabled);
+        if (!payload.enabled) {
+          setCurrentIndex(0);
+        }
+        fetchSession();
+      }
+    };
     socket.on(WebSocketEvents.INTERVIEWER_QUESTIONS_ACTIVATED, handleActivated);
     socket.on(WebSocketEvents.INTERVIEWER_QUESTIONS_DEACTIVATED, handleDeactivated);
     socket.on(WebSocketEvents.INTERVIEWER_CANDIDATE_VIEW_TOGGLED, handleViewToggled);
@@ -386,11 +438,7 @@ export function CandidateSessionPage() {
 
   const handleSubmitAnswer = useCallback(async (sessionQuestionId: string) => {
     const questionType = allQuestions.find((question) => question.id === sessionQuestionId)?.question?.type;
-    const answer = questionType === QuestionType.ARCHITECTURE
-      ? JSON.stringify(architectureState[sessionQuestionId] || {})
-      : questionType === QuestionType.CODING
-        ? codeState[sessionQuestionId]?.code || ''
-        : answers[sessionQuestionId] || '';
+    const answer = getSubmittedAnswer(questionType, sessionQuestionId, architectureState, codeState, answers);
     if (!answer?.trim()) { toast({ title: 'Please enter an answer', variant: 'destructive' }); return; }
     try {
       setSubmittingId(sessionQuestionId);

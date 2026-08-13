@@ -59,12 +59,12 @@ export function DateRangeFilter({ label = 'Thời gian', value, onChange, classN
         <CalendarIcon />
       </button>
       {isOpen ? (
-        <div className="shared-filter-date-range-popup" role="dialog" aria-label="Chọn khoảng thời gian">
+        <dialog open className="shared-filter-date-range-popup" aria-label="Chọn khoảng thời gian">
           <button type="button" className="shared-filter-date-range-nav is-previous" aria-label="Tháng trước" onClick={() => setVisibleMonth(addMonths(visibleMonth, -1))}>‹</button>
           <CalendarMonth month={visibleMonth} value={value} onSelect={selectDate} />
           <CalendarMonth month={nextMonth} value={value} onSelect={selectDate} />
           <button type="button" className="shared-filter-date-range-nav is-next" aria-label="Tháng sau" onClick={() => setVisibleMonth(addMonths(visibleMonth, 1))}>›</button>
-        </div>
+        </dialog>
       ) : null}
     </div>
   );
@@ -85,13 +85,13 @@ function CalendarMonth({ month, value, onSelect }: CalendarMonthProps) {
         {WEEKDAYS.map((weekday) => <span key={weekday}>{weekday}</span>)}
       </div>
       <div className="shared-filter-calendar-days">
-        {days.map((day, index) => {
+        {days.map(({ date: day, key }) => {
           const inputValue = day ? toInputValue(day) : '';
           const isSelected = inputValue === value.from || inputValue === value.to;
           const isInRange = Boolean(day && value.from && value.to && inputValue > value.from && inputValue < value.to);
           return day ? (
             <button
-              key={inputValue}
+              key={key}
               type="button"
               className={`${isSelected ? 'is-selected ' : ''}${isInRange ? 'is-in-range' : ''}`.trim()}
               aria-label={formatAccessibleDate(day)}
@@ -100,18 +100,30 @@ function CalendarMonth({ month, value, onSelect }: CalendarMonthProps) {
             >
               {day.getDate()}
             </button>
-          ) : <span key={`empty-${index}`} aria-hidden="true" />;
+          ) : <span key={key} aria-hidden="true" />;
         })}
       </div>
     </section>
   );
 }
 
+type CalendarDay = {
+  date: Date | null;
+  key: string;
+};
+
 function getCalendarDays(month: Date) {
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
   const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  const days: Array<Date | null> = Array.from({ length: firstDay.getDay() }, () => null);
-  for (let day = 1; day <= daysInMonth; day += 1) days.push(new Date(month.getFullYear(), month.getMonth(), day));
+  const monthKey = toInputValue(firstDay).slice(0, 7);
+  const days: CalendarDay[] = Array.from({ length: firstDay.getDay() }, (_, weekdayIndex) => ({
+    date: null,
+    key: `${monthKey}-empty-${WEEKDAYS[weekdayIndex]}`,
+  }));
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = new Date(month.getFullYear(), month.getMonth(), day);
+    days.push({ date, key: toInputValue(date) });
+  }
   return days;
 }
 

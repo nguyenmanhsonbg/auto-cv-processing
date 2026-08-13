@@ -17,7 +17,7 @@ type MultiSelectFilterProps = {
 export function MultiSelectFilter({ label, values, options, allLabel = 'Tất cả', isOpen, onToggle, onClose, onChange, className = '' }: MultiSelectFilterProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const allSelected = values.length === 0;
-  const selectedLabel = useMemo(() => allSelected ? allLabel : values.length === 1 ? options.find((option) => option.value === values[0])?.label ?? '1 mục' : `${values.length} mục đã chọn`, [allLabel, allSelected, options, values]);
+  const selectedLabel = useMemo(() => getMultiSelectLabel(allSelected, allLabel, options, values), [allLabel, allSelected, options, values]);
 
   useEffect(() => {
     if (!isOpen || !onClose) return undefined;
@@ -57,4 +57,15 @@ export function MultiSelectFilter({ label, values, options, allLabel = 'Tất c�
       ) : null}
     </div>
   );
+}
+
+function getMultiSelectLabel(
+  allSelected: boolean,
+  allLabel: string,
+  options: MultiSelectFilterOption[],
+  values: string[],
+) {
+  if (allSelected) return allLabel;
+  if (values.length === 1) return options.find((option) => option.value === values[0])?.label ?? '1 mục';
+  return `${values.length} mục đã chọn`;
 }

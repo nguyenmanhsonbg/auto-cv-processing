@@ -1,6 +1,41 @@
 import type { AmisExtractionResult, AmisJobSnapshot } from '@/types/types';
 import { removeHorizontalWhitespaceBeforeNewlines } from '@/text-normalization';
 
+async function fetchRecruitmentDetail(recruitmentId: string) {
+  const response = await fetch(
+    `/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-info/${encodeURIComponent(recruitmentId)}`,
+    { credentials: 'include' },
+  );
+  if (!response.ok) {
+    return {
+      recruitment: null,
+      traceId: undefined,
+      failureMessage: `AMIS detail API returned HTTP ${response.status}.`,
+    };
+  }
+
+  const envelope = await response.json() as {
+    Success?: boolean;
+    Data?: { Recruitment?: Record<string, unknown> | null } | null;
+    TraceID?: string;
+  };
+  const recruitment = envelope.Data?.Recruitment;
+  return {
+    recruitment: envelope.Success && recruitment ? recruitment : null,
+    traceId: envelope.TraceID,
+    failureMessage: 'AMIS detail API did not return a recruitment.',
+  };
+}
+
+function getMissingFields(responseRecruitmentId: string, snapshot: AmisJobSnapshot) {
+  const fields = [] as string[];
+  if (!responseRecruitmentId) fields.push('AMIS recruitment id');
+  if (!snapshot.title) fields.push('title');
+  if (!snapshot.description) fields.push('description');
+  if (!snapshot.requirements.rawText) fields.push('requirements');
+  return fields;
+}
+
 export async function extractAmisJobFromDetailApi(
   amisRecruitmentId: string,
 ): Promise<AmisExtractionResult> {
@@ -74,32 +109,6 @@ export async function extractAmisJobFromDetailApi(
     return buildFailure(error instanceof Error ? error.message : 'AMIS detail API extraction failed.');
   }
 
-  async function fetchRecruitmentDetail(recruitmentId: string) {
-    const response = await fetch(
-      `/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-info/${encodeURIComponent(recruitmentId)}`,
-      { credentials: 'include' },
-    );
-    if (!response.ok) {
-      return {
-        recruitment: null,
-        traceId: undefined,
-        failureMessage: `AMIS detail API returned HTTP ${response.status}.`,
-      };
-    }
-
-    const envelope = await response.json() as {
-      Success?: boolean;
-      Data?: { Recruitment?: Record<string, unknown> | null } | null;
-      TraceID?: string;
-    };
-    const recruitment = envelope.Data?.Recruitment;
-    return {
-      recruitment: envelope.Success && recruitment ? recruitment : null,
-      traceId: envelope.TraceID,
-      failureMessage: 'AMIS detail API did not return a recruitment.',
-    };
-  }
-
   function buildSnapshotFields(recruitment: Record<string, unknown>) {
     const summary = cleanText(readValue(recruitment, ['Summary']));
     const description = htmlToText(readValue(recruitment, ['Description'])) || summary;
@@ -132,15 +141,6 @@ export async function extractAmisJobFromDetailApi(
         ...(deadline ? { deadline } : {}),
       } satisfies AmisJobSnapshot,
     };
-  }
-
-  function getMissingFields(responseRecruitmentId: string, snapshot: AmisJobSnapshot) {
-    const fields = [] as string[];
-    if (!responseRecruitmentId) fields.push('AMIS recruitment id');
-    if (!snapshot.title) fields.push('title');
-    if (!snapshot.description) fields.push('description');
-    if (!snapshot.requirements.rawText) fields.push('requirements');
-    return fields;
   }
 
   function buildFailure(message: string): AmisExtractionResult {

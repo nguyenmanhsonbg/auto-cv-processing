@@ -261,6 +261,10 @@ function CandidateInformationSection({
   </View>;
 }
 
+function formatSignalItem(label: string, projectSize?: string | null) {
+  return projectSize ? `${label} (${projectSize})` : label;
+}
+
 function InterestedInformationSection({ signals }: { signals: VcsSignals }) {
   const joinEvidence = (items?: Array<{ evidence?: string | null }>, fallback?: string | null) =>
     items?.map((item) => item.evidence).filter(Boolean).join(' | ') || fallback;
@@ -269,8 +273,8 @@ function InterestedInformationSection({ signals }: { signals: VcsSignals }) {
     <SignalPdfRow label="Education" ok={signals.university?.ok} value={signals.university?.name} evidence={signals.university?.evidence} />
     <SignalPdfRow label="Company Type" ok={signals.companyType?.ok} value={signals.companyType?.companies?.join(', ')} evidence={signals.companyType?.evidence} />
     <SignalPdfRow label="Advanced Skills" ok={signals.advancedSkills?.ok} value={signals.advancedSkills?.items?.map((item) => item.skill).join(', ')} evidence={joinEvidence(signals.advancedSkills?.items, signals.advancedSkills?.evidence)} />
-    <SignalPdfRow label="Technical Challenges" ok={signals.technicalChallenges?.ok} value={signals.technicalChallenges?.items?.map((item) => `${item.challenge}${item.projectSize ? ` (${item.projectSize})` : ''}`).join(', ')} evidence={joinEvidence(signals.technicalChallenges?.items, signals.technicalChallenges?.evidence)} />
-    <SignalPdfRow label="Senior Roles" ok={signals.seniorRoles?.ok} value={signals.seniorRoles?.items?.map((item) => `${item.role}${item.projectSize ? ` (${item.projectSize})` : ''}`).join(', ')} evidence={joinEvidence(signals.seniorRoles?.items, signals.seniorRoles?.evidence)} />
+    <SignalPdfRow label="Technical Challenges" ok={signals.technicalChallenges?.ok} value={signals.technicalChallenges?.items?.map((item) => formatSignalItem(item.challenge, item.projectSize)).join(', ')} evidence={joinEvidence(signals.technicalChallenges?.items, signals.technicalChallenges?.evidence)} />
+    <SignalPdfRow label="Senior Roles" ok={signals.seniorRoles?.ok} value={signals.seniorRoles?.items?.map((item) => formatSignalItem(item.role, item.projectSize)).join(', ')} evidence={joinEvidence(signals.seniorRoles?.items, signals.seniorRoles?.evidence)} />
   </View>;
 }
 
@@ -294,7 +298,7 @@ function WorkExperienceSection({
   </View>;
 }
 
-function SideProjectsSection({ projects }: { projects?: ParsedProfile['projects'] }) {
+function SideProjectsSection({ projects }: { projects: ParsedProfile['projects'] }) {
   if (!projects?.length) return null;
   return <View style={styles.sectionCard}>
     <Text style={styles.sectionTitle}>Side Projects</Text>
