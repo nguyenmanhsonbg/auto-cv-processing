@@ -58,7 +58,10 @@ export function LoginPage() {
   const onSubmit = async (data: LoginForm) => {
     try {
       setError('');
-      const res = await apiClient.post<{ accessToken: string; refreshToken: string }>('/auth/login', data);
+      const res = await apiClient.post<{ accessToken: string; refreshToken: string }>('/auth/login', {
+        login: data.email,
+        password: data.password,
+      });
       apiClient.setTokens(res);
       resetLoginForm();
       navigate('/dashboard');

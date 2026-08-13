@@ -36,6 +36,7 @@ import {
   type RecruitmentPagination,
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
+import { formatRecruitmentDateTime } from '@/lib/date-time';
 
 const PAGE_SIZE = 20;
 
@@ -67,20 +68,6 @@ const SOURCE_CHANNEL_OPTIONS = [
   { value: 'MANUAL', label: 'Manual' },
   { value: 'OTHER', label: 'Other' },
 ];
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
 
 function valueOrDash(value?: string | number | null) {
   if (value === undefined || value === null || value === '') return '-';
@@ -308,7 +295,7 @@ export function ApplicationListPage() {
                       M {scoreLabel(item.mappingScore)} / AI {scoreLabel(item.aiScreeningScore)}
                     </span>
                   </TableCell>
-                  <TableCell>{formatDate(item.createdAt)}</TableCell>
+                  <TableCell>{formatRecruitmentDateTime(item.createdAt)}</TableCell>
                   <TableCell className="text-right">
                     <Button asChild variant="outline" size="sm">
                       <Link to={`/recruitment/applications/${item.applicationId}`}>

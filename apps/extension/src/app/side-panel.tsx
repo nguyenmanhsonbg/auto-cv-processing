@@ -113,13 +113,13 @@ import {
   PinIcon,
   PostingIcon,
   RefreshIcon,
-  SaveIcon,
   SourceIcon,
   SparklesIcon,
   TrashIcon,
   WarningIcon,
 } from '@/components/icons';
 import { CandidateAvatar } from '@/components/candidates/CandidateAvatar';
+import { FacebookGroupFormModal } from '@/components/facebook/FacebookGroupFormModal';
 import { clearSelectedJobQuestionContextForTab, saveSelectedJobQuestionContext } from '@/stores/selected-job-question-store';
 import type {
   AmisAutoSyncState,
@@ -3792,7 +3792,7 @@ function SidePanel() {
     }
     if (!isFacebookGroupUrlCandidate(targetUrl)) {
       setFacebookSettingsState('ERROR');
-      setFacebookSettingsMessage('Link URL phải có dạng https://www.facebook.com/groups/{groupId}.');
+      setFacebookSettingsMessage('Nhập sai định dạng URL nhóm Facebook. Vui lòng thử lại');
       return;
     }
 
@@ -4278,133 +4278,39 @@ function SidePanel() {
     const isSaving = facebookSettingsState === 'SAVING';
 
     return (
-      <div className="facebook-group-create-backdrop" role="presentation">
-        <section
-          className="facebook-group-create-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="facebook-group-create-title"
-        >
-          <header className="facebook-group-create-header">
-            <h2 id="facebook-group-create-title">Thêm nhóm Facebook mới</h2>
-            <button
-              type="button"
-              className="icon-button"
-              title="Đóng"
-              aria-label="Đóng form thêm nhóm Facebook"
-              disabled={isSaving}
-              onClick={closeFacebookGroupCreateModal}
-            >
-              <CloseIcon />
-            </button>
-          </header>
-
-          <form
-            className="facebook-group-form is-create"
-            noValidate
-            onSubmit={(event) => void submitFacebookGroup(event)}
-          >
-            {facebookSettingsMessage ? (
-              <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
-                {facebookSettingsMessage}
-              </p>
-            ) : null}
-            <label>
-              <span className="facebook-group-field-label">
-                Tên nhóm
-                <span className="facebook-group-required-mark" aria-hidden="true">*</span>
-              </span>
-              <div className="facebook-group-input-wrap">
-                <input
-                  value={facebookGroupName}
-                  maxLength={255}
-                  placeholder="Ví dụ: Việc làm IT Đà Nẵng"
-                  aria-invalid={Boolean(facebookGroupNameError)}
-                  disabled={isSaving}
-                  onChange={(event) => {
-                    setFacebookGroupName(event.target.value);
-                    setFacebookGroupNameError(null);
-                  }}
-                />
-                {facebookGroupName ? (
-                  <button
-                    type="button"
-                    className="facebook-group-input-clear"
-                    title="Xóa tên nhóm"
-                    aria-label="Xóa tên nhóm"
-                    disabled={isSaving}
-                    onClick={() => {
-                      setFacebookGroupName('');
-                      setFacebookGroupNameError(null);
-                    }}
-                  >
-                    <CloseIcon />
-                  </button>
-                ) : null}
-              </div>
-              {facebookGroupNameError ? (
-                <span className="field-error">{facebookGroupNameError}</span>
-              ) : null}
-            </label>
-            <label>
-              <span className="facebook-group-field-label">
-                Link URL
-                <span className="facebook-group-required-mark" aria-hidden="true">*</span>
-              </span>
-              <div className="facebook-group-input-wrap">
-                <input
-                  value={facebookGroupUrl}
-                  maxLength={500}
-                  placeholder="https://facebook.com/groups/..."
-                  disabled={isSaving}
-                  aria-invalid={Boolean(facebookGroupUrlFieldError)}
-                  onChange={(event) => {
-                    setFacebookGroupUrl(event.target.value);
-                    setFacebookGroupUrlError(null);
-                  }}
-                />
-                {facebookGroupUrl ? (
-                  <button
-                    type="button"
-                    className="facebook-group-input-clear"
-                    title="Xóa link URL"
-                    aria-label="Xóa link URL"
-                    disabled={isSaving}
-                    onClick={() => {
-                      setFacebookGroupUrl('');
-                      setFacebookGroupUrlError(null);
-                    }}
-                  >
-                    <CloseIcon />
-                  </button>
-                ) : null}
-              </div>
-              {facebookGroupUrlFieldError ? (
-                <span className="field-error">{facebookGroupUrlFieldError}</span>
-              ) : null}
-              <small>Link trực tiếp đến trang chủ của nhóm Facebook.</small>
-            </label>
-            <div className="facebook-group-create-footer">
-              <button
-                type="button"
-                className="text-button"
-                disabled={isSaving}
-                onClick={closeFacebookGroupCreateModal}
-              >
-                Hủy
-              </button>
-              <button
-                type="submit"
-                className="primary-button compact-button"
-                disabled={isSaving || Boolean(facebookGroupNameError) || Boolean(facebookGroupUrlFieldError)}
-              >
-                <SaveIcon />
-                <span>{isSaving ? 'Đang lưu...' : 'Lưu'}</span>
-              </button>
-            </div>
-          </form>
-        </section>
-      </div>
+      <FacebookGroupFormModal
+        mode="create"
+        title="Thêm nhóm Facebook mới"
+        name={facebookGroupName}
+        url={facebookGroupUrl}
+        nameError={facebookGroupNameError}
+        urlError={facebookGroupUrlFieldError}
+        message={facebookSettingsMessage}
+        messageIsError={facebookSettingsState === 'ERROR'}
+        isSaving={isSaving}
+        onNameChange={(event) => {
+          setFacebookGroupName(event.target.value);
+          setFacebookGroupNameError(null);
+        }}
+        onUrlChange={(event) => {
+          setFacebookGroupUrl(event.target.value);
+          setFacebookGroupUrlError(null);
+        }}
+        onUrlBlur={(event) => {
+          setFacebookGroupUrlError(getFacebookGroupUrlValidationError(event.target.value, facebookGroups));
+        }}
+        onClearName={() => {
+          setFacebookGroupName('');
+          setFacebookGroupNameError(null);
+        }}
+        onClearUrl={() => {
+          setFacebookGroupUrl('');
+          setFacebookGroupUrlError(null);
+        }}
+        onSubmit={(event) => void submitFacebookGroup(event)}
+        onCancel={closeFacebookGroupCreateModal}
+        onClose={closeFacebookGroupCreateModal}
+      />
     );
   }
 
@@ -6149,7 +6055,9 @@ function SidePanel() {
                       </label>
                       <CandidateAvatar name={application.candidateName} />
                       <div>
-                        <strong title={application.candidateName}>{application.candidateName}</strong>
+                        <strong title={application.candidateName}>
+                          {truncateCandidateName(application.candidateName)}
+                        </strong>
                         <span>{[application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact'}</span>
                         <span className="cv-candidate-applied-date">Ngày ứng tuyển: {appliedDate}</span>
                       </div>
@@ -6607,34 +6515,36 @@ function SidePanel() {
                                   <ExternalLinkIcon />
                                 </a>
                               ) : null}
-                              <button
-                                type="button"
-                                className={`group-icon-button${isGroupChecking ? ' is-loading' : ''}`}
-                                title={isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'}
-                                aria-label={`${isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'} ${group.targetName}`}
-                                disabled={facebookSettingsState === 'SAVING' || isGroupChecking || isGroupQueued || !group.targetId}
-                                onClick={() => void checkFacebookGroupEligibility(group)}
-                              >
-                                <RefreshIcon />
-                              </button>
-                              <button
-                                type="button"
-                                className="group-icon-button"
-                                title="Chỉnh sửa nhóm"
-                                aria-label={`Chỉnh sửa nhóm ${group.targetName}`}
-                                onClick={() => openEditFacebookGroup(group)}
-                              >
-                                <EditIcon />
-                              </button>
-                              <button
-                                type="button"
-                                className="group-icon-button is-danger"
-                                title="Xóa nhóm"
-                                aria-label={`Xóa nhóm ${group.targetName}`}
-                                onClick={() => openDeleteFacebookGroup(group)}
-                              >
-                                <TrashIcon />
-                              </button>
+                              <div className="group-icon-button-wrapper">
+                                <button
+                                  type="button"
+                                  className={`group-icon-button${isGroupChecking ? ' is-loading' : ''}`}
+                                  title={isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'}
+                                  aria-label={`${isGroupQueued ? 'Đang chờ kiểm tra' : 'Kiểm tra khả năng đăng bài'} ${group.targetName}`}
+                                  disabled={facebookSettingsState === 'SAVING' || isGroupChecking || isGroupQueued || !group.targetId}
+                                  onClick={() => void checkFacebookGroupEligibility(group)}
+                                >
+                                  <RefreshIcon />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="group-icon-button"
+                                  title="Chỉnh sửa nhóm"
+                                  aria-label={`Chỉnh sửa nhóm ${group.targetName}`}
+                                  onClick={() => openEditFacebookGroup(group)}
+                                >
+                                  <EditIcon />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="group-icon-button is-danger"
+                                  title="Xóa nhóm"
+                                  aria-label={`Xóa nhóm ${group.targetName}`}
+                                  onClick={() => openDeleteFacebookGroup(group)}
+                                >
+                                  <TrashIcon />
+                                </button>
+                              </div>
                             </div>
                             <div className="facebook-group-status-row">
                               <span className={`facebook-group-badge ${getFacebookGroupBadgeClass(group.eligibilityStatus)}`}>
@@ -6726,85 +6636,19 @@ function SidePanel() {
             </section>
           ) : null}
           {facebookGroupModalMode === 'EDIT' && selectedFacebookGroup ? (
-            <section
-              className="facebook-group-modal facebook-group-edit-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="facebook-group-edit-title"
-            >
-              <header className="modal-header">
-                <div>
-                  <h2 id="facebook-group-edit-title">Chỉnh sửa thông tin nhóm Facebook</h2>
-                </div>
-                <button
-                  type="button"
-                  className="icon-button"
-                  title="Đóng"
-                  aria-label="Đóng"
-                  disabled={facebookSettingsState === 'SAVING'}
-                  onClick={closeFacebookGroupActionModal}
-                >
-                  <CloseIcon />
-                </button>
-              </header>
-
-              <form className="modal-body facebook-group-form is-standalone" onSubmit={(event) => void submitFacebookGroupEdit(event)}>
-                {facebookSettingsMessage ? (
-                  <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
-                    {facebookSettingsMessage}
-                  </p>
-                ) : null}
-                <label>
-                  <span className="facebook-group-field-label">
-                    Tên nhóm
-                    <span className="facebook-group-required-mark" aria-hidden="true">*</span>
-                  </span>
-                  <input
-                    value={editFacebookGroupName}
-                    maxLength={255}
-                    placeholder="Hội Dev Java VN"
-                    required
-                    disabled={facebookSettingsState === 'SAVING'}
-                    onChange={(event) => setEditFacebookGroupName(event.target.value)}
-                  />
-                </label>
-                <label>
-                  <span className="facebook-group-field-label">
-                    Link URL
-                  </span>
-                  {editFacebookGroupUrl ? (
-                    <a
-                      className="facebook-group-edit-url"
-                      href={editFacebookGroupUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {editFacebookGroupUrl}
-                    </a>
-                  ) : (
-                    <span className="facebook-group-edit-url is-empty">Chưa có URL</span>
-                  )}
-                </label>
-                <div className="form-actions">
-                  <button
-                    type="button"
-                    className="text-button"
-                    disabled={facebookSettingsState === 'SAVING'}
-                    onClick={closeFacebookGroupActionModal}
-                  >
-                    HỦY
-                  </button>
-                  <button
-                    type="submit"
-                    className="facebook-group-edit-save-button"
-                    disabled={facebookSettingsState === 'SAVING'}
-                  >
-                    <SaveIcon />
-                    <span>{facebookSettingsState === 'SAVING' ? 'Đang lưu...' : 'LƯU'}</span>
-                  </button>
-                </div>
-              </form>
-            </section>
+            <FacebookGroupFormModal
+              mode="edit"
+              title="Chỉnh sửa thông tin nhóm Facebook"
+              name={editFacebookGroupName}
+              url={editFacebookGroupUrl}
+              message={facebookSettingsMessage}
+              messageIsError={facebookSettingsState === 'ERROR'}
+              isSaving={facebookSettingsState === 'SAVING'}
+              onNameChange={(event) => setEditFacebookGroupName(event.target.value)}
+              onSubmit={(event) => void submitFacebookGroupEdit(event)}
+              onCancel={closeFacebookGroupActionModal}
+              onClose={closeFacebookGroupActionModal}
+            />
           ) : null}
           {facebookGroupModalMode === 'DELETE' && selectedFacebookGroup ? (
             <section
@@ -7353,7 +7197,7 @@ function getFacebookGroupUrlValidationError(
   currentTargetId?: string | null,
 ) {
   if (!isFacebookGroupUrlCandidate(value)) {
-    return 'Link URL phải có dạng https://www.facebook.com/groups/{groupId}.';
+    return 'Nhập sai định dạng URL nhóm Facebook. Vui lòng thử lại';
   }
 
   return getDuplicateFacebookGroupUrlError(value, groups, currentTargetId);
@@ -8801,6 +8645,12 @@ function formatDateTime(value: string | undefined) {
   });
 
   return `${dateLabel} ${timeLabel}`;
+}
+
+function truncateCandidateName(value: string) {
+  const maxLength = 24;
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3)}...`;
 }
 
 function buildAmisFormFillPayload(jobDescription: JobDescriptionSummary) {

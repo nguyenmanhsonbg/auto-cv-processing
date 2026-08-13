@@ -42,7 +42,7 @@ const MESSAGE_PATTERNS: Array<[RegExp, string]> = [
   [/cannot access or post|cannot post to this group|current facebook account cannot post/i, 'Tài khoản Facebook hiện tại không thể đăng bài vào nhóm này.'],
   [/facebook group not found|group not found/i, 'Không tìm thấy nhóm Facebook hoặc nhóm không thuộc tài khoản hiện tại.'],
   [/timeout|timed out/i, 'Facebook phản hồi quá lâu. Vui lòng thử lại.'],
-  [/network|fetch failed|failed to fetch/i, 'Không thể kết nối tới máy chủ. Vui lòng kiểm tra mạng và thử lại.'],
+  [/network|networkerror|Failed to fetch|err_failed|load failed|fetch failed|failed to fetch|fail to fetch/i, 'Có lỗi kết nối mạng, vui lòng kiểm tra lại.'],
 ];
 
 export function toVietnameseErrorMessage(error: unknown, fallback = 'Không thể hoàn tất thao tác. Vui lòng thử lại.') {
