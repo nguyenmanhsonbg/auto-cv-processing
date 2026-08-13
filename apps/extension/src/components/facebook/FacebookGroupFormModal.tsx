@@ -50,6 +50,90 @@ export function FacebookGroupFormModal({
     : 'modal-body facebook-group-form is-standalone';
   const titleId = isCreate ? 'facebook-group-create-title' : 'facebook-group-edit-title';
 
+  const renderNameField = () => (
+    <InputField
+      label="TÊN NHÓM"
+      value={name}
+      maxLength={255}
+      placeholder={isCreate ? 'Ví dụ: Việc làm IT Đà Nẵng' : 'Hội Dev Java VN'}
+      title={name || undefined}
+      required
+      disabled={isSaving}
+      error={nameError ?? undefined}
+      inputWrapperClassName={isCreate ? 'facebook-group-input-wrap' : undefined}
+      className={isCreate ? 'facebook-group-form-input' : 'facebook-group-edit-input'}
+      containerClassName={isCreate ? undefined : 'facebook-group-edit-field'}
+      trailing={isCreate && name && onClearName ? (
+        <button
+          type="button"
+          className="facebook-group-input-clear"
+          title="Xóa tên nhóm"
+          aria-label="Xóa tên nhóm"
+          disabled={isSaving}
+          onClick={onClearName}
+        >
+          <CloseIcon />
+        </button>
+      ) : null}
+      onChange={onNameChange}
+    />
+  );
+
+  const renderCreateUrlField = () => (
+    <InputField
+      label="Link URL"
+      value={url}
+      maxLength={500}
+      placeholder="https://facebook.com/groups/..."
+      required
+      disabled={isSaving}
+      error={urlError ?? undefined}
+      inputWrapperClassName="facebook-group-input-wrap"
+      className="facebook-group-form-input"
+      trailing={url && onClearUrl ? (
+        <button
+          type="button"
+          className="facebook-group-input-clear"
+          title="Xóa link URL"
+          aria-label="Xóa link URL"
+          disabled={isSaving}
+          onClick={onClearUrl}
+        >
+          <CloseIcon />
+        </button>
+      ) : null}
+      onChange={onUrlChange ?? (() => undefined)}
+      onBlur={onUrlBlur}
+    />
+  );
+
+  const renderEditUrlField = () => (
+    <label>
+      <span className="facebook-group-field-label">Link URL</span>
+      {url ? (
+        <a className="facebook-group-edit-url" href={url} target="_blank" rel="noreferrer">{url}</a>
+      ) : (
+        <span className="facebook-group-edit-url is-empty">Chưa có URL</span>
+      )}
+    </label>
+  );
+
+  const renderFooter = () => (
+    <div className={isCreate ? 'facebook-group-create-footer' : 'form-actions'}>
+      <button type="button" className="text-button" disabled={isSaving} onClick={onCancel}>
+        {isCreate ? 'Hủy' : 'HỦY'}
+      </button>
+      <button
+        type="submit"
+        className={isCreate ? 'primary-button compact-button' : 'facebook-group-edit-save-button'}
+        disabled={isSaving}
+      >
+        <SaveIcon />
+        <span>{isSaving ? 'Đang lưu...' : isCreate ? 'Lưu' : 'LƯU'}</span>
+      </button>
+    </div>
+  );
+
   return (
     <div className={isCreate ? 'facebook-group-create-backdrop' : 'modal-backdrop'} role="presentation">
       <section
@@ -81,89 +165,15 @@ export function FacebookGroupFormModal({
             </p>
           ) : null}
 
-          <InputField
-            label="TÊN NHÓM"
-            value={name}
-            maxLength={255}
-            placeholder={isCreate ? 'Ví dụ: Việc làm IT Đà Nẵng' : 'Hội Dev Java VN'}
-            title={name || undefined}
-            required
-            disabled={isSaving}
-            error={nameError ?? undefined}
-            inputWrapperClassName={isCreate ? 'facebook-group-input-wrap' : undefined}
-            className={isCreate ? 'facebook-group-form-input' : 'facebook-group-edit-input'}
-            containerClassName={isCreate ? undefined : 'facebook-group-edit-field'}
-            trailing={isCreate && name && onClearName ? (
-              <button
-                type="button"
-                className="facebook-group-input-clear"
-                title="Xóa tên nhóm"
-                aria-label="Xóa tên nhóm"
-                disabled={isSaving}
-                onClick={onClearName}
-              >
-                <CloseIcon />
-              </button>
-            ) : null}
-            onChange={onNameChange}
-          />
+          {renderNameField()}
 
-          {isCreate ? (
-            <InputField
-              label="Link URL"
-              value={url}
-              maxLength={500}
-              placeholder="https://facebook.com/groups/..."
-              required
-              disabled={isSaving}
-              error={urlError ?? undefined}
-              inputWrapperClassName="facebook-group-input-wrap"
-              className="facebook-group-form-input"
-              trailing={url && onClearUrl ? (
-                <button
-                  type="button"
-                  className="facebook-group-input-clear"
-                  title="Xóa link URL"
-                  aria-label="Xóa link URL"
-                  disabled={isSaving}
-                  onClick={onClearUrl}
-                >
-                  <CloseIcon />
-                </button>
-              ) : null}
-              onChange={onUrlChange ?? (() => undefined)}
-              onBlur={onUrlBlur}
-            />
-          ) : (
-            <label>
-              <span className="facebook-group-field-label">Link URL</span>
-              {url ? (
-                <a className="facebook-group-edit-url" href={url} target="_blank" rel="noreferrer">
-                  {url}
-                </a>
-              ) : (
-                <span className="facebook-group-edit-url is-empty">Chưa có URL</span>
-              )}
-            </label>
-          )}
+          {isCreate ? renderCreateUrlField() : renderEditUrlField()}
 
           {isCreate ? (
             <small className="facebook-group-form-hint">Link trực tiếp đến trang chủ của nhóm Facebook.</small>
           ) : null}
 
-          <div className={isCreate ? 'facebook-group-create-footer' : 'form-actions'}>
-            <button type="button" className="text-button" disabled={isSaving} onClick={onCancel}>
-              {isCreate ? 'Hủy' : 'HỦY'}
-            </button>
-            <button
-              type="submit"
-              className={isCreate ? 'primary-button compact-button' : 'facebook-group-edit-save-button'}
-              disabled={isSaving}
-            >
-              <SaveIcon />
-              <span>{isSaving ? 'Đang lưu...' : isCreate ? 'Lưu' : 'LƯU'}</span>
-            </button>
-          </div>
+          {renderFooter()}
         </form>
       </section>
     </div>

@@ -2065,7 +2065,7 @@ dd {
   border-radius: 6px;
   padding: 6px;
   color: #2f2b3d;
-  background: rgba(47, 43, 61, 0.08);
+  background: #f1f5f9;
   font-family: Roboto, sans-serif;
   font-size: 12px;
   font-weight: 400;
@@ -2174,7 +2174,7 @@ dd {
   border-radius: 8px;
   padding: 4px 14px;
   color: #ffffff;
-  background: #059669;
+  background: #047857;
   font-family: Inter, sans-serif;
   font-size: 10px;
   font-weight: 600;
@@ -3301,19 +3301,6 @@ dd {
   color: #ffffff;
   background-color: #166534;
 }
-
-.facebook-group-edit-modal .modal-header {
-  align-items: center;
-}
-
-.facebook-group-edit-modal .modal-header h2 {
-  margin: 0;
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 700;
-  line-height: 20px;
-}
-
 
 .facebook-group-edit-modal .modal-header .icon-button {
   width: 20px;
@@ -5607,73 +5594,11 @@ dd {
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
 }
 
-.portal-sync-button {
-  min-height: 46px;
-  border-radius: 8px;
-  padding: 0 18px;
-  background: #12853f;
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.jd-list {
-  gap: 12px;
-}
-
-.jd-list li {
-  position: relative;
-  display: block;
-  border-color: #e0e6ef;
-  border-radius: 8px;
-  padding: 0;
-  background: #ffffff;
-  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
-}
-
-
 .jd-list li.is-selected {
   border-color: #16a34a;
   background: #dcfce7;
   box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.45) inset;
 }
-
-.jd-card-button {
-  position: relative;
-  width: 100%;
-  min-height: 112px;
-  border-radius: 8px;
-  padding: 16px 18px;
-}
-
-.jd-list h3 {
-  max-width: calc(100% - 120px);
-  margin: 0 0 10px;
-  color: #334155;
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 700;
-  line-height: 19.5px;
-  letter-spacing: 0;
-  vertical-align: middle;
-  text-transform: uppercase;
-}
-
-.jd-list p {
-  max-width: 80%;
-  margin: 0 0 10px;
-  color: #4b5563;
-  font-size: 12px;
-  font-style: normal;
-  font-weight: 400;
-  line-height: 15px;
-}
-
-.jd-list small {
-  color: #6b7280;
-  font-size: 12px;
-}
-
 
 .jd-status-badge {
   position: absolute;
@@ -8220,7 +8145,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   border-radius: 999px;
   padding: 5px 10px;
   color: #ffffff;
-  background: #36B110;
+  background: #047857;
   font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
@@ -8312,8 +8237,8 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   align-items: center;
   border-radius: 10px;
   padding: 0 22px;
-  color: #FF4C51;
-  background: var(--Color-Palette-error-opacity-light, #FF4C5129);
+  color: #b91c1c;
+  background: #fef2f2;
   font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
@@ -8382,9 +8307,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   background: #ffffff;
   color: inherit;
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.2);
-}
-
-.referral-modal * {
 }
 
 .referral-modal-header {
@@ -9368,39 +9290,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   vertical-align: middle;
 }
 
-.extension-tabs {
-  min-height: 36px;
-  padding: 0 9px;
-}
-
-.extension-tab {
-  height: 36px;
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 600;
-  font-style: normal;
-  line-height: 16px;
-  letter-spacing: 0;
-  text-align: center;
-  vertical-align: middle;
-}
-
-.extension-tab::after {
-  right: 0;
-  left: 0;
-  height: 2px;
-  border-radius: 0;
-}
-
-.extension-tab.is-active {
-  color: #118849;
-}
-
-.extension-tab.is-active::after {
-  background: #118849;
-}
-
-
 .extension-tab svg {
   width: 17.59px;
   height: 17.59px;
@@ -9471,6 +9360,8 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-weight: 950;
   text-transform: uppercase;
 }
+
+.cv-sync-amis-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -9620,17 +9511,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .cv-filter-option.is-selected {
   color: #1d4ed8;
   background: #dbeafe;
-}
-
-.cv-candidate-list {
-  gap: 12px;
-  max-height: none;
-  padding: 2px 0 18px;
-  overflow: visible;
-}
-
-.cv-candidate-list > li {
-  display: block;
 }
 
 .cv-candidate-card {

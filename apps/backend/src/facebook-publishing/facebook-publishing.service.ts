@@ -949,22 +949,41 @@ export class FacebookPublishingService {
   }
 
   async reportExtensionPublishResult(input: ReportFacebookPublishResultInput) {
-    if (input.targetId) {
-      try {
-        await this.findOwnedActiveGroup(input.ownerUserId, input.targetId, input.extensionInstanceId);
-      } catch (error) {
-        if (error instanceof BadRequestException) {
-          throw new BadRequestException({
-            code: 'VALIDATION_ERROR',
-            message: 'Request payload is invalid.',
-          });
-        }
-        throw error;
-      }
-    }
+    await this.validateReportedTarget(input);
+    const posting = await this.findPostingForPublishResult(input.jobPostingId);
+    const content = input.content?.trim() || this.contentService.build(posting);
+    const externalPost = this.parseFacebookGroupPostUrl(input.externalPostUrl);
+    const existingReservation = await this.findPublishReservation(input.reservationId);
+    this.assertReservationMatches(existingReservation, posting.id, input.targetId);
 
+    const history = existingReservation ?? this.createPublishHistory(input, posting, content, externalPost);
+    this.applyPublishResultToHistory(history, input, posting, content, externalPost);
+
+    const savedHistory = await this.historiesRepo.save(history);
+    await this.updatePostingStatusAfterPublishResult(posting, input.status);
+
+    return savedHistory;
+  }
+
+  private async validateReportedTarget(input: ReportFacebookPublishResultInput) {
+    if (!input.targetId) return;
+
+    try {
+      await this.findOwnedActiveGroup(input.ownerUserId, input.targetId, input.extensionInstanceId);
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Request payload is invalid.',
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async findPostingForPublishResult(jobPostingId: string) {
     const posting = await this.jobPostingsRepo.findOne({
-      where: { id: input.jobPostingId },
+      where: { id: jobPostingId },
       relations: [
         'jobDescription',
         'jobDescriptionVersion',
@@ -973,20 +992,32 @@ export class FacebookPublishingService {
       ],
     });
     if (!posting) throw new BadRequestException('Job posting not found');
+    return posting;
+  }
 
-    const content = input.content?.trim() || this.contentService.build(posting);
-    const externalPost = this.parseFacebookGroupPostUrl(input.externalPostUrl);
-    const existingReservation = input.reservationId
-      ? await this.historiesRepo.findOne({ where: { reservationId: input.reservationId } })
-      : null;
-    if (existingReservation && (
-      existingReservation.jobPostingId !== posting.id
-      || existingReservation.targetId !== (input.targetId ?? null)
-    )) {
-      throw new BadRequestException('Facebook publish reservation does not match the reported target.');
-    }
+  private async findPublishReservation(reservationId: string | null | undefined) {
+    if (!reservationId) return null;
+    return this.historiesRepo.findOne({ where: { reservationId } });
+  }
 
-    const history = existingReservation ?? this.historiesRepo.create({
+  private assertReservationMatches(
+    reservation: FacebookPublishHistoryEntity | null,
+    postingId: string,
+    targetId: string | null | undefined,
+  ) {
+    if (!reservation) return;
+    if (reservation.jobPostingId === postingId && reservation.targetId === (targetId ?? null)) return;
+
+    throw new BadRequestException('Facebook publish reservation does not match the reported target.');
+  }
+
+  private createPublishHistory(
+    input: ReportFacebookPublishResultInput,
+    posting: JobPostingEntity,
+    content: string,
+    externalPost: ReturnType<FacebookPublishingService['parseFacebookGroupPostUrl']>,
+  ) {
+    return this.historiesRepo.create({
       jobPostingId: posting.id,
       jobDescriptionId: posting.jobDescriptionId ?? null,
       jobDescriptionVersionId: posting.jobDescriptionVersionId ?? null,
@@ -999,11 +1030,7 @@ export class FacebookPublishingService {
       reservationId: null,
       reservationExpiresAt: null,
       status: input.status,
-      facebookReviewStatus: this.resolveFacebookReviewStatus(
-        input.status,
-        input.message,
-        input.facebookReviewStatus,
-      ),
+      facebookReviewStatus: this.resolveFacebookReviewStatus(input.status, input.message, input.facebookReviewStatus),
       message: input.message,
       errorReason: input.status === FacebookPublishResultStatus.SUCCESS ? null : input.message,
       externalPostId: externalPost?.postId ?? null,
@@ -1012,7 +1039,15 @@ export class FacebookPublishingService {
         ? input.submittedAt ?? new Date()
         : null,
     });
+  }
 
+  private applyPublishResultToHistory(
+    history: FacebookPublishHistoryEntity,
+    input: ReportFacebookPublishResultInput,
+    posting: JobPostingEntity,
+    content: string,
+    externalPost: ReturnType<FacebookPublishingService['parseFacebookGroupPostUrl']>,
+  ) {
     history.jobDescriptionId = posting.jobDescriptionId ?? null;
     history.jobDescriptionVersionId = posting.jobDescriptionVersionId ?? null;
     history.extensionInstanceId = input.extensionInstanceId ?? history.extensionInstanceId ?? null;
@@ -1021,11 +1056,7 @@ export class FacebookPublishingService {
     history.targetUrl = input.targetUrl ?? null;
     history.content = content;
     history.status = input.status;
-    history.facebookReviewStatus = this.resolveFacebookReviewStatus(
-      input.status,
-      input.message,
-      input.facebookReviewStatus,
-    );
+    history.facebookReviewStatus = this.resolveFacebookReviewStatus(input.status, input.message, input.facebookReviewStatus);
     history.message = input.message;
     history.errorReason = input.status === FacebookPublishResultStatus.SUCCESS ? null : input.message;
     history.externalPostId = externalPost?.postId ?? null;
@@ -1034,27 +1065,25 @@ export class FacebookPublishingService {
       ? input.submittedAt ?? new Date()
       : null;
     history.reservationExpiresAt = null;
+  }
 
-    const savedHistory = await this.historiesRepo.save(history);
-    if (
-      input.status === FacebookPublishResultStatus.SUCCESS
-      && posting.status !== JobPostingStatus.CLOSED
-      && posting.status !== JobPostingStatus.PUBLISHED
-    ) {
+  private async updatePostingStatusAfterPublishResult(
+    posting: JobPostingEntity,
+    status: FacebookPublishResultStatus,
+  ) {
+    if (posting.status === JobPostingStatus.CLOSED || posting.status === JobPostingStatus.PUBLISHED) return;
+
+    if (status === FacebookPublishResultStatus.SUCCESS) {
       posting.status = JobPostingStatus.PUBLISHED;
       if (!posting.openAt) posting.openAt = new Date();
       await this.jobPostingsRepo.save(posting);
+      return;
     }
-    if (
-      input.status === FacebookPublishResultStatus.FAILED
-      && posting.status !== JobPostingStatus.CLOSED
-      && posting.status !== JobPostingStatus.PUBLISHED
-    ) {
+
+    if (status === FacebookPublishResultStatus.FAILED) {
       posting.status = JobPostingStatus.PUBLISH_FAILED;
       await this.jobPostingsRepo.save(posting);
     }
-
-    return savedHistory;
   }
 
   async listExtensionGroupPublishHistories(input: ListFacebookPublishHistoriesInput) {

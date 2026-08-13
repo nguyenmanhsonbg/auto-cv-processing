@@ -12,6 +12,13 @@ type InputFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'onCha
   trailing?: ReactNode;
 };
 
+function getInputValidationError(label: string, value: string, touched: boolean, required: boolean, maxLength?: number) {
+  if (!touched) return undefined;
+  if (required && !value.trim()) return `${label} là bắt buộc, không được để trống`;
+  if (maxLength !== undefined && value.length > maxLength) return `Vui lòng nhập tối đa ${maxLength} ký tự`;
+  return undefined;
+}
+
 export function InputField({
   label,
   value,
@@ -30,13 +37,7 @@ export function InputField({
   const generatedId = useId();
   const [touched, setTouched] = useState(false);
   const inputId = inputProps.name ? `${inputProps.name}-${generatedId}` : generatedId;
-  const internalError = touched
-    ? required && !value.trim()
-      ? `${label} là bắt buộc, không được để trống`
-      : maxLength !== undefined && value.length > maxLength
-        ? `Vui lòng nhập tối đa ${maxLength} ký tự`
-        : undefined
-    : undefined;
+  const internalError = getInputValidationError(label, value, touched, required, maxLength);
   const displayedError = error || internalError;
 
   const handleChange: ChangeEventHandler<HTMLInputElement> = (event) => {
