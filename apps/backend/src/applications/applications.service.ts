@@ -1940,7 +1940,7 @@ export class ApplicationsService {
         : null;
     }
     if (source.internalEmail) {
-      const internal = await this.getInternalsService().resolveOrCreateActiveByEmail(
+      const internal = await this.getInternalsService().resolveActiveByEmail(
         source.internalEmail,
         manager,
       );
