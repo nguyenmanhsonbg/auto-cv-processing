@@ -19,4 +19,10 @@ export class ResolveFacebookAccountDto {
   @IsString()
   @MaxLength(2048)
   profileUrl?: string | null;
+
+  @ApiPropertyOptional({ example: 'https://scontent.fhan4-1.fna.fbcdn.net/v/t39.30808-6/...' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4096)
+  avatarUrl?: string | null;
 }

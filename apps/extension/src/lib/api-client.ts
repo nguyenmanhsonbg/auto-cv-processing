@@ -38,6 +38,7 @@ import type {
   FacebookPublishTarget,
   FacebookAccount,
   FacebookGroupSyncState,
+  FacebookPublishReservationPayload,
   FacebookPublishResultPayload,
   JobDescriptionQuestionSetContext,
   JobDescriptionSummary,
@@ -638,6 +639,17 @@ export async function reportFacebookPublishResult(
   });
 }
 
+export async function reserveFacebookPublishTarget(
+  accessToken: string,
+  payload: FacebookPublishReservationPayload,
+) {
+  return request<{ reservationId: string }>('/extension/facebook/publish-reservations', {
+    method: 'POST',
+    accessToken,
+    body: payload,
+  });
+}
+
 export async function listFacebookGroupPublishHistories(
   accessToken: string,
   targetId: string,
@@ -674,7 +686,12 @@ export async function updateFacebookPublishHistoryStatusCheck(
 
 export async function resolveFacebookAccount(
   accessToken: string,
-  payload: { facebookExternalId: string; displayName?: string | null; profileUrl?: string | null },
+  payload: {
+    facebookExternalId: string;
+    displayName?: string | null;
+    profileUrl?: string | null;
+    avatarUrl?: string | null;
+  },
 ) {
   return request<FacebookAccount>('/extension/facebook/accounts/resolve', {
     method: 'POST',

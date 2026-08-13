@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import type { ApplicationDetailRecord } from '@/lib/recruitment-api';
+import { formatRecruitmentDateTime } from '@/lib/date-time';
 
 interface ApplicationOverviewProps {
   application: ApplicationDetailRecord;
@@ -97,20 +98,6 @@ function statusClassName(status?: string | null) {
   }
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
 function valueOrDash(value?: string | number | null) {
   if (value === undefined || value === null || value === '') return '-';
   return String(value);
@@ -162,8 +149,8 @@ export function ApplicationOverview({ application }: ApplicationOverviewProps) {
           </div>
           <Separator />
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <DetailField label="Created" value={formatDate(application.createdAt)} />
-            <DetailField label="Updated" value={formatDate(application.updatedAt)} />
+            <DetailField label="Created" value={formatRecruitmentDateTime(application.createdAt)} />
+            <DetailField label="Updated" value={formatRecruitmentDateTime(application.updatedAt)} />
             <DetailField label="Mapping score" value={scoreLabel(application.mapping?.score)} />
             <DetailField label="AI score" value={scoreLabel(application.aiScreening?.score)} />
           </div>
@@ -217,7 +204,7 @@ export function ApplicationOverview({ application }: ApplicationOverviewProps) {
             <DetailField label="CV document" value={valueOrDash(cv?.currentCvDocumentId)} />
             <DetailField label="File name" value={valueOrDash(cv?.originalFileName)} />
             <DetailField label="Version" value={valueOrDash(cv?.versionNo)} />
-            <DetailField label="Updated" value={formatDate(cv?.createdAt)} />
+            <DetailField label="Updated" value={formatRecruitmentDateTime(cv?.createdAt)} />
           </CardContent>
         </Card>
       </div>

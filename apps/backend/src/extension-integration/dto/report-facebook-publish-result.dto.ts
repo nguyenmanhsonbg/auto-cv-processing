@@ -16,6 +16,11 @@ import {
 } from '../../facebook-publishing/facebook-publishing.types';
 
 export class ReportFacebookPublishResultDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  reservationId?: string | null;
+
   @ApiProperty()
   @IsUUID()
   jobPostingId: string;

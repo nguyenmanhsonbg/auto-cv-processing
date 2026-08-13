@@ -67,6 +67,12 @@ export class FacebookPublishHistoryEntity {
   @Column({ type: 'varchar', default: FacebookPublishResultStatus.PENDING })
   status: FacebookPublishResultStatus;
 
+  @Column({ name: 'reservation_id', type: 'uuid', nullable: true, unique: true })
+  reservationId: string | null;
+
+  @Column({ name: 'reservation_expires_at', type: 'timestamp', nullable: true })
+  reservationExpiresAt: Date | null;
+
   @Column({
     name: 'facebook_review_status',
     type: 'varchar',

@@ -1,7 +1,15 @@
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+
 :root {
+  --extension-control-border: #c5cdd9;
+  --extension-control-text: #253247;
+  --extension-control-surface: #ffffff;
+  --extension-control-focus: #0b805f;
   color: #172033;
   background: #f7f8fb;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .channel-subselection-items {
@@ -26,7 +34,6 @@
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   color: #334155;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 14px;
   font-weight: 400;
   line-height: 19.6px;
@@ -38,9 +45,12 @@
 }
 
 .channel-subselection-search input:focus {
+  outline: none;
+}
+
+.channel-subselection-search:focus-within {
   border-color: #059669;
-  outline: 2px solid rgba(5, 150, 105, 0.18);
-  outline-offset: 0;
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.18);
 }
 
 .channel-subselection-search-clear {
@@ -74,6 +84,73 @@
 body {
   margin: 0;
   min-width: 320px;
+}
+
+.input-field {
+  display: grid;
+  gap: 6px;
+}
+
+.input-field-label {
+  display: flex;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.input-field-required {
+  margin-left: 2px;
+  color: #ff0000;
+}
+
+.input-field-control {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #1e293b;
+  background: #ffffff;
+  outline: none;
+}
+
+.input-field-control-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.input-field-control-wrap > .input-field-control {
+  min-width: 0;
+  flex: 1;
+}
+
+.input-field-control-wrap.has-leading > .input-field-control {
+  padding-left: 36px;
+}
+
+.input-field-control-wrap.has-trailing > .input-field-control {
+  padding-right: 36px;
+}
+
+.input-field-control:focus {
+  border-color: #059669;
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.14);
+}
+
+.input-field-control.has-error,
+.input-field-control.has-error:focus {
+  border: 1px solid #ff0000;
+  box-shadow: none;
+}
+
+.input-field-error {
+  margin: 0;
+  color: #ff0000;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 button,
@@ -500,7 +577,6 @@ a {
   padding: 16px 16px 20px;
   background: #2b3f3a;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.24);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 .extension-toast-icon {
@@ -853,9 +929,9 @@ h2 {
   gap: 12px;
   align-items: flex-start;
   border: 1px solid #bdc9c2;
-  border-radius: 12px;
+  border-radius: 7px;
   padding: 17px;
-  background: #ffffff;
+  background: #fff;
   cursor: pointer;
 }
 
@@ -885,7 +961,6 @@ h2 {
 
 .career-question-title {
   color: #0b1c30;
-  font-family: Arial, sans-serif;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
@@ -1815,7 +1890,6 @@ dd {
 .facebook-group-modal .facebook-ineligible-modal-header h2 {
   margin: 0;
   color: #262626;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -1829,7 +1903,6 @@ dd {
   border-top: 1px solid #edf1f7;
   padding-top: 4px;
   color: #64748b;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -1877,7 +1950,6 @@ dd {
 
 .facebook-ineligible-modal-total span {
   color: #64748b;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -1908,7 +1980,6 @@ dd {
   padding: 0 16px;
   overflow: visible;
   color: #2f2b3d;
-  font-family: Roboto, sans-serif;
   font-size: 12px;
   font-weight: 400;
   line-height: 16.8px;
@@ -1929,7 +2000,6 @@ dd {
 
 .facebook-ineligible-modal-pagination-summary span {
   color: rgba(47, 43, 61, 0.9);
-  font-family: Roboto, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 400;
@@ -1978,7 +2048,6 @@ dd {
   padding: 6px;
   color: #2f2b3d;
   background: rgba(47, 43, 61, 0.08);
-  font-family: Roboto, sans-serif;
   font-size: 12px;
   font-weight: 400;
   letter-spacing: 0.4px;
@@ -2036,18 +2105,16 @@ dd {
 
 .facebook-ineligible-modal-copy strong {
   color: #1e293b;
-  font-family: Roboto, sans-serif;
   font-size: 13px;
   font-style: normal;
   font-weight: 700;
-  line-height: 19.5px;
+  line-height: 21px;
   overflow-wrap: anywhere;
 }
 
 .facebook-ineligible-modal-copy span {
   display: none;
   color: #64748b;
-  font-family: Roboto, sans-serif;
   font-size: 10px;
   font-style: normal;
   line-height: 15px;
@@ -2067,7 +2134,6 @@ dd {
   padding: 0;
   color: #059669;
   background: transparent;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-weight: 700;
   line-height: 16.5px;
@@ -2090,7 +2156,6 @@ dd {
   padding: 4px 14px;
   color: #ffffff;
   background: #059669;
-  font-family: Inter, sans-serif;
   font-size: 10px;
   font-weight: 600;
   line-height: 20px;
@@ -2293,7 +2358,7 @@ dd {
 .facebook-image-preview span {
   color: #64748b;
   font-size: 10px;
-  line-height: 1.2;
+  line-height: 2.2;
 }
 
 .facebook-image-error-row {
@@ -2351,7 +2416,6 @@ dd {
   padding: 10px 11px;
   color: #172033;
   background: #ffffff;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.5;
   outline: none;
@@ -2934,13 +2998,13 @@ dd {
 .facebook-group-modal {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(100%, 420px);
+  width: min(100%, 470px);
   max-height: calc(100vh - 32px);
   overflow: hidden;
   border: 1px solid #d8dee9;
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.24);
+  background: #fff;
+  box-shadow: 0 24px 64px #0f172a3d;
 }
 
 .facebook-group-modal.facebook-ineligible-modal {
@@ -2961,7 +3025,6 @@ dd {
 .facebook-group-edit-modal .modal-header h2 {
   margin: 0;
   color: #1e293b;
-  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-weight: 700;
   line-height: 20px;
@@ -2991,7 +3054,6 @@ dd {
 .facebook-group-edit-field > label,
 .facebook-group-edit-label {
   color: #334155;
-  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-weight: 700;
   line-height: 16px;
@@ -3016,7 +3078,6 @@ dd {
   padding: 8px 12px 9px;
   color: #6b7280;
   background: #ffffff;
-  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-weight: 400;
   line-height: 20px;
@@ -3035,7 +3096,6 @@ dd {
 .facebook-group-edit-url {
   display: block;
   color: #3578ff;
-  font-family: Inter, Arial, sans-serif;
   font-size: 11px;
   font-style: italic;
   font-weight: 400;
@@ -3067,7 +3127,6 @@ dd {
   min-height: 32px;
   padding: 8px 16px;
   color: #475569;
-  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.3px;
@@ -3086,7 +3145,6 @@ dd {
   color: #ffffff;
   background: #047857;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.3px;
@@ -3151,7 +3209,6 @@ dd {
 
 .facebook-group-settings-modal .modal-header h2 {
   margin: 0;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 700;
@@ -3195,7 +3252,6 @@ dd {
   flex: 1 1 140px;
   min-width: 0;
   margin: 0;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -3210,7 +3266,6 @@ dd {
 .facebook-group-settings-modal .modal-toolbar .secondary-button {
   color: #ffffff;
   background-color: #15803d;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -3228,7 +3283,6 @@ dd {
 
 .facebook-group-edit-modal .modal-header h2 {
   margin: 0;
-  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 700;
@@ -3264,7 +3318,6 @@ dd {
 
 .facebook-group-settings-modal .facebook-group-pagination > span {
   flex: 0 0 auto;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 400;
@@ -3304,7 +3357,6 @@ dd {
 
 #facebook-group-sync-details-title {
   margin: 0;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -3427,7 +3479,6 @@ dd {
   padding: 8px 38px 8px 14px;
   color: #334155;
   background: #ffffff;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 13px;
   line-height: 1.4;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
@@ -3561,13 +3612,12 @@ dd {
   border-radius: 6px;
   padding: 8px 9px 9px;
   background: #f8fafc;
-  font-family: Roboto, Arial, sans-serif;
   font-style: normal;
   font-weight: 700;
 }
 
 .facebook-group-modal .facebook-group-item.is-disabled {
-  background: #f8fafc;
+  background: #ffff;
 }
 
 .facebook-group-modal .facebook-group-info {
@@ -3582,11 +3632,10 @@ dd {
   color: #1e293b;
   font-size: 13px;
   font-weight: 700;
-  line-height: 19.5px;
+  line-height: 21.5px;
   overflow: hidden;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .facebook-group-modal .facebook-group-title-row {
@@ -3638,7 +3687,6 @@ dd {
 .facebook-group-modal .facebook-group-item .facebook-group-badge.is-danger {
   color: #dc2626;
   background: #fef2f2;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 9px;
   font-weight: 700;
   line-height: 13.5px;
@@ -3666,7 +3714,7 @@ dd {
   flex: 0 0 auto;
   font-size: 11px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 2.2;
 }
 
 .facebook-group-modal .facebook-group-open-link {
@@ -3709,7 +3757,18 @@ dd {
   place-items: center;
   border-radius: 6px;
   color: #475569;
-  background: #eef2f7;
+  background: transparent;
+}
+
+.group-icon-button-wrapper {
+  display: grid;
+  grid-column: 2 / -1;
+  grid-template-columns: repeat(3, 24px);
+  gap: 4px;
+  width: 80px;
+  height: 24px;
+  border-radius: 6px;
+  background: #f9fafb;
 }
 
 .group-icon-button svg {
@@ -3723,12 +3782,10 @@ dd {
 
 .group-icon-button:hover {
   color: #0f766e;
-  background: #d1fae5;
 }
 
 .group-icon-button.is-danger:hover {
   color: #b91c1c;
-  background: #fee2e2;
 }
 
 .facebook-group-empty {
@@ -3765,8 +3822,6 @@ dd {
 }
 
 .facebook-group-form label {
-  display: grid;
-  gap: 6px;
   color: #334155;
   font-size: 12px;
   font-weight: 800;
@@ -3788,6 +3843,16 @@ dd {
   border-color: #ef4444;
 }
 
+.facebook-group-form .input-field-error {
+  color: #dc2626;
+}
+
+.facebook-group-form-hint {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 16px;
+}
+
 .facebook-group-form input:focus {
   border-color: #0f766e;
   outline: 2px solid rgba(15, 118, 110, 0.16);
@@ -3800,7 +3865,6 @@ dd {
 
 .facebook-group-edit-modal .facebook-group-form label {
   color: #334155;
-  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -3815,7 +3879,6 @@ dd {
 
 .facebook-group-edit-modal .facebook-group-required-mark {
   color: #ff0004;
-  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
@@ -3823,7 +3886,6 @@ dd {
 
 .facebook-group-edit-modal .facebook-group-form input {
   color: #6b7280;
-  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -3832,7 +3894,6 @@ dd {
 
 .facebook-group-edit-modal .facebook-group-form input::placeholder {
   color: #94a3b8;
-  font-family: Inter, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -3840,7 +3901,6 @@ dd {
 }
 
 .facebook-group-edit-modal .form-actions button {
-  font-family: Inter, Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -3870,14 +3930,14 @@ dd {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   width: min(448px, 100%);
-  height: min(322px, 100%);
+  height: min(360px, 100%);
   max-width: 100%;
   max-height: 100%;
   overflow: hidden;
   border: 1px solid #d8dee9;
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  background: #fff;
+  box-shadow: 0 24px 64px #0f172a47;
 }
 
 .facebook-group-create-header {
@@ -3892,7 +3952,6 @@ dd {
 .facebook-group-create-header h2 {
   margin: 0;
   color: #172033;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 700;
@@ -3944,7 +4003,6 @@ dd {
 
 .facebook-group-create-modal .facebook-group-form label {
   color: #334155;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -3959,18 +4017,19 @@ dd {
 
 .facebook-group-create-modal .facebook-group-required-mark {
   color: #dc2626;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
 }
 
 .facebook-group-create-modal .facebook-group-form input {
-  font-family: Roboto, Arial, sans-serif;
+  overflow: hidden;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
   line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .facebook-group-create-modal .facebook-group-form {
@@ -4015,7 +4074,6 @@ dd {
 
 .facebook-group-create-modal .facebook-group-form input::placeholder {
   color: #94a3b8;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -4023,7 +4081,6 @@ dd {
 }
 
 .facebook-group-create-modal .facebook-group-create-footer button {
-  font-family: Roboto, Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -4672,7 +4729,6 @@ dd {
 .delete-group-modal .modal-header h2 {
   margin: 0;
   color: #172033;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
@@ -4709,7 +4765,6 @@ dd {
 }
 
 .delete-group-modal .form-actions button {
-  font-family: Roboto, Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -4750,8 +4805,8 @@ dd {
 
 .delete-group-modal .warning-icon svg {
   display: block;
-  width: 48px;
-  height: 48px;
+  width: 37px;
+  height: 32px;
 }
 
 .delete-copy {
@@ -4763,7 +4818,6 @@ dd {
 .delete-copy h3 {
   margin: 0;
   color: #172033;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
@@ -4773,7 +4827,6 @@ dd {
 .delete-copy p {
   margin: 0;
   color: #64748b;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -4793,7 +4846,6 @@ dd {
 
 .delete-target-preview span {
   color: #475569;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 10px;
   font-style: normal;
   font-weight: 700;
@@ -4801,7 +4853,6 @@ dd {
 
 .delete-target-preview strong {
   color: #172033;
-  font-family: Roboto, Arial, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 700;
@@ -4848,7 +4899,6 @@ dd {
 
 .extension-header-logo {
   color: #172033;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-weight: 700;
   font-style: normal;
@@ -4943,7 +4993,6 @@ dd {
   padding: 0 8px;
   color: #7b8596;
   background: transparent;
-  font-family: Inter, sans-serif;
   font-size: 12px;
   font-weight: 600;
   font-style: normal;
@@ -5292,7 +5341,6 @@ dd {
 
 .empty-panel-state strong {
   color: #263449;
-  font-family: Roboto, sans-serif;
   font-size: 13px;
   font-style: normal;
   font-weight: 700;
@@ -5385,7 +5433,6 @@ dd {
 }
 
 .extension-window .career-question-title {
-  font-family: Arial, sans-serif;
   font-size: 15px;
   font-style: normal;
   font-weight: 700;
@@ -5436,7 +5483,6 @@ dd {
 }
 
 .question-section-header h2 {
-  font-family: Inter, sans-serif;
   font-size: 18px;
   font-weight: 700;
   line-height: 28px;
@@ -5445,7 +5491,6 @@ dd {
 }
 
 .post-card-section > h2.job-description-panel-title {
-  font-family: Inter, sans-serif;
   font-weight: 700;
   font-size: 18px;
   line-height: 28px;
@@ -5482,7 +5527,6 @@ dd {
 
 .jd-status-filter > span {
   color: #172033;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-weight: 400;
   line-height: 1.2;
@@ -5550,7 +5594,6 @@ dd {
   border-radius: 8px;
   padding: 0 18px;
   background: #12853f;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
@@ -5588,7 +5631,6 @@ dd {
   max-width: calc(100% - 120px);
   margin: 0 0 10px;
   color: #334155;
-  font-family: Roboto, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 700;
@@ -5602,7 +5644,6 @@ dd {
   max-width: 80%;
   margin: 0 0 10px;
   color: #4b5563;
-  font-family: Roboto, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 400;
@@ -5620,7 +5661,6 @@ dd {
   right: 16px;
   min-width: 72px;
   padding: 7px 13px;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-weight: 500;
   line-height: 20px;
@@ -5654,7 +5694,6 @@ dd {
 }
 
 .jd-pagination-row > span {
-  font-family: Roboto, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 400;
@@ -5674,7 +5713,6 @@ dd {
   min-width: 20px;
   height: 36px;
   color: #4b5563;
-  font-family: Roboto, sans-serif;
   font-size: 12px;
   font-weight: 400;
   line-height: 140%;
@@ -5687,7 +5725,6 @@ dd {
   height: 36px;
   border-radius: 8px;
   padding: 0 10px;
-  font-family: Roboto, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 400;
@@ -5721,7 +5758,6 @@ dd {
   padding: 0 14px;
   background: #12853f;
   color: #ffffff;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 600;
@@ -5796,7 +5832,6 @@ dd {
   display: flex;
   gap: 8px;
   color: #2d2d2d;
-  font-family: Arial, sans-serif;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
@@ -5819,7 +5854,6 @@ dd {
 
 .extension-window .channel-section .section-title {
   color: #6b7280;
-  font-family: Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -5841,7 +5875,6 @@ dd {
 }
 
 .extension-window .channel-option-label span {
-  font-family: Roboto, Arial, sans-serif;
   font-size: 13px;
   font-style: normal;
   font-weight: 700;
@@ -5853,7 +5886,6 @@ dd {
 }
 
 .extension-window .channel-option.is-facebook .channel-option-label span {
-  font-family: Roboto, Arial, sans-serif;
   font-size: 13px;
   font-style: normal;
   font-weight: 700;
@@ -5908,21 +5940,18 @@ dd {
 }
 
 .extension-window .channel-option.is-facebook .channel-group-copy > span:first-child {
-  font-family: Arial, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 400;
 }
 
 .extension-window .channel-option.is-facebook .channel-subselection-title {
-  font-family: Arial, sans-serif;
   font-size: 10px;
   font-style: normal;
   font-weight: 700;
 }
 
 .extension-window .channel-option.is-facebook .channel-subselection-summary {
-  font-family: Arial, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 400;
@@ -5930,7 +5959,6 @@ dd {
 
 .extension-window .channel-option.is-facebook .facebook-ineligible-trigger {
   color: #4B5563;
-  font-family: Arial, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -5941,7 +5969,6 @@ dd {
   border: 1px solid #6ee7b7;
   border-radius: 4px;
   color: #047857;
-  font-family: Arial, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -6097,7 +6124,9 @@ dd {
 }
 
 .facebook-content-meta.is-preview {
+  grid-column: 1 / -1;
   padding: 0 12px 10px;
+  white-space: nowrap;
 }
 
 .visually-hidden {
@@ -6142,15 +6171,15 @@ dd {
   justify-content: space-between;
   gap: 16px;
   border-bottom: 1px solid #d8e0ea;
-  padding: 20px 24px;
-  background: #ffffff;
+  padding: 10px 30px 10px 12px;
+  background: #fff;
 }
 
 .facebook-preview-modal-header h2 {
   margin: 0;
   color: #0f172a;
-  font-size: 22px;
-  font-weight: 900;
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -6164,7 +6193,6 @@ dd {
   gap: 22px;
   overflow-y: auto;
   padding: 28px;
-  background: #edf4ff;
 }
 
 .facebook-post-preview-frame {
@@ -6191,6 +6219,8 @@ dd {
   width: 44px;
   height: 44px;
   place-items: center;
+  object-fit: cover;
+  overflow: hidden;
   border-radius: 999px;
   color: #ffffff;
   background: #059669;
@@ -6198,16 +6228,17 @@ dd {
   font-weight: 850;
 }
 
-.facebook-post-preview-header span:last-child {
+.facebook-post-preview-details {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
-.facebook-post-preview-header strong {
-  color: #0f172a;
+.facebook-post-preview-name {
+  color: #0b1c30;
   font-size: 16px;
-  font-weight: 900;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .facebook-post-preview-header small {
@@ -6218,7 +6249,7 @@ dd {
 
 .facebook-post-preview-content {
   color: #172033;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -6321,15 +6352,15 @@ dd {
 .facebook-preview-modal > .facebook-preview-modal-footer {
   grid-template-columns: repeat(3, auto);
   justify-content: end;
-  padding: 14px 24px;
+  padding: 14px 17px;
 }
 
 .facebook-preview-modal-footer button {
   min-height: 40px;
   border-radius: 8px;
   padding: 0 16px;
-  font-size: 13px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .facebook-preview-modal-footer button svg {
@@ -6338,13 +6369,14 @@ dd {
 }
 
 .facebook-composer-modal .facebook-preview-modal-footer {
-  grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.3fr);
+  display: flex;
+  justify-content: flex-end;
   padding: 20px 24px;
 }
 
 .facebook-composer-modal .facebook-preview-modal-footer button {
-  min-height: 56px;
-  font-size: 18px;
+  min-height: 40px;
+  font-size: 12px;
 }
 
 .facebook-composer-modal .facebook-preview-modal-footer button svg {
@@ -6359,6 +6391,10 @@ dd {
 
 .facebook-modal-secondary-button,
 .facebook-modal-primary-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   color: #ffffff;
   background: #047857;
 }
@@ -6386,33 +6422,36 @@ dd {
 .facebook-composer-section-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   color: #48554f;
-  font-size: 20px;
-  font-weight: 950;
+  font-size: 16px;
+  font-weight: 300;
   text-transform: uppercase;
 }
 
 .facebook-composer-section-title svg {
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   color: #48554f;
 }
 
 .facebook-composer-generate-button {
-  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
   border-radius: 10px;
-  padding: 0 26px;
+  padding: 0 20px;
   background: #058763;
-  color: #ffffff;
-  font-size: 20px;
-  font-weight: 950;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .facebook-composer-generate-button svg {
-  width: 24px;
-  height: 24px;
+  width: 16px;
+  height: 16px;
 }
 
 .facebook-composer-textarea-wrap {
@@ -6425,18 +6464,17 @@ dd {
   border-color: #b7c4bb;
   border-radius: 8px;
   padding: 20px 22px 44px;
-  font-family: inherit;
-  font-size: 20px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
 .facebook-composer-textarea-wrap > span:last-child {
   position: absolute;
-  right: 14px;
+  right: 20px;
   bottom: 12px;
   color: #6b7280;
   background: rgba(255, 255, 255, 0.86);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -6446,8 +6484,8 @@ dd {
 
 .facebook-composer-image-heading > span {
   color: #6b7280;
-  font-size: 18px;
-  font-weight: 750;
+  font-size: 16px;
+  font-weight: 400;
 }
 
 .facebook-composer-image-library {
@@ -6498,15 +6536,14 @@ dd {
 .facebook-composer-image-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 24px;
 }
 
 .facebook-composer-image-card,
 .facebook-composer-add-image-tile {
   position: relative;
   display: grid;
-  aspect-ratio: 1.35 / 1;
-  min-height: 112px;
+  min-height: 100px;
   border-radius: 10px;
   overflow: hidden;
 }
@@ -6537,7 +6574,7 @@ dd {
 }
 
 .facebook-composer-image-remove svg {
-  width: 14px;
+  width: 12px;
   height: 14px;
 }
 
@@ -6829,9 +6866,9 @@ dd {
   align-items: center;
   min-height: 40px;
   overflow: hidden;
-  border: 1px solid #c5cdd9;
+  border: 1px solid var(--extension-control-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--extension-control-surface);
 }
 
 .freelancer-password-input-shell.has-error {
@@ -6844,7 +6881,7 @@ dd {
   height: 38px;
   flex: 0 0 52px;
   place-items: center;
-  border-right: 1px solid #c5cdd9;
+  border-right: 1px solid var(--extension-control-border);
   color: #747474;
 }
 
@@ -6860,14 +6897,16 @@ dd {
   flex: 1;
   border: 0;
   padding: 8px 14px;
-  color: #253247;
-  background: #fff;
-  font: 400 14px/1.2 Inter, sans-serif;
+  color: var(--extension-control-text);
+  background: var(--extension-control-surface);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.2;
 }
 
 .freelancer-password-input-shell input:focus {
   outline: 0;
-  box-shadow: inset 0 0 0 1px #0b805f;
+  box-shadow: inset 0 0 0 1px var(--extension-control-focus);
 }
 
 .freelancer-password-toggle {
@@ -6966,7 +7005,6 @@ dd {
 
 .freelancer-cv-identity em {
   color: #738093;
-  font-family: Inter, sans-serif;
   font-size: 13px;
   font-style: italic;
   font-weight: 300;
@@ -6975,7 +7013,6 @@ dd {
 .freelancer-cv-eyebrow {
   display: block;
   color: #718096;
-  font-family: Inter, sans-serif;
   font-style: normal;
   font-weight: 400;
   font-size: 14px;
@@ -7040,7 +7077,6 @@ dd {
 .referral-filter-row label,
 .referral-jd-filter-label,
 .post-history-filter-row label {
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7051,10 +7087,10 @@ dd {
   display: flex;
   align-items: center;
   min-height: 37px;
-  border: 1px solid #c5cdd9;
+  border: 1px solid var(--extension-control-border);
   border-radius: 8px;
   padding: 0 10px;
-  background: #fff;
+  background: var(--extension-control-surface);
 }
 
 .shared-filter-search input {
@@ -7064,7 +7100,7 @@ dd {
   outline: 0;
   padding: 0 0 0 8px;
   background: transparent;
-  color: #253247;
+  color: var(--extension-control-text);
   font: inherit;
 }
 
@@ -7086,12 +7122,11 @@ dd {
 .shared-filter-field select,
 .shared-filter-field input {
   min-width: 0;
-  border: 1px solid #c5cdd9;
+  border: 1px solid var(--extension-control-border);
   border-radius: 8px;
   padding: 9px 10px;
-  background: #fff;
-  color: #253247;
-  font-family: Inter, sans-serif;
+  background: var(--extension-control-surface);
+  color: var(--extension-control-text);
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7148,7 +7183,6 @@ dd {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7267,7 +7301,6 @@ dd {
 
 .shared-filter-multi-select-label {
   color: #536074;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7285,7 +7318,6 @@ dd {
   display: grid;
   gap: 5px;
   color: #4b5563;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7308,7 +7340,6 @@ dd {
 .freelancer-cv-toolbar .shared-filter-field select,
 .freelancer-cv-toolbar .shared-filter-field input,
 .freelancer-cv-toolbar .shared-filter-search input {
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7454,7 +7485,6 @@ dd {
   padding: 10px;
   color: #64696E;
   text-align: left;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
@@ -7557,13 +7587,12 @@ dd {
 
   .facebook-preview-modal-footer,
   .facebook-composer-modal .facebook-preview-modal-footer {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 14px;
+    padding: 12px 29px;
   }
 
   .facebook-composer-textarea {
     min-height: 320px;
-    font-size: 16px;
+    font-size: 14px;
   }
 }
 
@@ -7672,10 +7701,10 @@ dd {
   align-items: center;
   gap: 9px;
   min-height: 40px;
-  border: 1px solid #c5cdd9;
+  border: 1px solid var(--extension-control-border);
   border-radius: 8px;
   padding: 0 11px;
-  background: #ffffff;
+  background: var(--extension-control-surface);
 }
 
 .referral-search-field input {
@@ -7685,8 +7714,7 @@ dd {
   padding: 0;
   outline: 0;
   background: transparent;
-  color: #253247;
-  font-family: Inter, sans-serif;
+  color: var(--extension-control-text);
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7746,7 +7774,6 @@ dd {
   gap: 4px;
   min-width: 0;
   color: #536074;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7754,7 +7781,6 @@ dd {
 }
 
 .referral-filter-row label > span {
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7772,16 +7798,15 @@ dd {
 .referral-modal input {
   width: 100%;
   min-height: 38px;
-  border: 1px solid #c5cdd9;
+  border: 1px solid var(--extension-control-border);
   border-radius: 7px;
   padding: 0 10px;
-  background: #ffffff;
+  background: var(--extension-control-surface);
   color: #263449;
   outline: 0;
 }
 
 .referral-filter-row select {
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7809,11 +7834,13 @@ dd {
   justify-content: space-between;
   gap: 8px;
   border: 1px solid #c5cdd9;
-  border-radius: 12px;
+  border-radius: 7px;
   padding: 0 10px;
   color: #263449;
-  background: #ffffff;
-  font: 400 14px/20px Inter, sans-serif;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
   text-align: left;
 }
 
@@ -7859,7 +7886,9 @@ dd {
   padding: 0 10px;
   color: #263449;
   background: #ffffff;
-  font: 400 14px/20px Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
   text-align: left;
 }
 
@@ -7899,7 +7928,9 @@ dd {
   padding: 0 8px;
   color: #536074;
   background: transparent;
-  font: 400 14px/20px Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
   text-align: left;
 }
 
@@ -7937,7 +7968,9 @@ dd {
   padding: 0 12px;
   color: #536074;
   background: transparent;
-  font: 400 14px/20px Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
   text-align: left;
 }
 
@@ -8020,7 +8053,6 @@ dd {
   border: 0;
   border-radius: 7px;
   padding: 0 14px;
-  font-family: Inter, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -8075,7 +8107,6 @@ dd {
   display: block;
   min-height: 0;
   padding: 10px;
-  font-family: Roboto, sans-serif !important;
   font-size: 14px;
   font-style: normal;
   font-weight: 500;
@@ -8125,7 +8156,6 @@ dd {
 .referral-person-identity h3 {
   margin: 0;
   color: #0B1C30;
-  font-family: Inter, sans-serif;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
@@ -8156,7 +8186,6 @@ dd {
   align-items: center;
   gap: 4px;
   color: #344258;
-  font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 400;
@@ -8200,7 +8229,6 @@ dd {
   padding: 4px 8px;
   color: #08783b;
   background: #e7f8ee;
-  font-family: Inter, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 500;
@@ -8249,7 +8277,6 @@ dd {
   padding: 5px 10px;
   color: #ffffff;
   background: #36B110;
-  font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 500;
@@ -8342,7 +8369,6 @@ dd {
   padding: 0 22px;
   color: #FF4C51;
   background: var(--Color-Palette-error-opacity-light, #FF4C5129);
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -8407,11 +8433,9 @@ dd {
   border-radius: 9px;
   background: #ffffff;
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.2);
-  font-family: Inter, sans-serif;
 }
 
 .referral-modal * {
-  font-family: Inter, sans-serif;
 }
 
 .referral-modal-header {
@@ -8516,7 +8540,6 @@ dd {
 .referral-field-error {
   margin-top: 2px;
   color: #dc2626;
-  font-family: Inter, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 400;
@@ -8533,7 +8556,6 @@ dd {
 }
 
 .referral-identifier-preview-text {
-  font-family: Inter, sans-serif;
   font-style: normal;
 }
 
@@ -9054,13 +9076,6 @@ dd {
   padding-top: 16px;
 }
 
-.cv-candidate-select input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: #007a5a;
-}
-
 .cv-candidate-card {
   display: grid;
   gap: 9px;
@@ -9399,7 +9414,6 @@ dd {
 
 .extension-header .text-button {
   color: #dc2626;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-weight: 700;
   font-style: normal;
@@ -9416,7 +9430,6 @@ dd {
 .extension-tab {
   height: 36px;
   color: #6b7280;
-  font-family: Inter, sans-serif;
   font-size: 12px;
   font-weight: 600;
   font-style: normal;
@@ -9545,7 +9558,6 @@ dd {
 }
 
 .cv-bulk-sync-button {
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -9582,7 +9594,6 @@ dd {
   gap: 7px;
   min-width: 0;
   color: var(--Theme-text-primary, #2F2B3DE5);
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -9594,7 +9605,6 @@ dd {
 }
 
 .cv-filter-label {
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -9614,7 +9624,6 @@ dd {
   padding: 0 12px;
   color: #374151;
   background: #ffffff;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -9626,7 +9635,6 @@ dd {
 .referral-jd-select-trigger,
 .post-history-filter-row select,
 .jd-status-filter select {
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -9671,7 +9679,6 @@ dd {
   border-radius: 6px;
   color: #4b5563;
   background: #ffffff;
-  font-family: Roboto, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -9722,12 +9729,6 @@ dd {
   padding-top: 0;
 }
 
-.cv-candidate-select input {
-  width: 17px;
-  height: 17px;
-  accent-color: #008a4a;
-}
-
 .cv-avatar {
   width: 50px;
   height: 50px;
@@ -9746,7 +9747,6 @@ dd {
 
 .cv-candidate-main strong {
   color: #0f1f33;
-  font-family: Roboto, sans-serif;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
@@ -9754,7 +9754,6 @@ dd {
 
 .cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
   color: #6b7280;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 400;
@@ -9762,7 +9761,6 @@ dd {
 
 .cv-candidate-main .cv-candidate-applied-date {
   color: #404040;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 400;
@@ -9783,7 +9781,7 @@ dd {
 
 .cv-candidate-meta strong,
 .cv-candidate-meta span {
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .cv-candidate-source {
@@ -9791,7 +9789,6 @@ dd {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 400;
@@ -9920,7 +9917,6 @@ dd {
 
 .cv-list-toolbar-heading > span {
   color: #3E4943;
-  font-family: Roboto, sans-serif;
   font-size: 13px;
   font-style: normal;
   font-weight: 700;
@@ -9932,7 +9928,6 @@ dd {
   align-items: center;
   gap: 7px;
   color: #4b5563;
-  font-family: Roboto, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -9967,20 +9962,50 @@ dd {
 
 .cv-candidate-select input,
 .cv-select-all-control input {
+  appearance: none;
   width: 17px;
   height: 17px;
   margin: 0;
-  accent-color: #008a4a;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background-color: #ffffff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.cv-candidate-select input {
+  background-color: #E4E4E4;
+  border: 1px solid #D1D5DB;
+}
+
+.cv-candidate-select input::after,
+.cv-select-all-control input::after {
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+  content: '';
+  opacity: 0;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+.cv-candidate-select input:checked,
+.cv-select-all-control input:checked {
+  border-color: #008a4a;
+  background-color: #008a4a;
+}
+
+.cv-candidate-select input:checked::after,
+.cv-select-all-control input:checked::after {
+  opacity: 1;
 }
 
 .cv-avatar {
   width: 50px;
   height: 50px;
   border: 2px solid #dbe3ec;
-  color: #ffffff;
-  background:
-    radial-gradient(circle at 35% 28%, #ffe1c7 0 14%, transparent 15%),
-    linear-gradient(145deg, #29435f, #0f766e);
+  color: #fff;
   font-size: 12px;
 }
 
@@ -10035,7 +10060,6 @@ dd {
   justify-items: center;
   gap: 7px;
   color: #374151;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 500;
@@ -10149,7 +10173,6 @@ dd {
   border: 0;
   color: #ffffff;
   content: '\00d7';
-  font-family: Arial, sans-serif;
   font-size: 14px;
   font-weight: 700;
   line-height: 1;
@@ -10174,7 +10197,6 @@ dd {
   border-radius: 6px;
   background: #fef2f2;
   color: #991b1b;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   line-height: 16px;
 }
@@ -10192,7 +10214,6 @@ dd {
 .cv-candidate-recruiter {
   grid-area: recruiter;
   color: #0b1c30;
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -10261,21 +10282,13 @@ dd {
   width: fit-content;
   align-items: center;
   border-radius: 999px;
-  padding: 6px 11px;
-  color: #ffffff;
+  padding: 6px 16px;
+  color: #fff;
   background: #3f82e8;
-  font-family: Pretendard, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 500;
-  line-height: 140%;
   letter-spacing: 0;
-  text-align: center;
-  vertical-align: middle;
-}
-
-.cv-candidate-meta .cv-source-chip {
-  font-weight: 500;
 }
 
 .cv-candidate-detail-status strong {
@@ -10289,7 +10302,6 @@ dd {
 .cv-candidate-detail-status,
 .cv-candidate-detail-status small,
 .cv-candidate-detail-status strong {
-  font-family: Roboto, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -10330,7 +10342,6 @@ dd {
   gap: 6px;
   min-width: 0;
   color: #475569;
-  font-family: Inter, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 500;
@@ -10342,7 +10353,6 @@ dd {
 }
 
 .cv-candidate-note > span:not(.cv-candidate-note-label) {
-  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -10356,7 +10366,6 @@ dd {
   padding: 0 17px;
   color: #3e5e4d;
   background: #effff5;
-  font-family: Roboto, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -10365,7 +10374,6 @@ dd {
 }
 
 .cv-candidate-footer .cv-sync-amis-button {
-  font-family: Roboto, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 700;
@@ -10455,16 +10463,6 @@ dd {
   }
 }
 
-.extension-window,
-.extension-window * {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-.extension-window .jd-toolbar,
-.extension-window .jd-toolbar * {
-  font-family: Roboto, sans-serif;
-}
-
 .extension-login-card.extension-auth-form > label {
   display: grid;
   gap: 11px;
@@ -10476,4 +10474,32 @@ dd {
   border-radius: 0;
   padding: 0 0 28px;
   background: #ffffff;
+}
+
+/* Keep focus feedback to a single border without stacked outlines or glows. */
+input:not([type='checkbox']):not([type='radio']):not([type='file']):focus,
+select:focus,
+textarea:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+:where(
+  .channel-subselection-search,
+  .extension-input-shell,
+  .facebook-group-input-wrap,
+  .shared-filter-search,
+  .referral-search-field,
+  .freelancer-password-input-shell,
+  .input-field-control-wrap
+):focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Keep the extension UI typography consistent across all components. */
+*,
+*::before,
+*::after {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
