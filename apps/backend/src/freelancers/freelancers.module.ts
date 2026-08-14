@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { UserEntity } from '../auth/entities/user.entity';
+import { InternalEntity } from '../internals/entities/internal.entity';
 import { CvDocumentsModule } from '../cv-documents/cv-documents.module';
 import { FreelancersController } from './freelancers.controller';
 import { FreelancersService } from './freelancers.service';
@@ -18,6 +19,7 @@ import { FreelancerEntity } from './entities/freelancer.entity';
       FreelancerEntity,
       FreelancerIdentifierCounterEntity,
       UserEntity,
+      InternalEntity,
     ]),
   ],
   controllers: [FreelancersController],
