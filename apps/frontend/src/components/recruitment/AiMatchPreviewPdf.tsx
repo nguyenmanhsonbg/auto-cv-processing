@@ -76,7 +76,7 @@ function projectIdentity(project: ProjectLike) {
 
 function projectDateRange(project: ProjectLike) {
   if (project.startYear == null && project.endYear == null) return '';
-  return ` (${project.startYear ?? '?'} - ${project.endYear == null ? 'present' : project.endYear})`;
+  return ` (${project.startYear ?? '?'} - ${project.endYear ?? 'present'})`;
 }
 
 function formatSignalItem(label: string, projectSize?: string | null) {
@@ -175,7 +175,7 @@ function WorkCard({ entry, companyType }: { entry: WorkExperience; companyType?:
 }
 
 function ProjectCard({ project }: { project: NonNullable<ParsedProfile['projects']>[number] }) {
-  return <View style={styles.card} wrap={false}><View style={{ flexDirection: 'row', alignItems: 'center' }}><Text style={{ ...styles.cardTitle, flex: 1 }}>{project.name}{project.role ? ` - ${project.role}` : ''}</Text>{project.startYear != null || project.endYear != null ? <Text style={styles.muted}>{project.startYear ?? '?'} - {project.endYear == null ? 'present' : project.endYear}</Text> : null}</View>{project.projectType && <Text style={styles.muted}>Project type: {project.projectType}</Text>}{projectTechstack(project.techstack).length ? <Text style={styles.tagLine}>Technologies: {projectTechstack(project.techstack).join(', ')}</Text> : null}{project.description && <Text style={{ marginTop: 4 }}>{project.description}</Text>}{stableKeyedItems(list(project.responsibilities), (item) => item, 'side-project').map(({ item, key }) => <Text key={key} style={styles.bullet}>- {item}</Text>)}{stableKeyedItems(list(project.achievements), (item) => item, 'side-achievement').map(({ item, key }) => <Text key={key} style={styles.bullet}>- {item}</Text>)}</View>;
+  return <View style={styles.card} wrap={false}><View style={{ flexDirection: 'row', alignItems: 'center' }}><Text style={{ ...styles.cardTitle, flex: 1 }}>{project.name}{project.role ? ` - ${project.role}` : ''}</Text>{project.startYear != null || project.endYear != null ? <Text style={styles.muted}>{project.startYear ?? '?'} - {project.endYear ?? 'present'}</Text> : null}</View>{project.projectType && <Text style={styles.muted}>Project type: {project.projectType}</Text>}{projectTechstack(project.techstack).length ? <Text style={styles.tagLine}>Technologies: {projectTechstack(project.techstack).join(', ')}</Text> : null}{project.description && <Text style={{ marginTop: 4 }}>{project.description}</Text>}{stableKeyedItems(list(project.responsibilities), (item) => item, 'side-project').map(({ item, key }) => <Text key={key} style={styles.bullet}>- {item}</Text>)}{stableKeyedItems(list(project.achievements), (item) => item, 'side-achievement').map(({ item, key }) => <Text key={key} style={styles.bullet}>- {item}</Text>)}</View>;
 }
 
 function SignalPdfRow({ label, ok, value, evidence }: { label: string; ok?: boolean; value?: string | null; evidence?: string | null }) {
@@ -234,7 +234,7 @@ function riskStyle(severity?: string | null) {
   return { color: '#475569', backgroundColor: '#f8fafc', borderColor: '#e2e8f0' };
 }
 
-function RiskAssessment({ anomalyDetection, risks }: { anomalyDetection?: ProfileAnomalyDetection; risks: ApplicationAiScreeningSummary['risks'] }) {
+function RiskAssessment({ anomalyDetection, risks }: Readonly<{ anomalyDetection?: ProfileAnomalyDetection; risks: ApplicationAiScreeningSummary['risks'] }>) {
   if (!anomalyDetection && !risks?.length) return null;
   const keyedRisks = stableKeyedItems(risks ?? [], (risk) => `${risk.title ?? ''}|${risk.severity ?? ''}|${risk.evidence ?? ''}`, 'risk');
   return <View style={styles.sectionCard}><View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7, borderBottomWidth: 1, borderBottomColor: '#cbd5e1', paddingBottom: 4 }}><Text style={{ ...styles.sectionTitle, marginBottom: 0, borderBottomWidth: 0, paddingBottom: 0 }}>AI Risk &amp; Anomaly Assessment</Text>{anomalyDetection && <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}><Text style={{ color: '#475569', fontSize: 8, marginRight: 4 }}>Risk level:</Text><Text style={{ fontSize: 8, fontWeight: 700, color: '#c2410c', backgroundColor: '#fff7ed', borderColor: '#fed7aa', borderWidth: 1, borderRadius: 3, paddingVertical: 2, paddingHorizontal: 6 }}>{anomalyDetection.riskLevel.toUpperCase()}</Text></View>}</View>{anomalyDetection && <AnomalySection anomaly={anomalyDetection} />}{keyedRisks.map(({ item: risk, key }, index) => { const palette = riskStyle(risk.severity); return <View key={key} style={styles.card} wrap={false}><View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: risk.evidence ? 3 : 0 }}><Text style={{ ...styles.cardTitle, flex: 1, marginBottom: 0, marginRight: 8 }}>{risk.title ?? `Risk ${index + 1}`}</Text>{risk.severity && <Text style={{ fontSize: 8, fontWeight: 700, color: palette.color, backgroundColor: palette.backgroundColor, borderColor: palette.borderColor, borderWidth: 1, borderRadius: 3, paddingVertical: 2, paddingHorizontal: 6 }}>{risk.severity.toUpperCase()}</Text>}</View>{risk.evidence && <Text>{risk.evidence}</Text>}</View>; })}</View>;

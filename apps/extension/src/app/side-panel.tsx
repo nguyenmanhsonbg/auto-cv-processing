@@ -5554,14 +5554,17 @@ function SidePanel() {
           </details>
         ) : null}
         {filteredFacebookGroups.length > 0 ? (
-          filteredFacebookGroups.map((group, index) => (
+          filteredFacebookGroups.map((group, index) => {
+            const checkboxId = `facebook-group-checkbox-${group.key}-${index}`;
+            return (
             <div
               key={`${group.key}-${index}`}
               className={`channel-subselection-item${!group.selectable ? ' is-disabled' : ''}`}
               title={!group.selectable ? group.disabledReason ?? undefined : undefined}
             >
-              <label className="channel-group-select">
+              <label className="channel-group-select" htmlFor={checkboxId}>
                 <input
+                  id={checkboxId}
                   type="checkbox"
                   checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
                   disabled={!group.id || !group.selectable}
@@ -5589,7 +5592,8 @@ function SidePanel() {
                 <HistoryIcon />
               </button>
             </div>
-          ))
+            );
+          })
         ) : renderFacebookGroupListEmptyState()}
       </>
     );
@@ -6948,7 +6952,7 @@ function SidePanel() {
                     </button>
                   ) : (
                     <span
-                      key={`facebook-group-ellipsis-${page}`}
+                      key={`facebook-group-ellipsis-${String(page)}`}
                       className="facebook-group-pagination-ellipsis"
                       aria-hidden="true"
                     >

@@ -131,7 +131,7 @@ function deriveProjects(entry: WorkExperience): NonNullable<WorkExperience['proj
 function projectPeriod(project: NonNullable<WorkExperience['projects']>[number]) {
   if (project.startYear == null && project.endYear == null) return '';
   const startYear = project.startYear ?? '?';
-  const endYear = project.endYear == null ? 'present' : project.endYear;
+  const endYear = project.endYear ?? 'present';
   return ` (${startYear} - ${endYear})`;
 }
 
@@ -333,7 +333,7 @@ function WorkExperienceSection({
   </View>;
 }
 
-function SideProjectsSection({ projects }: { projects: ParsedProfile['projects'] }) {
+function SideProjectsSection({ projects }: Readonly<{ projects: ParsedProfile['projects'] }>) {
   if (!projects?.length) return null;
   return <View style={styles.sectionCard}>
     <Text style={styles.sectionTitle}>Side Projects</Text>

@@ -40,7 +40,7 @@ export function FacebookGroupFormModal({
   onSubmit,
   onCancel,
   onClose,
-}: FacebookGroupFormModalProps) {
+}: Readonly<FacebookGroupFormModalProps>) {
   const isCreate = mode === 'create';
   const modalClassName = isCreate
     ? 'facebook-group-create-modal'

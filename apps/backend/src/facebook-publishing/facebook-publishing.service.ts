@@ -174,9 +174,9 @@ export class FacebookPublishingService {
     }
     const facebookExternalId = this.requireText(input.facebookExternalId, 'facebookExternalId');
     const now = new Date();
-    const hasDisplayName = Object.prototype.hasOwnProperty.call(input, 'displayName');
-    const hasProfileUrl = Object.prototype.hasOwnProperty.call(input, 'profileUrl');
-    const hasAvatarUrl = Object.prototype.hasOwnProperty.call(input, 'avatarUrl');
+    const hasDisplayName = Object.hasOwn(input, 'displayName');
+    const hasProfileUrl = Object.hasOwn(input, 'profileUrl');
+    const hasAvatarUrl = Object.hasOwn(input, 'avatarUrl');
     const normalizedProfileUrl = this.normalizeFacebookProfileUrl(input.profileUrl, facebookExternalId);
     const normalizedAvatarUrl = this.normalizeFacebookAvatarUrl(input.avatarUrl);
     const normalizedDisplayName = hasDisplayName
@@ -1075,7 +1075,7 @@ export class FacebookPublishingService {
 
     if (status === FacebookPublishResultStatus.SUCCESS) {
       posting.status = JobPostingStatus.PUBLISHED;
-      if (!posting.openAt) posting.openAt = new Date();
+      posting.openAt ??= new Date();
       await this.jobPostingsRepo.save(posting);
       return;
     }

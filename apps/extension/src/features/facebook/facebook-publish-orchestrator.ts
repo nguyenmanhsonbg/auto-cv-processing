@@ -3728,22 +3728,39 @@ function checkFacebookLoginInPage(): FacebookLoginCheckResult {
 }
 
 function readFacebookProfileIdentityInPage(): FacebookProfileIdentityProbe {
+  const stripFacebookPageSuffix = (input: string) => {
+    const lowerInput = input.toLowerCase();
+    const facebookIndex = lowerInput.indexOf('facebook');
+    if (facebookIndex >= 0) {
+      const prefix = input.slice(0, facebookIndex).trimEnd();
+      const separator = prefix.slice(-1);
+      if (separator === '|' || separator === '•' || separator === '-') {
+        return prefix.slice(0, -1).trim();
+      }
+    }
+
+    const onFacebookSuffix = ' on facebook';
+    if (lowerInput.endsWith(onFacebookSuffix)) {
+      return input.slice(0, -onFacebookSuffix.length).trim();
+    }
+    return input;
+  };
   const normalize = (value: string | null | undefined) => {
     const normalized = value
       ?.replace(/\s+/g, ' ')
-      .replace(/\s*[|•-]\s*Facebook.*$/i, '')
-      .replace(/\s+on Facebook$/i, '')
       .replace(/^(?:Dòng thời gian của|Đồng thời gian của|Timeline of)\s+/i, '')
       .trim() ?? '';
     if (!normalized || normalized.length > 100) return null;
-    const comparable = normalized
+    const withoutFacebookSuffix = stripFacebookPageSuffix(normalized);
+    if (!withoutFacebookSuffix) return null;
+    const comparable = withoutFacebookSuffix
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
     if (/^(facebook|profile|log in|login|home|trang\s+chu|thong\s+bao|notification|\(\d+\)\s*facebook)$/i.test(comparable)) {
       return null;
     }
-    return normalized;
+    return withoutFacebookSuffix;
   };
 
   const openGraphTitle = normalize(document.querySelector('meta[property="og:title"]')?.getAttribute('content'));
@@ -6785,7 +6802,7 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
       return null;
     }
 
-    const groupPathMatch = parsedUrl.pathname.match(/^\/groups\/([^/]+)/i);
+    const groupPathMatch = /^\/groups\/([^/]+)/i.exec(parsedUrl.pathname);
     const encodedGroupId = groupPathMatch?.[1];
     return encodedGroupId ? decodeURIComponent(encodedGroupId).trim() : null;
   };

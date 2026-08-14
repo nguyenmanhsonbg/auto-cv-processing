@@ -192,6 +192,30 @@ bash infrastructure/install.sh --env-file infrastructure/config.env
 
 Key config vars: `NAMESPACE`, `DOMAIN`, `STORAGE_CLASS`, `POSTGRES_STORAGE_SIZE`, `GITLAB_REGISTRY_USERNAME`, `GITLAB_REGISTRY_TOKEN`
 
+## SonarQube Mandatory Rules
+
+For every feature, bug fix, refactor, or source-code change:
+
+1. Read `docs/sonarqube-code-checklist.md` before editing source code.
+2. Apply the relevant SonarQube rules proactively:
+   - no unsafe dynamic execution or injection;
+   - secure randomness for tokens and OTP;
+   - safe and bounded regular expressions;
+   - low cognitive complexity;
+   - no nested ternary, duplicate code, unused assignments, or unnecessary blocks;
+   - immutable React props and stable list keys;
+   - accessible labels and semantic HTML;
+   - safe collection APIs and nullish handling;
+   - no unnecessary SonarQube configuration changes.
+3. Preserve existing behavior and API contracts.
+4. After source changes:
+   - run `pnpm typecheck`;
+   - inspect backend/frontend runtime logs;
+   - run API and browser/extension smoke tests;
+   - run the SonarQube scanner before claiming completion.
+5. Never mark SonarQube issues as Fixed manually. Verify them through a new scan.
+6. Report which checklist items were reviewed and which verification commands passed.
+
 ## Key Conventions
 
 - Controllers: `@ApiTags`, `@ApiOperation`, `@ApiBearerAuth` decorators (Swagger at `/api/docs`)

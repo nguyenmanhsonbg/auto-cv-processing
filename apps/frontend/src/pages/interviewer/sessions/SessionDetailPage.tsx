@@ -799,7 +799,7 @@ function getAntiCheatEventLabel(type: string) {
   return "Multi-device";
 }
 
-function SessionAntiCheatPanel({ anticheatEvents }: { anticheatEvents: any[] }) {
+function SessionAntiCheatPanel({ anticheatEvents }: Readonly<{ anticheatEvents: any[] }>) {
   const tabSwitches = anticheatEvents.filter((e: any) => e.type === "TAB_HIDDEN").length;
   const copyAttempts = anticheatEvents.filter((e: any) => e.type === "COPY_ATTEMPT").length;
   const multiDevice = anticheatEvents.some((e: any) => e.type === "MULTI_DEVICE_DETECTED");
@@ -838,7 +838,6 @@ function SessionEditableField(props: any) {
           )}
           onClick={() => {
             if (!isHr) {
-          {displayValue || <span className="text-muted-foreground">—</span>}
               setValue(displayValue || "");
               setEditing(true);
             }

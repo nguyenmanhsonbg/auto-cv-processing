@@ -70,7 +70,7 @@ function normalizeDeadline(value: string) {
   const compact = value.trim();
   if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(compact)) return compact;
 
-  const dateMatch = compact.match(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b/);
+  const dateMatch = /\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b/.exec(compact);
   if (!dateMatch) return undefined;
 
   const day = Number(dateMatch[1]);

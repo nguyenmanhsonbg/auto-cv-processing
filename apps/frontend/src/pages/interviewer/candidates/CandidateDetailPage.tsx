@@ -616,6 +616,16 @@ function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string | undefined
   });
 }
 
+function formatSpreadsheetCell(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value !== 'object') return String(value);
+  try {
+    return JSON.stringify(value) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 function renderPdfViewerContent(pdfLoading: boolean, pdfBlobUrl: string | null) {
   if (pdfLoading) {
     return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
@@ -655,7 +665,7 @@ function SpreadsheetPreview({ sheets, activeSheet, setActiveSheet }: { sheets: S
   return (
     <>
       {sheets.length > 1 && <div className="flex gap-2 flex-wrap">{sheets.map((sheet, index) => <button type="button" key={sheet.name} onClick={() => setActiveSheet(index)} className={['px-3 py-1 rounded text-sm border transition-colors', index === activeSheet ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-foreground border-border hover:bg-muted'].join(' ')}>{sheet.name}</button>)}</div>}
-      <div className="flex-1 overflow-auto"><table className="text-xs border-collapse w-full"><tbody>{keyedRows.map(({ item: row, key: rowKey }) => { const keyedCells = stableKeyedItems(row, (cell) => String(cell ?? ''), `${rowKey}-cell`); return <tr key={rowKey} className={rowKey === firstRowKey ? 'bg-muted font-semibold' : 'hover:bg-muted/40'}>{keyedCells.map(({ item: cell, key: cellKey }) => <td key={cellKey} className="border border-border px-2 py-1 break-words whitespace-pre-wrap">{String(cell ?? '')}</td>)}</tr>; })}</tbody></table></div>
+      <div className="flex-1 overflow-auto"><table className="text-xs border-collapse w-full"><tbody>{keyedRows.map(({ item: row, key: rowKey }) => { const keyedCells = stableKeyedItems(row, formatSpreadsheetCell, `${rowKey}-cell`); return <tr key={rowKey} className={rowKey === firstRowKey ? 'bg-muted font-semibold' : 'hover:bg-muted/40'}>{keyedCells.map(({ item: cell, key: cellKey }) => <td key={cellKey} className="border border-border px-2 py-1 break-words whitespace-pre-wrap">{formatSpreadsheetCell(cell)}</td>)}</tr>; })}</tbody></table></div>
     </>
   );
 }

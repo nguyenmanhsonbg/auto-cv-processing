@@ -65,12 +65,12 @@ function SidebarLink({
   pathname,
   collapsed,
   isActive,
-}: {
-  item: SidebarNavItem;
-  pathname: string;
-  collapsed: boolean;
-  isActive?: boolean;
-}) {
+  }: Readonly<{
+    item: SidebarNavItem;
+    pathname: string;
+    collapsed: boolean;
+    isActive?: boolean;
+  }>) {
   const Icon = item.icon;
   const active = isActive ?? pathname.startsWith(item.href);
 
@@ -95,10 +95,10 @@ function SidebarLink({
 function SidebarSubLink({
   item,
   pathname,
-}: {
-  item: SidebarNavItem;
-  pathname: string;
-}) {
+  }: Readonly<{
+    item: SidebarNavItem;
+    pathname: string;
+  }>) {
   const Icon = item.icon;
 
   return (

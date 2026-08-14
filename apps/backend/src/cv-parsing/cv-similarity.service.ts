@@ -485,9 +485,9 @@ export class CvSimilarityService {
 
       if (!token.startsWith('.')) {
         const remainingText = text.slice(end);
-        const symbolSuffix = remainingText.match(symbolSuffixPattern)?.[0];
+        const symbolSuffix = symbolSuffixPattern.exec(remainingText)?.[0];
         const compoundSuffix = symbolSuffix === undefined
-          ? remainingText.match(compoundSuffixPattern)?.[0]
+          ? compoundSuffixPattern.exec(remainingText)?.[0]
           : undefined;
         const suffix = symbolSuffix ?? compoundSuffix;
         if (suffix) {

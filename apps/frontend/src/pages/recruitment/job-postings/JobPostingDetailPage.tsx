@@ -1224,7 +1224,7 @@ type JobPostingDetailViewModel = {
   resolveFacebookImageAttachPrompt: (decision: FacebookImageAttachFailureDecision) => void;
 };
 
-function FacebookGroupList({ model }: { model: JobPostingDetailViewModel }) {
+function FacebookGroupList({ model }: Readonly<{ model: JobPostingDetailViewModel }>) {
   const {
     submitting,
     facebookGroups,
@@ -1336,7 +1336,7 @@ function FacebookGroupList({ model }: { model: JobPostingDetailViewModel }) {
   );
 }
 
-function FacebookPublishImageAttachment({ model }: { model: JobPostingDetailViewModel }) {
+function FacebookPublishImageAttachment({ model }: Readonly<{ model: JobPostingDetailViewModel }>) {
   const {
     submitting,
     facebookImageInputRef,
@@ -1413,7 +1413,7 @@ function FacebookPublishImageAttachment({ model }: { model: JobPostingDetailView
   );
 }
 
-function FacebookGroupSettingsEditor({ model }: { model: JobPostingDetailViewModel }) {
+function FacebookGroupSettingsEditor({ model }: Readonly<{ model: JobPostingDetailViewModel }>) {
   const {
     facebookSettingsOpen,
     editingFacebookGroup,
@@ -1506,7 +1506,7 @@ function FacebookGroupSettingsEditor({ model }: { model: JobPostingDetailViewMod
   );
 }
 
-function FacebookPublishSection({ model }: { model: JobPostingDetailViewModel }) {
+function FacebookPublishSection({ model }: Readonly<{ model: JobPostingDetailViewModel }>) {
   const {
     facebookGroupLoadState,
     facebookGroupVerificationBusy,
@@ -1589,7 +1589,7 @@ function FacebookPublishSection({ model }: { model: JobPostingDetailViewModel })
   );
 }
 
-function JobPostingEditDialog({ model }: { model: JobPostingDetailViewModel }) {
+function JobPostingEditDialog({ model }: Readonly<{ model: JobPostingDetailViewModel }>) {
   const {
     editOpen,
     setEditOpen,
@@ -1619,7 +1619,7 @@ function JobPostingEditDialog({ model }: { model: JobPostingDetailViewModel }) {
   );
 }
 
-function JobPostingPublishDialog({ model }: { model: JobPostingDetailViewModel }) {
+function JobPostingPublishDialog({ model }: Readonly<{ model: JobPostingDetailViewModel }>) {
   const {
     publishOpen,
     setPublishOpen,
@@ -1727,7 +1727,7 @@ function JobPostingPublishDialog({ model }: { model: JobPostingDetailViewModel }
   );
 }
 
-function FacebookImageAttachPromptDialog({ model }: { model: JobPostingDetailViewModel }) {
+function FacebookImageAttachPromptDialog({ model }: Readonly<{ model: JobPostingDetailViewModel }>) {
   const {
     facebookImageAttachPrompt,
     resolveFacebookImageAttachPrompt,
@@ -1786,7 +1786,7 @@ function FacebookImageAttachPromptDialog({ model }: { model: JobPostingDetailVie
   );
 }
 
-function JobPostingDialogs({ model }: { model: JobPostingDetailViewModel }) {
+function JobPostingDialogs({ model }: Readonly<{ model: JobPostingDetailViewModel }>) {
   return (
     <>
       <JobPostingEditDialog model={model} />
