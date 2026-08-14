@@ -121,11 +121,11 @@ function SidebarNavLinks({
   items,
   pathname,
   collapsed,
-}: {
+}: Readonly<{
   items: SidebarNavItem[];
   pathname: string;
   collapsed: boolean;
-}) {
+}>) {
   const isCandidatePage = pathname.startsWith('/candidates');
   const isFreelancerPage = pathname.startsWith('/candidates/freelancers');
   const isInternalPage = pathname.startsWith('/candidates/internals');
@@ -154,14 +154,14 @@ function SidebarSectionButton({
   expanded,
   active,
   onClick,
-}: {
+}: Readonly<{
   label: string;
   icon: typeof Briefcase;
   collapsed: boolean;
   expanded: boolean;
   active: boolean;
   onClick: () => void;
-}) {
+}>) {
   return (
     <button
       type="button"
@@ -193,12 +193,12 @@ function RecruitmentNavSection({
   collapsed,
   expanded,
   onToggle,
-}: {
+}: Readonly<{
   pathname: string;
   collapsed: boolean;
   expanded: boolean;
   onToggle: () => void;
-}) {
+}>) {
   return (
     <>
       <Separator className="my-1" />
@@ -226,12 +226,12 @@ function SettingsNavSection({
   collapsed,
   expanded,
   onToggle,
-}: {
+}: Readonly<{
   pathname: string;
   collapsed: boolean;
   expanded: boolean;
   onToggle: () => void;
-}) {
+}>) {
   return (
     <>
       <Separator className="my-1" />
@@ -262,7 +262,7 @@ function SidebarNavigation({
   settingsExpanded,
   onToggleRecruitment,
   onToggleSettings,
-}: {
+}: Readonly<{
   pathname: string;
   collapsed: boolean;
   user: User | null;
@@ -270,7 +270,7 @@ function SidebarNavigation({
   settingsExpanded: boolean;
   onToggleRecruitment: () => void;
   onToggleSettings: () => void;
-}) {
+}>) {
   const isAdmin = user?.role === UserRole.ADMIN;
   const isFreelancerUser = user?.role === UserRole.FREELANCER;
   const isRecruitmentUser = isAdmin || user?.role === UserRole.HR;

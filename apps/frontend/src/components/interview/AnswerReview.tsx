@@ -34,7 +34,7 @@ function parseArchitectureAnswer(
   }
 }
 
-function SaveStatusIndicator({ status }: { status: SaveStatus }) {
+function SaveStatusIndicator({ status }: Readonly<{ status: SaveStatus }>) {
   if (status === 'saving') {
     return (
       <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -66,11 +66,11 @@ function AnswerHeader({
   questionType,
   subcategory,
   saveStatus,
-}: {
+}: Readonly<{
   questionType?: QuestionType;
   subcategory?: string;
   saveStatus: SaveStatus;
-}) {
+}>) {
   return (
     <CardHeader className="pb-3">
       <div className="flex items-center justify-between">
@@ -89,7 +89,7 @@ function AnswerHeader({
   );
 }
 
-function QuestionDetails({ question }: { question: any }) {
+function QuestionDetails({ question }: Readonly<{ question: any }>) {
   return (
     <>
       <div>
@@ -122,11 +122,11 @@ function ChoiceAnswer({
   candidateAnswer,
   options,
   correctAnswers,
-}: {
+}: Readonly<{
   candidateAnswer: string;
   options: { id: string; text: string }[];
   correctAnswers: string[];
-}) {
+}>) {
   const selectedIds = new Set(candidateAnswer.split(','));
 
   return (
@@ -165,13 +165,13 @@ function CandidateAnswerDisplay({
   options,
   correctAnswers,
   parsedArchitecture,
-}: {
+}: Readonly<{
   questionType?: QuestionType;
   candidateAnswer: string;
   options: { id: string; text: string }[];
   correctAnswers: string[];
   parsedArchitecture: ArchitectureAnswer | null;
-}) {
+}>) {
   const isChoiceQuestion = questionType === QuestionType.SINGLE_CHOICE
     || questionType === QuestionType.MULTIPLE_CHOICE;
 
@@ -225,13 +225,13 @@ function CandidateAnswerSection({
   options,
   correctAnswers,
   parsedArchitecture,
-}: {
+}: Readonly<{
   questionType?: QuestionType;
   candidateAnswer?: string;
   options: { id: string; text: string }[];
   correctAnswers: string[];
   parsedArchitecture: ArchitectureAnswer | null;
-}) {
+}>) {
   return (
     <div>
       <Label className="text-xs text-muted-foreground">Candidate Answer</Label>
@@ -250,7 +250,7 @@ function CandidateAnswerSection({
   );
 }
 
-function CodeSubmissionResults({ codeSubmissions }: { codeSubmissions?: any[] }) {
+function CodeSubmissionResults({ codeSubmissions }: Readonly<{ codeSubmissions?: any[] }>) {
   if (!codeSubmissions || codeSubmissions.length === 0) return null;
 
   const occurrences = new Map<string, number>();
@@ -298,12 +298,12 @@ function AnswerRating({
   sessionQuestionId,
   rating,
   onRatingChange,
-}: {
+}: Readonly<{
   question: any;
   sessionQuestionId: string;
   rating: number;
   onRatingChange: (value: number) => void;
-}) {
+}>) {
   const labels = getRatingLabels(question?.category ?? '');
 
   return (
@@ -346,7 +346,7 @@ function AnswerReviewCard({
   saveStatus,
   onNoteChange,
   onRatingChange,
-}: {
+}: Readonly<{
   sq: any;
   question: any;
   questionType?: QuestionType;
@@ -359,7 +359,7 @@ function AnswerReviewCard({
   saveStatus: SaveStatus;
   onNoteChange: (value: string) => void;
   onRatingChange: (value: number) => void;
-}) {
+}>) {
   return (
     <Card>
       <AnswerHeader

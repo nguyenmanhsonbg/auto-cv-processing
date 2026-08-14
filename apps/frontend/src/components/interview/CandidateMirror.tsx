@@ -58,7 +58,7 @@ const getRatingConfig = (category: string) => {
   ) as Record<number, { label: string; color: string; activeColor: string }>;
 };
 
-function SaveStatusIndicator({ status, errorLabel = 'Error' }: { status: SaveStatus; errorLabel?: string }) {
+function SaveStatusIndicator({ status, errorLabel = 'Error' }: Readonly<{ status: SaveStatus; errorLabel?: string }>) {
   if (status === 'saving') {
     return <span className="flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" />Saving...</span>;
   }
@@ -75,11 +75,11 @@ function RatingButtons({
   category,
   rating,
   onChange,
-}: {
+}: Readonly<{
   category?: string;
   rating: number;
   onChange: (value: number) => void;
-}) {
+}>) {
   const ratingConfig = getRatingConfig(category ?? '');
 
   return (
@@ -106,7 +106,7 @@ function RatingButtons({
   );
 }
 
-function NoActiveQuestion({ canViewQuestions }: { canViewQuestions: boolean }) {
+function NoActiveQuestion({ canViewQuestions }: Readonly<{ canViewQuestions: boolean }>) {
   return (
     <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
       <Eye className="h-12 w-12 mb-4 opacity-30" />
@@ -124,7 +124,7 @@ function RestrictedCandidateMirror({
   note,
   onRatingChange,
   onNoteChange,
-}: {
+}: Readonly<{
   activeQuestionCount: number;
   candidateCurrentSqId?: string;
   rating: number;
@@ -132,7 +132,7 @@ function RestrictedCandidateMirror({
   note: string;
   onRatingChange: (value: number) => void;
   onNoteChange: (value: string) => void;
-}) {
+}>) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -183,11 +183,11 @@ function MirrorHeader({
   isActive,
   forceActivating,
   onForceActivate,
-}: {
+}: Readonly<{
   isActive: boolean;
   forceActivating: boolean;
   onForceActivate?: () => void;
-}) {
+}>) {
   return (
     <div className="flex items-center gap-2">
       <Eye className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -213,12 +213,12 @@ function MirrorNavigation({
   activeQuestionCount,
   onPrev,
   onNext,
-}: {
+}: Readonly<{
   activeIdx: number;
   activeQuestionCount: number;
   onPrev: () => void;
   onNext: () => void;
-}) {
+}>) {
   return (
     <div className="flex items-center gap-2">
       <Button variant="ghost" size="sm" onClick={onPrev} disabled={activeIdx <= 0} className="text-xs px-2">
@@ -264,7 +264,7 @@ function renderChoicePreview(draft: string, options: { id: string; text: string 
   );
 }
 
-function LiveDraftActivity({ draft, questionType, options }: { draft?: string; questionType?: QuestionType; options: { id: string; text: string }[] }) {
+function LiveDraftActivity({ draft, questionType, options }: Readonly<{ draft?: string; questionType?: QuestionType; options: { id: string; text: string }[] }>) {
   if (draft === undefined) return null;
   const isChoice = questionType === QuestionType.SINGLE_CHOICE || questionType === QuestionType.MULTIPLE_CHOICE;
   const isText = !isChoice && questionType !== QuestionType.CODING && questionType !== QuestionType.ARCHITECTURE;
@@ -289,7 +289,7 @@ function parseArchitectureAnswer(candidateAnswer?: string): ArchitectureAnswer |
   }
 }
 
-function ArchitectureActivity({ liveValue, candidateAnswer }: { liveValue?: ArchitectureAnswer; candidateAnswer?: string }) {
+function ArchitectureActivity({ liveValue, candidateAnswer }: Readonly<{ liveValue?: ArchitectureAnswer; candidateAnswer?: string }>) {
   if (liveValue) {
     return (
       <div>
@@ -312,7 +312,7 @@ function ArchitectureActivity({ liveValue, candidateAnswer }: { liveValue?: Arch
   return <p className="text-sm text-muted-foreground italic">Waiting for candidate to design...</p>;
 }
 
-function CodeActivity({ codeData, isAnswered }: { codeData?: { code: string; language: string }; isAnswered: boolean }) {
+function CodeActivity({ codeData, isAnswered }: Readonly<{ codeData?: { code: string; language: string }; isAnswered: boolean }>) {
   if (codeData) {
     return (
       <>
@@ -345,7 +345,7 @@ function CandidateActivityCard({
   candidateCurrentSqId,
   forceActivatingNext,
   onForceActivateNext,
-}: {
+}: Readonly<{
   sq: any;
   questionIdx: number;
   questionType?: QuestionType;
@@ -357,7 +357,7 @@ function CandidateActivityCard({
   candidateCurrentSqId?: string;
   forceActivatingNext: boolean;
   onForceActivateNext?: () => void;
-}) {
+}>) {
   return (
     <Card className={cn('border-2 border-dashed relative', sq.isActive ? 'border-green-300 bg-green-50/20' : 'border-muted-foreground/20 bg-muted/5')}>
       <div className="absolute top-0 right-0 text-[10px] px-2 py-0.5 rounded-bl font-mono text-muted-foreground bg-muted-foreground/10">{sq.isActive ? '● ACTIVE' : '○ INACTIVE'}</div>
@@ -388,7 +388,7 @@ function CandidateActivityCard({
   );
 }
 
-function ChoiceReview({ questionType, options, correctAnswers, candidateAnswer }: { questionType?: QuestionType; options: { id: string; text: string }[]; correctAnswers: string[]; candidateAnswer?: string }) {
+function ChoiceReview({ questionType, options, correctAnswers, candidateAnswer }: Readonly<{ questionType?: QuestionType; options: { id: string; text: string }[]; correctAnswers: string[]; candidateAnswer?: string }>) {
   const isChoice = questionType === QuestionType.SINGLE_CHOICE || questionType === QuestionType.MULTIPLE_CHOICE;
   if (!isChoice || options.length === 0 || !candidateAnswer) return null;
   const selectedIds = new Set(candidateAnswer.split(','));
@@ -427,7 +427,7 @@ function getSubmissionStatusColor(status: string) {
   return 'bg-red-950 border-red-900';
 }
 
-function LatestCodeSubmission({ submissions }: { submissions?: any[] }) {
+function LatestCodeSubmission({ submissions }: Readonly<{ submissions?: any[] }>) {
   if (!submissions || submissions.length === 0) return null;
   const sorted = [...submissions].sort((a: any, b: any) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
   const latest = sorted[0];
@@ -473,7 +473,7 @@ function AnswerReviewPanel({
   onNoteChange,
   onSuggestionActivate,
   onSuggestionDismiss,
-}: {
+}: Readonly<{
   sq: any;
   questionType?: QuestionType;
   options: { id: string; text: string }[];
@@ -487,7 +487,7 @@ function AnswerReviewPanel({
   onNoteChange: (value: string) => void;
   onSuggestionActivate?: (sqId: string) => Promise<void>;
   onSuggestionDismiss: () => void;
-}) {
+}>) {
   const labels = questionType ? (sq.question?.category ?? '') : '';
   return (
     <>

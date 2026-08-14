@@ -184,7 +184,7 @@ function SignalPdfRow({ label, ok, value, evidence }: { label: string; ok?: bool
 
 const EMPTY_SIGNALS: VcsSignals = { university: { ok: false, evidence: '' }, companyType: { ok: false, companies: [], evidence: '' }, advancedSkills: { ok: false, items: [], evidence: '' }, technicalChallenges: { ok: false, items: [], evidence: '' }, seniorRoles: { ok: false, items: [], evidence: '' } };
 
-function CandidateInformation({ data, candidate }: { data: any; candidate: PdfProps['candidate'] }) {
+function CandidateInformation({ data, candidate }: Readonly<{ data: any; candidate: PdfProps['candidate'] }>) {
   return <View style={styles.sectionCard}><Text style={styles.sectionTitle}>Candidate Information</Text><View style={styles.row}><View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Name</Text><Text style={styles.value}>{candidate?.fullName ?? data.name ?? '-'}</Text></View><View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Email</Text><Text style={styles.value}>{candidate?.email ?? data.email ?? '-'}</Text></View></View><View style={styles.row}><View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Phone</Text><Text style={styles.value}>{candidate?.phone ?? data.phone ?? '-'}</Text></View><View style={{ flex: 1, flexDirection: 'row' }}><Text style={{ ...styles.label, width: 50 }}>Level</Text><Text style={styles.value}>{data.level ?? '-'}</Text></View></View></View>;
 }
 

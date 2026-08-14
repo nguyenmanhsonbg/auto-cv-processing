@@ -5565,13 +5565,14 @@ function SidePanel() {
               <label className="channel-group-select" htmlFor={checkboxId}>
                 <input
                   id={checkboxId}
+                  aria-labelledby={`${checkboxId}-label`}
                   type="checkbox"
                   checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
                   disabled={!group.id || !group.selectable}
                   onChange={() => toggleFacebookGroupSelection(group.id)}
                 />
                 <span className="channel-group-copy">
-                  <span>{group.name}</span>
+                  <span id={`${checkboxId}-label`}>{group.name}</span>
                   <span className="channel-group-meta">
                     {getFacebookEligibilityLabel(group.eligibilityStatus)}
                     {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
@@ -6952,7 +6953,7 @@ function SidePanel() {
                     </button>
                   ) : (
                     <span
-                      key={`facebook-group-ellipsis-${String(page)}`}
+                      key={`facebook-group-ellipsis-${page.type}-${page.key}`}
                       className="facebook-group-pagination-ellipsis"
                       aria-hidden="true"
                     >

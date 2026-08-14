@@ -28,6 +28,7 @@ import type { Question, QuestionOption, ArchitectureAnswer, PaginatedResponse } 
 import { QuestionType, UserRole } from '@interview-assistant/shared';
 import { ArchitectureEditor } from '@/components/interview/ArchitectureEditor';
 import Editor from '@monaco-editor/react';
+import { secureRandomUUID } from '@/lib/secure-random';
 
 // ── API-driven master data ──────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ const emptyForm: NewQuestionForm = {
 const STARTER_CODE_LANGUAGES = ['javascript', 'typescript', 'python', 'java', 'go'];
 
 function createTestCaseId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `test-case-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return secureRandomUUID();
 }
 
 function addTestCaseIds(items: Array<Omit<TestCaseEntry, 'id'>>): TestCaseEntry[] {

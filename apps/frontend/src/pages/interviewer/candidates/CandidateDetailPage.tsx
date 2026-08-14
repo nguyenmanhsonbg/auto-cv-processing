@@ -618,7 +618,12 @@ function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string | undefined
 
 function formatSpreadsheetCell(value: unknown): string {
   if (value == null) return '';
-  if (typeof value !== 'object') return String(value);
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return value.toString();
+  }
+  if (typeof value === 'symbol') return value.description ?? '';
+  if (typeof value !== 'object') return '';
   try {
     return JSON.stringify(value) ?? '';
   } catch {
