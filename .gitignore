@@ -15,3 +15,8 @@ tmp
 .playwright-mcp
 cv-quarantine/
 cv-safe/
+.agents/skills/ponytail/SKILL.md
+.gitignore
+.agents/rules/ponytail.md
+.gitignore
+.agents/skills/ponytail-review/SKILL.md

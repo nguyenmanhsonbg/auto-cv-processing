@@ -8465,7 +8465,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   justify-content: flex-end;
   gap: 9px;
   border-top: 1px solid #edf1f5;
-  padding: 14px 0px 0px;
+  padding: 12px 12px;
 }
 
 .referral-form-error {
@@ -8477,7 +8477,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .referral-confirm-body {
   display: grid;
   gap: 12px;
-  padding: 18px 16px;
+  padding: 40px 12px;
 }
 
 .referral-credentials-body p,
@@ -8576,7 +8576,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   }
 
   .referral-primary-button {
-    width: 100%;
+    /* width: 100%; */
   }
 
   .referral-person-heading {

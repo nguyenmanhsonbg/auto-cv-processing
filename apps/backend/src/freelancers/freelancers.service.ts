@@ -120,6 +120,8 @@ export class FreelancersService {
     private readonly applicationsRepo: Repository<ApplicationEntity>,
     @InjectRepository(UserEntity)
     private readonly usersRepo: Repository<UserEntity>,
+    @InjectRepository(InternalEntity)
+    private readonly internalsRepo: Repository<InternalEntity>,
   ) {}
 
   async create(input: CreateFreelancerInput): Promise<FreelancerCreateResult> {
@@ -288,7 +290,36 @@ export class FreelancersService {
     return this.findApplicationsByFreelancerId(freelancerId, params);
   }
 
-  async findMySummary(userId: string): Promise<FreelancerSummary> {
+  async findMySummary(userId: string, role: UserRole = UserRole.FREELANCER): Promise<FreelancerSummary> {
+    if (role === UserRole.INTERNAL) {
+      const internal = await this.internalsRepo.findOne({
+        where: { userId: this.requireText(userId, 'User id'), isActive: true },
+        relations: { user: true, createdBy: true },
+      });
+      if (!internal?.user) throw this.freelancerNotFoundError();
+
+      return {
+        freelancerId: internal.id,
+        identifier: 'INTERNAL',
+        phone: internal.phone,
+        isActive: internal.isActive,
+        applicationCount: await this.referralsRepo.count({
+          where: { internalId: internal.id, sourceType: ApplicationReferralSourceType.INTERNAL },
+        }),
+        user: {
+          userId: internal.user.id,
+          name: internal.user.name,
+          email: internal.user.email,
+          role: internal.user.role,
+        },
+        createdBy: internal.createdBy
+          ? { userId: internal.createdBy.id, name: internal.createdBy.name, email: internal.createdBy.email }
+          : null,
+        createdAt: internal.createdAt,
+        updatedAt: internal.updatedAt,
+      };
+    }
+
     const freelancer = await this.buildFreelancerSummaryQuery()
       .where('freelancer.userId = :userId', {
         userId: this.requireText(userId, 'User id'),
@@ -303,7 +334,21 @@ export class FreelancersService {
   async findMyApplications(
     userId: string,
     params: ListFreelancerApplicationsParams,
+    role: UserRole = UserRole.FREELANCER,
   ): Promise<PaginatedResponse<FreelancerApplicationSummary>> {
+    if (role === UserRole.INTERNAL) {
+      const internal = await this.internalsRepo.findOne({
+        where: { userId: this.requireText(userId, 'User id'), isActive: true },
+      });
+      if (!internal) throw this.freelancerNotFoundError();
+      return this.findApplicationsByOwnerId(
+        'internalId',
+        internal.id,
+        ApplicationReferralSourceType.INTERNAL,
+        params,
+      );
+    }
+
     const freelancer = await this.resolveActiveByUserIdOrThrow(userId);
     return this.findApplicationsByFreelancerId(freelancer.id, params);
   }
@@ -311,14 +356,22 @@ export class FreelancersService {
   async updateMyApplicationEvaluation(
     userId: string,
     input: UpdateFreelancerApplicationEvaluationInput,
+    role: UserRole = UserRole.FREELANCER,
   ): Promise<FreelancerApplicationSummary> {
-    const freelancer = await this.resolveActiveByUserIdOrThrow(userId);
+    const owner = role === UserRole.INTERNAL
+      ? await this.internalsRepo.findOne({
+        where: { userId: this.requireText(userId, 'User id'), isActive: true },
+      })
+      : await this.resolveActiveByUserIdOrThrow(userId);
+    if (!owner) throw this.freelancerNotFoundError();
     const referralId = this.requireText(input.referralId, 'Referral id');
 
     const referral = await this.referralsRepo.findOne({
       where: {
         id: referralId,
-        freelancerId: freelancer.id,
+        ...(role === UserRole.INTERNAL
+          ? { internalId: owner.id, sourceType: ApplicationReferralSourceType.INTERNAL }
+          : { freelancerId: owner.id, sourceType: ApplicationReferralSourceType.FREELANCER }),
       },
       relations: {
         application: {
@@ -343,14 +396,22 @@ export class FreelancersService {
     userId: string,
     referralIdInput: string,
     accessMode: 'inline' | 'attachment',
+    role: UserRole = UserRole.FREELANCER,
   ): Promise<CleanCvFileAccessResult> {
-    const freelancer = await this.resolveActiveByUserIdOrThrow(userId);
+    const owner = role === UserRole.INTERNAL
+      ? await this.internalsRepo.findOne({
+        where: { userId: this.requireText(userId, 'User id'), isActive: true },
+      })
+      : await this.resolveActiveByUserIdOrThrow(userId);
+    if (!owner) throw this.freelancerNotFoundError();
     const referralId = this.requireText(referralIdInput, 'Referral id');
 
     const referral = await this.referralsRepo.findOne({
       where: {
         id: referralId,
-        freelancerId: freelancer.id,
+        ...(role === UserRole.INTERNAL
+          ? { internalId: owner.id, sourceType: ApplicationReferralSourceType.INTERNAL }
+          : { freelancerId: owner.id, sourceType: ApplicationReferralSourceType.FREELANCER }),
       },
       relations: {
         application: true,
@@ -374,7 +435,7 @@ export class FreelancersService {
       applicationId: referral.applicationId,
       cvDocumentId: referral.application.currentCvDocumentId,
       actorId: userId,
-      actorRole: UserRole.FREELANCER,
+      actorRole: role,
       accessMode,
     });
   }
@@ -462,6 +523,20 @@ export class FreelancersService {
     freelancerId: string,
     params: ListFreelancerApplicationsParams,
   ): Promise<PaginatedResponse<FreelancerApplicationSummary>> {
+    return this.findApplicationsByOwnerId(
+      'freelancerId',
+      freelancerId,
+      ApplicationReferralSourceType.FREELANCER,
+      params,
+    );
+  }
+
+  private async findApplicationsByOwnerId(
+    ownerColumn: 'freelancerId' | 'internalId',
+    ownerId: string,
+    sourceType: ApplicationReferralSourceType,
+    params: ListFreelancerApplicationsParams,
+  ): Promise<PaginatedResponse<FreelancerApplicationSummary>> {
     const { page, limit } = normalizePagination(params);
     const sortOrder = params.sortOrder === 'ASC' ? 'ASC' : 'DESC';
 
@@ -471,7 +546,8 @@ export class FreelancersService {
       .innerJoinAndSelect('application.candidate', 'candidate')
       .leftJoinAndSelect('candidate.assignees', 'assignee')
       .innerJoinAndSelect('application.jobPosting', 'jobPosting')
-      .where('referral.freelancerId = :freelancerId', { freelancerId })
+      .where(`referral.${ownerColumn} = :ownerId`, { ownerId })
+      .andWhere('referral.sourceType = :sourceType', { sourceType })
       .orderBy('referral.createdAt', sortOrder)
       .addOrderBy('referral.id', sortOrder)
       .skip((page - 1) * limit)

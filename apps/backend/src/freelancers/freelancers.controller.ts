@@ -81,7 +81,7 @@ export class FreelancersController {
   @Roles(UserRole.FREELANCER, UserRole.INTERNAL)
   @ApiOperation({ summary: 'Get the active freelancer summary for the current user' })
   async meSummary(@Request() req: any) {
-    const data = await this.freelancersService.findMySummary(req?.user?.id);
+    const data = await this.freelancersService.findMySummary(req?.user?.id, req?.user?.role);
     return {
       success: true,
       data: this.toFreelancerResponse(data),
@@ -102,7 +102,7 @@ export class FreelancersController {
     @Request() req: any,
     @Query() query: ListFreelancerApplicationsQueryDto,
   ) {
-    const result = await this.freelancersService.findMyApplications(req?.user?.id, query);
+    const result = await this.freelancersService.findMyApplications(req?.user?.id, query, req?.user?.role);
     return this.paginatedApplicationsResponse(result);
   }
 
@@ -117,7 +117,7 @@ export class FreelancersController {
     const data = await this.freelancersService.updateMyApplicationEvaluation(req?.user?.id, {
       referralId,
       evaluation: dto.evaluation,
-    });
+    }, req?.user?.role);
 
     return {
       success: true,
@@ -152,6 +152,7 @@ export class FreelancersController {
       req?.user?.id,
       referralId,
       accessMode,
+      req?.user?.role,
     );
 
     res.setHeader('Content-Type', cleanFile.mimeType);
