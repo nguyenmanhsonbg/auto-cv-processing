@@ -120,7 +120,7 @@ export function LoginForm({
             </button>
           </span>
         </label>
-        {error ? <p className="extension-login-error">Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại.</p> : null}
+        {error ? <p className="extension-login-error">{error}</p> : null}
         <div className="extension-login-options">
           <label className="remember-me-control">
             <input type="checkbox" checked={rememberMe} onChange={onRememberMeChange} />

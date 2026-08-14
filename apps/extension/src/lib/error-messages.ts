@@ -5,6 +5,8 @@ type ErrorDetails = {
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
+  FREELANCER_ACCOUNT_INACTIVE: 'Nhân sự đã bị khoá.',
+  INTERNAL_ACCOUNT_INACTIVE: 'Nhân sự đã bị khoá.',
   AUTH_REQUIRED: 'Phiên đăng nhập đã hết. Vui lòng đăng nhập lại.',
   HTTP_401: 'Phiên đăng nhập đã hết. Vui lòng đăng nhập lại.',
   HTTP_403: 'Bạn không có quyền thực hiện thao tác này.',
