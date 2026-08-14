@@ -2154,7 +2154,6 @@ function SidePanel() {
           tokenRef.current,
           activeTab.id,
           context.amisRecruitmentId,
-          { forceQuestionRefresh: false },
         );
       }
 
@@ -2707,7 +2706,6 @@ function SidePanel() {
     accessToken = tokenRef.current,
     sourceTabId?: number,
     recruitmentIdOverride?: string,
-    options: { forceQuestionRefresh?: boolean } = {},
   ): Promise<void> {
     const recruitmentId = normalizeOptionalText(capture?.amisRecruitmentId ?? recruitmentIdOverride);
     if (!accessToken || !recruitmentId) return;
@@ -2737,13 +2735,13 @@ function SidePanel() {
       }
 
       if (templateContext?.templateJobDescriptionId) {
-        const sourceJobDescription = await resolveAmisTemplateJobDescription(
+        const questionContext = await getJobDescriptionQuestionSet(
           accessToken,
           templateContext.templateJobDescriptionId,
         );
+        const sourceJobDescription = questionContext.jobDescription;
         if (
-          !sourceJobDescription
-          || selectionSeq !== amisJobSelectionSeqRef.current
+          selectionSeq !== amisJobSelectionSeqRef.current
           || activeAmisRecruitmentIdRef.current !== recruitmentId
         ) {
           return;
@@ -2753,16 +2751,24 @@ function SidePanel() {
         setJobDescriptionStatus('READY');
         setSelectedJobDescription(sourceJobDescription);
         setLockedAmisJobDescriptionId(sourceJobDescription.id);
+        activeSnapshotRecruitmentIdRef.current = recruitmentId;
+        const nextSnapshot = capture?.snapshot
+          ?? buildAmisJobSnapshotFromJobDescription(sourceJobDescription);
+        setSnapshot(nextSnapshot);
         if (capture) {
-          setSnapshot(capture.snapshot ?? null);
           setExtractionResult(capture);
           setAmisUrl(capture.url);
+        } else {
+          setAmisUrl(templateContext.formPageUrl ?? activeTab.url);
         }
         setJobDescriptionError(null);
-        await loadSelectedJobDescriptionQuestionSet(sourceJobDescription, accessToken, {
-          silent: true,
-          force: options.forceQuestionRefresh ?? Boolean(capture),
-        });
+        lastJobQuestionContextIdRef.current = sourceJobDescription.id;
+        setJobDescriptionQuestionContext(questionContext);
+        await selectAllJobQuestions(questionContext);
+        setCareerQuestionState('READY');
+        setCareerQuestionMessage(questionContext.questionSet
+          ? null
+          : 'This JD does not have an active synced question set.');
         await clearAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
         return;
       }
@@ -2785,21 +2791,6 @@ function SidePanel() {
 
       setJobDescriptionError(toErrorMessage(err));
       return;
-    }
-  }
-
-  async function resolveAmisTemplateJobDescription(
-    accessToken: string,
-    templateJobDescriptionId: string,
-  ) {
-    const loadedJobDescription = jobDescriptions.find((item) => item.id === templateJobDescriptionId);
-    if (loadedJobDescription) return loadedJobDescription;
-
-    try {
-      const context = await getJobDescriptionQuestionSet(accessToken, templateJobDescriptionId);
-      return context.jobDescription;
-    } catch {
-      return null;
     }
   }
 
