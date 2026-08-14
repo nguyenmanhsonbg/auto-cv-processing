@@ -65,10 +65,9 @@ export function CvUploadField({
 
   return (
     <div className="space-y-3">
-      <label
-        htmlFor="cv-file"
+      <div
         className={cn(
-          'flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors',
+          'relative flex min-h-36 w-full flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors',
           disabled
             ? 'cursor-not-allowed border-muted bg-muted/20 text-muted-foreground'
             : 'border-muted-foreground/30 hover:border-primary hover:bg-primary/5',
@@ -85,11 +84,12 @@ export function CvUploadField({
           id="cv-file"
           type="file"
           accept={CV_ACCEPT}
-          className="hidden"
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           disabled={disabled}
+          aria-label="Chon CV de ung tuyen"
           onChange={handleChange}
         />
-      </label>
+      </div>
 
       {file && (
         <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">

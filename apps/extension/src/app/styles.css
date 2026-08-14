@@ -8990,9 +8990,10 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-main {
+  position: relative;
   display: grid;
-  grid-template-columns: 18px 50px minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: 18px 50px minmax(0, 1fr) auto;
+  align-items: start;
   gap: 10px;
 }
 
@@ -9014,12 +9015,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .cv-candidate-main strong {
   display: block;
   min-width: 0;
-  color: #0f1f33;
-  font-family: Roboto, sans-serif;
+  color: #0b1c30;
+  font-family: Inter, sans-serif;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -9029,11 +9030,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   display: block;
   min-width: 0;
   margin-top: 2px;
-  color: #6b7280;
-  font-family: Roboto, sans-serif;
+  color: #404040;
+  font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 400;
+  line-height: 16.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -9538,6 +9540,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .cv-candidate-main .cv-candidate-applied-date {
   color: #404040;
+  font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 400;
@@ -9555,9 +9558,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  color: #3e4943;
+  font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
   font-weight: 400;
+  line-height: 16.5px;
 }
 
 .cv-candidate-source svg {
@@ -9721,13 +9727,18 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   display: grid;
   width: 31px;
   height: 31px;
+  align-self: start;
+  justify-self: end;
   place-items: center;
   border: 1px solid #15803d;
   border-radius: 999px;
   color: #15803d;
-  background: #DCFCE7;
-  font-size: 11px;
-  font-weight: 950;
+  background: #dcfce7;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 18px;
 }
 
 .cv-candidate-score.is-warning {
@@ -9737,9 +9748,9 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-score.is-danger {
-  border-color: #b91c1c;
-  color: #b91c1c;
-  background: #FEE2E2;
+  border-color: #ef4444;
+  color: #ef4444;
+  background: #fef2f2;
 }
 
 .cv-candidate-process {
@@ -9757,11 +9768,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   min-width: 0;
   justify-items: center;
   gap: 7px;
-  color: #374151;
+  color: rgba(47, 43, 61, 0.9);
+  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 500;
-  line-height: 20px;
+  line-height: 19.6px;
   text-align: center;
   transition: color 350ms ease-out;
 }
@@ -9912,6 +9924,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .cv-candidate-recruiter {
   grid-area: recruiter;
   color: #0b1c30;
+  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -9983,27 +9996,39 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   padding: 6px 16px;
   color: #fff;
   background: #1d4ed8;
-  font-family: Pretendard, sans-serif;
+  font-family: Inter, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 500;
   letter-spacing: 0;
+  line-height: 16.8px;
 }
 
 .cv-candidate-detail-status strong {
   color: #b76100;
-  font-size: 11px;
-  font-weight: 950;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 15px;
   text-align: left;
   text-transform: uppercase;
 }
 
 .cv-candidate-detail-status,
-.cv-candidate-detail-status small,
-.cv-candidate-detail-status strong {
-  font-size: 12px;
+.cv-candidate-detail-status small {
+  font-family: Inter, sans-serif;
   font-style: normal;
   font-weight: 700;
+}
+
+.cv-candidate-detail-status small {
+  color: rgba(62, 73, 67, 0.7);
+  font-size: 12px;
+  line-height: 12px;
+}
+
+.cv-candidate-detail-status strong {
+  line-height: 15px;
 }
 
 .cv-candidate-detail-status.is-success strong {
@@ -10034,21 +10059,29 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   display: grid;
   gap: 6px;
   min-width: 0;
-  color: #475569;
+  color: #45464d;
+  font-family: Inter, sans-serif;
   font-size: 12px;
   font-style: normal;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 16px;
 }
 
 .cv-candidate-note-label {
-  color: #1f2937;
+  color: #45464d;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
 }
 
 .cv-candidate-note > span:not(.cv-candidate-note-label) {
+  color: #000000;
+  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
+  line-height: 20px;
 }
 
 .cv-candidate-footer .cv-sync-amis-button {
