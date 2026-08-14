@@ -2954,10 +2954,7 @@ function SidePanel() {
         throw new Error('Mở màn tạo tin tuyển dụng AMIS ở tab hiện tại rồi chọn lại JD.');
       }
 
-      const response = await sendMessageToAmisTab(activeTab.id, {
-        type: FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE,
-        payload: buildAmisFormFillPayload(jobDescription),
-      });
+      const response = await sendFillAmisFormMessage(activeTab.id, buildAmisFormFillPayload(jobDescription));
 
       if (!isFillResponse(response) || !response.ok) {
         throw new Error(isFillResponse(response) ? response.error : 'AMIS page did not confirm the form fill.');
@@ -9188,13 +9185,17 @@ function truncateCandidateName(value: string) {
 }
 
 function buildAmisFormFillPayload(jobDescription: JobDescriptionSummary) {
+  const description = stringifyStructuredContent(jobDescription.description);
+
   return {
-    positionName: jobDescription.position?.name ?? '',
+    positionName: stringifyStructuredContent(jobDescription.position?.name),
     summary: truncateForMaxLength(
-      jobDescription.summary ?? jobDescription.overview ?? jobDescription.description,
+      stringifyStructuredContent(jobDescription.summary)
+      || stringifyStructuredContent(jobDescription.overview)
+      || description,
       500,
     ),
-    responsibilities: jobDescription.responsibilities ?? jobDescription.description,
+    responsibilities: stringifyStructuredContent(jobDescription.responsibilities) || description,
     requirements: stringifyStructuredContent(jobDescription.requirements),
     benefits: stringifyStructuredContent(jobDescription.benefits),
   };
@@ -9446,6 +9447,27 @@ async function sendMessageToAmisTab(tabId: number, message: unknown, frameId?: n
     await wait(250);
     return chrome.tabs.sendMessage(tabId, message, frameId === undefined ? undefined : { frameId });
   }
+}
+
+async function sendFillAmisFormMessage(tabId: number, payload: ReturnType<typeof buildAmisFormFillPayload>) {
+  const message = {
+    type: FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE,
+    payload,
+  };
+  const response = await sendMessageToAmisTab(tabId, message);
+
+  if (response !== undefined) return response;
+
+  // A bridge from an earlier extension version can remain on an already-open AMIS tab.
+  // Reinstall it only when the fill request received no response, so other message flows
+  // keep their existing lifecycle and retry behavior.
+  await injectAmisBridge(tabId);
+  await wait(250);
+  if (!chrome.tabs?.sendMessage) {
+    throw new Error('Chrome tabs messaging is unavailable.');
+  }
+
+  return chrome.tabs.sendMessage(tabId, message);
 }
 
 async function injectAmisBridge(tabId: number) {
