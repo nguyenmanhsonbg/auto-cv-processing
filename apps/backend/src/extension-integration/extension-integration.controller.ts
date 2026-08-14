@@ -259,6 +259,16 @@ export class ExtensionIntegrationController {
     return this.extensionIntegrationService.listAmisApplicationsForRecruitment(amisRecruitmentId);
   }
 
+  @Get('recruitments/:amisRecruitmentId/job-description')
+  @ApiOperation({ summary: 'Resolve the VCS job description mapped to an AMIS recruitment' })
+  @ApiResponse({
+    status: 200,
+    description: 'The VCS job description mapping for the AMIS recruitment, or an empty mapping when it is not mapped.',
+  })
+  async getJobDescriptionForRecruitment(@Param('amisRecruitmentId') amisRecruitmentId: string) {
+    return this.extensionIntegrationService.getAmisRecruitmentJobDescription(amisRecruitmentId);
+  }
+
   @Patch('recruitments/:amisRecruitmentId/applications/:amisCandidateId/stage')
   @ApiOperation({ summary: 'Update the latest AMIS candidate recruitment stage captured from the browser' })
   @ApiBody({ type: UpdateAmisApplicationStageDto })

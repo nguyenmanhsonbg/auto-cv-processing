@@ -268,6 +268,12 @@ export interface JobDescriptionQuestionSetContext {
   questions: JobDescriptionQuestionSetItem[];
 }
 
+export interface AmisRecruitmentJobDescriptionMapping {
+  amisRecruitmentId: string;
+  jobDescriptionId: string | null;
+  jobDescriptionTitle: string | null;
+}
+
 export interface AmisCareerQuestionCategory {
   id: string;
   name: string;

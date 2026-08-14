@@ -23,6 +23,7 @@ import {
   getApplicationDetail,
   getApplicationParsedProfile,
   getAmisApplicationsForRecruitment,
+  getAmisRecruitmentJobDescription,
   getCurrentUser,
   getFacebookGroups,
   getJobDescriptionQuestionSet,
@@ -2147,6 +2148,16 @@ function SidePanel() {
     );
 
     try {
+      if (tokenRef.current && (contextChanged || !lockedAmisJobDescriptionId)) {
+        await selectExistingJobDescriptionForAmisCapture(
+          null,
+          tokenRef.current,
+          activeTab.id,
+          context.amisRecruitmentId,
+          { forceQuestionRefresh: false },
+        );
+      }
+
       const roundsResponse = await sendMessageToAmisTab(activeTab.id, {
         type: GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE,
         payload: { amisRecruitmentId: context.amisRecruitmentId },
@@ -2692,12 +2703,15 @@ function SidePanel() {
   }
 
   async function selectExistingJobDescriptionForAmisCapture(
-    capture: AmisExtractionResult,
+    capture: AmisExtractionResult | null,
     accessToken = tokenRef.current,
     sourceTabId?: number,
+    recruitmentIdOverride?: string,
+    options: { forceQuestionRefresh?: boolean } = {},
   ): Promise<void> {
-    const recruitmentId = normalizeOptionalText(capture.amisRecruitmentId);
-    if (!accessToken || !recruitmentId || !capture.snapshot || capture.missingFields.length > 0) return;
+    const recruitmentId = normalizeOptionalText(capture?.amisRecruitmentId ?? recruitmentIdOverride);
+    if (!accessToken || !recruitmentId) return;
+    if (capture && (!capture.snapshot || capture.missingFields.length > 0)) return;
 
     const selectionSeq = amisJobSelectionSeqRef.current + 1;
     amisJobSelectionSeqRef.current = selectionSeq;
@@ -2706,8 +2720,21 @@ function SidePanel() {
       const activeTab = await getActiveTab();
       if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return;
       const tabTemplateContext = await getAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
-      const templateContext = tabTemplateContext
+      let templateContext = tabTemplateContext
         ?? await getAmisTemplateContextForRecruitment(recruitmentId);
+
+      if (!templateContext) {
+        const mapping = await getAmisRecruitmentJobDescription(accessToken, recruitmentId);
+        if (mapping?.jobDescriptionId) {
+          templateContext = {
+            tabId: sourceTabId ?? activeTab.id,
+            templateJobDescriptionId: mapping.jobDescriptionId,
+            templateJobDescriptionTitle: mapping.jobDescriptionTitle ?? 'AMIS job description',
+            formPageUrl: capture?.url ?? activeTab.url,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+      }
 
       if (templateContext?.templateJobDescriptionId) {
         const sourceJobDescription = await resolveAmisTemplateJobDescription(
@@ -2726,22 +2753,26 @@ function SidePanel() {
         setJobDescriptionStatus('READY');
         setSelectedJobDescription(sourceJobDescription);
         setLockedAmisJobDescriptionId(sourceJobDescription.id);
-        setSnapshot(capture.snapshot);
-        setExtractionResult(capture);
-        setAmisUrl(capture.url);
+        if (capture) {
+          setSnapshot(capture.snapshot ?? null);
+          setExtractionResult(capture);
+          setAmisUrl(capture.url);
+        }
         setJobDescriptionError(null);
         await loadSelectedJobDescriptionQuestionSet(sourceJobDescription, accessToken, {
           silent: true,
-          force: true,
+          force: options.forceQuestionRefresh ?? Boolean(capture),
         });
         await clearAmisTemplateContextForTab(sourceTabId ?? activeTab.id);
         return;
       }
 
-      setSnapshot(capture.snapshot);
-      setExtractionResult(capture);
-      setAmisUrl(capture.url);
-      setJobDescriptionError(null);
+      if (capture) {
+        setSnapshot(capture.snapshot ?? null);
+        setExtractionResult(capture);
+        setAmisUrl(capture.url);
+        setJobDescriptionError(null);
+      }
       return;
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {

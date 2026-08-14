@@ -309,6 +309,18 @@ export class ExtensionIntegrationService {
     manager: EntityManager,
     amisRecruitmentId: string,
   ) {
+    const jobDescription = await this.findMappedJobDescription(manager, amisRecruitmentId);
+    if (!jobDescription || jobDescription.sourceSystem !== ExtensionSourceSystem.VCS_PORTAL) {
+      return null;
+    }
+
+    return jobDescription;
+  }
+
+  private async findMappedJobDescription(
+    manager: EntityManager,
+    amisRecruitmentId: string,
+  ) {
     const externalReference = await manager.getRepository(RecruitmentExternalReferenceEntity).findOne({
       where: {
         sourceSystem: ExtensionSourceSystem.AMIS,
@@ -324,10 +336,7 @@ export class ExtensionIntegrationService {
       relations: ['jobDescription'],
     });
     const jobDescription = posting?.jobDescription;
-    if (!jobDescription || jobDescription.sourceSystem !== ExtensionSourceSystem.VCS_PORTAL) {
-      return null;
-    }
-    if (jobDescription.status === JobDescriptionStatus.ARCHIVED) return null;
+    if (!jobDescription || jobDescription.status === JobDescriptionStatus.ARCHIVED) return null;
 
     return jobDescription;
   }
@@ -2340,6 +2349,28 @@ export class ExtensionIntegrationService {
     career.questionCategoryNames = [...new Set(questionCategoryNames)];
     await repo.save(career);
     return this.toCareerCatalogItem(career);
+  }
+
+  async getAmisRecruitmentJobDescription(amisRecruitmentId: string) {
+    const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
+    const jobDescription = await this.findMappedJobDescription(
+      this.dataSource.manager,
+      normalizedRecruitmentId,
+    );
+
+    if (!jobDescription) {
+      return {
+        amisRecruitmentId: normalizedRecruitmentId,
+        jobDescriptionId: null,
+        jobDescriptionTitle: null,
+      };
+    }
+
+    return {
+      amisRecruitmentId: normalizedRecruitmentId,
+      jobDescriptionId: jobDescription.id,
+      jobDescriptionTitle: jobDescription.title,
+    };
   }
 
   async getAmisCareerQuestionContext(amisCareerId: string) {
