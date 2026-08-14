@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getSocket, joinSession, disconnectSocket, WebSocketEvents } from '@/lib/socket';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, type Control, type UseFormRegister, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -294,7 +294,7 @@ export function SessionEvaluatePage() {
   });
 
   // Tracks the current evaluation ID synchronously so onSubmit never reads a stale closure.
-  // React state updates (setExistingEval) are async — this ref is updated immediately.
+  // React state updates (setExistingEval) are async â€” this ref is updated immediately.
   const existingEvalIdRef = useRef<string | null>(null);
 
   const [editingComment, setEditingComment] = useState<string | null>(null);
@@ -439,7 +439,7 @@ export function SessionEvaluatePage() {
       );
       setAiSuggestion(suggestion);
       applyAiEvaluationSuggestion(suggestion, setValue, softSubs, mustSubs, persSubs);
-      toast({ title: 'AI analysis complete — suggestions applied' });
+      toast({ title: 'AI analysis complete â€” suggestions applied' });
     } catch (err) {
       toast({ title: 'AI Error', description: err instanceof Error ? err.message : 'Error', variant: 'destructive' });
     } finally {
@@ -550,341 +550,274 @@ function EvaluationHeader({ session, slug, saving, generatingEval, handleSubmit,
   );
 }
 
+type AssessmentRatingRowProps = {
+  rowNumber: number;
+  subcategory: string;
+  fieldPrefix: string;
+  commentField: string;
+  editKey: string;
+  suggestion?: AiEvaluationSuggestion['technicalRatings'][number];
+  derivedRating?: number;
+  hasDerivedData: boolean;
+  showAiCol: boolean;
+  labels: Record<number, string>;
+  editingComment: string | null;
+  setEditingComment: (value: string | null) => void;
+  register: UseFormRegister<EvalFormData>;
+  control: Control<EvalFormData>;
+  setValue: UseFormSetValue<EvalFormData>;
+  watch: UseFormWatch<EvalFormData>;
+};
+
+function AssessmentRatingRow({
+  rowNumber,
+  subcategory,
+  fieldPrefix,
+  commentField,
+  editKey,
+  suggestion,
+  derivedRating,
+  hasDerivedData,
+  showAiCol,
+  labels,
+  editingComment,
+  setEditingComment,
+  register,
+  control,
+  setValue,
+  watch,
+}: AssessmentRatingRowProps) {
+  const ratingField = `${fieldPrefix}.${subcategory}.rating`;
+  const commentValue = watch(commentField as any) || '';
+
+  return (
+    <TableRow key={subcategory}>
+      <TableCell className="text-xs text-muted-foreground text-center">{rowNumber}</TableCell>
+      <TableCell className="font-medium text-sm">{subcategory}</TableCell>
+      <TableCell>
+        {editingComment === editKey ? (
+          <Textarea
+            className="min-h-[56px] text-sm w-full"
+            {...register(commentField as any)}
+            placeholder="Add comment..."
+            autoFocus
+            onBlur={() => setEditingComment(null)}
+          />
+        ) : (
+          <button
+            type="button"
+            className="flex w-full items-start gap-1 border-0 bg-transparent p-0 text-left cursor-pointer group min-h-[36px]"
+            aria-label={`Edit comment for ${subcategory}`}
+            onClick={() => setEditingComment(editKey)}
+          >
+            <span className="text-sm flex-1 whitespace-pre-wrap">{commentValue || <span className="text-muted-foreground">Add comment...</span>}</span>
+            <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" />
+          </button>
+        )}
+      </TableCell>
+      <TableCell>
+        <Controller
+          name={ratingField as any}
+          control={control}
+          render={({ field }) => <RatingButtons value={field.value} onChange={field.onChange} />}
+        />
+      </TableCell>
+      {hasDerivedData && (
+        <TableCell>
+          {derivedRating !== undefined ? (
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex w-6 h-6 items-center justify-center rounded border-2 text-xs font-bold ${RATING_ACTIVE_CLASSES[derivedRating]}`}>
+                {derivedRating}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs"
+                onClick={() => setValue(ratingField as any, String(derivedRating))}
+              >
+                {labels[derivedRating]}
+              </Button>
+            </div>
+          ) : <span className="text-xs text-muted-foreground">â€”</span>}
+        </TableCell>
+      )}
+      {showAiCol && (
+        <TableCell>
+          {suggestion ? (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex w-6 h-6 items-center justify-center rounded border-2 text-xs font-bold ${RATING_ACTIVE_CLASSES[suggestion.suggestedRating]}`}>
+                  {suggestion.suggestedRating}
+                </span>
+                <p className="text-xs text-muted-foreground leading-snug line-clamp-2 flex-1" title={suggestion.reasoning}>
+                  {suggestion.reasoning}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 w-6 p-0 shrink-0"
+                  title="Apply suggestion"
+                  onClick={() => {
+                    setValue(ratingField as any, suggestion.suggestedRating.toString());
+                    setValue(commentField as any, suggestion.reasoning);
+                  }}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          ) : <span className="text-xs text-muted-foreground">â€”</span>}
+        </TableCell>
+      )}
+    </TableRow>
+  );
+}
+
 function TechnicalAssessment(props: any) {
   const {
-    mustSubs, shouldSubs, softSubs, mustCatName, shouldCatName, hasAiSuggestion, showAiSuggestion, setShowAiSuggestion,
-    techColCount, hasDerivedData, showAiCol, getTechSuggestion, getDerivedRating, editingComment, setEditingComment,
-    register, control, setValue, watch,
+    mustSubs,
+    shouldSubs,
+    softSubs,
+    mustCatName,
+    shouldCatName,
+    hasAiSuggestion,
+    showAiSuggestion,
+    setShowAiSuggestion,
+    techColCount,
+    hasDerivedData,
+    showAiCol,
+    getTechSuggestion,
+    getDerivedRating,
+    editingComment,
+    setEditingComment,
+    register,
+    control,
+    setValue,
+    watch,
   } = props;
+
   return (
-    <>
-        {/* Technical + Soft Skill Ratings — merged with interview-derived and AI suggestions */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-muted-foreground" />
-                Technical &amp; Soft Skills Assessment
-              </span>
-              {hasAiSuggestion && (
-                <label className="flex items-center gap-2 text-sm font-normal cursor-pointer">
-                  <Checkbox
-                    checked={showAiSuggestion}
-                    onCheckedChange={(checked) => setShowAiSuggestion(!!checked)}
-                  />
-                  Show AI Suggestion
-                </label>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8">#</TableHead>
-                  <TableHead className="w-44">Criteria</TableHead>
-                  <TableHead className="min-w-[220px]">Comments</TableHead>
-                  <TableHead className="w-36">Rating (1-5)</TableHead>
-                  {hasDerivedData && <TableHead className="w-32">From Interview</TableHead>}
-                  {showAiCol && <TableHead className="w-64">AI Suggestion</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {/* MUST separator */}
-                <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableCell colSpan={techColCount} className="py-1.5 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    MUST — Required
-                  </TableCell>
-                </TableRow>
-                {mustSubs.map((sub: string, idx: number) => {
-                  const suggestion = getTechSuggestion(sub);
-                  const derivedR = getDerivedRating(mustCatName, sub);
-                  const commentKey = `technicalMust.${sub}.comment` as const;
-                  const commentVal = watch(commentKey as any) || '';
-                  return (
-                    <TableRow key={sub}>
-                      <TableCell className="text-xs text-muted-foreground text-center">{idx + 1}</TableCell>
-                      <TableCell className="font-medium text-sm">{sub}</TableCell>
-                      <TableCell>
-                        {editingComment === `must:${sub}` ? (
-                          <Textarea
-                            className="min-h-[56px] text-sm w-full"
-                            {...register(commentKey as any)}
-                            placeholder="Add comment..."
-                            autoFocus
-                            onBlur={() => setEditingComment(null)}
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-1 border-0 bg-transparent p-0 text-left cursor-pointer group min-h-[36px]"
-                            aria-label={`Edit comment for ${sub}`}
-                            onClick={() => setEditingComment(`must:${sub}`)}
-                          >
-                            <span className="text-sm flex-1 whitespace-pre-wrap">{commentVal || <span className="text-muted-foreground">Add comment...</span>}</span>
-                            <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" />
-                          </button>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Controller
-                          name={`technicalMust.${sub}.rating`}
-                          control={control}
-                          render={({ field }) => (
-                            <RatingButtons value={field.value} onChange={field.onChange} />
-                          )}
-                        />
-                      </TableCell>
-                      {hasDerivedData && (
-                        <TableCell>
-                          {derivedR !== undefined ? (
-                            <div className="flex items-center gap-2">
-                              <span className={`inline-flex w-6 h-6 items-center justify-center rounded border-2 text-xs font-bold ${RATING_ACTIVE_CLASSES[derivedR]}`}>
-                                {derivedR}
-                              </span>
-                              <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs"
-                                onClick={() => setValue(`technicalMust.${sub}.rating` as any, String(derivedR))}>
-                                {TECHNICAL_RATING_LABELS[derivedR]}
-                              </Button>
-                            </div>
-                          ) : <span className="text-xs text-muted-foreground">—</span>}
-                        </TableCell>
-                      )}
-                      {showAiCol && (
-                        <TableCell>
-                          {suggestion ? (
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`inline-flex w-6 h-6 items-center justify-center rounded border-2 text-xs font-bold ${RATING_ACTIVE_CLASSES[suggestion.suggestedRating]}`}
-                                >
-                                  {suggestion.suggestedRating}
-                                </span>
-                                <p className="text-xs text-muted-foreground leading-snug line-clamp-2 flex-1" title={suggestion.reasoning}>
-                                  {suggestion.reasoning}
-                                </p>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 shrink-0"
-                                  title="Apply suggestion"
-                                  onClick={() => {
-                                    setValue(`technicalMust.${sub}.rating` as any, suggestion.suggestedRating.toString());
-                                    setValue(`technicalMust.${sub}.comment` as any, suggestion.reasoning);
-                                  }}
-                                >
-                                  <Check className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })}
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-muted-foreground" />
+            Technical &amp; Soft Skills Assessment
+          </span>
+          {hasAiSuggestion && (
+            <label className="flex items-center gap-2 text-sm font-normal cursor-pointer">
+              <Checkbox
+                checked={showAiSuggestion}
+                onCheckedChange={(checked) => setShowAiSuggestion(!!checked)}
+              />
+              Show AI Suggestion
+            </label>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-8">#</TableHead>
+              <TableHead className="w-44">Criteria</TableHead>
+              <TableHead className="min-w-[220px]">Comments</TableHead>
+              <TableHead className="w-36">Rating (1-5)</TableHead>
+              {hasDerivedData && <TableHead className="w-32">From Interview</TableHead>}
+              {showAiCol && <TableHead className="w-64">AI Suggestion</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableCell colSpan={techColCount} className="py-1.5 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                MUST â€” Required
+              </TableCell>
+            </TableRow>
+            {mustSubs.map((sub: string, idx: number) => (
+              <AssessmentRatingRow
+                key={sub}
+                rowNumber={idx + 1}
+                subcategory={sub}
+                fieldPrefix="technicalMust"
+                commentField={"technicalMust." + sub + ".comment"}
+                editKey={"must:" + sub}
+                suggestion={getTechSuggestion(sub)}
+                derivedRating={getDerivedRating(mustCatName, sub)}
+                hasDerivedData={hasDerivedData}
+                showAiCol={showAiCol}
+                labels={TECHNICAL_RATING_LABELS}
+                editingComment={editingComment}
+                setEditingComment={setEditingComment}
+                register={register}
+                control={control}
+                setValue={setValue}
+                watch={watch}
+              />
+            ))}
 
-                {/* SHOULD separator */}
-                <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableCell colSpan={techColCount} className="py-1.5 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    SHOULD — Nice to have
-                  </TableCell>
-                </TableRow>
-                {shouldSubs.map((sub: string, idx: number) => {
-                  const suggestion = getTechSuggestion(sub);
-                  const derivedR = getDerivedRating(shouldCatName, sub);
-                  const commentKey = `technicalShould.${sub}.comment` as const;
-                  const commentVal = watch(commentKey as any) || '';
-                  return (
-                    <TableRow key={sub}>
-                      <TableCell className="text-xs text-muted-foreground text-center">{mustSubs.length + idx + 1}</TableCell>
-                      <TableCell className="font-medium text-sm">{sub}</TableCell>
-                      <TableCell>
-                        {editingComment === `should:${sub}` ? (
-                          <Textarea
-                            className="min-h-[56px] text-sm w-full"
-                            {...register(commentKey as any)}
-                            placeholder="Add comment..."
-                            autoFocus
-                            onBlur={() => setEditingComment(null)}
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-1 border-0 bg-transparent p-0 text-left cursor-pointer group min-h-[36px]"
-                            aria-label={`Edit comment for ${sub}`}
-                            onClick={() => setEditingComment(`should:${sub}`)}
-                          >
-                            <span className="text-sm flex-1 whitespace-pre-wrap">{commentVal || <span className="text-muted-foreground">Add comment...</span>}</span>
-                            <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" />
-                          </button>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Controller
-                          name={`technicalShould.${sub}.rating`}
-                          control={control}
-                          render={({ field }) => (
-                            <RatingButtons value={field.value} onChange={field.onChange} />
-                          )}
-                        />
-                      </TableCell>
-                      {hasDerivedData && (
-                        <TableCell>
-                          {derivedR !== undefined ? (
-                            <div className="flex items-center gap-2">
-                              <span className={`inline-flex w-6 h-6 items-center justify-center rounded border-2 text-xs font-bold ${RATING_ACTIVE_CLASSES[derivedR]}`}>
-                                {derivedR}
-                              </span>
-                              <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs"
-                                onClick={() => setValue(`technicalShould.${sub}.rating` as any, String(derivedR))}>
-                                {TECHNICAL_RATING_LABELS[derivedR]}
-                              </Button>
-                            </div>
-                          ) : <span className="text-xs text-muted-foreground">—</span>}
-                        </TableCell>
-                      )}
-                      {showAiCol && (
-                        <TableCell>
-                          {suggestion ? (
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`inline-flex w-6 h-6 items-center justify-center rounded border-2 text-xs font-bold ${RATING_ACTIVE_CLASSES[suggestion.suggestedRating]}`}
-                                >
-                                  {suggestion.suggestedRating}
-                                </span>
-                                <p className="text-xs text-muted-foreground leading-snug line-clamp-2 flex-1" title={suggestion.reasoning}>
-                                  {suggestion.reasoning}
-                                </p>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 shrink-0"
-                                  title="Apply suggestion"
-                                  onClick={() => {
-                                    setValue(`technicalShould.${sub}.rating` as any, suggestion.suggestedRating.toString());
-                                    setValue(`technicalShould.${sub}.comment` as any, suggestion.reasoning);
-                                  }}
-                                >
-                                  <Check className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })}
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableCell colSpan={techColCount} className="py-1.5 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                SHOULD â€” Nice to have
+              </TableCell>
+            </TableRow>
+            {shouldSubs.map((sub: string, idx: number) => (
+              <AssessmentRatingRow
+                key={sub}
+                rowNumber={mustSubs.length + idx + 1}
+                subcategory={sub}
+                fieldPrefix="technicalShould"
+                commentField={"technicalShould." + sub + ".comment"}
+                editKey={"should:" + sub}
+                suggestion={getTechSuggestion(sub)}
+                derivedRating={getDerivedRating(shouldCatName, sub)}
+                hasDerivedData={hasDerivedData}
+                showAiCol={showAiCol}
+                labels={TECHNICAL_RATING_LABELS}
+                editingComment={editingComment}
+                setEditingComment={setEditingComment}
+                register={register}
+                control={control}
+                setValue={setValue}
+                watch={watch}
+              />
+            ))}
 
-                {/* KỸ NĂNG NGHIỆP VỤ separator */}
-                <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableCell colSpan={techColCount} className="py-1.5 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    SOFT SKILLS
-                  </TableCell>
-                </TableRow>
-                {softSubs.map((sub: string, idx: number) => {
-                  const suggestion = getTechSuggestion(sub);
-                  const derivedR = getDerivedRating('SOFT_SKILL', sub);
-                  const commentKey = `softSkill.${sub}.comment` as const;
-                  const commentVal = watch(commentKey as any) || '';
-                  return (
-                    <TableRow key={sub}>
-                      <TableCell className="text-xs text-muted-foreground text-center">
-                        {mustSubs.length + shouldSubs.length + idx + 1}
-                      </TableCell>
-                      <TableCell className="font-medium text-sm">{sub}</TableCell>
-                      <TableCell>
-                        {editingComment === `soft:${sub}` ? (
-                          <Textarea
-                            className="min-h-[56px] text-sm w-full"
-                            {...register(commentKey as any)}
-                            placeholder="Add comment..."
-                            autoFocus
-                            onBlur={() => setEditingComment(null)}
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-1 border-0 bg-transparent p-0 text-left cursor-pointer group min-h-[36px]"
-                            aria-label={`Edit comment for ${sub}`}
-                            onClick={() => setEditingComment(`soft:${sub}`)}
-                          >
-                            <span className="text-sm flex-1 whitespace-pre-wrap">{commentVal || <span className="text-muted-foreground">Add comment...</span>}</span>
-                            <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 mt-0.5" />
-                          </button>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Controller
-                          name={`softSkill.${sub}.rating`}
-                          control={control}
-                          render={({ field }) => (
-                            <RatingButtons value={field.value} onChange={field.onChange} />
-                          )}
-                        />
-                      </TableCell>
-                      {hasDerivedData && (
-                        <TableCell>
-                          {derivedR !== undefined ? (
-                            <div className="flex items-center gap-2">
-                              <span className={`inline-flex w-6 h-6 items-center justify-center rounded border-2 text-xs font-bold ${RATING_ACTIVE_CLASSES[derivedR]}`}>
-                                {derivedR}
-                              </span>
-                              <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs"
-                                onClick={() => setValue(`softSkill.${sub}.rating` as any, String(derivedR))}>
-                                {TECHNICAL_RATING_LABELS[derivedR]}
-                              </Button>
-                            </div>
-                          ) : <span className="text-xs text-muted-foreground">—</span>}
-                        </TableCell>
-                      )}
-                      {showAiCol && (
-                        <TableCell>
-                          {suggestion ? (
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span className={`inline-flex w-6 h-6 items-center justify-center rounded border-2 text-xs font-bold ${RATING_ACTIVE_CLASSES[suggestion.suggestedRating]}`}>
-                                  {suggestion.suggestedRating}
-                                </span>
-                                <p className="text-xs text-muted-foreground leading-snug line-clamp-2 flex-1" title={suggestion.reasoning}>
-                                  {suggestion.reasoning}
-                                </p>
-                                <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0"
-                                  title="Apply suggestion"
-                                  onClick={() => {
-                                    setValue(`softSkill.${sub}.rating` as any, suggestion.suggestedRating.toString());
-                                    setValue(`softSkill.${sub}.comment` as any, suggestion.reasoning);
-                                  }}>
-                                  <Check className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </div>
-                          ) : <span className="text-xs text-muted-foreground">—</span>}
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-            {/* Technical + Soft Skill rating scale legend */}
-            <div className="px-4 py-2 border-t text-xs text-muted-foreground">
-              <span className="font-medium">Rating scale:</span>{' '}
-              {[1, 2, 3, 4, 5].map((r) => `${r} = ${TECHNICAL_RATING_LABELS[r]}`).join(' · ')}
-            </div>
-          </CardContent>
-        </Card>
-
-
-    </>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableCell colSpan={techColCount} className="py-1.5 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                SOFT SKILLS
+              </TableCell>
+            </TableRow>
+            {softSubs.map((sub: string, idx: number) => (
+              <AssessmentRatingRow
+                key={sub}
+                rowNumber={mustSubs.length + shouldSubs.length + idx + 1}
+                subcategory={sub}
+                fieldPrefix="softSkill"
+                commentField={"softSkill." + sub + ".comment"}
+                editKey={"soft:" + sub}
+                suggestion={getTechSuggestion(sub)}
+                derivedRating={getDerivedRating("SOFT_SKILL", sub)}
+                hasDerivedData={hasDerivedData}
+                showAiCol={showAiCol}
+                labels={TECHNICAL_RATING_LABELS}
+                editingComment={editingComment}
+                setEditingComment={setEditingComment}
+                register={register}
+                control={control}
+                setValue={setValue}
+                watch={watch}
+              />
+            ))}
+          </TableBody>
+        </Table>
+        <div className="px-4 py-2 border-t text-xs text-muted-foreground">
+          <span className="font-medium">Rating scale:</span>{' '}
+          {[1, 2, 3, 4, 5].map((r) => `${r} = ${TECHNICAL_RATING_LABELS[r]}`).join(' · ')}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -895,7 +828,7 @@ function PersonalityAssessment(props: any) {
   } = props;
   return (
     <>
-        {/* Personality — also merged with AI suggestions */}
+        {/* Personality â€” also merged with AI suggestions */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -972,7 +905,7 @@ function PersonalityAssessment(props: any) {
                                 {PERSONALITY_RATING_LABELS[derivedR]}
                               </Button>
                             </div>
-                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                          ) : <span className="text-xs text-muted-foreground">â€”</span>}
                         </TableCell>
                       )}
                       {showAiCol && (
@@ -1004,7 +937,7 @@ function PersonalityAssessment(props: any) {
                               </div>
                             </div>
                           ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
+                            <span className="text-xs text-muted-foreground">â€”</span>
                           )}
                         </TableCell>
                       )}
@@ -1013,10 +946,10 @@ function PersonalityAssessment(props: any) {
                 })}
               </TableBody>
             </Table>
-            {/* Personality rating scale legend — different from technical scale */}
+            {/* Personality rating scale legend â€” different from technical scale */}
             <div className="px-4 py-2 border-t text-xs text-muted-foreground">
               <span className="font-medium">Personality rating scale:</span>{' '}
-              {[1, 2, 3, 4, 5].map((r) => `${r} = ${PERSONALITY_RATING_LABELS[r]}`).join(' · ')}
+              {[1, 2, 3, 4, 5].map((r) => `${r} = ${PERSONALITY_RATING_LABELS[r]}`).join(' Â· ')}
             </div>
           </CardContent>
         </Card>
@@ -1098,9 +1031,9 @@ function FinalEvaluationCard(props: any) {
                           <SelectValue placeholder="Select zone..." />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="1">1 — Below expectations</SelectItem>
-                          <SelectItem value="2">2 — Meets expectations</SelectItem>
-                          <SelectItem value="3">3 — Exceeds expectations</SelectItem>
+                          <SelectItem value="1">1 â€” Below expectations</SelectItem>
+                          <SelectItem value="2">2 â€” Meets expectations</SelectItem>
+                          <SelectItem value="3">3 â€” Exceeds expectations</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
@@ -1234,3 +1167,4 @@ function OverallResultCard(props: any) {
     </>
   );
 }
+
