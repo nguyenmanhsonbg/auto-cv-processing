@@ -100,17 +100,12 @@ export class ExtensionIntegrationController {
       extensionInstanceId: extensionInstance?.id ?? null,
     });
 
-    return {
-      success: true,
-      data,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: this.optionalHeader(requestId) ?? null,
-        idempotencyKey: idempotencyKeyValue,
-        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
-        extensionInstanceId: extensionInstance?.id ?? null,
-      },
-    };
+    return this.successResponse(data, this.extensionRequestMeta({
+      requestId: this.optionalHeader(requestId) ?? null,
+      idempotencyKey: idempotencyKeyValue,
+      extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+      extensionInstanceId: extensionInstance?.id ?? null,
+    }));
   }
 
   @Post('job-postings/preview-plan')
@@ -154,16 +149,11 @@ export class ExtensionIntegrationController {
       extensionInstanceId: extensionInstance?.id ?? null,
     });
 
-    return {
-      success: true,
-      data,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: this.optionalHeader(requestId) ?? null,
-        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
-        extensionInstanceId: extensionInstance?.id ?? null,
-      },
-    };
+    return this.successResponse(data, this.extensionRequestMeta({
+      requestId: this.optionalHeader(requestId) ?? null,
+      extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+      extensionInstanceId: extensionInstance?.id ?? null,
+    }));
   }
 
   @Post('careers/sync')
@@ -205,16 +195,11 @@ export class ExtensionIntegrationController {
       extensionInstanceId: extensionInstance?.id ?? null,
     });
 
-    return {
-      success: true,
-      data,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: this.optionalHeader(requestId) ?? null,
-        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
-        extensionInstanceId: extensionInstance?.id ?? null,
-      },
-    };
+    return this.successResponse(data, this.extensionRequestMeta({
+      requestId: this.optionalHeader(requestId) ?? null,
+      extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+      extensionInstanceId: extensionInstance?.id ?? null,
+    }));
   }
 
   @Post('applications/sync')
@@ -256,16 +241,11 @@ export class ExtensionIntegrationController {
       extensionInstanceId: extensionInstance?.id ?? null,
     });
 
-    return {
-      success: true,
-      data,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: this.optionalHeader(requestId) ?? null,
-        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
-        extensionInstanceId: extensionInstance?.id ?? null,
-      },
-    };
+    return this.successResponse(data, this.extensionRequestMeta({
+      requestId: this.optionalHeader(requestId) ?? null,
+      extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+      extensionInstanceId: extensionInstance?.id ?? null,
+    }));
   }
 
   @Get('recruitments/:amisRecruitmentId/applications')
@@ -328,11 +308,7 @@ export class ExtensionIntegrationController {
       dto,
       req.user.id,
     );
-    return {
-      success: true,
-      data,
-      meta: { timestamp: new Date().toISOString() },
-    };
+    return this.successResponse(data);
   }
 
   @Post('referral-sources/internals')
@@ -346,11 +322,7 @@ export class ExtensionIntegrationController {
       dto,
       req.user.id,
     );
-    return {
-      success: true,
-      data,
-      meta: { timestamp: new Date().toISOString() },
-    };
+    return this.successResponse(data);
   }
 
   @Patch('referral-sources/freelancers/:freelancerId/status')
@@ -364,11 +336,7 @@ export class ExtensionIntegrationController {
       freelancerId,
       dto.isActive,
     );
-    return {
-      success: true,
-      data,
-      meta: { timestamp: new Date().toISOString() },
-    };
+    return this.successResponse(data);
   }
 
   @Patch('referral-sources/internals/:internalId/status')
@@ -382,11 +350,7 @@ export class ExtensionIntegrationController {
       internalId,
       dto.isActive,
     );
-    return {
-      success: true,
-      data,
-      meta: { timestamp: new Date().toISOString() },
-    };
+    return this.successResponse(data);
   }
 
   @Get('careers')
@@ -451,16 +415,11 @@ export class ExtensionIntegrationController {
       extensionInstanceId: extensionInstance?.id ?? null,
     });
 
-    return {
-      success: true,
-      data,
-      meta: {
-        timestamp: new Date().toISOString(),
-        requestId: this.optionalHeader(requestId) ?? null,
-        extensionVersion: this.optionalHeader(extensionVersion) ?? null,
-        extensionInstanceId: extensionInstance?.id ?? null,
-      },
-    };
+    return this.successResponse(data, this.extensionRequestMeta({
+      requestId: this.optionalHeader(requestId) ?? null,
+      extensionVersion: this.optionalHeader(extensionVersion) ?? null,
+      extensionInstanceId: extensionInstance?.id ?? null,
+    }));
   }
 
   @Patch('job-descriptions/:jobDescriptionId/question-set/items/:questionSetItemId')
@@ -486,6 +445,31 @@ export class ExtensionIntegrationController {
     @Body() dto: CreateAmisCareerQuestionDto,
   ) {
     return this.extensionIntegrationService.createAmisCareerQuestion(amisCareerId, dto);
+  }
+
+  private successResponse<T>(data: T, meta: Record<string, unknown> = {}) {
+    return {
+      success: true,
+      data,
+      meta: {
+        timestamp: new Date().toISOString(),
+        ...meta,
+      },
+    };
+  }
+
+  private extensionRequestMeta(input: {
+    requestId?: string | null;
+    idempotencyKey?: string;
+    extensionVersion?: string | null;
+    extensionInstanceId?: string | null;
+  }) {
+    return {
+      ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+      ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
+      ...(input.extensionVersion !== undefined ? { extensionVersion: input.extensionVersion } : {}),
+      ...(input.extensionInstanceId !== undefined ? { extensionInstanceId: input.extensionInstanceId } : {}),
+    };
   }
 
   private requireIdempotencyKey(value: HeaderValue) {

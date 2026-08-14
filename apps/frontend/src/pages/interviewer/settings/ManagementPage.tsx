@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { SortableHeader, SortOrder } from '@/components/ui/sortable-header';
@@ -40,6 +40,51 @@ interface AmisCareer {
 interface Position { id: string; name: string; description: string | null; isActive: boolean; isCustomized?: boolean; createdAt?: string }
 interface Category { id: string; name: string; displayName: string; description: string | null; orderIndex: number; isCustomized?: boolean; positions?: string[] | null }
 interface SubCategory { id: string; categoryId: string; name: string; orderIndex: number; competencyType?: string; isCustomized?: boolean }
+
+type ManagementTableBodyProps<T> = {
+  loading: boolean;
+  items: T[];
+  colSpan: number;
+  emptyMessage?: string;
+  getRowKey: (item: T) => string;
+  renderRow: (item: T) => ReactNode;
+};
+
+function ManagementTableBody<T>({
+  loading,
+  items,
+  colSpan,
+  emptyMessage,
+  getRowKey,
+  renderRow,
+}: ManagementTableBodyProps<T>) {
+  if (loading) {
+    return (
+      <TableRow>
+        <TableCell colSpan={colSpan} className="text-center text-muted-foreground py-8">
+          Loading…
+        </TableCell>
+      </TableRow>
+    );
+  }
+
+  if (items.length === 0) {
+    if (emptyMessage === undefined) return null;
+    return (
+      <TableRow>
+        <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
+          {emptyMessage}
+        </TableCell>
+      </TableRow>
+    );
+  }
+
+  return items.map((item) => (
+    <Fragment key={getRowKey(item)}>
+      {renderRow(item)}
+    </Fragment>
+  ));
+}
 
 // ── Positions tab ──────────────────────────────────────────────────────────
 
@@ -158,54 +203,47 @@ export function PositionsTab() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {(() => {
-            if (loading) {
-              return (
-            <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-              );
-            }
-            if (result.data.length === 0) {
-              return (
-            <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground">No positions found.</TableCell>
-            </TableRow>
-              );
-            }
-            return result.data.map((p) => (
-            <TableRow key={p.id}>
-              <TableCell className="font-medium">
-                <div className="flex items-center gap-2">
-                  {p.name}
-                  {p.isCustomized && <Badge className="bg-amber-100 text-amber-800 text-xs">Customized</Badge>}
-                </div>
-              </TableCell>
-              <TableCell className="text-sm text-muted-foreground">{p.description}</TableCell>
-              <TableCell>
-                {p.isActive
-                  ? <Badge className="bg-green-100 text-green-800">Active</Badge>
-                  : <Badge variant="secondary">Inactive</Badge>}
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}
-              </TableCell>
-              <TableCell>
-                <div className="flex gap-1">
-                  {p.isCustomized && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" title="Reset to default" onClick={() => handleReset(p.id)}>
-                      <RotateCcw className="h-3.5 w-3.5" />
+          <ManagementTableBody
+            loading={loading}
+            items={result.data}
+            colSpan={5}
+            emptyMessage="No positions found."
+            getRowKey={(position) => position.id}
+            renderRow={(position) => (
+              <TableRow>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-2">
+                    {position.name}
+                    {position.isCustomized && <Badge className="bg-amber-100 text-amber-800 text-xs">Customized</Badge>}
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">{position.description}</TableCell>
+                <TableCell>
+                  {position.isActive
+                    ? <Badge className="bg-green-100 text-green-800">Active</Badge>
+                    : <Badge variant="secondary">Inactive</Badge>}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {position.createdAt ? new Date(position.createdAt).toLocaleDateString() : '—'}
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    {position.isCustomized && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" title="Reset to default" onClick={() => handleReset(position.id)}>
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(position)}>
+                      <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                  )}
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(p)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(p.id)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-            ));
-          })()}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(position.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+          />
         </TableBody>
       </Table>
       </div>
@@ -937,43 +975,36 @@ function UsersTab() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {(() => {
-            if (loading) {
-              return (
-            <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-              );
-            }
-            if (result.data.length === 0) {
-              return (
-            <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground">No users found.</TableCell>
-            </TableRow>
-              );
-            }
-            return result.data.map((u) => (
-            <TableRow key={u.id}>
-              <TableCell className="font-medium">{u.name}{isSelf(u) && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}</TableCell>
-              <TableCell className="text-sm">{u.email}</TableCell>
-              <TableCell>{roleBadge(u.role)}</TableCell>
-              <TableCell className="text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</TableCell>
-              <TableCell>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(u)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost" size="icon" className="h-7 w-7 text-destructive"
-                    onClick={() => handleDelete(u)}
-                    disabled={isSelf(u)}
-                    title={isSelf(u) ? 'Cannot delete yourself' : 'Delete user'}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-            ));
-          })()}
+          <ManagementTableBody
+            loading={loading}
+            items={result.data}
+            colSpan={5}
+            emptyMessage="No users found."
+            getRowKey={(user) => user.id}
+            renderRow={(user) => (
+              <TableRow>
+                <TableCell className="font-medium">{user.name}{isSelf(user) && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}</TableCell>
+                <TableCell className="text-sm">{user.email}</TableCell>
+                <TableCell>{roleBadge(user.role)}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(user)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost" size="icon" className="h-7 w-7 text-destructive"
+                      onClick={() => handleDelete(user)}
+                      disabled={isSelf(user)}
+                      title={isSelf(user) ? 'Cannot delete yourself' : 'Delete user'}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+          />
         </TableBody>
       </Table>
       </div>
@@ -1175,57 +1206,50 @@ function LevelsTab() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {(() => {
-            if (loading) {
-              return (
-            <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-              );
-            }
-            if (result.data.length === 0) {
-              return (
-            <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground">No levels found.</TableCell>
-            </TableRow>
-              );
-            }
-            return result.data.map((l) => (
-            <TableRow key={l.id}>
-              <TableCell className="font-medium font-mono text-sm">
-                <div className="flex items-center gap-2">
-                  {l.name}
-                  {l.isCustomized && <Badge className="bg-amber-100 text-amber-800 text-xs">Customized</Badge>}
-                </div>
-              </TableCell>
-              <TableCell>{l.displayName}</TableCell>
-              <TableCell className="text-sm text-muted-foreground">#{l.orderIndex}</TableCell>
-              <TableCell>
-                <button type="button" onClick={() => toggleActive(l)}>
-                  {l.isActive
-                    ? <Badge className="bg-green-100 text-green-800 cursor-pointer">Active</Badge>
-                    : <Badge variant="secondary" className="cursor-pointer">Inactive</Badge>}
-                </button>
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString() : '—'}
-              </TableCell>
-              <TableCell>
-                <div className="flex gap-1">
-                  {l.isCustomized && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" title="Reset to default" onClick={() => handleReset(l.id)}>
-                      <RotateCcw className="h-3.5 w-3.5" />
+          <ManagementTableBody
+            loading={loading}
+            items={result.data}
+            colSpan={6}
+            emptyMessage="No levels found."
+            getRowKey={(level) => level.id}
+            renderRow={(level) => (
+              <TableRow>
+                <TableCell className="font-medium font-mono text-sm">
+                  <div className="flex items-center gap-2">
+                    {level.name}
+                    {level.isCustomized && <Badge className="bg-amber-100 text-amber-800 text-xs">Customized</Badge>}
+                  </div>
+                </TableCell>
+                <TableCell>{level.displayName}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">#{level.orderIndex}</TableCell>
+                <TableCell>
+                  <button type="button" onClick={() => toggleActive(level)}>
+                    {level.isActive
+                      ? <Badge className="bg-green-100 text-green-800 cursor-pointer">Active</Badge>
+                      : <Badge variant="secondary" className="cursor-pointer">Inactive</Badge>}
+                  </button>
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {level.updatedAt ? new Date(level.updatedAt).toLocaleDateString() : '—'}
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    {level.isCustomized && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" title="Reset to default" onClick={() => handleReset(level.id)}>
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(level)}>
+                      <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                  )}
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(l)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(l.id)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-            ));
-          })()}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(level.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+          />
         </TableBody>
       </Table>
       </div>
@@ -1438,28 +1462,32 @@ function PromptsTab() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {loading ? (
-            <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-          ) : result.data.map((p) => (
-            <TableRow key={p.id}>
-              <TableCell className="font-medium">{p.name}</TableCell>
-              <TableCell>
-                <Badge variant="outline" className="font-mono text-xs">{p.key}</Badge>
-              </TableCell>
-              <TableCell>
-                <Badge className={getModelBadgeClass(p.model)}>{p.model || 'claude-sonnet-4.6'}</Badge>
-              </TableCell>
-              <TableCell className="text-sm text-muted-foreground">{p.description}</TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {new Date(p.updatedAt).toLocaleDateString()}
-              </TableCell>
-              <TableCell>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(p)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
+          <ManagementTableBody
+            loading={loading}
+            items={result.data}
+            colSpan={6}
+            getRowKey={(prompt) => prompt.id}
+            renderRow={(prompt) => (
+              <TableRow>
+                <TableCell className="font-medium">{prompt.name}</TableCell>
+                <TableCell>
+                  <Badge variant="outline" className="font-mono text-xs">{prompt.key}</Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge className={getModelBadgeClass(prompt.model)}>{prompt.model || 'claude-sonnet-4.6'}</Badge>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">{prompt.description}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {new Date(prompt.updatedAt).toLocaleDateString()}
+                </TableCell>
+                <TableCell>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(prompt)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )}
+          />
         </TableBody>
       </Table>
       </div>
@@ -1682,55 +1710,47 @@ function ModelsTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(() => {
-              if (loading) {
+            <ManagementTableBody
+              loading={loading}
+              items={rows}
+              colSpan={5}
+              emptyMessage="No prompts found."
+              getRowKey={(row) => row.promptKey}
+              renderRow={(row) => {
+                const selectedValue = row.model ?? '__default__';
+                const isSaving = savingKey === row.promptKey;
+
                 return (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">Loading…</TableCell>
-              </TableRow>
+                  <TableRow>
+                    <TableCell className="font-medium">{row.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-mono text-xs">{row.promptKey}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-md">{row.description}</TableCell>
+                    <TableCell>
+                      <Select
+                        value={selectedValue}
+                        onValueChange={(value) => applyModel(row.promptKey, value)}
+                        disabled={isSaving}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__default__">
+                            Default{row.defaultModel ? ` (${row.defaultModel})` : ''}
+                          </SelectItem>
+                          {renderModelOptions()}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}
+                    </TableCell>
+                  </TableRow>
                 );
-              }
-              if (rows.length === 0) {
-                return (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No prompts found.</TableCell>
-              </TableRow>
-                );
-              }
-              return rows.map((r) => {
-              const selectedValue = r.model ?? '__default__';
-              const isSaving = savingKey === r.promptKey;
-              return (
-                <TableRow key={r.promptKey}>
-                  <TableCell className="font-medium">{r.name}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="font-mono text-xs">{r.promptKey}</Badge>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground max-w-md">{r.description}</TableCell>
-                  <TableCell>
-                    <Select
-                      value={selectedValue}
-                      onValueChange={(v) => applyModel(r.promptKey, v)}
-                      disabled={isSaving}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__default__">
-                          Default{r.defaultModel ? ` (${r.defaultModel})` : ''}
-                        </SelectItem>
-                        {renderModelOptions()}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '—'}
-                  </TableCell>
-                </TableRow>
-              );
-              });
-            })()}
+              }}
+            />
           </TableBody>
         </Table>
       </div>

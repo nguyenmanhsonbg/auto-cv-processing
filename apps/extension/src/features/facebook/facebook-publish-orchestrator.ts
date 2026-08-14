@@ -521,13 +521,7 @@ function buildFacebookPublishResultPayload(
   const externalPost = parseFacebookGroupPostUrl(result.externalPostUrl);
 
   return {
-    jobPostingId: plan.jobPostingId,
-    reservationId: target.reservationId ?? null,
-    targetId: target.targetId ?? null,
-    targetType: target.targetType,
-    targetName: target.targetName,
-    targetUrl: target.targetUrl ?? null,
-    content: plan.content,
+    ...buildFacebookPublishTargetPayloadBase(plan, target, true),
     status: result.status,
     facebookReviewStatus: result.facebookReviewStatus ?? getPublishResultReviewStatus(result),
     message: result.message,
@@ -543,19 +537,29 @@ function buildUnexpectedFacebookPublishFailurePayload(
   message: string,
 ): FacebookPublishResultPayload {
   return {
-    jobPostingId: plan.jobPostingId,
-    reservationId: target.reservationId ?? null,
-    targetId: target.targetId ?? null,
-    targetType: target.targetType,
-    targetName: target.targetName,
-    targetUrl: target.targetUrl ?? null,
-    content: plan.content,
+    ...buildFacebookPublishTargetPayloadBase(plan, target, true),
     status: 'FAILED',
     facebookReviewStatus: 'UNKNOWN',
     message,
     externalPostId: null,
     externalPostUrl: null,
     submittedAt: null,
+  };
+}
+
+function buildFacebookPublishTargetPayloadBase(
+  plan: FacebookPublishPlan,
+  target: FacebookPublishTarget,
+  includeReservationId: boolean,
+) {
+  return {
+    jobPostingId: plan.jobPostingId,
+    ...(includeReservationId ? { reservationId: target.reservationId ?? null } : {}),
+    targetId: target.targetId ?? null,
+    targetType: target.targetType,
+    targetName: target.targetName,
+    targetUrl: target.targetUrl ?? null,
+    content: plan.content,
   };
 }
 
@@ -1424,12 +1428,7 @@ async function reportAllTargetsFailed(
 ) {
   for (const target of plan.targets) {
     const payload: FacebookPublishResultPayload = {
-      jobPostingId: plan.jobPostingId,
-      targetId: target.targetId ?? null,
-      targetType: target.targetType,
-      targetName: target.targetName,
-      targetUrl: target.targetUrl ?? null,
-      content: plan.content,
+      ...buildFacebookPublishTargetPayloadBase(plan, target, false),
       status: 'FAILED',
       facebookReviewStatus: 'UNKNOWN',
       message,

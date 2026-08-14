@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { isEmailAddress } from '@interview-assistant/shared';
-import { Eye, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,7 +30,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { RecruitmentTableBody } from '@/components/recruitment/RecruitmentListPrimitives';
+import {
+  CandidateManagementActions,
+  RecruitmentTableBody,
+} from '@/components/recruitment/RecruitmentListPrimitives';
 import {
   getCandidateStatusBadgeClassName,
   getCandidateStatusLabel,
@@ -285,23 +288,12 @@ export function InternalListPage() {
                     <TableCell>{internal.applicationCount}</TableCell>
                     <TableCell><Badge className={getCandidateStatusBadgeClassName(internal.isActive)}>{getCandidateStatusLabel(internal.isActive, { active: 'Active', inactive: 'Inactive' })}</Badge></TableCell>
                     <TableCell>{formatRecruitmentLocalDateTime(internal.createdAt)}</TableCell>
-                    <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
-                      <div className="flex justify-end gap-2">
-                        <Button asChild variant="outline" size="sm">
-                          <Link to={detailPath}><Eye className="mr-2 h-4 w-4" />View</Link>
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={isStatusUpdating}
-                          onClick={(event) => void handleToggleStatus(event, internal)}
-                        >
-                          {isStatusUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                          {internal.isActive ? 'Deactivate' : 'Activate'}
-                        </Button>
-                      </div>
-                    </TableCell>
+                    <CandidateManagementActions
+                      detailPath={detailPath}
+                      isActive={internal.isActive}
+                      isStatusUpdating={isStatusUpdating}
+                      onToggleStatus={(event) => void handleToggleStatus(event, internal)}
+                    />
                   </TableRow>
                 );
               }}

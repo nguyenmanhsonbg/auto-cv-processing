@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Check,
   Copy,
-  Eye,
   Loader2,
   Plus,
   RefreshCw,
@@ -42,7 +41,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { RecruitmentTableBody } from '@/components/recruitment/RecruitmentListPrimitives';
+import {
+  CandidateManagementActions,
+  RecruitmentTableBody,
+} from '@/components/recruitment/RecruitmentListPrimitives';
 import {
   getCandidateStatusBadgeClassName,
   getCandidateStatusLabel,
@@ -343,28 +345,12 @@ export function FreelancerListPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>{formatRecruitmentLocalDateTime(freelancer.createdAt)}</TableCell>
-                    <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
-                      <div className="flex justify-end gap-2">
-                        <Button asChild variant="outline" size="sm">
-                          <Link to={detailPath}>
-                            <Eye className="mr-2 h-4 w-4" />
-                            View
-                          </Link>
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={isStatusUpdating}
-                          onClick={(event) => void handleToggleStatus(event, freelancer)}
-                        >
-                          {isStatusUpdating ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : null}
-                          {freelancer.isActive ? 'Deactivate' : 'Activate'}
-                        </Button>
-                      </div>
-                    </TableCell>
+                    <CandidateManagementActions
+                      detailPath={detailPath}
+                      isActive={freelancer.isActive}
+                      isStatusUpdating={isStatusUpdating}
+                      onToggleStatus={(event) => void handleToggleStatus(event, freelancer)}
+                    />
                   </TableRow>
                 );
               }}

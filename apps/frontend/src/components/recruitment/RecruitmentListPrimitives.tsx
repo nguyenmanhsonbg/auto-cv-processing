@@ -1,4 +1,6 @@
-import type { Key, ReactNode } from 'react';
+import type { Key, MouseEventHandler, ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { Eye, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   TableBody,
@@ -50,6 +52,43 @@ export function RecruitmentTableBody<Row>({
         </FragmentWithKey>
       ))}
     </TableBody>
+  );
+}
+
+interface CandidateManagementActionsProps {
+  detailPath: string;
+  isActive: boolean;
+  isStatusUpdating: boolean;
+  onToggleStatus: MouseEventHandler<HTMLButtonElement>;
+}
+
+export function CandidateManagementActions({
+  detailPath,
+  isActive,
+  isStatusUpdating,
+  onToggleStatus,
+}: CandidateManagementActionsProps) {
+  return (
+    <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+      <div className="flex justify-end gap-2">
+        <Button asChild variant="outline" size="sm">
+          <Link to={detailPath}>
+            <Eye className="mr-2 h-4 w-4" />
+            View
+          </Link>
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isStatusUpdating}
+          onClick={onToggleStatus}
+        >
+          {isStatusUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          {isActive ? 'Deactivate' : 'Activate'}
+        </Button>
+      </div>
+    </TableCell>
   );
 }
 
