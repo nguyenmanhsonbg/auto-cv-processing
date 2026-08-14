@@ -1,8 +1,10 @@
-import { buildFreelancerIdentifierCopyText } from './referral-management-utils';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { buildFreelancerIdentifierCopyText } from './referral-management-utils.ts';
 
-const actual = buildFreelancerIdentifierCopyText('FL000001');
-if (actual !== 'FL000001') {
-  throw new Error(`Expected the identifier copy text, received: ${actual}`);
-}
-
-console.log('referral-management-utils: copy text passed');
+test('builds freelancer identifier copy text', () => {
+  assert.equal(
+    buildFreelancerIdentifierCopyText('FL000001'),
+    'FL000001',
+  );
+});
