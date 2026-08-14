@@ -21,6 +21,8 @@ import {
 } from '@/components/recruitment/CvProcessingPanel';
 import type { CvVersionRecord } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
+import { formatRecruitmentLocalDateTime } from '@/lib/date-time';
+import { valueOrDash } from '@/lib/display-utils';
 
 interface CvVersionHistoryProps {
   applicationId: string;
@@ -47,25 +49,6 @@ const STATUS_LABELS: Record<string, string> = {
 function statusLabel(status?: string | null) {
   if (!status) return '-';
   return STATUS_LABELS[status] ?? status;
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function valueOrDash(value?: string | number | null) {
-  if (value === undefined || value === null || value === '') return '-';
-  return String(value);
 }
 
 function shortHash(value?: string | null) {
@@ -177,7 +160,7 @@ export function CvVersionHistory({
                   <TableCell>
                     <StatusBadge status={parseStatus} />
                   </TableCell>
-                  <TableCell>{formatDate(clean?.createdAt ?? original?.createdAt)}</TableCell>
+                  <TableCell>{formatRecruitmentLocalDateTime(clean?.createdAt ?? original?.createdAt)}</TableCell>
                   <TableCell>
                     <CleanCvActions
                       applicationId={applicationId}

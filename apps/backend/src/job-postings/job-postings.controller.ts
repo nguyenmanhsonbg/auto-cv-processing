@@ -5,6 +5,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
+import { paginatedSuccess } from '../common/http/list-response';
 import { ChannelPostingStatus, JobPostingStatus, RecruitmentChannel } from '../recruitment-common';
 import { FacebookPublishingService } from '../facebook-publishing/facebook-publishing.service';
 import { type ExtensionFacebookPublishPlan } from '../facebook-publishing/facebook-publishing.types';
@@ -35,17 +36,12 @@ export class JobPostingsController {
   async findAll(@Query() query: ListJobPostingsQueryDto) {
     const unsupportedStatus = this.isUnsupportedFeStatus(query.status);
     if (unsupportedStatus) {
-      return {
-        success: true,
-        data: [],
-        pagination: {
-          page: query.page ?? 1,
-          limit: query.limit ?? 20,
-          total: 0,
-          totalPages: 0,
-        },
-        meta: this.meta(),
-      };
+      return paginatedSuccess([], {
+        page: query.page ?? 1,
+        limit: query.limit ?? 20,
+        total: 0,
+        totalPages: 0,
+      }, this.meta());
     }
 
     const result = await this.jobPostingsService.findPaginated({
@@ -59,17 +55,11 @@ export class JobPostingsController {
       sortOrder: query.sortOrder,
     });
 
-    return {
-      success: true,
-      data: result.data.map((posting) => this.toJobPostingResponse(posting)),
-      pagination: {
-        page: result.page,
-        limit: result.limit,
-        total: result.total,
-        totalPages: result.totalPages,
-      },
-      meta: this.meta(),
-    };
+    return paginatedSuccess(
+      result.data.map((posting) => this.toJobPostingResponse(posting)),
+      result,
+      this.meta(),
+    );
   }
 
   @Post()

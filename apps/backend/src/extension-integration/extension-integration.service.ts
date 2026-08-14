@@ -78,6 +78,7 @@ import {
 } from './referral-source-summary.util';
 import { CvStageReminderService } from '../notification/cv-stage-reminder.service';
 import { CandidateStageNotificationService } from '../notification/candidate-stage-notification.service';
+import { buildJobDescriptionSnapshot } from '../job-descriptions/job-description-snapshot';
 
 const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
 
@@ -1013,7 +1014,7 @@ export class ExtensionIntegrationService {
       jobDescriptionId: jobDescription.id,
       jobDescription,
       versionNo: 1,
-      snapshot: this.buildJobDescriptionSnapshot(jobDescription),
+      snapshot: buildJobDescriptionSnapshot(jobDescription),
       status: JobDescriptionVersionStatus.ACTIVE,
       createdById: jobDescription.createdById,
     });
@@ -1047,7 +1048,7 @@ export class ExtensionIntegrationService {
       manager.getRepository(JobDescriptionVersionEntity).create({
         jobDescriptionId,
         versionNo: (latest?.versionNo ?? 0) + 1,
-        snapshot: this.buildJobDescriptionSnapshot(jobDescription),
+        snapshot: buildJobDescriptionSnapshot(jobDescription),
         status: JobDescriptionVersionStatus.ACTIVE,
         createdById,
       }),
@@ -2628,13 +2629,6 @@ export class ExtensionIntegrationService {
     return normalized.length > 500 ? normalized.slice(0, 500).trim() : normalized;
   }
 
-  private summaryForSnapshot(jobDescription: JobDescriptionEntity) {
-    const summary = jobDescription.summary?.trim();
-    if (summary) return summary;
-
-    return this.toSummary(jobDescription.description || jobDescription.title);
-  }
-
   private parseDeadline(value: string | undefined, now: Date) {
     if (!value) return null;
     const closeAt = new Date(value);
@@ -2668,56 +2662,6 @@ export class ExtensionIntegrationService {
       channels: dto.channels,
       facebookTargetCount: dto.facebookTargetIds?.length ?? 0,
       hasAmisUrl: Boolean(dto.amisUrl),
-    };
-  }
-
-  private buildJobDescriptionSnapshot(jobDescription: JobDescriptionEntity) {
-    return {
-      schemaVersion: 2,
-      snapshottedAt: new Date().toISOString(),
-      jobDescription: {
-        id: jobDescription.id,
-        title: jobDescription.title,
-        positionId: jobDescription.positionId,
-        levelId: jobDescription.levelId,
-        description: jobDescription.description,
-        overview: jobDescription.overview,
-        responsibilities: jobDescription.responsibilities,
-        summary: this.summaryForSnapshot(jobDescription),
-        requirements: jobDescription.requirements,
-        benefits: jobDescription.benefits,
-        salary: jobDescription.salary,
-        annualLeaveDays: jobDescription.annualLeaveDays,
-        department: jobDescription.department,
-        applicationDeadline: jobDescription.applicationDeadline,
-        status: jobDescription.status,
-        createdById: jobDescription.createdById,
-        createdAt: jobDescription.createdAt?.toISOString() ?? null,
-        updatedAt: jobDescription.updatedAt?.toISOString() ?? null,
-      },
-      position: jobDescription.position
-        ? {
-            id: jobDescription.position.id,
-            name: jobDescription.position.name,
-            description: jobDescription.position.description,
-          }
-        : null,
-      level: jobDescription.level
-        ? {
-            id: jobDescription.level.id,
-            name: jobDescription.level.name,
-            displayName: jobDescription.level.displayName,
-            orderIndex: jobDescription.level.orderIndex,
-          }
-        : null,
-      createdBy: jobDescription.createdBy
-        ? {
-            id: jobDescription.createdBy.id,
-            email: jobDescription.createdBy.email,
-            name: jobDescription.createdBy.name,
-            role: jobDescription.createdBy.role,
-          }
-        : null,
     };
   }
 

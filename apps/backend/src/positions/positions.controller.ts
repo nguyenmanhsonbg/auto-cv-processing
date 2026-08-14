@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@interview-assistant/shared';
+import { normalizeReferenceListQuery } from '../common/http/list-response';
 import { PositionsService } from './positions.service';
 
 @ApiTags('Positions')
@@ -38,19 +39,9 @@ export class PositionsController {
     @Query('sortBy') sortBy?: string,
     @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
   ) {
-    const statuses = status ? status.split(',').filter(Boolean) : [];
-    let isActive: boolean | undefined;
-    if (statuses.length === 1) {
-      if (statuses[0] === 'ACTIVE') {
-        isActive = true;
-      } else if (statuses[0] === 'INACTIVE') {
-        isActive = false;
-      }
-    }
-    return this.service.findPaginated({
-      page: page ? Number(page) : undefined, limit: limit ? Number(limit) : undefined,
-      search, isActive, sortBy, sortOrder,
-    });
+    return this.service.findPaginated(normalizeReferenceListQuery({
+      page, limit, search, status, sortBy, sortOrder,
+    }));
   }
 
   @Post()

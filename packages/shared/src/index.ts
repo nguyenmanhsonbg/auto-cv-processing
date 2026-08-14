@@ -7,3 +7,5 @@ export * from './types/submission';
 export * from './types/websocket-events';
 export * from './types/pagination';
 export * from './email-validation';
+export * from './profile-payload';
+export * from './secure-random';

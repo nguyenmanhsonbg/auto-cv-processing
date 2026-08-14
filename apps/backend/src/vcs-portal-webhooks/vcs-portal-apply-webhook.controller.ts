@@ -1,24 +1,15 @@
 import { BadRequestException, Body, Controller, Headers, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { diskStorage } from 'multer';
 import { extname } from 'node:path';
-import { buildCvQuarantineFileName, ensureCvQuarantineRoot } from '../cv-documents/storage/cv-quarantine-storage';
+import {
+  createCvQuarantineStorage,
+  CV_UPLOAD_SIZE_LIMIT_BYTES,
+} from '../cv-documents/storage/cv-upload-storage';
 import { VcsPortalApplyWebhookService } from './vcs-portal-apply-webhook.service';
 
 const vcsPortalApplyWebhookFileInterceptor = FileInterceptor('cv', {
-  storage: diskStorage({
-    destination: (_req, _file, cb) => {
-      try {
-        cb(null, ensureCvQuarantineRoot());
-      } catch (error) {
-        cb(error instanceof Error ? error : new Error('CV quarantine storage is invalid'), '');
-      }
-    },
-    filename: (_req, file, cb) => {
-      cb(null, buildCvQuarantineFileName(file.originalname));
-    },
-  }),
+  storage: createCvQuarantineStorage(),
   fileFilter: (_req, file, cb) => {
     const extension = extname(file.originalname).toLowerCase();
 
@@ -29,7 +20,7 @@ const vcsPortalApplyWebhookFileInterceptor = FileInterceptor('cv', {
 
     cb(null, true);
   },
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: CV_UPLOAD_SIZE_LIMIT_BYTES },
 });
 
 @ApiTags('VCS Portal Webhooks')

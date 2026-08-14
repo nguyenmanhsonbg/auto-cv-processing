@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Loader2, Search } from 'lucide-react';
+import { formatCandidateValue } from '@/components/interview/candidate-display';
 import {
   getApplicationStatusClassName,
   getApplicationStatusLabel,
@@ -39,11 +40,6 @@ import type { RecruitmentPagination } from '@/lib/recruitment-api';
 const DEFAULT_PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 300;
 const OBJECT_URL_REVOKE_DELAY_MS = 60_000;
-
-function valueOrDash(value?: string | null) {
-  if (!value?.trim()) return '-';
-  return value;
-}
 
 function normalizeEvaluation(value: string | null | undefined) {
   const trimmed = value?.trim() ?? '';
@@ -367,11 +363,11 @@ export function FreelancerWorkspacePage() {
                         {isViewingCv ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : null}
-                        {valueOrDash(application.candidateName)}
+                        {formatCandidateValue(application.candidateName)}
                       </Button>
                     </TableCell>
                     <TableCell className="align-top">
-                      {valueOrDash(application.jobPostingTitle)}
+                      {formatCandidateValue(application.jobPostingTitle)}
                     </TableCell>
                     <TableCell className="align-top">
                       {application.processStatus ? (

@@ -1,5 +1,10 @@
 import { appendAmisDiagnostic } from '@/stores/amis-diagnostics-store';
 import {
+  attachChromeDebugger,
+  decodeChromeDebuggerResponseBody,
+  sendChromeDebuggerCommand,
+} from '@/integrations/chrome-debugger-utils';
+import {
   AMIS_CAREER_DATA_PAGING_PATH,
   AMIS_SAVE_RECRUITMENT_PATH,
   isAmisCareerDataPagingUrl,
@@ -129,9 +134,9 @@ export async function ensureAmisDebuggerAttached(tab: ChromeMessageSender['tab']
   }
 
   try {
-    await debuggerAttach({ tabId }, DEBUGGER_PROTOCOL_VERSION);
+    await attachChromeDebugger({ tabId }, DEBUGGER_PROTOCOL_VERSION);
     attachedTabs.add(tabId);
-    await debuggerSendCommand({ tabId }, 'Network.enable', {});
+    await sendChromeDebuggerCommand({ tabId }, 'Network.enable', {});
 
     await appendAmisDiagnostic({
       type: 'DEBUGGER_ATTACHED',
@@ -267,12 +272,12 @@ async function handleSaveLoadingFinished(
   pending: PendingSaveRequest,
 ) {
   try {
-    const responseBody = await debuggerSendCommand<NetworkGetResponseBodyResult>(
+    const responseBody = await sendChromeDebuggerCommand<NetworkGetResponseBodyResult>(
       { tabId },
       'Network.getResponseBody',
       { requestId },
     );
-    const bodyText = decodeResponseBody(responseBody);
+    const bodyText = decodeChromeDebuggerResponseBody(responseBody);
     const responseJson = parseJsonText(bodyText);
     const capture = mapAmisSaveRecruitmentResponse(
       responseJson,
@@ -328,12 +333,12 @@ async function handleCareerLoadingFinished(
   pending: PendingCareerRequest,
 ) {
   try {
-    const responseBody = await debuggerSendCommand<NetworkGetResponseBodyResult>(
+    const responseBody = await sendChromeDebuggerCommand<NetworkGetResponseBodyResult>(
       { tabId },
       'Network.getResponseBody',
       { requestId },
     );
-    const bodyText = decodeResponseBody(responseBody);
+    const bodyText = decodeChromeDebuggerResponseBody(responseBody);
     const responseJson = parseJsonText(bodyText);
     const items = mapAmisCareerDataPagingResponse(responseJson);
 
@@ -388,12 +393,12 @@ async function handleApplicationsLoadingFinished(
   pending: PendingApplicationsRequest,
 ) {
   try {
-    const responseBody = await debuggerSendCommand<NetworkGetResponseBodyResult>(
+    const responseBody = await sendChromeDebuggerCommand<NetworkGetResponseBodyResult>(
       { tabId },
       'Network.getResponseBody',
       { requestId },
     );
-    const bodyText = decodeResponseBody(responseBody);
+    const bodyText = decodeChromeDebuggerResponseBody(responseBody);
     const responseJson = parseJsonText(bodyText);
     const items = mapAmisApplicationsResponse(responseJson);
 
@@ -472,15 +477,6 @@ function removePendingRequestsForTab(tabId: number) {
   }
 }
 
-function decodeResponseBody(result: NetworkGetResponseBodyResult) {
-  const body = result.body ?? '';
-  if (!result.base64Encoded) return body;
-
-  const binary = globalThis.atob(body);
-  const bytes = Uint8Array.from(binary, (char) => char.codePointAt(0) ?? 0);
-  return new TextDecoder().decode(bytes);
-}
-
 function parseJsonText(text: string) {
   const cleaned = text
     .trim()
@@ -514,38 +510,6 @@ function isAmisPageUrl(url: string) {
   } catch {
     return false;
   }
-}
-
-function debuggerAttach(target: ChromeDebuggee, requiredVersion: string) {
-  return new Promise<void>((resolve, reject) => {
-    try {
-      chrome.debugger?.attach(target, requiredVersion, () => {
-        const lastError = chrome.runtime?.lastError;
-        if (lastError?.message) reject(new Error(lastError.message));
-        else resolve();
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-function debuggerSendCommand<T>(
-  target: ChromeDebuggee,
-  method: string,
-  params?: Record<string, unknown>,
-) {
-  return new Promise<T>((resolve, reject) => {
-    try {
-      chrome.debugger?.sendCommand<T>(target, method, params, (result) => {
-        const lastError = chrome.runtime?.lastError;
-        if (lastError?.message) reject(new Error(lastError.message));
-        else resolve(result);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
 }
 
 function toErrorMessage(error: unknown) {

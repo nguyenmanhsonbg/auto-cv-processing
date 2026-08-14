@@ -21,6 +21,7 @@ import type {
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
 import { formatRecruitmentDateTime } from '@/lib/date-time';
+import { valueOrDash } from '@/lib/display-utils';
 
 interface ApplicationAuditLogProps {
   logs: ApplicationAuditLogRecord[];
@@ -52,11 +53,6 @@ const BLOCKED_METADATA_PATTERNS = [
   'stack',
   'body',
 ];
-
-function valueOrDash(value?: string | number | null) {
-  if (value === undefined || value === null || value === '') return '-';
-  return String(value);
-}
 
 function formatAction(value?: string | null) {
   if (!value) return '-';

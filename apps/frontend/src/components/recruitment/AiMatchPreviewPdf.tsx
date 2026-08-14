@@ -1,7 +1,8 @@
 import { Document, Font, Page, Path, StyleSheet, Svg, Text, View } from '@react-pdf/renderer';
-import type { AiValidation, ParsedProfile, ProfileAnomalyDetection, ProfileSectionScore, VcsSignals, WorkExperience } from '@interview-assistant/shared';
+import type { AiValidation, ParsedProfile, ParsedProject, ProfileAnomalyDetection, ProfileSectionScore, VcsSignals, WorkExperience } from '@interview-assistant/shared';
 import type { ApplicationAiScreeningSummary, ApplicationMappingSummary } from '@/lib/recruitment-api';
 import { profilePayload } from './CandidateAiMatchPreview';
+import { stableKeyedItems } from '@/lib/stable-keyed-items';
 
 Font.register({
   family: 'NotoSans',
@@ -56,16 +57,6 @@ type PdfProps = {
 function list(value: unknown) {
   if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
   return typeof value === 'string' && value.trim() ? [value.trim()] : [];
-}
-
-function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string, prefix: string) {
-  const occurrences = new Map<string, number>();
-  return items.map((item) => {
-    const base = `${prefix}-${keyFor(item) || 'item'}`;
-    const occurrence = occurrences.get(base) ?? 0;
-    occurrences.set(base, occurrence + 1);
-    return { item, key: occurrence === 0 ? base : `${base}-${occurrence}` };
-  });
 }
 
 type ProjectLike = { name?: string | null; role?: string | null; startYear?: number | null; endYear?: number | null };
@@ -246,7 +237,7 @@ export function AiMatchPreviewPdf({ profile, mapping, screening, candidate }: Pd
   const signals = (data.vcsSignals as VcsSignals | undefined) ?? EMPTY_SIGNALS;
   const score = screening?.score ?? mapping?.score;
   const workExperience = data.workExperience ?? [];
-  const sideProjects = Array.isArray(data.projects) ? stableKeyedItems(data.projects, projectIdentity, 'side') : [];
+  const sideProjects = Array.isArray(data.projects) ? stableKeyedItems<ParsedProject>(data.projects, projectIdentity, 'side') : [];
   const groupedSkills = data.groupedSkills ? Object.entries(data.groupedSkills) : [];
   const companyTypeByName = deriveCompanyTypes(data);
   const languages = (data as ParsedProfile & { languages?: unknown }).languages;

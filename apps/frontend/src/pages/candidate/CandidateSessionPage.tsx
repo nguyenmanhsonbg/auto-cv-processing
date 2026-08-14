@@ -18,6 +18,7 @@ import { QuestionType } from '@interview-assistant/shared';
 import type { ArchitectureAnswer } from '@interview-assistant/shared';
 import { ArchitectureEditor } from '@/components/interview/ArchitectureEditor';
 import Editor from '@monaco-editor/react';
+import { stableKeyedItems } from '@/lib/stable-keyed-items';
 
 const LANGUAGES = [
   { value: 'javascript', label: 'JavaScript' },
@@ -27,16 +28,6 @@ const LANGUAGES = [
   { value: 'go', label: 'Go' },
   { value: 'cpp', label: 'C++' },
 ];
-
-function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string, prefix: string) {
-  const occurrences = new Map<string, number>();
-  return items.map((item) => {
-    const base = `${prefix}-${keyFor(item) || 'item'}`;
-    const occurrence = occurrences.get(base) ?? 0;
-    occurrences.set(base, occurrence + 1);
-    return { item, key: occurrence === 0 ? base : `${base}-${occurrence}` };
-  });
-}
 
 function testCaseIdentity(testCase: any) {
   return [testCase.id, testCase.description, testCase.input, testCase.expectedOutput].map((value) => String(value ?? '')).join('|');

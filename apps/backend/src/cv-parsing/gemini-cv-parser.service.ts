@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
+import { extractJsonFromText } from '../common/parsing/extract-json';
 
 const DEFAULT_GEMINI_MODELS = [
   'gemini-2.5-flash',
@@ -154,7 +155,7 @@ export class GeminiCvParserService implements OnModuleInit {
         throw new Error(`EMPTY_GEMINI_RESPONSE: ${JSON.stringify(payload.promptFeedback ?? null)}`);
       }
 
-      const parsed = this.extractJson(content);
+      const parsed = extractJsonFromText(content);
       if (!this.isRecord(parsed)) {
         throw new Error('GEMINI_RESPONSE_NOT_OBJECT');
       }
@@ -411,29 +412,6 @@ ${rawText}`;
       : [];
 
     return [...new Set([...directSkills, ...techstack, ...groupedSkills])];
-  }
-
-  private extractJson(text: string): unknown {
-    const fenceStart = text.indexOf('```');
-    if (fenceStart < 0) return JSON.parse(text.trim());
-
-    let contentStart = fenceStart + 3;
-    const language = text.slice(contentStart, contentStart + 4).toLowerCase();
-    if (language === 'json') {
-      const nextCharacter = text[contentStart + 4];
-      if (nextCharacter !== undefined && !isJsonWhitespace(nextCharacter)) {
-        return JSON.parse(text.trim());
-      }
-      contentStart += 4;
-    }
-
-    while (contentStart < text.length && isJsonWhitespace(text[contentStart])) {
-      contentStart += 1;
-    }
-
-    const fenceEnd = text.indexOf('```', contentStart);
-    const raw = fenceEnd >= 0 ? text.slice(contentStart, fenceEnd).trim() : text.trim();
-    return JSON.parse(raw);
   }
 
   private getApiKey() {

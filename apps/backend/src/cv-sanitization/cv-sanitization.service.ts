@@ -7,12 +7,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { open, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { DataSource, EntityManager, FindOptionsWhere } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
-import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { CvDocumentEntity } from '../cv-documents/entities/cv-document.entity';
 import { resolveCvQuarantineStorageKey } from '../cv-documents/storage/cv-quarantine-storage';
 import { CvParsingService } from '../cv-parsing/cv-parsing.service';
@@ -26,6 +24,7 @@ import {
   TERMINAL_APPLICATION_STATUSES,
 } from '../recruitment-common';
 import { WorkflowStateService } from '../workflow-state/workflow-state.service';
+import { calculateCvSha256, readCvMagicBytes, recordCvAuditLog } from '../cv-documents/cv-file-utils';
 import {
   CLEAN_CV_SANITIZER,
   CleanCvSanitizer,
@@ -553,6 +552,13 @@ export class CvSanitizationService {
     };
   }
 
+  private recordAuditLog(
+    manager: EntityManager,
+    input: Parameters<typeof recordCvAuditLog>[1],
+  ) {
+    return recordCvAuditLog(manager, input);
+  }
+
   private buildSafeOutputFilePath() {
     return path.resolve(ensureCvSafeRoot(), buildCvSafePdfFileName());
   }
@@ -719,52 +725,12 @@ export class CvSanitizationService {
     );
   }
 
-  private async recordAuditLog(
-    manager: EntityManager,
-    input: {
-      applicationId: string;
-      actorType: string;
-      actorId?: string | null;
-      action: string;
-      objectId: string;
-      metadata: Record<string, unknown>;
-    },
-  ) {
-    const auditRepo = manager.getRepository(AuditLogEntity);
-    await auditRepo.save(auditRepo.create({
-      actorType: input.actorType,
-      actorId: this.optionalText(input.actorId),
-      action: input.action,
-      objectType: 'CV_DOCUMENT',
-      objectId: input.objectId,
-      applicationId: input.applicationId,
-      metadata: input.metadata,
-      ipAddress: null,
-      userAgent: null,
-    }));
-  }
-
   private async readMagicBytes(filePath: string, byteCount: number) {
-    const fileHandle = await open(filePath, 'r');
-
-    try {
-      const buffer = Buffer.alloc(byteCount);
-      const { bytesRead } = await fileHandle.read(buffer, 0, byteCount, 0);
-      return buffer.subarray(0, bytesRead);
-    } finally {
-      await fileHandle.close();
-    }
+    return readCvMagicBytes(filePath, byteCount);
   }
 
   private calculateSha256(filePath: string) {
-    return new Promise<string>((resolve, reject) => {
-      const hash = createHash('sha256');
-      const stream = createReadStream(filePath);
-
-      stream.on('error', reject);
-      stream.on('data', (chunk) => hash.update(chunk));
-      stream.on('end', () => resolve(hash.digest('hex')));
-    });
+    return calculateCvSha256(filePath);
   }
 
   private hashOptionalText(value?: string | null) {

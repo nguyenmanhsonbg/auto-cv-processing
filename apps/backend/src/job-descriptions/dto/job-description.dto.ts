@@ -1,25 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBooleanString, IsDateString, IsDefined, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsBooleanString, IsDateString, IsDefined, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { PaginatedQueryDto } from '../../common/dto/paginated-query.dto';
 
-export class ListJobDescriptionsQueryDto {
-  @ApiPropertyOptional({ default: 1 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @ApiPropertyOptional({ default: 20, maximum: 100 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  search?: string;
-
+export class ListJobDescriptionsQueryDto extends PaginatedQueryDto {
   @ApiPropertyOptional({
     description: 'Accepts backend status or FE aliases such as READY/JD_READY.',
   })

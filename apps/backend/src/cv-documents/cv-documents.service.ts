@@ -8,14 +8,12 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { copyFile, open, stat } from 'node:fs/promises';
+import { copyFile, stat } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';
-import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { CvSanitizationService } from '../cv-sanitization/cv-sanitization.service';
 import {
   buildCvSafePdfFileName,
@@ -40,6 +38,7 @@ import { WorkflowEventEntity } from '../workflow-state/entities/workflow-event.e
 import { WorkflowStateService } from '../workflow-state/workflow-state.service';
 import { CvDocumentEntity } from './entities/cv-document.entity';
 import { ParsedProfileEntity } from './entities/parsed-profile.entity';
+import { calculateCvSha256, readCvMagicBytes, recordCvAuditLog } from './cv-file-utils';
 import {
   assertCvQuarantineFilePath,
   deleteCvQuarantineFile,
@@ -1066,31 +1065,6 @@ export class CvDocumentsService {
     return cvDocument;
   }
 
-  private async recordAuditLog(
-    manager: EntityManager,
-    input: {
-      applicationId: string;
-      actorType: string;
-      actorId?: string | null;
-      action: string;
-      objectId: string;
-      metadata: Record<string, unknown>;
-    },
-  ) {
-    const auditRepo = manager.getRepository(AuditLogEntity);
-    await auditRepo.save(auditRepo.create({
-      actorType: input.actorType,
-      actorId: this.optionalText(input.actorId),
-      action: input.action,
-      objectType: 'CV_DOCUMENT',
-      objectId: input.objectId,
-      applicationId: input.applicationId,
-      metadata: input.metadata,
-      ipAddress: null,
-      userAgent: null,
-    }));
-  }
-
   private assertCvScanAccepted(cvDocument: CvDocumentEntity) {
     if (cvDocument.scanStatus === CvScanStatus.PASSED) return;
 
@@ -1169,6 +1143,13 @@ export class CvDocumentsService {
     }
   }
 
+  private recordAuditLog(
+    manager: EntityManager,
+    input: Parameters<typeof recordCvAuditLog>[1],
+  ) {
+    return recordCvAuditLog(manager, input);
+  }
+
   private async assertFileSignature(filePath: string, signature: CvFileSignature) {
     const magicBytes = await this.readMagicBytes(filePath, signature === 'pdf' ? 1024 : 8);
 
@@ -1191,26 +1172,11 @@ export class CvDocumentsService {
   }
 
   private async readMagicBytes(filePath: string, byteCount: number) {
-    const fileHandle = await open(filePath, 'r');
-
-    try {
-      const buffer = Buffer.alloc(byteCount);
-      const { bytesRead } = await fileHandle.read(buffer, 0, byteCount, 0);
-      return buffer.subarray(0, bytesRead);
-    } finally {
-      await fileHandle.close();
-    }
+    return readCvMagicBytes(filePath, byteCount);
   }
 
   private calculateSha256(filePath: string) {
-    return new Promise<string>((resolve, reject) => {
-      const hash = createHash('sha256');
-      const stream = createReadStream(filePath);
-
-      stream.on('error', reject);
-      stream.on('data', (chunk) => hash.update(chunk));
-      stream.on('end', () => resolve(hash.digest('hex')));
-    });
+    return calculateCvSha256(filePath);
   }
 
   private calculateTextSha256(value: string) {

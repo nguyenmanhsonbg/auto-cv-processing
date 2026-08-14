@@ -5,6 +5,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiErrorResponses } from '../common/swagger/api-envelope.schema';
+import { paginatedSuccess } from '../common/http/list-response';
 import { JobDescriptionStatus } from '../recruitment-common';
 import {
   CreateJobDescriptionDto,
@@ -45,17 +46,11 @@ export class JobDescriptionsController {
       sortOrder: query.sortOrder,
     });
 
-    return {
-      success: true,
-      data: result.data.map((jobDescription) => this.toJobDescriptionResponse(jobDescription)),
-      pagination: {
-        page: result.page,
-        limit: result.limit,
-        total: result.total,
-        totalPages: result.totalPages,
-      },
-      meta: this.meta(),
-    };
+    return paginatedSuccess(
+      result.data.map((jobDescription) => this.toJobDescriptionResponse(jobDescription)),
+      result,
+      this.meta(),
+    );
   }
 
   @Post()

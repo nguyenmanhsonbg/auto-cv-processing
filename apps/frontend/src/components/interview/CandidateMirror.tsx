@@ -9,10 +9,12 @@ import { QuestionType, TECHNICAL_RATING_LABELS, PERSONALITY_RATING_LABELS } from
 import type { ArchitectureAnswer } from '@interview-assistant/shared';
 import { ArchitectureViewer } from '@/components/interview/ArchitectureViewer';
 import { Button } from '@/components/ui/button';
-import { Eye, Loader2, Check, AlertCircle, CheckCircle, XCircle, ChevronLeft, ChevronRight, Zap } from 'lucide-react';
+import { Eye, Loader2, Check, AlertCircle, ChevronLeft, ChevronRight, Zap } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { suggestNextQuestion, type QuestionSuggestion } from '@/lib/suggest-next-question';
 import { NextQuestionBanner } from '@/components/interview/NextQuestionBanner';
+import { ChoiceAnswerReview } from '@/components/interview/ChoiceAnswerReview';
+import { parseArchitectureAnswer } from '@/components/interview/answer-utils';
 
 interface CandidateMirrorProps {
   session: any;
@@ -280,15 +282,6 @@ function LiveDraftActivity({ draft, questionType, options }: Readonly<{ draft?: 
   );
 }
 
-function parseArchitectureAnswer(candidateAnswer?: string): ArchitectureAnswer | null {
-  if (!candidateAnswer) return null;
-  try {
-    return JSON.parse(candidateAnswer) as ArchitectureAnswer;
-  } catch {
-    return null;
-  }
-}
-
 function ArchitectureActivity({ liveValue, candidateAnswer }: Readonly<{ liveValue?: ArchitectureAnswer; candidateAnswer?: string }>) {
   if (liveValue) {
     return (
@@ -303,7 +296,7 @@ function ArchitectureActivity({ liveValue, candidateAnswer }: Readonly<{ liveVal
       <div className="bg-green-50 border border-green-200 rounded-lg p-3">
         <p className="text-xs font-medium text-green-700 mb-1">Final Answer:</p>
         {(() => {
-          const parsed = parseArchitectureAnswer(candidateAnswer);
+          const parsed = parseArchitectureAnswer(QuestionType.ARCHITECTURE, candidateAnswer);
           return parsed ? <ArchitectureViewer value={parsed} /> : null;
         })()}
       </div>
@@ -391,26 +384,14 @@ function CandidateActivityCard({
 function ChoiceReview({ questionType, options, correctAnswers, candidateAnswer }: Readonly<{ questionType?: QuestionType; options: { id: string; text: string }[]; correctAnswers: string[]; candidateAnswer?: string }>) {
   const isChoice = questionType === QuestionType.SINGLE_CHOICE || questionType === QuestionType.MULTIPLE_CHOICE;
   if (!isChoice || options.length === 0 || !candidateAnswer) return null;
-  const selectedIds = new Set(candidateAnswer.split(','));
   return (
     <div>
       <Label className="text-xs text-muted-foreground">Correct vs Selected</Label>
-      <div className="mt-1 space-y-1">
-        {options.map((opt) => {
-          const isSelected = selectedIds.has(opt.id);
-          const isCorrect = correctAnswers.includes(opt.id);
-          return (
-            <div key={opt.id} className={cn('text-sm px-2 py-1 rounded flex items-center gap-2', isSelected && isCorrect && 'bg-green-50 border border-green-200', isSelected && !isCorrect && 'bg-red-50 border border-red-200', !isSelected && isCorrect && 'bg-blue-50 border border-blue-200', !isSelected && !isCorrect && 'text-muted-foreground')}>
-              {isSelected && isCorrect && <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />}
-              {isSelected && !isCorrect && <XCircle className="h-3.5 w-3.5 text-red-600 shrink-0" />}
-              {!isSelected && isCorrect && <CheckCircle className="h-3.5 w-3.5 text-blue-600 shrink-0" />}
-              <span>{opt.text}</span>
-              {isSelected && <Badge variant="outline" className="text-[10px] ml-auto">Selected</Badge>}
-              {isCorrect && <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Correct</Badge>}
-            </div>
-          );
-        })}
-      </div>
+      <ChoiceAnswerReview
+        candidateAnswer={candidateAnswer}
+        options={options}
+        correctAnswers={correctAnswers}
+      />
     </div>
   );
 }

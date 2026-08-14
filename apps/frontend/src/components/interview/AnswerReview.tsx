@@ -7,9 +7,11 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { cn } from '@/lib/utils';
 import { QuestionType, TECHNICAL_RATING_LABELS, PERSONALITY_RATING_LABELS } from '@interview-assistant/shared';
 import type { ArchitectureAnswer } from '@interview-assistant/shared';
-import { CheckCircle, XCircle, Loader2, Check, AlertCircle } from 'lucide-react';
+import { Loader2, Check, AlertCircle } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { ArchitectureViewer } from '@/components/interview/ArchitectureViewer';
+import { ChoiceAnswerReview } from '@/components/interview/ChoiceAnswerReview';
+import { parseArchitectureAnswer } from '@/components/interview/answer-utils';
 
 interface AnswerReviewProps {
   sessionQuestion: any;
@@ -20,19 +22,6 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 const getRatingLabels = (category: string): Record<number, string> =>
   category === 'PERSONALITY' ? PERSONALITY_RATING_LABELS : TECHNICAL_RATING_LABELS;
-
-function parseArchitectureAnswer(
-  questionType: QuestionType | undefined,
-  candidateAnswer: string | undefined,
-): ArchitectureAnswer | null {
-  if (questionType !== QuestionType.ARCHITECTURE || !candidateAnswer) return null;
-
-  try {
-    return JSON.parse(candidateAnswer) as ArchitectureAnswer;
-  } catch {
-    return null;
-  }
-}
 
 function SaveStatusIndicator({ status }: Readonly<{ status: SaveStatus }>) {
   if (status === 'saving') {
@@ -118,47 +107,6 @@ function QuestionDetails({ question }: Readonly<{ question: any }>) {
   );
 }
 
-function ChoiceAnswer({
-  candidateAnswer,
-  options,
-  correctAnswers,
-}: Readonly<{
-  candidateAnswer: string;
-  options: { id: string; text: string }[];
-  correctAnswers: string[];
-}>) {
-  const selectedIds = new Set(candidateAnswer.split(','));
-
-  return (
-    <div className="mt-1 space-y-1">
-      {options.map((opt) => {
-        const isSelected = selectedIds.has(opt.id);
-        const isCorrect = correctAnswers.includes(opt.id);
-
-        return (
-          <div
-            key={opt.id}
-            className={cn(
-              'text-sm px-2 py-1 rounded flex items-center gap-2',
-              isSelected && isCorrect && 'bg-green-50 border border-green-200',
-              isSelected && !isCorrect && 'bg-red-50 border border-red-200',
-              !isSelected && isCorrect && 'bg-blue-50 border border-blue-200',
-              !isSelected && !isCorrect && 'text-muted-foreground',
-            )}
-          >
-            {isSelected && isCorrect && <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />}
-            {isSelected && !isCorrect && <XCircle className="h-3.5 w-3.5 text-red-600 shrink-0" />}
-            {!isSelected && isCorrect && <CheckCircle className="h-3.5 w-3.5 text-blue-600 shrink-0" />}
-            <span>{opt.text}</span>
-            {isSelected && <Badge variant="outline" className="text-[10px] ml-auto">Selected</Badge>}
-            {isCorrect && <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Correct</Badge>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function CandidateAnswerDisplay({
   questionType,
   candidateAnswer,
@@ -177,7 +125,7 @@ function CandidateAnswerDisplay({
 
   if (isChoiceQuestion && options.length > 0) {
     return (
-      <ChoiceAnswer
+      <ChoiceAnswerReview
         candidateAnswer={candidateAnswer}
         options={options}
         correctAnswers={correctAnswers}

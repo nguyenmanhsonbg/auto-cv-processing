@@ -1,33 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsIn, IsOptional } from 'class-validator';
+import { PaginatedQueryDto } from '../../common/dto/paginated-query.dto';
 
 export enum ExtensionReferralSourceType {
   FREELANCER = 'FREELANCER',
   INTERNAL = 'INTERNAL',
 }
 
-export class ListExtensionReferralSourcesQueryDto {
+export class ListExtensionReferralSourcesQueryDto extends PaginatedQueryDto {
   @ApiProperty({ enum: ExtensionReferralSourceType })
   @IsEnum(ExtensionReferralSourceType)
   source!: ExtensionReferralSourceType;
-
-  @ApiPropertyOptional({ default: 1 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @ApiPropertyOptional({ default: 20, maximum: 100 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  search?: string;
 
   @ApiPropertyOptional({ enum: ['ACTIVE', 'INACTIVE'] })
   @IsOptional()

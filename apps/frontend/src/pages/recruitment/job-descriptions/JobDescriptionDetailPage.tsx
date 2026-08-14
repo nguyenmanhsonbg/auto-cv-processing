@@ -51,6 +51,7 @@ import {
   type RecruitmentReferenceRecord,
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
+import { formatRecruitmentLocalDateTime } from '@/lib/date-time';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft',
@@ -92,20 +93,6 @@ function getStatusClassName(status?: string | null) {
     default:
       return 'bg-secondary text-secondary-foreground';
   }
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }
 
 function relationLabel(
@@ -458,12 +445,12 @@ export function JobDescriptionDetailPage() {
                   label="Level"
                   value={relationLabel(jobDescription.level, jobDescription.levelId)}
                 />
-                <DetailField label="Created" value={formatDate(jobDescription.createdAt)} />
-                <DetailField label="Updated" value={formatDate(jobDescription.updatedAt)} />
+                <DetailField label="Created" value={formatRecruitmentLocalDateTime(jobDescription.createdAt)} />
+                <DetailField label="Updated" value={formatRecruitmentLocalDateTime(jobDescription.updatedAt)} />
                 <DetailField label="Department" value={jobDescription.department ?? '-'} />
                 <DetailField
                   label="Application deadline"
-                  value={formatDate(jobDescription.applicationDeadline)}
+                  value={formatRecruitmentLocalDateTime(jobDescription.applicationDeadline)}
                 />
               </div>
               <Separator />
@@ -553,7 +540,7 @@ export function JobDescriptionDetailPage() {
                     </TableCell>
                     <TableCell>{snapshotTitle(version.snapshot)}</TableCell>
                     <TableCell>{authorLabel(version.createdBy)}</TableCell>
-                    <TableCell>{formatDate(version.createdAt)}</TableCell>
+                    <TableCell>{formatRecruitmentLocalDateTime(version.createdAt)}</TableCell>
                   </TableRow>
                 );
               })}

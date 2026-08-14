@@ -1,7 +1,6 @@
 import { BadRequestException, Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { diskStorage } from 'multer';
 import { extname } from 'node:path';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { DuplicateCheckEntity } from '../applications/entities/duplicate-check.entity';
@@ -15,9 +14,9 @@ import { CvDocumentsService } from './cv-documents.service';
 import { CvDocumentEntity } from './entities/cv-document.entity';
 import { ParsedProfileEntity } from './entities/parsed-profile.entity';
 import {
-  buildCvQuarantineFileName,
-  ensureCvQuarantineRoot,
-} from './storage/cv-quarantine-storage';
+  createCvQuarantineStorage,
+  CV_UPLOAD_SIZE_LIMIT_BYTES,
+} from './storage/cv-upload-storage';
 
 const allowedCvUploadExtensions = new Set(['.pdf', '.docx', '.xlsx']);
 
@@ -35,18 +34,7 @@ const allowedCvUploadExtensions = new Set(['.pdf', '.docx', '.xlsx']);
     FileParserModule,
     WorkflowStateModule,
     MulterModule.register({
-      storage: diskStorage({
-        destination: (_req, _file, cb) => {
-          try {
-            cb(null, ensureCvQuarantineRoot());
-          } catch (error) {
-            cb(error instanceof Error ? error : new Error('CV quarantine storage is invalid'), '');
-          }
-        },
-        filename: (_req, file, cb) => {
-          cb(null, buildCvQuarantineFileName(file.originalname));
-        },
-      }),
+      storage: createCvQuarantineStorage(),
       fileFilter: (_req, file, cb) => {
         const extension = extname(file.originalname).toLowerCase();
 
@@ -57,7 +45,7 @@ const allowedCvUploadExtensions = new Set(['.pdf', '.docx', '.xlsx']);
 
         cb(null, true);
       },
-      limits: { fileSize: 20 * 1024 * 1024 },
+      limits: { fileSize: CV_UPLOAD_SIZE_LIMIT_BYTES },
     }),
   ],
   controllers: [CvDocumentsController],

@@ -3,6 +3,12 @@ import {
   removeHorizontalWhitespaceBeforeNewlines,
   stripHtmlTags,
 } from '@/text-normalization';
+import {
+  extractAmisCandidateRows,
+  extractAmisRows,
+} from '@/integrations/amis/amis-response-utils';
+
+export { AMIS_APPLICATIONS_CANDIDATES_MARKER } from '@/integrations/amis/amis-response-utils';
 
 interface AmisSaveRecruitmentResponse {
   Success?: boolean;
@@ -46,8 +52,6 @@ export const AMIS_SAVE_RECRUITMENT_PATH =
   '/RecruitmentAPI/api/recruitment/SaveRecruitment';
 export const AMIS_CAREER_DATA_PAGING_PATH =
   '/RecruitmentAPI/api/Career/data_paging';
-export const AMIS_APPLICATIONS_CANDIDATES_MARKER = 'Candidates';
-
 export function isAmisSaveRecruitmentUrl(url: string) {
   return url.toLowerCase().includes(AMIS_SAVE_RECRUITMENT_PATH.toLowerCase());
 }
@@ -224,13 +228,13 @@ function cleanText(value: string | null | undefined) {
 }
 
 export function mapAmisCareerDataPagingResponse(response: unknown): AmisCareerItem[] {
-  const rows = extractRows(response);
+  const rows = extractAmisRows(response);
   const items = rows.map(mapCareerRow).filter(Boolean) as AmisCareerItem[];
   return [...new Map(items.map((item) => [item.amisCareerId, item])).values()];
 }
 
 export function mapAmisApplicationsResponse(response: unknown): AmisApplicationItem[] {
-  const rows = extractCandidateRows(response);
+  const rows = extractAmisCandidateRows(response);
   const items = rows.map(mapApplicationRow).filter(Boolean) as AmisApplicationItem[];
   return [...new Map(items.map((item) => [
     `${item.recruitmentId}:${item.recruitmentRoundId}:${getAmisApplicationIdentityId(item)}`,
@@ -240,30 +244,6 @@ export function mapAmisApplicationsResponse(response: unknown): AmisApplicationI
 
 function getAmisApplicationIdentityId(item: AmisApplicationItem) {
   return item.candidateConvertId || item.candidateId;
-}
-
-function extractCandidateRows(value: unknown): unknown[] {
-  if (Array.isArray(value)) return looksLikeCandidateRowArray(value) ? value : [];
-  if (!isObject(value)) return [];
-
-  const candidates = value[AMIS_APPLICATIONS_CANDIDATES_MARKER];
-  if (Array.isArray(candidates) && looksLikeCandidateRowArray(candidates)) return candidates;
-
-  for (const child of Object.values(value)) {
-    const rows = extractCandidateRows(child);
-    if (rows.length > 0) return rows;
-  }
-
-  return [];
-}
-
-function looksLikeCandidateRowArray(rows: unknown[]) {
-  return rows.some((row) =>
-    isObject(row)
-    && readFirst(row, ['RecruitmentID', 'recruitmentId'])
-    && readFirst(row, ['RecruitmentRoundID', 'recruitmentRoundId'])
-    && readFirst(row, ['CandidateID', 'candidateId']),
-  );
 }
 
 function mapApplicationRow(row: unknown): AmisApplicationItem | null {
@@ -339,32 +319,6 @@ function readCleanText(data: Record<string, unknown>, keys: string[]) {
 
 function omitUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
-}
-
-function extractRows(value: unknown): unknown[] {
-  const directRows = readKnownRowArray(value);
-  if (directRows) return directRows;
-
-  if (!isObject(value)) return [];
-
-  for (const item of Object.values(value)) {
-    const nestedRows = extractRows(item);
-    if (nestedRows.length > 0) return nestedRows;
-  }
-
-  return [];
-}
-
-function readKnownRowArray(value: unknown) {
-  if (Array.isArray(value)) return value;
-  if (!isObject(value)) return null;
-
-  for (const key of ['Data', 'data', 'Items', 'items', 'Rows', 'rows', 'PageData', 'pageData', 'Records', 'records']) {
-    const child = value[key];
-    if (Array.isArray(child)) return child;
-  }
-
-  return null;
 }
 
 function mapCareerRow(row: unknown): AmisCareerItem | null {

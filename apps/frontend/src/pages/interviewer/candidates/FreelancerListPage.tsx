@@ -37,12 +37,16 @@ import {
 } from '@/components/ui/select';
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { RecruitmentTableBody } from '@/components/recruitment/RecruitmentListPrimitives';
+import {
+  getCandidateStatusBadgeClassName,
+  getCandidateStatusLabel,
+} from '@/components/interview/candidate-display';
 import { toast } from '@/components/ui/use-toast';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
 import {
@@ -53,6 +57,7 @@ import {
   type FreelancerRecord,
 } from '@/lib/freelancer-api';
 import type { RecruitmentPagination } from '@/lib/recruitment-api';
+import { formatRecruitmentLocalDateTime } from '@/lib/date-time';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -60,30 +65,6 @@ const COPY_RESET_DELAY_MS = 2000;
 
 type StatusFilterValue = 'all' | 'active' | 'inactive';
 type CopiedField = 'identifier' | 'password' | null;
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function getStatusBadgeClassName(isActive: boolean) {
-  return isActive
-    ? 'bg-green-100 text-green-800'
-    : 'bg-zinc-100 text-zinc-700';
-}
-
-function getStatusLabel(isActive: boolean) {
-  return isActive ? 'Hoạt động' : 'Ngừng hoạt động';
-}
 
 export function FreelancerListPage() {
   const navigate = useNavigate();
@@ -333,24 +314,14 @@ export function FreelancerListPage() {
                 <TableHead className="text-right">Thao tác</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {loading && (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                    Loading freelancers...
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {!loading && items.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                    No freelancers found.
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {!loading && items.map((freelancer) => {
+            <RecruitmentTableBody
+              items={items}
+              loading={loading}
+              colSpan={7}
+              loadingMessage="Loading freelancers..."
+              emptyMessage="No freelancers found."
+              getRowKey={(freelancer) => freelancer.id}
+              renderRow={(freelancer) => {
                 const detailPath = `/candidates/freelancers/${freelancer.id}`;
                 const isStatusUpdating = statusUpdatingId === freelancer.id;
 
@@ -367,11 +338,11 @@ export function FreelancerListPage() {
                     <TableCell>{freelancer.email}</TableCell>
                     <TableCell>{freelancer.applicationCount}</TableCell>
                     <TableCell>
-                      <Badge className={getStatusBadgeClassName(freelancer.isActive)}>
-                        {getStatusLabel(freelancer.isActive)}
+                      <Badge className={getCandidateStatusBadgeClassName(freelancer.isActive)}>
+                        {getCandidateStatusLabel(freelancer.isActive)}
                       </Badge>
                     </TableCell>
-                    <TableCell>{formatDate(freelancer.createdAt)}</TableCell>
+                    <TableCell>{formatRecruitmentLocalDateTime(freelancer.createdAt)}</TableCell>
                     <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
                       <div className="flex justify-end gap-2">
                         <Button asChild variant="outline" size="sm">
@@ -396,8 +367,8 @@ export function FreelancerListPage() {
                     </TableCell>
                   </TableRow>
                 );
-              })}
-            </TableBody>
+              }}
+            />
           </Table>
 
           <div className="mt-4">

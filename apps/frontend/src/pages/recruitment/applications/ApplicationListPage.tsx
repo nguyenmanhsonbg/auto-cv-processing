@@ -23,12 +23,15 @@ import {
 } from '@/components/ui/select';
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  RecruitmentListFooter,
+  RecruitmentTableBody,
+} from '@/components/recruitment/RecruitmentListPrimitives';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
 import {
   listApplications,
@@ -37,6 +40,7 @@ import {
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
 import { formatRecruitmentDateTime } from '@/lib/date-time';
+import { scoreLabel, valueOrDash } from '@/lib/display-utils';
 
 const PAGE_SIZE = 20;
 
@@ -68,15 +72,6 @@ const SOURCE_CHANNEL_OPTIONS = [
   { value: 'MANUAL', label: 'Manual' },
   { value: 'OTHER', label: 'Other' },
 ];
-
-function valueOrDash(value?: string | number | null) {
-  if (value === undefined || value === null || value === '') return '-';
-  return String(value);
-}
-
-function scoreLabel(value?: number | null) {
-  return typeof value === 'number' ? `${value}` : '-';
-}
 
 export function ApplicationListPage() {
   const [items, setItems] = useState<ApplicationListRecord[]>([]);
@@ -137,17 +132,6 @@ export function ApplicationListPage() {
     setSourceChannel('all');
     setPage(1);
   };
-
-  const totalPages = pagination?.totalPages ?? 1;
-  const canPrevious = page > 1 && !loading;
-  const canNext = page < totalPages && !loading;
-  let resultSummary: string;
-  if (pagination) {
-    resultSummary = `Page ${pagination.page} of ${pagination.totalPages} - ${pagination.total} total`;
-  } else {
-    const resultLabel = items.length === 1 ? '' : 's';
-    resultSummary = `${items.length} result${resultLabel}`;
-  }
 
   return (
     <div className="space-y-6">
@@ -252,24 +236,14 @@ export function ApplicationListPage() {
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {loading && (
-                <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                    Loading applications...
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {!loading && items.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                    No applications found.
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {!loading && items.map((item) => (
+            <RecruitmentTableBody
+              items={items}
+              loading={loading}
+              colSpan={9}
+              loadingMessage="Loading applications..."
+              emptyMessage="No applications found."
+              getRowKey={(item) => item.applicationId}
+              renderRow={(item) => (
                 <TableRow key={item.applicationId}>
                   <TableCell className="font-medium">
                     <Link
@@ -312,33 +286,17 @@ export function ApplicationListPage() {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
+              )}
+            />
           </Table>
 
-          <div className="mt-4 flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <span>{resultSummary}</span>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!canPrevious}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-              >
-                Previous
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!canNext}
-                onClick={() => setPage((current) => current + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
+          <RecruitmentListFooter
+            itemCount={items.length}
+            page={page}
+            pagination={pagination}
+            loading={loading}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
     </div>

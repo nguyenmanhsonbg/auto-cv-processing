@@ -13,6 +13,7 @@ import {
   ListInternalsParams,
 } from './internals.types';
 import { normalizeInternalEmail } from './internal-email.util';
+import { normalizePagination, totalPages } from '../common/http/list-response';
 
 @Injectable()
 export class InternalsService {
@@ -46,8 +47,7 @@ export class InternalsService {
   }
 
   async findPaginated(params: ListInternalsParams) {
-    const page = Math.max(1, params.page ?? 1);
-    const limit = Math.min(100, Math.max(1, params.limit ?? 20));
+    const { page, limit } = normalizePagination(params);
     const sortOrder = params.sortOrder === 'ASC' ? 'ASC' : 'DESC';
     const allowedSorts: Record<string, string> = {
       email: 'internal.email',
@@ -76,7 +76,7 @@ export class InternalsService {
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: totalPages(total, limit),
     };
   }
 
@@ -111,8 +111,7 @@ export class InternalsService {
     const exists = await this.internalsRepo.exist({ where: { id: internalId } });
     if (!exists) throw this.internalNotFoundError();
 
-    const page = Math.max(1, params.page ?? 1);
-    const limit = Math.min(100, Math.max(1, params.limit ?? 20));
+    const { page, limit } = normalizePagination(params);
     const sortOrder = params.sortOrder === 'ASC' ? 'ASC' : 'DESC';
     const qb = this.referralsRepo
       .createQueryBuilder('referral')
@@ -148,7 +147,7 @@ export class InternalsService {
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: totalPages(total, limit),
     };
   }
 

@@ -2,23 +2,15 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { MouseEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Search } from 'lucide-react';
+import { CandidateApplicationsTable } from '@/components/interview/CandidateApplicationsTable';
 import {
-  getApplicationStatusClassName,
-  getApplicationStatusLabel,
-} from '@/components/recruitment/ApplicationOverview';
+  getCandidateStatusBadgeClassName,
+} from '@/components/interview/candidate-display';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { Input } from '@/components/ui/input';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { toast } from '@/components/ui/use-toast';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
 import {
@@ -31,15 +23,6 @@ import {
 import type { RecruitmentPagination } from '@/lib/recruitment-api';
 
 const DEFAULT_PAGE_SIZE = 20;
-
-function valueOrDash(value?: string | null) {
-  if (!value?.trim()) return '-';
-  return value;
-}
-
-function getStatusBadgeClassName(isActive: boolean) {
-  return isActive ? 'bg-green-100 text-green-800' : 'bg-zinc-100 text-zinc-700';
-}
 
 export function InternalDetailPage() {
   const { internalId } = useParams<{ internalId: string }>();
@@ -323,7 +306,7 @@ function InternalSummaryStatus({ internal, loading }: { internal: InternalRecord
   return (
     <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
       <span>{internal.email}</span><span>{internal.phone ?? '-'}</span><span>{internal.applicationCount} applications</span>
-      <Badge className={getStatusBadgeClassName(internal.isActive)}>{internal.isActive ? 'Active' : 'Inactive'}</Badge>
+      <Badge className={getCandidateStatusBadgeClassName(internal.isActive)}>{internal.isActive ? 'Active' : 'Inactive'}</Badge>
     </div>
   );
 }
@@ -357,39 +340,14 @@ function InternalApplicationsCard({
       </CardHeader>
       <CardContent>
         {tableError && <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{tableError}</div>}
-        <InternalApplicationsTable applications={applications} pagination={pagination} loading={tableLoading} />
+        <CandidateApplicationsTable
+          applications={applications}
+          pagination={pagination}
+          loading={tableLoading}
+        />
         {!hidePagination && <div className="mt-4"><DataTablePagination page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={pagination.limit} onPageChange={onPageChange} onLimitChange={onLimitChange} /></div>}
       </CardContent>
     </Card>
   );
 }
 
-function InternalApplicationsTable({ applications, pagination, loading }: { applications: InternalApplicationRecord[]; pagination: RecruitmentPagination; loading: boolean }) {
-  return (
-    <Table>
-      <TableHeader><TableRow><TableHead className="w-16">No.</TableHead><TableHead>Candidate</TableHead><TableHead>JD</TableHead><TableHead>Process status</TableHead><TableHead>HR reception</TableHead><TableHead>Evaluation</TableHead></TableRow></TableHeader>
-      <TableBody>
-        {loading && <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Loading applications...</TableCell></TableRow>}
-        {!loading && applications.length === 0 && <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No applications found.</TableCell></TableRow>}
-        {!loading && applications.map((application, index) => <InternalApplicationRow key={application.referralId} application={application} index={(pagination.page - 1) * pagination.limit + index + 1} />)}
-      </TableBody>
-    </Table>
-  );
-}
-
-function InternalApplicationRow({ application, index }: { application: InternalApplicationRecord; index: number }) {
-  return (
-    <TableRow>
-      <TableCell>{index}</TableCell>
-      <TableCell className="font-medium">{valueOrDash(application.candidateName)}</TableCell>
-      <TableCell>{valueOrDash(application.jobPostingTitle)}</TableCell>
-      <InternalStatusCell value={application.processStatus} />
-      <InternalStatusCell value={application.hrReceptionStatus} />
-      <TableCell className="max-w-md whitespace-pre-wrap break-words">{valueOrDash(application.evaluation)}</TableCell>
-    </TableRow>
-  );
-}
-
-function InternalStatusCell({ value }: { value?: string | null }) {
-  return value ? <TableCell><Badge className={getApplicationStatusClassName(value)}>{getApplicationStatusLabel(value)}</Badge></TableCell> : <TableCell>-</TableCell>;
-}

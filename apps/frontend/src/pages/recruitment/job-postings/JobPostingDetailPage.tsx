@@ -78,6 +78,7 @@ import {
 } from '@/lib/recruitment-api';
 import { ApiError, apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { formatRecruitmentLocalDateTime } from '@/lib/date-time';
 
 const CHANNEL_OPTIONS = [
   { value: 'VCS_PORTAL', label: 'VCS Portal' },
@@ -181,20 +182,6 @@ async function reportUnreportedFacebookPublishFailures(
     externalPostUrl: null,
     submittedAt: null,
   })));
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }
 
 function relatedJobTitle(item?: JobPostingRecord | null) {
@@ -1914,10 +1901,10 @@ function JobPostingDetailView({ model }: { model: JobPostingDetailViewModel }) {
             </div>
             <Separator />
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <DetailField label="Open at" value={formatDate(jobPosting.openAt)} />
-              <DetailField label="Close at" value={formatDate(jobPosting.closeAt)} />
-              <DetailField label="Created" value={formatDate(jobPosting.createdAt)} />
-              <DetailField label="Updated" value={formatDate(jobPosting.updatedAt)} />
+              <DetailField label="Open at" value={formatRecruitmentLocalDateTime(jobPosting.openAt)} />
+              <DetailField label="Close at" value={formatRecruitmentLocalDateTime(jobPosting.closeAt)} />
+              <DetailField label="Created" value={formatRecruitmentLocalDateTime(jobPosting.createdAt)} />
+              <DetailField label="Updated" value={formatRecruitmentLocalDateTime(jobPosting.updatedAt)} />
             </div>
           </CardContent>
         </Card>
@@ -2000,7 +1987,7 @@ function JobPostingDetailView({ model }: { model: JobPostingDetailViewModel }) {
                     </Badge>
                   </TableCell>
                   <TableCell>{channelInstructionContent}</TableCell>
-                  <TableCell>{formatDate(channel.updatedAt ?? channel.publishedAt)}</TableCell>
+                  <TableCell>{formatRecruitmentLocalDateTime(channel.updatedAt ?? channel.publishedAt)}</TableCell>
                 </TableRow>
                 );
               })}

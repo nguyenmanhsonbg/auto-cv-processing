@@ -1,26 +1,9 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsIn, IsOptional } from 'class-validator';
+import { PaginatedQueryDto } from '../../common/dto/paginated-query.dto';
 import { ApplicationStatus, HrReviewDecisionType } from '../../recruitment-common';
 
-export class ListFreelancerApplicationsQueryDto {
-  @ApiPropertyOptional({ default: 1 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @ApiPropertyOptional({ default: 20, maximum: 100 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  search?: string;
-
+export class ListFreelancerApplicationsQueryDto extends PaginatedQueryDto {
   @ApiPropertyOptional({ enum: ApplicationStatus })
   @IsOptional()
   @IsEnum(ApplicationStatus)

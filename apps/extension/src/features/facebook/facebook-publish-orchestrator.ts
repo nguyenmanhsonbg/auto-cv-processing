@@ -7,6 +7,12 @@ import { hashText } from '@/hash-text';
 import { secureRandomFraction } from '@/secure-random';
 import { trimTrailingSlashes } from '@/text-normalization';
 import {
+  attachChromeDebugger,
+  decodeChromeDebuggerResponseBody,
+  detachChromeDebugger,
+  sendChromeDebuggerCommand,
+} from '@/integrations/chrome-debugger-utils';
+import {
   buildFacebookGroupPostUrl,
   parseFacebookGroupPostUrl,
   type FacebookGroupPostPathType,
@@ -2136,20 +2142,20 @@ async function closeFacebookPublishTabSafely(tabId: number) {
       || /leave site|changes.*not be saved|may not be saved/i.test(message);
     if (!shouldAccept) return;
 
-    void debuggerSendCommand(target, 'Page.handleJavaScriptDialog', { accept: true })
+    void sendChromeDebuggerCommand(target, 'Page.handleJavaScriptDialog', { accept: true })
       .catch(() => undefined);
   };
 
   try {
-    await debuggerAttach(target, '1.3');
+    await attachChromeDebugger(target, '1.3');
     attached = true;
     chrome.debugger.onEvent.addListener(onDebuggerEvent);
-    await debuggerSendCommand(target, 'Page.enable', {}).catch(() => undefined);
+    await sendChromeDebuggerCommand(target, 'Page.enable', {}).catch(() => undefined);
 
     const closed = await removeTabWithTimeout(tabId, 2_000);
     if (closed || !(await isTabAvailable(tabId))) return;
 
-    await debuggerSendCommand(target, 'Page.handleJavaScriptDialog', { accept: true }).catch(() => undefined);
+    await sendChromeDebuggerCommand(target, 'Page.handleJavaScriptDialog', { accept: true }).catch(() => undefined);
     await removeTabWithTimeout(tabId, 2_000);
   } catch {
     await closeTabSafely(tabId);
@@ -2160,7 +2166,7 @@ async function closeFacebookPublishTabSafely(tabId: number) {
       // Listener cleanup is best-effort because the extension context may be tearing down.
     }
     if (attached) {
-      await debuggerDetach(target).catch(() => undefined);
+      await detachChromeDebugger(target).catch(() => undefined);
     }
   }
 }
@@ -3231,12 +3237,12 @@ async function startFacebookPublishGraphqlCapture(
 
     void (async () => {
       try {
-        const response = await debuggerSendCommand<FacebookPublishGraphqlResponseBody>(
+        const response = await sendChromeDebuggerCommand<FacebookPublishGraphqlResponseBody>(
           target,
           'Network.getResponseBody',
           { requestId: request.requestId },
         );
-        const body = decodeFacebookPublishResponseBody(response);
+        const body = decodeChromeDebuggerResponseBody(response);
         const parsed = body
           ? parseFacebookPublishGraphqlResponse(body, expectedGroupIds, request.queryName)
           : null;
@@ -3253,15 +3259,15 @@ async function startFacebookPublishGraphqlCapture(
     })();
   };
 
-  await debuggerAttach(target, '1.3');
+  await attachChromeDebugger(target, '1.3');
   attached = true;
   chrome.debugger.onEvent.addListener(onDebuggerEvent);
   try {
-    await debuggerSendCommand(target, 'Network.enable', {});
+    await sendChromeDebuggerCommand(target, 'Network.enable', {});
   } catch (error) {
     stopped = true;
     chrome.debugger.onEvent.removeListener(onDebuggerEvent);
-    if (attached) await debuggerDetach(target).catch(() => undefined);
+    if (attached) await detachChromeDebugger(target).catch(() => undefined);
     throw error;
   }
 
@@ -3279,10 +3285,10 @@ async function startFacebookPublishGraphqlCapture(
       stopped = true;
       requests.clear();
       chrome.debugger?.onEvent.removeListener(onDebuggerEvent);
-      await debuggerSendCommand(target, 'Network.disable', {}).catch(() => undefined);
+      await sendChromeDebuggerCommand(target, 'Network.disable', {}).catch(() => undefined);
       if (attached) {
         attached = false;
-        await debuggerDetach(target).catch(() => undefined);
+      await detachChromeDebugger(target).catch(() => undefined);
       }
     },
   };
@@ -3322,14 +3328,6 @@ function readFacebookPublishGraphqlQueryName(
     .find(([key]) => key.toLowerCase() === 'x-fb-friendly-name')?.[1];
   if (typeof friendlyHeader === 'string' && friendlyHeader.trim()) return friendlyHeader.trim();
   return new URLSearchParams(postData).get('fb_api_req_friendly_name')?.trim() ?? '';
-}
-
-function decodeFacebookPublishResponseBody(response: FacebookPublishGraphqlResponseBody) {
-  if (!response.body) return null;
-  if (!response.base64Encoded) return response.body;
-  const binary = atob(response.body);
-  const bytes = Uint8Array.from(binary, (character) => character.codePointAt(0) ?? 0);
-  return new TextDecoder().decode(bytes);
 }
 
 function parseFacebookPublishGraphqlResponse(
@@ -3456,7 +3454,7 @@ async function clickTabPoint(
 
   const target = existingDebuggerTarget ?? { tabId };
   const ownsDebuggerSession = !existingDebuggerTarget;
-  if (ownsDebuggerSession) await debuggerAttach(target, '1.3');
+  if (ownsDebuggerSession) await attachChromeDebugger(target, '1.3');
   let clickPoint = point;
   try {
     await execution.wait(randomDelay(250, 450));
@@ -3472,13 +3470,13 @@ async function clickTabPoint(
       ? probedPoint.submitButton
       : point;
     execution.throwIfCancelled();
-    await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
+    await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mouseMoved',
       x: clickPoint.clientX,
       y: clickPoint.clientY,
     });
     await execution.wait(randomDelay(120, 260));
-    await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
+    await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x: clickPoint.clientX,
       y: clickPoint.clientY,
@@ -3487,7 +3485,7 @@ async function clickTabPoint(
       clickCount: 1,
     });
     await execution.wait(randomDelay(90, 220));
-    await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
+    await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mouseReleased',
       x: clickPoint.clientX,
       y: clickPoint.clientY,
@@ -3497,7 +3495,7 @@ async function clickTabPoint(
     });
     return clickPoint;
   } finally {
-    if (ownsDebuggerSession) await debuggerDetach(target).catch(() => undefined);
+    if (ownsDebuggerSession) await detachChromeDebugger(target).catch(() => undefined);
   }
 }
 
@@ -3511,19 +3509,19 @@ async function clickTabCoordinatePoint(
   }
 
   const target = { tabId };
-  await debuggerAttach(target, '1.3');
+  await attachChromeDebugger(target, '1.3');
   try {
-    await debuggerSendCommand(target, 'Page.bringToFront', {}).catch(() => undefined);
+    await sendChromeDebuggerCommand(target, 'Page.bringToFront', {}).catch(() => undefined);
     if (execution) await execution.wait(randomDelay(120, 240));
     else await sleep(randomDelay(120, 240));
-    await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
+    await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mouseMoved',
       x: point.clientX,
       y: point.clientY,
     });
     if (execution) await execution.wait(randomDelay(90, 180));
     else await sleep(randomDelay(90, 180));
-    await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
+    await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x: point.clientX,
       y: point.clientY,
@@ -3533,7 +3531,7 @@ async function clickTabCoordinatePoint(
     });
     if (execution) await execution.wait(randomDelay(80, 180));
     else await sleep(randomDelay(80, 180));
-    await debuggerSendCommand(target, 'Input.dispatchMouseEvent', {
+    await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mouseReleased',
       x: point.clientX,
       y: point.clientY,
@@ -3542,54 +3540,8 @@ async function clickTabCoordinatePoint(
       clickCount: 1,
     });
   } finally {
-    await debuggerDetach(target).catch(() => undefined);
+    await detachChromeDebugger(target).catch(() => undefined);
   }
-}
-
-function debuggerAttach(target: ChromeDebuggee, requiredVersion: string) {
-  return new Promise<void>((resolve, reject) => {
-    try {
-      chrome.debugger?.attach(target, requiredVersion, () => {
-        const lastError = chrome.runtime?.lastError;
-        if (lastError?.message) reject(new Error(lastError.message));
-        else resolve();
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-function debuggerSendCommand<T>(
-  target: ChromeDebuggee,
-  method: string,
-  params?: Record<string, unknown>,
-) {
-  return new Promise<T>((resolve, reject) => {
-    try {
-      chrome.debugger?.sendCommand<T>(target, method, params, (result) => {
-        const lastError = chrome.runtime?.lastError;
-        if (lastError?.message) reject(new Error(lastError.message));
-        else resolve(result);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-function debuggerDetach(target: ChromeDebuggee) {
-  return new Promise<void>((resolve, reject) => {
-    try {
-      chrome.debugger?.detach(target, () => {
-        const lastError = chrome.runtime?.lastError;
-        if (lastError?.message) reject(new Error(lastError.message));
-        else resolve();
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
 }
 
 function randomDelay(minMs: number, maxMs: number) {

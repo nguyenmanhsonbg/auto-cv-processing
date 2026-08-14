@@ -1,3 +1,10 @@
+import {
+  attachChromeDebugger,
+  decodeChromeDebuggerResponseBody,
+  detachChromeDebugger,
+  sendChromeDebuggerCommand,
+} from '@/integrations/chrome-debugger-utils';
+
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
 const FACEBOOK_GROUPS_PAGE_URL = 'https://www.facebook.com/groups/joins/?nav_source=tab';
 const FACEBOOK_GRAPHQL_PATH = '/api/graphql/';
@@ -153,14 +160,14 @@ export async function collectFacebookGroupsFromGraphql(
   try {
     report('START', `tabId=${tabId}`);
     onMessage?.('Đang mở phiên lấy danh sách nhóm Facebook...');
-    await debuggerAttach(target, DEBUGGER_PROTOCOL_VERSION);
+    await attachChromeDebugger(target, DEBUGGER_PROTOCOL_VERSION);
     attached = true;
     report('ATTACHED', 'Đã attach debugger vào tab Facebook.');
     chrome.debugger.onEvent.addListener(onDebuggerEvent);
-    await debuggerSendCommand(target, 'Network.enable', {});
-    await debuggerSendCommand(target, 'Page.enable', {}).catch(() => undefined);
+    await sendChromeDebuggerCommand(target, 'Network.enable', {});
+    await sendChromeDebuggerCommand(target, 'Page.enable', {}).catch(() => undefined);
     try {
-      await debuggerSendCommand(target, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+      await sendChromeDebuggerCommand(target, 'Emulation.setFocusEmulationEnabled', { enabled: true });
       focusEmulationEnabled = true;
       diagnostics.focusEmulationSupported = true;
       diagnostics.focusEmulationEnabled = true;
@@ -170,7 +177,7 @@ export async function collectFacebookGroupsFromGraphql(
       report('FOCUS_EMULATION_UNAVAILABLE', `Facebook page focus emulation unavailable: ${toErrorMessage(error)}`);
     }
     try {
-      await debuggerSendCommand(target, 'Page.setWebLifecycleState', { state: 'active' });
+      await sendChromeDebuggerCommand(target, 'Page.setWebLifecycleState', { state: 'active' });
       diagnostics.lifecycleStateActive = true;
       report('LIFECYCLE_ACTIVE', 'Facebook page lifecycle set to active.');
     } catch (error) {
@@ -234,7 +241,7 @@ export async function collectFacebookGroupsFromGraphql(
     return null;
   } finally {
     if (focusEmulationEnabled) {
-      await debuggerSendCommand(target, 'Emulation.setFocusEmulationEnabled', { enabled: false })
+      await sendChromeDebuggerCommand(target, 'Emulation.setFocusEmulationEnabled', { enabled: false })
         .catch(() => undefined);
     }
     try {
@@ -242,7 +249,7 @@ export async function collectFacebookGroupsFromGraphql(
     } catch {
       // Listener cleanup is best-effort when the extension context is closing.
     }
-    if (attached) await debuggerDetach(target).catch(() => undefined);
+    if (attached) await detachChromeDebugger(target).catch(() => undefined);
   }
 
   async function handleDebuggerEvent(method: string, params?: Record<string, unknown>) {
@@ -288,10 +295,10 @@ export async function collectFacebookGroupsFromGraphql(
     diagnostics.loadingFinishedCount += 1;
 
     try {
-      const response = await debuggerSendCommand<NetworkGetResponseBodyResult>(target, 'Network.getResponseBody', {
+      const response = await sendChromeDebuggerCommand<NetworkGetResponseBodyResult>(target, 'Network.getResponseBody', {
         requestId,
       });
-      const body = decodeResponseBody(response);
+      const body = decodeChromeDebuggerResponseBody(response);
       if (body) {
         diagnostics.responseBodySuccessCount += 1;
         responses.push({ request, status: 200, body });
@@ -931,14 +938,6 @@ function assertRequestBelongsToAccount(postData: string, expectedFacebookExterna
   }
 }
 
-function decodeResponseBody(response: NetworkGetResponseBodyResult) {
-  if (!response.body) return null;
-  if (!response.base64Encoded) return response.body;
-  const binary = atob(response.body);
-  const bytes = Uint8Array.from(binary, (character) => character.codePointAt(0) ?? 0);
-  return new TextDecoder().decode(bytes);
-}
-
 function parseJsonResponse(body: string): unknown {
   const trimmed = body.trim().replace(/^(?:for\s*\(;;\);|while\s*\(1\);|\)]}\s*['"]?\s*;?)/, '');
   try {
@@ -991,52 +990,6 @@ function asString(value: unknown) {
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Lỗi không xác định.';
-}
-
-function debuggerAttach(target: ChromeDebuggee, requiredVersion: string) {
-  return new Promise<void>((resolve, reject) => {
-    try {
-      chrome.debugger?.attach(target, requiredVersion, () => {
-        const lastError = chrome.runtime?.lastError;
-        if (lastError?.message) reject(new Error(lastError.message));
-        else resolve();
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-function debuggerSendCommand<T>(
-  target: ChromeDebuggee,
-  method: string,
-  params?: Record<string, unknown>,
-) {
-  return new Promise<T>((resolve, reject) => {
-    try {
-      chrome.debugger?.sendCommand<T>(target, method, params, (result) => {
-        const lastError = chrome.runtime?.lastError;
-        if (lastError?.message) reject(new Error(lastError.message));
-        else resolve(result);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-function debuggerDetach(target: ChromeDebuggee) {
-  return new Promise<void>((resolve, reject) => {
-    try {
-      chrome.debugger?.detach(target, () => {
-        const lastError = chrome.runtime?.lastError;
-        if (lastError?.message) reject(new Error(lastError.message));
-        else resolve();
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
 }
 
 function sleep(ms: number) {

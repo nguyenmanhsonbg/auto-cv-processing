@@ -1,15 +1,10 @@
 import { apiClient } from '@/lib/api-client';
-import type {
-  PaginatedRecruitmentResult,
-  RecruitmentPagination,
-} from '@/lib/recruitment-api';
-
-interface ApiEnvelope<T> {
-  success?: boolean;
-  data: T;
-  pagination?: RecruitmentPagination;
-  meta?: Record<string, unknown>;
-}
+import {
+  getStatusFilter,
+  unwrapEnvelope,
+  unwrapPaginated,
+} from '@/lib/api-response-helpers';
+import type { ApiEnvelope } from '@/lib/api-response-helpers';
 
 interface ApiInternalRecord {
   internalId: string;
@@ -82,44 +77,6 @@ export interface ListInternalApplicationsParams {
   search?: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isApiEnvelope<T>(response: T | ApiEnvelope<T>): response is ApiEnvelope<T> {
-  return isRecord(response) && 'data' in response;
-}
-
-function unwrapEnvelope<T>(response: T | ApiEnvelope<T>): T {
-  return isApiEnvelope(response) ? response.data : response as T;
-}
-
-function readPagination(response: unknown): RecruitmentPagination | undefined {
-  if (!isRecord(response)) return undefined;
-  const pagination = response.pagination;
-  if (!isRecord(pagination)) return undefined;
-  return {
-    page: Number(pagination.page ?? 1),
-    limit: Number(pagination.limit ?? 20),
-    total: Number(pagination.total ?? 0),
-    totalPages: Number(pagination.totalPages ?? 1),
-  };
-}
-
-function unwrapPaginated<TInput, TOutput>(
-  response: unknown,
-  mapItem: (item: TInput) => TOutput,
-): PaginatedRecruitmentResult<TOutput> {
-  if (!isRecord(response)) return { data: [] };
-  const pagination = readPagination(response);
-  return {
-    data: Array.isArray(response.data)
-      ? response.data.map((item) => mapItem(item as TInput))
-      : [],
-    pagination,
-  };
-}
-
 function mapInternalRecord(response: ApiInternalRecord): InternalRecord {
   return {
     id: response.internalId,
@@ -147,12 +104,6 @@ function mapInternalApplicationRecord(
     createdAt: response.createdAt,
     updatedAt: response.updatedAt,
   };
-}
-
-function getStatusFilter(isActive?: boolean) {
-  if (isActive === undefined) return undefined;
-  if (isActive) return 'ACTIVE';
-  return 'INACTIVE';
 }
 
 export function listInternals(params: ListInternalsParams = {}) {

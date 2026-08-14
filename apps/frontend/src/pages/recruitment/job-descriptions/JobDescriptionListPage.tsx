@@ -28,12 +28,15 @@ import {
 } from '@/components/ui/select';
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  RecruitmentListFooter,
+  RecruitmentTableBody,
+} from '@/components/recruitment/RecruitmentListPrimitives';
 import { toast } from '@/components/ui/use-toast';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
 import {
@@ -47,6 +50,7 @@ import {
   type RecruitmentPagination,
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
+import { formatRecruitmentLocalDateTime } from '@/lib/date-time';
 
 const PAGE_SIZE = 20;
 
@@ -92,20 +96,6 @@ function getStatusClassName(status?: string | null) {
     default:
       return 'bg-secondary text-secondary-foreground';
   }
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }
 
 function relationLabel(
@@ -230,17 +220,6 @@ export function JobDescriptionListPage() {
     }
   };
 
-  const totalPages = pagination?.totalPages ?? 1;
-  const canPrevious = page > 1 && !loading;
-  const canNext = page < totalPages && !loading;
-  let resultSummary: string;
-  if (pagination) {
-    resultSummary = `Page ${pagination.page} of ${pagination.totalPages} - ${pagination.total} total`;
-  } else {
-    const resultLabel = items.length === 1 ? '' : 's';
-    resultSummary = `${items.length} result${resultLabel}`;
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -326,24 +305,14 @@ export function JobDescriptionListPage() {
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {loading && (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                    Loading job descriptions...
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {!loading && items.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                    No job descriptions found.
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {!loading && items.map((item) => {
+            <RecruitmentTableBody
+              items={items}
+              loading={loading}
+              colSpan={7}
+              loadingMessage="Loading job descriptions..."
+              emptyMessage="No job descriptions found."
+              getRowKey={(item) => getJobDescriptionId(item) || item.title}
+              renderRow={(item) => {
                 const id = getJobDescriptionId(item);
 
                 return (
@@ -367,8 +336,8 @@ export function JobDescriptionListPage() {
                         {getStatusLabel(item.status)}
                       </Badge>
                     </TableCell>
-                    <TableCell>{formatDate(item.createdAt)}</TableCell>
-                    <TableCell>{formatDate(item.updatedAt)}</TableCell>
+                    <TableCell>{formatRecruitmentLocalDateTime(item.createdAt)}</TableCell>
+                    <TableCell>{formatRecruitmentLocalDateTime(item.updatedAt)}</TableCell>
                     <TableCell className="text-right">
                       {id ? (
                         <Button asChild variant="outline" size="sm">
@@ -386,33 +355,17 @@ export function JobDescriptionListPage() {
                     </TableCell>
                   </TableRow>
                 );
-              })}
-            </TableBody>
+              }}
+            />
           </Table>
 
-          <div className="mt-4 flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <span>{resultSummary}</span>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!canPrevious}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-              >
-                Previous
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!canNext}
-                onClick={() => setPage((current) => current + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
+          <RecruitmentListFooter
+            itemCount={items.length}
+            page={page}
+            pagination={pagination}
+            loading={loading}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
 

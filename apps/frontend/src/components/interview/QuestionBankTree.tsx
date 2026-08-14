@@ -1,8 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronRight, ChevronsDown, ChevronsUp } from 'lucide-react';
+import {
+  buildQuestionTree,
+  useQuestionTreeExpansion,
+} from '@/components/interview/QuestionTreeUtils';
 
 interface QuestionBankTreeProps {
   questions: any[];
@@ -13,12 +17,6 @@ interface QuestionBankTreeProps {
   categoryOrder?: Map<string, string[]>;
   onBulkToggleCategory?: (questionIds: string[]) => void;
   onBulkToggleSubcategory?: (questionIds: string[]) => void;
-}
-
-interface TreeCategory {
-  name: string;
-  subcategories: Map<string, any[]>;
-  allQuestions: any[];
 }
 
 const typeBadgeStyles: Record<string, string> = {
@@ -61,117 +59,32 @@ export function QuestionBankTree({
   onBulkToggleCategory,
   onBulkToggleSubcategory,
 }: QuestionBankTreeProps) {
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['__all__']));
-  const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set(['__all__']));
-
-  const tree = useMemo(() => {
-    const categoryMap = new Map<string, TreeCategory>();
-    const query = searchQuery.toLowerCase().trim();
-
-    const filtered = query
-      ? questions.filter((q) => q.text?.toLowerCase().includes(query))
-      : questions;
-
-    filtered.forEach((q) => {
-      const cat = q.category || 'Uncategorized';
-      const sub = q.subcategory || 'General';
-
-      if (!categoryMap.has(cat)) {
-        categoryMap.set(cat, {
-          name: cat,
-          subcategories: new Map(),
-          allQuestions: [],
-        });
-      }
-
-      const catNode = categoryMap.get(cat)!;
-      catNode.allQuestions.push(q);
-
-      if (!catNode.subcategories.has(sub)) {
-        catNode.subcategories.set(sub, []);
-      }
-      catNode.subcategories.get(sub)!.push(q);
-    });
-
-    if (!categoryOrder || categoryOrder.size === 0) return categoryMap;
-
-    const catKeys = Array.from(categoryOrder.keys());
-    const sortedCatEntries = Array.from(categoryMap.entries()).sort(([a], [b]) => {
-      const ai = catKeys.indexOf(a), bi = catKeys.indexOf(b);
-      if (ai === -1 && bi === -1) return a.localeCompare(b);
-      return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
-    });
-    for (const [catKey, catNode] of sortedCatEntries) {
-      const subOrder = categoryOrder.get(catKey) ?? [];
-      catNode.subcategories = new Map(
-        Array.from(catNode.subcategories.entries()).sort(([a], [b]) => {
-          const ai = subOrder.indexOf(a), bi = subOrder.indexOf(b);
-          if (ai === -1 && bi === -1) return a.localeCompare(b);
-          return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
-        }),
-      );
-    }
-    return new Map(sortedCatEntries);
-  }, [questions, searchQuery, categoryOrder]);
-
-  // Expand all categories by default
-  useMemo(() => {
-    const allCats = new Set(['__all__']);
-    const allSubs = new Set(['__all__']);
-    tree.forEach((catNode, catKey) => {
-      allCats.add(catKey);
-      catNode.subcategories.forEach((_, subKey) => {
-        allSubs.add(`${catKey}::${subKey}`);
+  const tree = useMemo(
+    () => {
+      const query = searchQuery.toLowerCase().trim();
+      return buildQuestionTree(questions, {
+        categoryOrder,
+        filter: query
+          ? (question) => question.text?.toLowerCase().includes(query) ?? false
+          : undefined,
+        getCategory: (question) => question.category,
+        getSubcategory: (question) => question.subcategory,
       });
-    });
-    setExpandedCategories(allCats);
-    setExpandedSubs(allSubs);
-  }, [tree]);
-
-  const toggleCategory = (catKey: string) => {
-    setExpandedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(catKey)) next.delete(catKey);
-      else next.add(catKey);
-      return next;
-    });
-  };
-
-  const toggleSub = (subKey: string) => {
-    setExpandedSubs((prev) => {
-      const next = new Set(prev);
-      if (next.has(subKey)) next.delete(subKey);
-      else next.add(subKey);
-      return next;
-    });
-  };
-
-  const expandAll = () => {
-    const allCats = new Set(['__all__']);
-    const allSubs = new Set(['__all__']);
-    tree.forEach((catNode, catKey) => {
-      allCats.add(catKey);
-      catNode.subcategories.forEach((_, subKey) => {
-        allSubs.add(`${catKey}::${subKey}`);
-      });
-    });
-    setExpandedCategories(allCats);
-    setExpandedSubs(allSubs);
-  };
-
-  const collapseAll = () => {
-    setExpandedCategories(new Set());
-    setExpandedSubs(new Set());
-  };
-
-  const isFullyExpanded = Array.from(tree.entries()).every(([catKey, catNode]) =>
-    expandedCategories.has(catKey) &&
-    Array.from(catNode.subcategories.keys()).every((subKey) => expandedSubs.has(`${catKey}::${subKey}`)),
+    },
+    [categoryOrder, questions, searchQuery],
   );
-  const isFullyCollapsed = Array.from(tree.entries()).every(([catKey, catNode]) =>
-    !expandedCategories.has(catKey) &&
-    Array.from(catNode.subcategories.keys()).every((subKey) => !expandedSubs.has(`${catKey}::${subKey}`)),
-  );
+  const {
+    expandedCategories,
+    expandedSubs,
+    expandAll,
+    collapseAll,
+    isFullyExpanded,
+    isFullyCollapsed,
+    setExpandedCategories,
+    setExpandedSubs,
+    toggleCategory,
+    toggleSubcategory,
+  } = useQuestionTreeExpansion(tree, { resetOnTreeChange: true });
 
   if (tree.size === 0) {
     return (
@@ -311,7 +224,7 @@ export function QuestionBankTree({
                         <button
                           type="button"
                           className="flex-1 flex items-center gap-2 text-left text-muted-foreground min-w-0"
-                          onClick={() => toggleSub(subFullKey)}
+                          onClick={() => toggleSubcategory(subFullKey)}
                         >
                           <ChevronRight
                             className={cn(

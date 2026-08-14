@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,6 +20,10 @@ import {
 } from 'lucide-react';
 
 import { TECHNICAL_RATING_LABELS, PERSONALITY_RATING_LABELS } from '@interview-assistant/shared';
+import {
+  buildQuestionTree,
+  useQuestionTreeExpansion,
+} from '@/components/interview/QuestionTreeUtils';
 
 const getRatingLabels = (category: string): Record<number, string> =>
   category === 'PERSONALITY' ? PERSONALITY_RATING_LABELS : TECHNICAL_RATING_LABELS;
@@ -36,12 +40,6 @@ interface QuestionTreeProps {
   categoryRatings?: Record<string, number>;
   categoryOrder?: Map<string, string[]>;
   hideUnrated?: boolean;
-}
-
-interface TreeCategory {
-  name: string;
-  subcategories: Map<string, any[]>;
-  allQuestions: any[];
 }
 
 const typeIcons: Record<string, React.ElementType> = {
@@ -89,119 +87,33 @@ export function QuestionTree({
   categoryOrder,
   hideUnrated = false,
 }: QuestionTreeProps) {
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['__all__']));
-  const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set(['__all__']));
-
   // Subcategory ratings: external prop takes priority, fallback to local state
   const [localSubRatings, setLocalSubRatings] = useState<Record<string, number>>({});
   const subRatings = externalCategoryRatings ?? localSubRatings;
   const [searchQuery, setSearchQuery] = useState('');
   const [bulkLoading, setBulkLoading] = useState(false);
 
-  const tree = useMemo(() => {
-    const categoryMap = new Map<string, TreeCategory>();
-    const filteredQuestions = hideUnrated ? questions.filter((sq) => sq.rating) : questions;
-
-    filteredQuestions.forEach((sq) => {
-      const cat = sq.question?.category || 'Uncategorized';
-      const sub = sq.question?.subcategory || 'General';
-
-      if (!categoryMap.has(cat)) {
-        categoryMap.set(cat, {
-          name: cat,
-          subcategories: new Map(),
-          allQuestions: [],
-        });
-      }
-
-      const catNode = categoryMap.get(cat)!;
-      catNode.allQuestions.push(sq);
-
-      if (!catNode.subcategories.has(sub)) {
-        catNode.subcategories.set(sub, []);
-      }
-      catNode.subcategories.get(sub)!.push(sq);
-    });
-
-    if (!categoryOrder || categoryOrder.size === 0) return categoryMap;
-
-    // Sort categories by DB orderIndex
-    const catKeys = Array.from(categoryOrder.keys());
-    const sortedCatEntries = Array.from(categoryMap.entries()).sort(([a], [b]) => {
-      const ai = catKeys.indexOf(a);
-      const bi = catKeys.indexOf(b);
-      if (ai === -1 && bi === -1) return a.localeCompare(b);
-      return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
-    });
-
-    // Sort subcategories within each category by DB orderIndex
-    for (const [catKey, catNode] of sortedCatEntries) {
-      const subOrder = categoryOrder.get(catKey) ?? [];
-      catNode.subcategories = new Map(
-        Array.from(catNode.subcategories.entries()).sort(([a], [b]) => {
-          const ai = subOrder.indexOf(a);
-          const bi = subOrder.indexOf(b);
-          if (ai === -1 && bi === -1) return a.localeCompare(b);
-          return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
-        }),
-      );
-    }
-
-    return new Map(sortedCatEntries);
-  }, [questions, categoryOrder, hideUnrated]);
-
-  // Expand all by default on first render only
-  const initialized = useRef(false);
-  useEffect(() => {
-    if (initialized.current || tree.size === 0) return;
-    initialized.current = true;
-    const allCats = new Set(['__all__']);
-    const allSubs = new Set(['__all__']);
-    tree.forEach((catNode, catKey) => {
-      allCats.add(catKey);
-      catNode.subcategories.forEach((_, subKey) => {
-        allSubs.add(`${catKey}::${subKey}`);
-      });
-    });
-    setExpandedCategories(allCats);
-    setExpandedSubs(allSubs);
-  }, [tree]);
-
-  const toggleCategory = (catKey: string) => {
-    setExpandedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(catKey)) next.delete(catKey);
-      else next.add(catKey);
-      return next;
-    });
-  };
-
-  const toggleSub = (subKey: string) => {
-    setExpandedSubs((prev) => {
-      const next = new Set(prev);
-      if (next.has(subKey)) next.delete(subKey);
-      else next.add(subKey);
-      return next;
-    });
-  };
-
-  const expandAll = () => {
-    const allCats = new Set(['__all__']);
-    const allSubs = new Set(['__all__']);
-    tree.forEach((catNode, catKey) => {
-      allCats.add(catKey);
-      catNode.subcategories.forEach((_, subKey) => {
-        allSubs.add(`${catKey}::${subKey}`);
-      });
-    });
-    setExpandedCategories(allCats);
-    setExpandedSubs(allSubs);
-  };
-
-  const collapseAll = () => {
-    setExpandedCategories(new Set());
-    setExpandedSubs(new Set());
-  };
+  const tree = useMemo(
+    () => buildQuestionTree(questions, {
+      categoryOrder,
+      filter: hideUnrated ? (sq) => Boolean(sq.rating) : undefined,
+      getCategory: (sq) => sq.question?.category,
+      getSubcategory: (sq) => sq.question?.subcategory,
+    }),
+    [categoryOrder, hideUnrated, questions],
+  );
+  const {
+    expandedCategories,
+    expandedSubs,
+    expandAll,
+    collapseAll,
+    isFullyExpanded,
+    isFullyCollapsed,
+    setExpandedCategories,
+    setExpandedSubs,
+    toggleCategory,
+    toggleSubcategory,
+  } = useQuestionTreeExpansion(tree);
 
   // Filter questions by search query
   const q = searchQuery.toLowerCase().trim();
@@ -218,15 +130,6 @@ export function QuestionTree({
     setBulkLoading(true);
     try { await onBulkToggle(sqIds, active); } finally { setBulkLoading(false); }
   };
-
-  const isFullyExpanded = Array.from(tree.entries()).every(([catKey, catNode]) =>
-    expandedCategories.has(catKey) &&
-    Array.from(catNode.subcategories.keys()).every((subKey) => expandedSubs.has(`${catKey}::${subKey}`)),
-  );
-  const isFullyCollapsed = Array.from(tree.entries()).every(([catKey, catNode]) =>
-    !expandedCategories.has(catKey) &&
-    Array.from(catNode.subcategories.keys()).every((subKey) => !expandedSubs.has(`${catKey}::${subKey}`)),
-  );
 
   if (tree.size === 0) {
     return (
@@ -389,7 +292,7 @@ export function QuestionTree({
                           <button
                             type="button"
                             className="flex-1 flex items-center gap-2 px-2 py-1 rounded hover:bg-muted/50 text-left text-muted-foreground min-w-0"
-                            onClick={() => toggleSub(subFullKey)}
+                            onClick={() => toggleSubcategory(subFullKey)}
                           >
                             <ChevronRight
                               className={cn(

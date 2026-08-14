@@ -1,11 +1,10 @@
 import { apiClient } from '@/lib/api-client';
-
-interface ApiEnvelope<T> {
-  success?: boolean;
-  data: T;
-  pagination?: RecruitmentPagination;
-  meta?: Record<string, unknown>;
-}
+import {
+  isRecord,
+  unwrapEnvelope,
+  unwrapPaginated,
+} from '@/lib/api-response-helpers';
+import type { ApiEnvelope } from '@/lib/api-response-helpers';
 
 export interface RecruitmentPagination {
   page: number;
@@ -481,73 +480,6 @@ export interface ParsedProfileRecord {
   warnings?: string[] | null;
   status?: string | null;
   createdAt?: string | null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isApiEnvelope<T>(response: T | ApiEnvelope<T>): response is ApiEnvelope<T> {
-  return isRecord(response) && 'data' in response;
-}
-
-function unwrapEnvelope<T>(response: T | ApiEnvelope<T>): T {
-  if (isApiEnvelope(response)) {
-    return response.data;
-  }
-
-  return response as T;
-}
-
-function readPagination(response: unknown): RecruitmentPagination | undefined {
-  if (!isRecord(response)) return undefined;
-
-  const pagination = response.pagination;
-  if (isRecord(pagination)) {
-    return {
-      page: Number(pagination.page ?? 1),
-      limit: Number(pagination.limit ?? 20),
-      total: Number(pagination.total ?? 0),
-      totalPages: Number(pagination.totalPages ?? 1),
-    };
-  }
-
-  if ('total' in response || 'totalPages' in response) {
-    return {
-      page: Number(response.page ?? 1),
-      limit: Number(response.limit ?? 20),
-      total: Number(response.total ?? 0),
-      totalPages: Number(response.totalPages ?? 1),
-    };
-  }
-
-  return undefined;
-}
-
-function unwrapPaginated<T>(response: unknown): PaginatedRecruitmentResult<T> {
-  if (Array.isArray(response)) {
-    return { data: response as T[] };
-  }
-
-  if (!isRecord(response)) {
-    return { data: [] };
-  }
-
-  const pagination = readPagination(response);
-  const data = response.data;
-
-  if (Array.isArray(data)) {
-    return { data: data as T[], pagination };
-  }
-
-  if (isRecord(data) && Array.isArray(data.data)) {
-    return {
-      data: data.data as T[],
-      pagination: readPagination(data) ?? pagination,
-    };
-  }
-
-  return { data: [], pagination };
 }
 
 export function listJobDescriptions(params: ListJobDescriptionsParams) {

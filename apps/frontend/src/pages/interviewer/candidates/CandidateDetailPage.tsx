@@ -17,6 +17,7 @@ import { toast } from '@/components/ui/use-toast';
 import { UserRole, CandidateLevel, WebSocketEvents } from '@interview-assistant/shared';
 import type { Candidate, VcsSignals, WorkExperience, ParsedProject, ProfileSectionScore, ProfileAnomalyDetection } from '@interview-assistant/shared';
 import { MultiSelect } from '@/components/ui/multi-select';
+import { stableKeyedItems } from '@/lib/stable-keyed-items';
 
 interface UploadItem {
   fileIndex: number;
@@ -604,16 +605,6 @@ function getUploadProgressClass(stage: UploadItem['stage']) {
   if (stage === 'error') return 'bg-destructive';
   if (stage === 'done') return 'bg-green-500';
   return 'bg-primary';
-}
-
-function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string | undefined, prefix: string) {
-  const occurrences = new Map<string, number>();
-  return items.map((item) => {
-    const base = `${prefix}-${keyFor(item) || 'item'}`;
-    const occurrence = occurrences.get(base) ?? 0;
-    occurrences.set(base, occurrence + 1);
-    return { item, key: occurrence === 0 ? base : `${base}-${occurrence}` };
-  });
 }
 
 function formatSpreadsheetCell(value: unknown): string {

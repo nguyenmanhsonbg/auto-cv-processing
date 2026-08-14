@@ -14,6 +14,8 @@ import type {
   CvVersionRecord,
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
+import { formatRecruitmentLocalDateTime } from '@/lib/date-time';
+import { valueOrDash } from '@/lib/display-utils';
 
 interface CvProcessingPanelProps {
   applicationId: string;
@@ -62,25 +64,6 @@ export function getCvStatusClassName(status?: string | null) {
     default:
       return 'bg-blue-100 text-blue-800';
   }
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function valueOrDash(value?: string | number | boolean | null) {
-  if (value === undefined || value === null || value === '') return '-';
-  return String(value);
 }
 
 function formatBytes(value?: number | null) {
@@ -157,7 +140,7 @@ function DocumentDetails({
         <DetailField label="File type" value={valueOrDash(document?.fileType)} />
         <DetailField label="File size" value={formatBytes(document?.fileSize)} />
         <DetailField label="Version" value={valueOrDash(document?.versionNo)} />
-        <DetailField label="Created" value={formatDate(document?.createdAt)} />
+        <DetailField label="Created" value={formatRecruitmentLocalDateTime(document?.createdAt)} />
         <DetailField label="Original hash" value={shortHash(document?.originalFileHash)} />
         <DetailField label="Clean hash" value={shortHash(document?.cleanFileHash)} />
         <DetailField label="Storage zone" value={valueOrDash(document?.storageZone)} />

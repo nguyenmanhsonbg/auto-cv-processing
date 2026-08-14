@@ -25,12 +25,16 @@ import {
 } from '@/components/ui/select';
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { RecruitmentTableBody } from '@/components/recruitment/RecruitmentListPrimitives';
+import {
+  getCandidateStatusBadgeClassName,
+  getCandidateStatusLabel,
+} from '@/components/interview/candidate-display';
 import { toast } from '@/components/ui/use-toast';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
 import {
@@ -40,33 +44,12 @@ import {
   type InternalRecord,
 } from '@/lib/internal-api';
 import type { RecruitmentPagination } from '@/lib/recruitment-api';
+import { formatRecruitmentLocalDateTime } from '@/lib/date-time';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_PAGE_SIZE = 20;
 
 type StatusFilterValue = 'all' | 'active' | 'inactive';
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function getStatusBadgeClassName(isActive: boolean) {
-  return isActive ? 'bg-green-100 text-green-800' : 'bg-zinc-100 text-zinc-700';
-}
-
-function getStatusLabel(isActive: boolean) {
-  return isActive ? 'Active' : 'Inactive';
-}
 
 export function InternalListPage() {
   const navigate = useNavigate();
@@ -280,14 +263,14 @@ export function InternalListPage() {
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">Loading internals...</TableCell></TableRow>
-              ) : null}
-              {!loading && items.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No internals found.</TableCell></TableRow>
-              ) : null}
-              {!loading && items.map((internal) => {
+            <RecruitmentTableBody
+              items={items}
+              loading={loading}
+              colSpan={7}
+              loadingMessage="Loading internals..."
+              emptyMessage="No internals found."
+              getRowKey={(internal) => internal.id}
+              renderRow={(internal) => {
                 const detailPath = `/candidates/internals/${internal.id}`;
                 const isStatusUpdating = statusUpdatingId === internal.id;
                 return (
@@ -300,8 +283,8 @@ export function InternalListPage() {
                     <TableCell className="text-primary underline underline-offset-4">{internal.email}</TableCell>
                     <TableCell>{internal.phone ?? '-'}</TableCell>
                     <TableCell>{internal.applicationCount}</TableCell>
-                    <TableCell><Badge className={getStatusBadgeClassName(internal.isActive)}>{getStatusLabel(internal.isActive)}</Badge></TableCell>
-                    <TableCell>{formatDate(internal.createdAt)}</TableCell>
+                    <TableCell><Badge className={getCandidateStatusBadgeClassName(internal.isActive)}>{getCandidateStatusLabel(internal.isActive, { active: 'Active', inactive: 'Inactive' })}</Badge></TableCell>
+                    <TableCell>{formatRecruitmentLocalDateTime(internal.createdAt)}</TableCell>
                     <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
                       <div className="flex justify-end gap-2">
                         <Button asChild variant="outline" size="sm">
@@ -321,8 +304,8 @@ export function InternalListPage() {
                     </TableCell>
                   </TableRow>
                 );
-              })}
-            </TableBody>
+              }}
+            />
           </Table>
 
           <div className="mt-4">

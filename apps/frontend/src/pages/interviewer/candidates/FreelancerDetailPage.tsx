@@ -2,10 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { MouseEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Search } from 'lucide-react';
+import { CandidateApplicationsTable } from '@/components/interview/CandidateApplicationsTable';
 import {
-  getApplicationStatusClassName,
-  getApplicationStatusLabel,
-} from '@/components/recruitment/ApplicationOverview';
+  getCandidateStatusBadgeClassName,
+  getCandidateStatusLabel,
+} from '@/components/interview/candidate-display';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,14 +17,6 @@ import {
 } from '@/components/ui/card';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { Input } from '@/components/ui/input';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { toast } from '@/components/ui/use-toast';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
 import {
@@ -36,21 +29,6 @@ import {
 import type { RecruitmentPagination } from '@/lib/recruitment-api';
 
 const DEFAULT_PAGE_SIZE = 20;
-
-function getFreelancerStatusBadgeClassName(isActive: boolean) {
-  return isActive
-    ? 'bg-green-100 text-green-800'
-    : 'bg-zinc-100 text-zinc-700';
-}
-
-function getFreelancerStatusLabel(isActive: boolean) {
-  return isActive ? 'Hoạt động' : 'Ngừng hoạt động';
-}
-
-function valueOrDash(value?: string | null) {
-  if (!value?.trim()) return '-';
-  return value;
-}
 
 export function FreelancerDetailPage() {
   const { freelancerId } = useParams<{ freelancerId: string }>();
@@ -356,7 +334,7 @@ function FreelancerSummaryStatus({ freelancer, loading }: { freelancer: Freelanc
   return (
     <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
       <span>{freelancer.email}</span><span>•</span><span className="font-medium text-foreground">{freelancer.identifier}</span>
-      <Badge className={getFreelancerStatusBadgeClassName(freelancer.isActive)}>{getFreelancerStatusLabel(freelancer.isActive)}</Badge>
+      <Badge className={getCandidateStatusBadgeClassName(freelancer.isActive)}>{getCandidateStatusLabel(freelancer.isActive)}</Badge>
       <span>{freelancer.applicationCount} applications</span>
     </div>
   );
@@ -391,39 +369,21 @@ function ApplicationsCard({
       </CardHeader>
       <CardContent>
         {tableError && <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{tableError}</div>}
-        <ApplicationsTable applications={applications} pagination={pagination} loading={tableLoading} />
+        <CandidateApplicationsTable
+          applications={applications}
+          pagination={pagination}
+          loading={tableLoading}
+          headers={{
+            number: 'STT',
+            candidate: 'Tên ứng viên',
+            process: 'Trạng thái process',
+            hrReception: 'HR tiếp nhận hồ sơ',
+            evaluation: 'Đánh giá chung',
+          }}
+        />
         {!hidePagination && <div className="mt-4"><DataTablePagination page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={pagination.limit} onPageChange={onPageChange} onLimitChange={onLimitChange} /></div>}
       </CardContent>
     </Card>
   );
 }
 
-function ApplicationsTable({ applications, pagination, loading }: { applications: FreelancerApplicationRecord[]; pagination: RecruitmentPagination; loading: boolean }) {
-  return (
-    <Table>
-      <TableHeader><TableRow><TableHead className="w-16">STT</TableHead><TableHead>Tên ứng viên</TableHead><TableHead>JD</TableHead><TableHead>Trạng thái process</TableHead><TableHead>HR tiếp nhận hồ sơ</TableHead><TableHead>Đánh giá chung</TableHead></TableRow></TableHeader>
-      <TableBody>
-        {loading && <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Loading applications...</TableCell></TableRow>}
-        {!loading && applications.length === 0 && <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No applications found.</TableCell></TableRow>}
-        {!loading && applications.map((application, index) => <ApplicationRow key={application.referralId} application={application} index={(pagination.page - 1) * pagination.limit + index + 1} />)}
-      </TableBody>
-    </Table>
-  );
-}
-
-function ApplicationRow({ application, index }: { application: FreelancerApplicationRecord; index: number }) {
-  return (
-    <TableRow>
-      <TableCell>{index}</TableCell>
-      <TableCell className="font-medium">{valueOrDash(application.candidateName)}</TableCell>
-      <TableCell>{valueOrDash(application.jobPostingTitle)}</TableCell>
-      <StatusCell value={application.processStatus} />
-      <StatusCell value={application.hrReceptionStatus} />
-      <TableCell className="max-w-md whitespace-pre-wrap break-words">{valueOrDash(application.evaluation)}</TableCell>
-    </TableRow>
-  );
-}
-
-function StatusCell({ value }: { value?: string | null }) {
-  return value ? <TableCell><Badge className={getApplicationStatusClassName(value)}>{getApplicationStatusLabel(value)}</Badge></TableCell> : <TableCell>-</TableCell>;
-}

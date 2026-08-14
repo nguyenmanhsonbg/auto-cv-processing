@@ -10,6 +10,8 @@ import {
 import { Separator } from '@/components/ui/separator';
 import type { ParsedProfileRecord } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
+import { formatRecruitmentLocalDateTime } from '@/lib/date-time';
+import { valueOrDash } from '@/lib/display-utils';
 
 interface ParsedProfileViewProps {
   profile?: ParsedProfileRecord | null;
@@ -330,25 +332,6 @@ function readWorkExperienceDetails(source: Record<string, unknown>) {
   });
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function valueOrDash(value?: string | number | boolean | null) {
-  if (value === undefined || value === null || value === '') return '-';
-  return String(value);
-}
-
 function safeExtractedKeys(source: Record<string, unknown>) {
   const blocked = new Set([
     'rawText',
@@ -641,7 +624,7 @@ export function ParsedProfileView({
                 <DetailField label="CV document" value={valueOrDash(profile.cvDocumentId)} />
                 <DetailField label="Candidate ID" value={valueOrDash(profile.candidateId)} />
                 <DetailField label="Parser version" value={valueOrDash(profile.parserVersion)} />
-                <DetailField label="Created" value={formatDate(profile.createdAt)} />
+                <DetailField label="Created" value={formatRecruitmentLocalDateTime(profile.createdAt)} />
                 <DetailField
                   label="Text hash recorded"
                   value={valueOrDash(profile.normalizedTextHashRecorded ?? Boolean(profile.normalizedTextHash))}

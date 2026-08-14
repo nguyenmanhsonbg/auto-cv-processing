@@ -1,4 +1,8 @@
 import type { AmisApplicationItem, AmisCandidateStageChangedPayload, AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisRecruitmentRound, AmisSelectedCareerResult } from '@/types/types';
+import {
+  extractAmisCandidateRows,
+  extractAmisRows,
+} from '@/integrations/amis/amis-response-utils';
 
 (() => {
 
@@ -833,7 +837,7 @@ async function fetchAmisCareers(initialOrganizationUnitId?: string): Promise<Ami
     }
 
     const json = await readJsonResponse(response);
-    const rows = extractRows(json);
+    const rows = extractAmisRows(json);
     allRows.push(...rows);
     organizationUnitId = organizationUnitId || inferOrganizationUnitId(rows);
 
@@ -893,7 +897,7 @@ function findLatestCandidatePagingUrl() {
 }
 
 function mapAmisApplicationsResponse(response: unknown): AmisApplicationItem[] {
-  const rows = extractCandidateRows(response);
+  const rows = extractAmisCandidateRows(response);
   const items = rows.map(mapApplicationRow).filter(Boolean) as AmisApplicationItem[];
   return [...new Map(items.map((item) => [
     `${item.recruitmentId}:${item.recruitmentRoundId}:${getAmisApplicationIdentityId(item)}`,
@@ -903,30 +907,6 @@ function mapAmisApplicationsResponse(response: unknown): AmisApplicationItem[] {
 
 function getAmisApplicationIdentityId(item: AmisApplicationItem) {
   return item.candidateConvertId || item.candidateId;
-}
-
-function extractCandidateRows(value: unknown): unknown[] {
-  if (Array.isArray(value)) return looksLikeCandidateRowArray(value) ? value : [];
-  if (!isObject(value)) return [];
-
-  const candidates = value.Candidates;
-  if (Array.isArray(candidates) && looksLikeCandidateRowArray(candidates)) return candidates;
-
-  for (const child of Object.values(value)) {
-    const rows = extractCandidateRows(child);
-    if (rows.length > 0) return rows;
-  }
-
-  return [];
-}
-
-function looksLikeCandidateRowArray(rows: unknown[]) {
-  return rows.some((row) =>
-    isObject(row)
-    && readFirst(row, ['RecruitmentID', 'recruitmentId'])
-    && readFirst(row, ['RecruitmentRoundID', 'recruitmentRoundId'])
-    && readFirst(row, ['CandidateID', 'candidateId']),
-  );
 }
 
 function readApplicationRowIdentity(row: Record<string, unknown>) {
@@ -2293,43 +2273,6 @@ async function readJsonResponse(response: Response) {
   if (!cleaned) return null;
 
   return JSON.parse(cleaned) as unknown;
-}
-
-function extractRows(value: unknown): unknown[] {
-  const directRows = readKnownRowArray(value);
-  if (directRows) return directRows;
-
-  if (!isObject(value)) return [];
-
-  for (const item of Object.values(value)) {
-    const nestedRows = extractRows(item);
-    if (nestedRows.length > 0) return nestedRows;
-  }
-
-  return [];
-}
-
-function readKnownRowArray(value: unknown) {
-  if (Array.isArray(value)) return value;
-  if (!isObject(value)) return null;
-
-  for (const key of [
-    'Data',
-    'data',
-    'Items',
-    'items',
-    'Rows',
-    'rows',
-    'PageData',
-    'pageData',
-    'Records',
-    'records',
-  ]) {
-    const child = value[key];
-    if (Array.isArray(child)) return child;
-  }
-
-  return null;
 }
 
 function mapCareerRow(row: unknown): AmisCareerItem | null {

@@ -10,6 +10,9 @@ import {
 import { Separator } from '@/components/ui/separator';
 import type { ApplicationDetailRecord } from '@/lib/recruitment-api';
 import { formatRecruitmentDateTime } from '@/lib/date-time';
+import { scoreLabel, valueOrDash } from '@/lib/display-utils';
+
+export { scoreLabel, valueOrDash } from '@/lib/display-utils';
 
 interface ApplicationOverviewProps {
   application: ApplicationDetailRecord;
@@ -98,16 +101,7 @@ function statusClassName(status?: string | null) {
   }
 }
 
-function valueOrDash(value?: string | number | null) {
-  if (value === undefined || value === null || value === '') return '-';
-  return String(value);
-}
-
-function scoreLabel(value?: number | null) {
-  return typeof value === 'number' ? `${value}` : '-';
-}
-
-function DetailField({
+export function ApplicationDetailField({
   label,
   value,
 }: {
@@ -142,17 +136,17 @@ export function ApplicationOverview({ application }: ApplicationOverviewProps) {
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <DetailField label="Application ID" value={application.applicationId} />
-            <DetailField label="Source" value={valueOrDash(application.source)} />
-            <DetailField label="Source channel" value={valueOrDash(application.sourceChannel)} />
-            <DetailField label="External ID" value={valueOrDash(application.externalApplicationId)} />
+            <ApplicationDetailField label="Application ID" value={application.applicationId} />
+            <ApplicationDetailField label="Source" value={valueOrDash(application.source)} />
+            <ApplicationDetailField label="Source channel" value={valueOrDash(application.sourceChannel)} />
+            <ApplicationDetailField label="External ID" value={valueOrDash(application.externalApplicationId)} />
           </div>
           <Separator />
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <DetailField label="Created" value={formatRecruitmentDateTime(application.createdAt)} />
-            <DetailField label="Updated" value={formatRecruitmentDateTime(application.updatedAt)} />
-            <DetailField label="Mapping score" value={scoreLabel(application.mapping?.score)} />
-            <DetailField label="AI score" value={scoreLabel(application.aiScreening?.score)} />
+            <ApplicationDetailField label="Created" value={formatRecruitmentDateTime(application.createdAt)} />
+            <ApplicationDetailField label="Updated" value={formatRecruitmentDateTime(application.updatedAt)} />
+            <ApplicationDetailField label="Mapping score" value={scoreLabel(application.mapping?.score)} />
+            <ApplicationDetailField label="AI score" value={scoreLabel(application.aiScreening?.score)} />
           </div>
         </CardContent>
       </Card>
@@ -163,10 +157,10 @@ export function ApplicationOverview({ application }: ApplicationOverviewProps) {
             <CardTitle className="text-base">Candidate</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <DetailField label="Name" value={valueOrDash(candidate?.fullName)} />
-            <DetailField label="Email" value={valueOrDash(candidate?.email)} />
-            <DetailField label="Phone" value={valueOrDash(candidate?.phone)} />
-            <DetailField label="Candidate ID" value={valueOrDash(candidate?.candidateId)} />
+            <ApplicationDetailField label="Name" value={valueOrDash(candidate?.fullName)} />
+            <ApplicationDetailField label="Email" value={valueOrDash(candidate?.email)} />
+            <ApplicationDetailField label="Phone" value={valueOrDash(candidate?.phone)} />
+            <ApplicationDetailField label="Candidate ID" value={valueOrDash(candidate?.candidateId)} />
           </CardContent>
         </Card>
 
@@ -175,7 +169,7 @@ export function ApplicationOverview({ application }: ApplicationOverviewProps) {
             <CardTitle className="text-base">Job</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <DetailField
+            <ApplicationDetailField
               label="Posting"
               value={
                 jobPosting?.jobPostingId ? (
@@ -188,11 +182,11 @@ export function ApplicationOverview({ application }: ApplicationOverviewProps) {
                 ) : valueOrDash(jobPosting?.title)
               }
             />
-            <DetailField
+            <ApplicationDetailField
               label="JD version"
               value={valueOrDash(jobPosting?.jobDescriptionVersionId)}
             />
-            <DetailField label="Posting ID" value={valueOrDash(jobPosting?.jobPostingId)} />
+            <ApplicationDetailField label="Posting ID" value={valueOrDash(jobPosting?.jobPostingId)} />
           </CardContent>
         </Card>
 
@@ -201,10 +195,10 @@ export function ApplicationOverview({ application }: ApplicationOverviewProps) {
             <CardTitle className="text-base">Current CV Snapshot</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <DetailField label="CV document" value={valueOrDash(cv?.currentCvDocumentId)} />
-            <DetailField label="File name" value={valueOrDash(cv?.originalFileName)} />
-            <DetailField label="Version" value={valueOrDash(cv?.versionNo)} />
-            <DetailField label="Updated" value={formatRecruitmentDateTime(cv?.createdAt)} />
+            <ApplicationDetailField label="CV document" value={valueOrDash(cv?.currentCvDocumentId)} />
+            <ApplicationDetailField label="File name" value={valueOrDash(cv?.originalFileName)} />
+            <ApplicationDetailField label="Version" value={valueOrDash(cv?.versionNo)} />
+            <ApplicationDetailField label="Updated" value={formatRecruitmentDateTime(cv?.createdAt)} />
           </CardContent>
         </Card>
       </div>

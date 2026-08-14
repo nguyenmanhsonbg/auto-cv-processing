@@ -15,10 +15,7 @@ import { AiPromptsService } from './ai-prompts.service';
 import { AiModelOverridesService } from './ai-model-overrides.service';
 import { sanitizeProfileForAi } from './ai-profile-sanitizer';
 import { normalizeVcsSignals } from './vcs-signals.mapper';
-
-function isJsonWhitespace(character: string | undefined) {
-  return character === ' ' || character === '\t' || character === '\r' || character === '\n';
-}
+import { extractJsonFromText } from '../common/parsing/extract-json';
 
 /**
  * Legacy prompt model identifiers kept for prompt-admin compatibility.
@@ -143,26 +140,7 @@ export class AiService {
    * Strip markdown code fences (```json ... ```) before JSON.parse.
    */
   private extractJson(text: string): unknown {
-    const fenceStart = text.indexOf('```');
-    if (fenceStart < 0) return JSON.parse(text.trim());
-
-    let contentStart = fenceStart + 3;
-    const language = text.slice(contentStart, contentStart + 4).toLowerCase();
-    if (language === 'json') {
-      const nextCharacter = text[contentStart + 4];
-      if (nextCharacter !== undefined && !isJsonWhitespace(nextCharacter)) {
-        return JSON.parse(text.trim());
-      }
-      contentStart += 4;
-    }
-
-    while (contentStart < text.length && isJsonWhitespace(text[contentStart])) {
-      contentStart += 1;
-    }
-
-    const fenceEnd = text.indexOf('```', contentStart);
-    const raw = fenceEnd >= 0 ? text.slice(contentStart, fenceEnd).trim() : text.trim();
-    return JSON.parse(raw);
+    return extractJsonFromText(text);
   }
 
   /**

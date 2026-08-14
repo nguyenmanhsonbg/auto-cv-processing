@@ -17,7 +17,10 @@ import type {
   VcsSignals,
   WorkExperience,
 } from '@interview-assistant/shared';
+import { asRecord, profilePayload, textValue } from '@interview-assistant/shared';
+export { profilePayload } from '@interview-assistant/shared';
 import type { ApplicationAiScreeningInsight, ApplicationAiScreeningSummary, ApplicationMappingSummary } from '@/lib/recruitment-api';
+import { stableKeyedItems } from '@/lib/stable-keyed-items';
 
 const SECTION_LABELS: Record<string, string> = {
   education: 'Education',
@@ -32,20 +35,6 @@ const TOP_UNIVERSITY_LABELS: Record<string, string> = {
   UET: 'UET - Dai hoc Cong Nghe',
   PTIT: 'PTIT - Hoc vien Buu chinh Vien thong',
 };
-
-function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string, prefix: string) {
-  const occurrences = new Map<string, number>();
-  return items.map((item, position) => {
-    const base = `${prefix}-${keyFor(item) || 'item'}`;
-    const occurrence = occurrences.get(base) ?? 0;
-    occurrences.set(base, occurrence + 1);
-    return {
-      item,
-      key: occurrence === 0 ? base : `${base}-${occurrence}`,
-      position,
-    };
-  });
-}
 
 function projectIdentity(project: ParsedProject) {
   return [project.name, project.role, project.startYear, project.endYear, project.description]
@@ -397,81 +386,6 @@ function AiRiskAssessmentCard({ anomalyDetection, risks }: { anomalyDetection?: 
   </CardContent></Card>;
 }
 
-export function profilePayload(profile?: ParsedProfile | null): ParsedProfile {
-  const root = (profile ?? {}) as ParsedProfile & Record<string, unknown>;
-  const parsedProfile = asRecord(root.parsedProfile);
-  const evaluation = asRecord(root.evaluation);
-  const generalCriteria = asRecord(evaluation?.generalCriteria);
-  const roleSpecificCriteria = asRecord(evaluation?.roleSpecificCriteria);
-  const summary = asRecord(evaluation?.summary);
-
-  // The enrich_profile prompt returns parsedProfile/evaluation as nested objects,
-  // while older application records store the canonical fields at the root. Read
-  // both shapes so the preview stays consistent across existing and new analyses.
-  const normalized = {
-    ...parsedProfile,
-    ...root,
-    aiValidation: root.aiValidation ?? buildAiValidation(generalCriteria, roleSpecificCriteria, summary),
-  } as ParsedProfile;
-
-  return normalized;
-}
-
-function buildAiValidation(
-  generalCriteria: Record<string, unknown> | null,
-  roleSpecificCriteria: Record<string, unknown> | null,
-  summary: Record<string, unknown> | null,
-): AiValidation | undefined {
-  if (!generalCriteria && !roleSpecificCriteria && !summary) return undefined;
-
-  const sectionSources: Array<[ProfileSectionScore['section'], unknown]> = [
-    ['education', generalCriteria?.education],
-    ['workExperience', generalCriteria?.workHistory],
-    ['skills', roleSpecificCriteria?.mustHaveSkills],
-    ['projects', roleSpecificCriteria?.technicalChallenges],
-    ['seniority', generalCriteria?.seniority],
-  ];
-  const sectionScores: ProfileSectionScore[] = [];
-  for (const [section, value] of sectionSources) {
-    const record = asRecord(value);
-    const score = numberValue(record?.score);
-    const label = textValue(record?.label);
-    if (score == null || !isProfileScoreLabel(label)) continue;
-    sectionScores.push({ section, score, label, ...(textValue(record?.note) ? { note: textValue(record?.note) } : {}) });
-  }
-  const completenessScore = numberValue(summary?.overallMatchScore);
-  const highlights = stringList(summary?.highlights);
-  const concerns = stringList(summary?.redFlagsOrGaps);
-  const shortSummary = textValue(summary?.shortSummary);
-
-  return {
-    completenessScore: completenessScore ?? 0,
-    highlights,
-    concerns,
-    summary: shortSummary ?? '',
-    ...(sectionScores.length ? { sectionScores } : {}),
-  };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function textValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-  const number = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(number) ? number : undefined;
-}
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => Boolean(textValue(item))).map((item) => textValue(item)!) : [];
-}
-
 function normalizeCompanyTypes(value: unknown): Record<string, string> {
   if (!Array.isArray(value)) return {};
   return Object.fromEntries(value.flatMap((item) => {
@@ -480,10 +394,6 @@ function normalizeCompanyTypes(value: unknown): Record<string, string> {
     const type = textValue(record?.type);
     return name && type ? [[name, type]] : [];
   }));
-}
-
-function isProfileScoreLabel(value: string | undefined): value is ProfileSectionScore['label'] {
-  return value === 'Strong' || value === 'Good' || value === 'Fair' || value === 'Weak';
 }
 
 export function CandidateAiMatchPreview({

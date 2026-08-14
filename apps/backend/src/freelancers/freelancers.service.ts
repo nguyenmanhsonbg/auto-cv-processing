@@ -17,6 +17,7 @@ import { ApplicationReferralEntity } from './entities/application-referral.entit
 import { FreelancerIdentifierCounterEntity } from './entities/freelancer-identifier-counter.entity';
 import { FreelancerEntity } from './entities/freelancer.entity';
 import { normalizeFreelancerPhone } from '../extension-integration/referral-source-summary.util';
+import { normalizePagination, totalPages } from '../common/http/list-response';
 
 export interface CreateFreelancerInput {
   name: string;
@@ -219,8 +220,7 @@ export class FreelancersService {
   async findPaginated(
     params: ListFreelancersParams,
   ): Promise<PaginatedResponse<FreelancerSummary>> {
-    const page = Math.max(1, params.page ?? 1);
-    const limit = Math.min(100, Math.max(1, params.limit ?? 20));
+    const { page, limit } = normalizePagination(params);
     const skip = (page - 1) * limit;
     const sortOrder = params.sortOrder === 'ASC' ? 'ASC' : 'DESC';
     const allowedSorts: Record<string, string> = {
@@ -246,7 +246,7 @@ export class FreelancersService {
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: totalPages(total, limit),
     };
   }
 
@@ -462,8 +462,7 @@ export class FreelancersService {
     freelancerId: string,
     params: ListFreelancerApplicationsParams,
   ): Promise<PaginatedResponse<FreelancerApplicationSummary>> {
-    const page = Math.max(1, params.page ?? 1);
-    const limit = Math.min(100, Math.max(1, params.limit ?? 20));
+    const { page, limit } = normalizePagination(params);
     const sortOrder = params.sortOrder === 'ASC' ? 'ASC' : 'DESC';
 
     const qb = this.referralsRepo
@@ -503,7 +502,7 @@ export class FreelancersService {
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: totalPages(total, limit),
     };
   }
 

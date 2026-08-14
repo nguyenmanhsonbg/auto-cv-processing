@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/components/ui/use-toast';
 import { Upload, Loader2, FileText, CheckCircle2, XCircle, X } from 'lucide-react';
 import { WebSocketEvents } from '@interview-assistant/shared';
+import { stableKeyedItems } from '@/lib/stable-keyed-items';
 
 interface UploadItem {
   fileIndex: number;
@@ -40,20 +41,6 @@ const STAGE_PROGRESS: Record<UploadItem['stage'], number> = {
   done: 100,
   error: 100,
 };
-
-function stableKeyedItems<T>(items: T[], keyFor: (item: T) => string, prefix: string) {
-  const occurrences = new Map<string, number>();
-  return items.map((item, position) => {
-    const base = `${prefix}-${keyFor(item) || 'item'}`;
-    const occurrence = occurrences.get(base) ?? 0;
-    occurrences.set(base, occurrence + 1);
-    return {
-      item,
-      key: occurrence === 0 ? base : `${base}-${occurrence}`,
-      position,
-    };
-  });
-}
 
 function FileProgressCard({ item }: { item: UploadItem }) {
   const pct = STAGE_PROGRESS[item.stage];

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -13,6 +12,7 @@ import {
 } from 'lucide-react';
 import {
   ApplicationOverview,
+  ApplicationDetailField,
   getApplicationStatusClassName,
   getApplicationStatusLabel,
 } from '@/components/recruitment/ApplicationOverview';
@@ -71,6 +71,7 @@ import {
 } from '@/lib/recruitment-api';
 import { cn } from '@/lib/utils';
 import { formatRecruitmentDateTime } from '@/lib/date-time';
+import { scoreLabel, valueOrDash } from '@/lib/display-utils';
 import type { ParsedProfile } from '@interview-assistant/shared';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -82,30 +83,6 @@ import {
 const EXTENSION_PDF_REQUEST_SOURCE = 'vcs-recruitment-extension';
 const EXTENSION_PDF_REQUEST = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_FROM_PAGE';
 const EXTENSION_PDF_RESULT = 'VCS_EXPORT_AI_MATCH_PREVIEW_PDF_RESULT';
-
-function valueOrDash(value?: string | number | null) {
-  if (value === undefined || value === null || value === '') return '-';
-  return String(value);
-}
-
-function scoreLabel(value?: number | null) {
-  return typeof value === 'number' ? `${value}` : '-';
-}
-
-function DetailField({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
-  return (
-    <div>
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <div className="mt-1 break-words font-medium">{value}</div>
-    </div>
-  );
-}
 
 function AssessmentBadge({ label }: { label?: string | null }) {
   if (!label) return null;
@@ -646,14 +623,14 @@ export function ApplicationDetailPage() {
                 <CardTitle className="text-lg">Process Snapshot</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <DetailField label="CV scan" value={valueOrDash(cv?.scanStatus)} />
-                <DetailField label="CV sanitize" value={valueOrDash(cv?.sanitizeStatus)} />
-                <DetailField label="CV parse" value={valueOrDash(cv?.parseStatus)} />
-                <DetailField label="Current CV" value={valueOrDash(cv?.currentCvDocumentId)} />
-                <DetailField label="Mapping status" value={valueOrDash(mapping?.status)} />
-                <DetailField label="Mapping recommendation" value={valueOrDash(mapping?.recommendation)} />
-                <DetailField label="Form status" value={valueOrDash(form?.status)} />
-                <DetailField label="AI status" value={valueOrDash(aiScreening?.status)} />
+                <ApplicationDetailField label="CV scan" value={valueOrDash(cv?.scanStatus)} />
+                <ApplicationDetailField label="CV sanitize" value={valueOrDash(cv?.sanitizeStatus)} />
+                <ApplicationDetailField label="CV parse" value={valueOrDash(cv?.parseStatus)} />
+                <ApplicationDetailField label="Current CV" value={valueOrDash(cv?.currentCvDocumentId)} />
+                <ApplicationDetailField label="Mapping status" value={valueOrDash(mapping?.status)} />
+                <ApplicationDetailField label="Mapping recommendation" value={valueOrDash(mapping?.recommendation)} />
+                <ApplicationDetailField label="Form status" value={valueOrDash(form?.status)} />
+                <ApplicationDetailField label="AI status" value={valueOrDash(aiScreening?.status)} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -664,10 +641,10 @@ export function ApplicationDetailPage() {
                 <CardTitle className="text-lg">Candidate Info</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <DetailField label="Candidate ID" value={valueOrDash(candidate?.candidateId)} />
-                <DetailField label="Full name" value={valueOrDash(candidate?.fullName)} />
-                <DetailField label="Email" value={valueOrDash(candidate?.email)} />
-                <DetailField label="Phone" value={valueOrDash(candidate?.phone)} />
+                <ApplicationDetailField label="Candidate ID" value={valueOrDash(candidate?.candidateId)} />
+                <ApplicationDetailField label="Full name" value={valueOrDash(candidate?.fullName)} />
+                <ApplicationDetailField label="Email" value={valueOrDash(candidate?.email)} />
+                <ApplicationDetailField label="Phone" value={valueOrDash(candidate?.phone)} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -680,7 +657,7 @@ export function ApplicationDetailPage() {
                     <CardTitle className="text-lg">Job Posting</CardTitle>
                   </CardHeader>
                   <CardContent className="grid gap-4 md:grid-cols-2">
-                    <DetailField
+                    <ApplicationDetailField
                       label="Posting"
                       value={
                         jobPosting?.jobPostingId ? (
@@ -693,12 +670,12 @@ export function ApplicationDetailPage() {
                         ) : valueOrDash(jobPosting?.title)
                       }
                     />
-                    <DetailField label="Posting ID" value={valueOrDash(jobPosting?.jobPostingId)} />
-                    <DetailField
+                    <ApplicationDetailField label="Posting ID" value={valueOrDash(jobPosting?.jobPostingId)} />
+                    <ApplicationDetailField
                       label="JD version"
                       value={valueOrDash(jobPosting?.jobDescriptionVersionId)}
                     />
-                    <DetailField label="Application source" value={valueOrDash(application.source)} />
+                    <ApplicationDetailField label="Application source" value={valueOrDash(application.source)} />
                   </CardContent>
                 </Card>
 
@@ -722,10 +699,10 @@ export function ApplicationDetailPage() {
                     </Button>
                   </CardHeader>
                   <CardContent className="grid gap-4 md:grid-cols-2">
-                    <DetailField label="Mapping score" value={scoreLabel(mapping?.score)} />
-                    <DetailField label="Mapping status" value={valueOrDash(mapping?.status)} />
-                    <DetailField label="AI score" value={scoreLabel(aiScreening?.score)} />
-                    <DetailField label="AI recommendation" value={valueOrDash(aiScreening?.recommendation)} />
+                    <ApplicationDetailField label="Mapping score" value={scoreLabel(mapping?.score)} />
+                    <ApplicationDetailField label="Mapping status" value={valueOrDash(mapping?.status)} />
+                    <ApplicationDetailField label="AI score" value={scoreLabel(aiScreening?.score)} />
+                    <ApplicationDetailField label="AI recommendation" value={valueOrDash(aiScreening?.recommendation)} />
                   </CardContent>
                 </Card>
               </div>
