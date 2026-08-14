@@ -49,6 +49,13 @@ export function FacebookGroupFormModal({
     ? 'facebook-group-form is-create'
     : 'modal-body facebook-group-form is-standalone';
   const titleId = isCreate ? 'facebook-group-create-title' : 'facebook-group-edit-title';
+  let saveButtonLabel = 'LƯU';
+  if (isCreate) {
+    saveButtonLabel = 'Lưu';
+  }
+  if (isSaving) {
+    saveButtonLabel = 'Đang lưu...';
+  }
 
   const renderNameField = () => (
     <InputField
@@ -129,16 +136,16 @@ export function FacebookGroupFormModal({
         disabled={isSaving}
       >
         <SaveIcon />
-        <span>{isSaving ? 'Đang lưu...' : isCreate ? 'Lưu' : 'LƯU'}</span>
+        <span>{saveButtonLabel}</span>
       </button>
     </div>
   );
 
   return (
-    <div className={isCreate ? 'facebook-group-create-backdrop' : 'modal-backdrop'} role="presentation">
-      <section
+    <div className={isCreate ? 'facebook-group-create-backdrop' : 'modal-backdrop'}>
+      <dialog
+        open
         className={modalClassName}
-        role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
       >
@@ -175,7 +182,7 @@ export function FacebookGroupFormModal({
 
           {renderFooter()}
         </form>
-      </section>
+      </dialog>
     </div>
   );
 }

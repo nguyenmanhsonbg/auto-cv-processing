@@ -12,6 +12,10 @@ type InputFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'onCha
   trailing?: ReactNode;
 };
 
+function joinClassNames(...classNames: Array<string | undefined | false>) {
+  return classNames.filter(Boolean).join(' ');
+}
+
 function getInputValidationError(label: string, value: string, touched: boolean, required: boolean, maxLength?: number) {
   if (!touched) return undefined;
   if (required && !value.trim()) return `${label} là bắt buộc, không được để trống`;
@@ -51,17 +55,22 @@ export function InputField({
   };
 
   return (
-    <div className={`input-field${containerClassName ? ` ${containerClassName}` : ''}`}>
+    <div className={joinClassNames('input-field', containerClassName)}>
       <label className="input-field-label" htmlFor={inputId}>
         {label}
         {required ? <span className="input-field-required" aria-hidden="true">*</span> : null}
       </label>
-      <span className={`input-field-control-wrap${inputWrapperClassName ? ` ${inputWrapperClassName}` : ''}${leading ? ' has-leading' : ''}${trailing ? ' has-trailing' : ''}`}>
+      <span className={joinClassNames(
+        'input-field-control-wrap',
+        inputWrapperClassName,
+        leading ? 'has-leading' : undefined,
+        trailing ? 'has-trailing' : undefined,
+      )}>
         {leading}
         <input
           {...inputProps}
           id={inputId}
-          className={`input-field-control${className ? ` ${className}` : ''}${displayedError ? ' has-error' : ''}`}
+          className={joinClassNames('input-field-control', className, displayedError ? 'has-error' : undefined)}
           value={value}
           onChange={handleChange}
           onBlur={handleBlur}

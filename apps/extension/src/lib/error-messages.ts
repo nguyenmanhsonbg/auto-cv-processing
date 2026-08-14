@@ -48,11 +48,12 @@ const MESSAGE_PATTERNS: Array<[RegExp, string]> = [
 export function toVietnameseErrorMessage(error: unknown, fallback = 'Không thể hoàn tất thao tác. Vui lòng thử lại.') {
   const details = isErrorDetails(error) ? error : null;
   const code = typeof details?.code === 'string' ? details.code : '';
-  const rawMessage = typeof details?.message === 'string'
-    ? details.message.trim()
-    : error instanceof Error
-      ? error.message.trim()
-      : '';
+  let rawMessage = '';
+  if (typeof details?.message === 'string') {
+    rawMessage = details.message.trim();
+  } else if (error instanceof Error) {
+    rawMessage = error.message.trim();
+  }
 
   if (code === 'FACEBOOK_DAILY_QUOTA_EXCEEDED' && /\d+/.test(rawMessage)) {
     return rawMessage;

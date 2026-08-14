@@ -3930,6 +3930,14 @@ dd {
   backdrop-filter: blur(2px);
 }
 
+.facebook-group-create-backdrop > dialog {
+  position: static;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+
 .facebook-group-create-modal {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -8950,10 +8958,17 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-select input {
+  appearance: none;
   width: 17px;
   height: 17px;
   margin: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background-color: #e4e4e4;
   accent-color: #008a4a;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
 }
 
 
@@ -8961,22 +8976,22 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   display: grid;
   gap: 12px;
   min-width: 0;
-  border: 1px solid #BDC9C266;
-  border-radius: 14px;
-  padding: 14px 16px 16px;
+  border: 1px solid #dfe4ea;
+  border-radius: 8px;
+  padding: 18px 16px 16px;
   background: #ffffff;
-  box-shadow: 0 1px 3px rgba(15, 118, 110, 0.06);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
 .cv-candidate-list > li.is-selected .cv-candidate-card {
-  border-color: #10B98166;
-  background: #ECFDF5;
-  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.14) inset;
+  border-color: #6ee7bf;
+  background: #eafff7;
+  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.12);
 }
 
 .cv-candidate-main {
   display: grid;
-  grid-template-columns: 18px 50px minmax(0, 1fr) auto;
+  grid-template-columns: 18px 50px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 }
@@ -9513,38 +9528,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   background: #dbeafe;
 }
 
-.cv-candidate-card {
-  gap: 12px;
-  border-color: #dfe4ea;
-  border-radius: 8px;
-  padding: 18px 16px 16px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-}
-
-.cv-candidate-list > li.is-selected .cv-candidate-card {
-  border-color: #6ee7bf;
-  background: #eafff7;
-  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.12);
-}
-
-.cv-candidate-main {
-  grid-template-columns: 18px 50px minmax(0, 1fr);
-  gap: 10px;
-}
-
-.cv-candidate-select {
-  padding-top: 0;
-}
-
-.cv-avatar {
-  width: 50px;
-  height: 50px;
-  border: 2px solid #dbe3ec;
-  color: #ffffff;
-  font-size: 12px;
-}
-
-
 .cv-candidate-info {
   display: grid;
   gap: 8px;
@@ -9552,21 +9535,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   padding: 10px;
   background: #EFF4FF4D;
 }
-
-.cv-candidate-main strong {
-  color: #0f1f33;
-  font-size: 16px;
-  font-style: normal;
-  font-weight: 700;
-}
-
-.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
-  color: #6b7280;
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 400;
-}
-
 
 .cv-candidate-main .cv-candidate-applied-date {
   color: #404040;
@@ -9714,7 +9682,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   text-transform: none;
 }
 
-.cv-candidate-select input,
 .cv-select-all-control input {
   appearance: none;
   width: 17px;
@@ -9726,11 +9693,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   cursor: pointer;
   display: grid;
   place-items: center;
-}
-
-.cv-candidate-select input {
-  background-color: #E4E4E4;
-  border: 1px solid #D1D5DB;
 }
 
 .cv-candidate-select input::after,
@@ -9754,25 +9716,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .cv-select-all-control input:checked::after {
   opacity: 1;
 }
-
-.cv-avatar {
-  width: 50px;
-  height: 50px;
-  border: 2px solid #dbe3ec;
-  color: #fff;
-  font-size: 12px;
-}
-
-.cv-candidate-main strong {
-  color: #0f1f33;
-  font-size: 16px;
-}
-
-.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
-  color: #6b7280;
-  font-size: 11px;
-}
-
 
 .cv-candidate-score {
   display: grid;
@@ -10039,7 +9982,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   border-radius: 999px;
   padding: 6px 16px;
   color: #fff;
-  background: #3f82e8;
+  background: #1d4ed8;
   font-family: Pretendard, sans-serif;
   font-size: 12px;
   font-style: normal;
@@ -10107,22 +10050,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-style: normal;
   font-weight: 400;
 }
-
-.cv-sync-amis-button {
-  min-width: 82px;
-  min-height: 34px;
-  border: 1px solid #52dc8c;
-  border-radius: 11px;
-  padding: 0 17px;
-  color: #3e5e4d;
-  background: #effff5;
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 700;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
 
 .cv-candidate-footer .cv-sync-amis-button {
   font-size: 14px;

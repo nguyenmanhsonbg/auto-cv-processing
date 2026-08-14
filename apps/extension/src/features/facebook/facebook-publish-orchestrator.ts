@@ -470,16 +470,7 @@ async function publishAndReportFacebookTarget({
     });
     return await Promise.race([operation(), timeoutPromise]);
   } catch (error) {
-    const message = error instanceof FacebookTargetTimeoutError
-      ? `${error.code}: ${error.message}`
-      : error instanceof ApiClientError
-        && error.code === 'FACEBOOK_GROUP_NOT_FOUND'
-        ? toVietnameseErrorMessage(error)
-      : error instanceof ApiClientError
-        && error.status === 400
-        && /quota|đạt tối đa|daily publish limit/i.test(error.message)
-        ? toVietnameseErrorMessage(error)
-      : `FB_TARGET_UNEXPECTED_ERROR: Facebook publish target failed before it could produce a result. ${toAutomationErrorMessage(error)}`;
+    const message = getFacebookTargetFailureMessage(error);
     const payload = buildUnexpectedFacebookPublishFailurePayload(plan, reservedTarget, message);
 
     callbacks.onProgress?.({
@@ -497,6 +488,23 @@ async function publishAndReportFacebookTarget({
     execution.cancel();
     await execution.cleanup();
   }
+}
+
+function getFacebookTargetFailureMessage(error: unknown) {
+  if (error instanceof FacebookTargetTimeoutError) {
+    return `${error.code}: ${error.message}`;
+  }
+  if (error instanceof ApiClientError && error.code === 'FACEBOOK_GROUP_NOT_FOUND') {
+    return toVietnameseErrorMessage(error);
+  }
+  if (
+    error instanceof ApiClientError
+    && error.status === 400
+    && /quota|đạt tối đa|daily publish limit/i.test(error.message)
+  ) {
+    return toVietnameseErrorMessage(error);
+  }
+  return `FB_TARGET_UNEXPECTED_ERROR: Facebook publish target failed before it could produce a result. ${toAutomationErrorMessage(error)}`;
 }
 
 function buildFacebookPublishResultPayload(
@@ -1937,6 +1945,23 @@ interface FacebookProfileIdentityProbe {
   avatarUrl: string | null;
 }
 
+const FACEBOOK_PLACEHOLDER_PROFILE_NAMES = new Set([
+  'thong bao',
+  'notification',
+  'dang ky',
+  'sign up',
+  'create new account',
+  'register',
+  'log in',
+  'login',
+  'chat',
+  'messenger',
+  'group chat',
+  'doan chat',
+  'tro chuyen',
+  'conversation',
+]);
+
 function normalizeFacebookDisplayName(value: string | null | undefined) {
   const normalized = value
     ?.replace(/^Dòng thời gian của\s+/i, '')
@@ -1949,9 +1974,11 @@ function normalizeFacebookDisplayName(value: string | null | undefined) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-  if (
-    /^(?:account(?:\s+id)?(?:\s+\d+)?|facebook(?:\s+account)?|\(\d+\)\s*facebook|thong\s+bao|notification|dang\s+ky|sign\s+up|create\s+new\s+account|register|log\s+in|login|chat|messenger|group\s+chat|doan\s+chat|tro\s+chuyen|conversation)$/i.test(comparable)
-  ) {
+  const isAccountPlaceholder = /^account(?: id)?(?:\s+\d+)?$/.test(comparable)
+    || comparable === 'facebook'
+    || comparable === 'facebook account'
+    || /^\(\d+\)\s*facebook$/.test(comparable);
+  if (isAccountPlaceholder || FACEBOOK_PLACEHOLDER_PROFILE_NAMES.has(comparable)) {
     return null;
   }
   if (normalized.length > 100) return null;

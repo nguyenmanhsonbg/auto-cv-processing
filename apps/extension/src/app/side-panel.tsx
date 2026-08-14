@@ -4518,6 +4518,142 @@ function SidePanel() {
     );
   }
 
+  function renderFacebookPostHistoryRows(
+    pageItems: FacebookPublishHistoryListItem[],
+    isHistoryBusy: boolean,
+    isLoadingHistory: boolean,
+    historyLoadState: FacebookPostHistoryLoadState,
+    historyMessage: string | null,
+  ) {
+    if (pageItems.length > 0) {
+      return pageItems.map((item) => {
+        const postUrl = getValidFacebookGroupPostUrl(item.externalPostUrl);
+        return (
+          <tr key={item.id}>
+            <td>{formatDate(item.submittedAt ?? item.createdAt ?? undefined) ?? '-'}</td>
+            <td>
+              <span>{item.title}</span>
+            </td>
+            <td>
+              <span className={`post-history-status is-${item.facebookReviewStatus.toLowerCase().replace('_', '-')}`}>
+                {getFacebookHistoryStatusLabel(item.facebookReviewStatus)}
+              </span>
+            </td>
+            <td>
+              <div className="post-history-actions">
+                {postUrl ? (
+                  <button
+                    type="button"
+                    className="post-history-action-button is-post-link"
+                    title="Mở bài viết Facebook"
+                    aria-label={`Mở bài viết ${item.title}`}
+                    disabled={isHistoryBusy}
+                    onClick={() => window.open(postUrl, '_blank', 'noopener,noreferrer')}
+                  >
+                    <ExternalLinkIcon />
+                  </button>
+                ) : <span className="post-history-no-action">-</span>}
+              </div>
+            </td>
+          </tr>
+        );
+      });
+    }
+
+    if (isLoadingHistory) {
+      return (
+        <tr>
+          <td colSpan={4}>
+            <div className="post-history-empty">
+              <strong>Đang tải lịch sử</strong>
+              <span>Đang lấy dữ liệu bài đăng Facebook từ backend.</span>
+            </div>
+          </td>
+        </tr>
+      );
+    }
+
+    const isHistoryError = historyLoadState === 'ERROR';
+    const emptyTitle = isHistoryError ? 'Không tải được lịch sử' : 'Chưa có dữ liệu lịch sử';
+    const emptyMessage = isHistoryError
+      ? (historyMessage ?? 'Vui lòng thử lại sau.')
+      : 'Các bài đã auto đăng vào group này sẽ hiển thị tại đây.';
+    return (
+      <tr>
+        <td colSpan={4}>
+          <div className="post-history-empty">
+            <strong>{emptyTitle}</strong>
+            <span>{emptyMessage}</span>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  function renderFacebookPostHistoryPagination(
+    paginationItems: PostHistoryPaginationItem[],
+    currentPage: number,
+    pageCount: number,
+    isHistoryBusy: boolean,
+  ) {
+    return (
+      <div>
+        <button
+          type="button"
+          title="Trang đầu"
+          aria-label="Trang đầu"
+          disabled={currentPage <= 1 || isHistoryBusy}
+          onClick={() => void changeFacebookHistoryPage(1)}
+        >
+          <DoubleBackIcon />
+        </button>
+        <button
+          type="button"
+          title="Trang trước"
+          aria-label="Trang trước"
+          disabled={currentPage <= 1 || isHistoryBusy}
+          onClick={() => void changeFacebookHistoryPage(currentPage - 1)}
+        >
+          <BackIcon />
+        </button>
+        {paginationItems.map((item) => (
+          typeof item === 'number' ? (
+            <button
+              key={item}
+              type="button"
+              className={item === currentPage ? 'is-active' : ''}
+              aria-current={item === currentPage ? 'page' : undefined}
+              disabled={isHistoryBusy || item === currentPage}
+              onClick={() => void changeFacebookHistoryPage(item)}
+            >
+              {item}
+            </button>
+          ) : (
+            <span key={item} className="post-history-page-ellipsis">...</span>
+          )
+        ))}
+        <button
+          type="button"
+          title="Trang sau"
+          aria-label="Trang sau"
+          disabled={currentPage >= pageCount || isHistoryBusy}
+          onClick={() => void changeFacebookHistoryPage(currentPage + 1)}
+        >
+          <ChevronRightIcon />
+        </button>
+        <button
+          type="button"
+          title="Trang cuối"
+          aria-label="Trang cuối"
+          disabled={currentPage >= pageCount || isHistoryBusy}
+          onClick={() => void changeFacebookHistoryPage(pageCount)}
+        >
+          <DoubleChevronRightIcon />
+        </button>
+      </div>
+    );
+  }
+
   function renderFacebookPostHistoryModal() {
     if (!selectedFacebookHistoryGroup) return null;
 
@@ -4634,57 +4770,13 @@ function SidePanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pageItems.length > 0 && pageItems.map((item) => {
-                    const postUrl = getValidFacebookGroupPostUrl(item.externalPostUrl);
-                    return (
-                      <tr key={item.id}>
-                        <td>{formatDate(item.submittedAt ?? item.createdAt ?? undefined) ?? '-'}</td>
-                        <td>
-                          <span>{item.title}</span>
-                        </td>
-                        <td>
-                          <span className={`post-history-status is-${item.facebookReviewStatus.toLowerCase().replace('_', '-')}`}>
-                            {getFacebookHistoryStatusLabel(item.facebookReviewStatus)}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="post-history-actions">
-                            {postUrl ? (
-                              <button
-                                type="button"
-                                className="post-history-action-button is-post-link"
-                                title="Mở bài viết Facebook"
-                                aria-label={`Mở bài viết ${item.title}`}
-                                disabled={isHistoryBusy}
-                                onClick={() => window.open(postUrl, '_blank', 'noopener,noreferrer')}
-                              >
-                                <ExternalLinkIcon />
-                              </button>
-                            ) : <span className="post-history-no-action">-</span>}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {pageItems.length === 0 && isLoadingHistory ? (
-                    <tr>
-                      <td colSpan={4}>
-                        <div className="post-history-empty">
-                          <strong>Đang tải lịch sử</strong>
-                          <span>Đang lấy dữ liệu bài đăng Facebook từ backend.</span>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : pageItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={4}>
-                        <div className="post-history-empty">
-                          <strong>{facebookHistoryLoadState === 'ERROR' ? 'Không tải được lịch sử' : 'Chưa có dữ liệu lịch sử'}</strong>
-                          <span>{facebookHistoryLoadState === 'ERROR' ? (facebookHistoryMessage ?? 'Vui lòng thử lại sau.') : 'Các bài đã auto đăng vào group này sẽ hiển thị tại đây.'}</span>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : null}
+                  {renderFacebookPostHistoryRows(
+                    pageItems,
+                    isHistoryBusy,
+                    isLoadingHistory,
+                    facebookHistoryLoadState,
+                    facebookHistoryMessage,
+                  )}
                 </tbody>
               </table>
 
@@ -4692,60 +4784,12 @@ function SidePanel() {
                 <span>
                   Hiển thị <strong>{visibleStart}</strong> đến <strong>{visibleEnd}</strong> trong <strong>{totalItems}</strong> kết quả
                 </span>
-                <div>
-                  <button
-                    type="button"
-                    title="Trang đầu"
-                    aria-label="Trang đầu"
-                    disabled={currentPage <= 1 || isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryPage(1)}
-                  >
-                    <DoubleBackIcon />
-                  </button>
-                  <button
-                    type="button"
-                    title="Trang trước"
-                    aria-label="Trang trước"
-                    disabled={currentPage <= 1 || isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryPage(currentPage - 1)}
-                  >
-                    <BackIcon />
-                  </button>
-                  {paginationItems.map((item) => (
-                    typeof item === 'number' ? (
-                      <button
-                        key={item}
-                        type="button"
-                        className={item === currentPage ? 'is-active' : ''}
-                        aria-current={item === currentPage ? 'page' : undefined}
-                        disabled={isHistoryBusy || item === currentPage}
-                        onClick={() => void changeFacebookHistoryPage(item)}
-                      >
-                        {item}
-                      </button>
-                    ) : (
-                      <span key={item} className="post-history-page-ellipsis">...</span>
-                    )
-                  ))}
-                  <button
-                    type="button"
-                    title="Trang sau"
-                    aria-label="Trang sau"
-                    disabled={currentPage >= pageCount || isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryPage(currentPage + 1)}
-                  >
-                    <ChevronRightIcon />
-                  </button>
-                  <button
-                    type="button"
-                    title="Trang cuối"
-                    aria-label="Trang cuối"
-                    disabled={currentPage >= pageCount || isHistoryBusy}
-                    onClick={() => void changeFacebookHistoryPage(pageCount)}
-                  >
-                    <DoubleChevronRightIcon />
-                  </button>
-                </div>
+                {renderFacebookPostHistoryPagination(
+                  paginationItems,
+                  currentPage,
+                  pageCount,
+                  isHistoryBusy,
+                )}
               </div>
 
 
@@ -5419,165 +5463,187 @@ function SidePanel() {
             </button>
           </div>
           <div className="channel-subselection-list">
-            {facebookGroupLoadState === 'READY' && visibleFacebookGroups.length > 0 ? (
-              <div className="channel-subselection-summary-row">
-                <p className="channel-subselection-summary">
-                  {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook đã được chọn
-                </p>
-                {facebookGroupLoadState === 'READY' ? (
-                  <button
-                    type="button"
-                    className="facebook-ineligible-trigger"
-                    aria-expanded={isFacebookGroupSyncDetailsOpen}
-                    onClick={() => {
-                      setFacebookIneligiblePage(1);
-                      setIsFacebookGroupSyncDetailsOpen(true);
-                    }}
-                  >
-                    <span>Xem nhóm không phù hợp</span>
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-            {visibleFacebookGroups.length > 0 ? (
-              <SearchField
-                className="channel-subselection-search"
-                inputRef={facebookGroupSearchInputRef}
-                value={facebookGroupSearchInput}
-                maxLength={255}
-                placeholder="Tìm kiếm nhóm Facebook"
-                ariaLabel="Tìm kiếm nhóm Facebook"
-                onChange={setFacebookGroupSearchInput}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter') return;
-                  event.preventDefault();
-                  const trimmedSearch = facebookGroupSearchInput.trim();
-                  setFacebookGroupSearchInput(trimmedSearch);
-                  setFacebookGroupSearchQuery(trimmedSearch);
-                }}
-                clearButton={facebookGroupSearchInput.length > 0 ? (
-                  <button
-                    type="button"
-                    className="channel-subselection-search-clear"
-                    aria-label="Xóa tìm kiếm nhóm Facebook"
-                    title="Xóa tìm kiếm nhóm Facebook"
-                    onClick={() => {
-                      setFacebookGroupSearchInput('');
-                      setFacebookGroupSearchQuery('');
-                      facebookGroupSearchInputRef.current?.focus();
-                    }}
-                  >
-                    <CloseIcon />
-                  </button>
-                ) : null}
-              />
-            ) : null}
+            {renderFacebookGroupSummary()}
+            {renderFacebookGroupSearchField()}
             <div className="channel-subselection-items">
-              {facebookGroupMessage
-                && !facebookGroupSearchQuery
-                && facebookGroupLoadState !== 'READY' ? (
-                <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
-                  <span>{facebookGroupMessage}</span>
-                </p>
-              ) : null}
-              {facebookGroupDiagnostic ? (
-                <details className="channel-subselection-debug">
-                  <summary>Chi tiết lỗi GraphQL để báo</summary>
-                  <code>{facebookGroupDiagnostic}</code>
-                </details>
-              ) : null}
-              {filteredFacebookGroups.length > 0 ? (
-                filteredFacebookGroups.map((group, index) => (
-                  <div
-                    key={`${group.key}-${index}`}
-                    className={`channel-subselection-item${!group.selectable ? ' is-disabled' : ''}`}
-                    title={!group.selectable ? group.disabledReason ?? undefined : undefined}
-                  >
-                    <label className="channel-group-select">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
-                        disabled={!group.id || !group.selectable}
-                        onChange={() => toggleFacebookGroupSelection(group.id)}
-                      />
-                      <span className="channel-group-copy">
-                        <span>{group.name}</span>
-                        <span className="channel-group-meta">
-                          {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                          {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
-                        </span>
-                      </span>
-                    </label>
-                    <button
-                      type="button"
-                      className="channel-group-info-button"
-                      title="Lịch sử đăng bài"
-                      aria-label={`Lịch sử đăng bài ${group.name}`}
-                      onClick={() => openFacebookPostHistory({
-                        id: group.id,
-                        name: group.name,
-                        url: group.url,
-                      })}
-                    >
-                      <HistoryIcon />
-                    </button>
-                  </div>
-                ))
-              ) : renderFacebookGroupListEmptyState()}
+              {renderFacebookGroupItems()}
             </div>
           </div>
-          {isSelected ? (
-            <>
-              <input
-                ref={facebookImageInputRef}
-                type="file"
-                accept={FACEBOOK_IMAGE_ACCEPT}
-                className="facebook-image-input"
-                onChange={(event) => void handleFacebookImageFileChange(event)}
-              />
-              {facebookImageAttachments.length > 0 || isFacebookImageReading || facebookImageAttachmentError ? (
-                <div className="facebook-image-upload">
-                  {facebookImageAttachments.map((attachment, index) => (
-                    <div className="facebook-image-preview" key={`${attachment.fileName}-${attachment.size}-${index}`}>
-                      <img src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
-                      <div>
-                        <strong>{attachment.fileName}</strong>
-                        <span>{formatFileSize(attachment.size)}</span>
-                      </div>
-                      <button
-                        type="button"
-                        className="channel-action-button"
-                        title="Xóa ảnh"
-                        aria-label={`Xóa ảnh ${index + 1}`}
-                        disabled={facebookImageUploadDisabled}
-                        onClick={() => void clearFacebookImageAttachment(index)}
-                      >
-                        <CloseIcon />
-                      </button>
-                    </div>
-                  ))}
-                  {isFacebookImageReading ? (
-                    <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
-                  ) : null}
-                  {facebookImageAttachmentError ? (
-                    <div className="facebook-image-error-row">
-                      <p className="channel-subselection-empty is-error">{facebookImageAttachmentError}</p>
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() => void clearFacebookImageAttachment()}
-                      >
-                        Bỏ ảnh
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </>
-          ) : null}
+          {isSelected ? renderFacebookImageAttachments() : null}
           {isSelected ? renderFacebookContentPanel() : null}
         </div>
       </div>
+    );
+  }
+
+  function renderFacebookGroupSummary() {
+    if (facebookGroupLoadState !== 'READY' || visibleFacebookGroups.length === 0) return null;
+
+    return (
+      <div className="channel-subselection-summary-row">
+        <p className="channel-subselection-summary">
+          {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook đã được chọn
+        </p>
+        <button
+          type="button"
+          className="facebook-ineligible-trigger"
+          aria-expanded={isFacebookGroupSyncDetailsOpen}
+          onClick={() => {
+            setFacebookIneligiblePage(1);
+            setIsFacebookGroupSyncDetailsOpen(true);
+          }}
+        >
+          <span>Xem nhóm không phù hợp</span>
+        </button>
+      </div>
+    );
+  }
+
+  function renderFacebookGroupSearchField() {
+    if (visibleFacebookGroups.length === 0) return null;
+
+    return (
+      <SearchField
+        className="channel-subselection-search"
+        inputRef={facebookGroupSearchInputRef}
+        value={facebookGroupSearchInput}
+        maxLength={255}
+        placeholder="Tìm kiếm nhóm Facebook"
+        ariaLabel="Tìm kiếm nhóm Facebook"
+        onChange={setFacebookGroupSearchInput}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          const trimmedSearch = facebookGroupSearchInput.trim();
+          setFacebookGroupSearchInput(trimmedSearch);
+          setFacebookGroupSearchQuery(trimmedSearch);
+        }}
+        clearButton={facebookGroupSearchInput.length > 0 ? (
+          <button
+            type="button"
+            className="channel-subselection-search-clear"
+            aria-label="Xóa tìm kiếm nhóm Facebook"
+            title="Xóa tìm kiếm nhóm Facebook"
+            onClick={() => {
+              setFacebookGroupSearchInput('');
+              setFacebookGroupSearchQuery('');
+              facebookGroupSearchInputRef.current?.focus();
+            }}
+          >
+            <CloseIcon />
+          </button>
+        ) : null}
+      />
+    );
+  }
+
+  function renderFacebookGroupItems() {
+    return (
+      <>
+        {facebookGroupMessage
+          && !facebookGroupSearchQuery
+          && facebookGroupLoadState !== 'READY' ? (
+          <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
+            <span>{facebookGroupMessage}</span>
+          </p>
+        ) : null}
+        {facebookGroupDiagnostic ? (
+          <details className="channel-subselection-debug">
+            <summary>Chi tiết lỗi GraphQL để báo</summary>
+            <code>{facebookGroupDiagnostic}</code>
+          </details>
+        ) : null}
+        {filteredFacebookGroups.length > 0 ? (
+          filteredFacebookGroups.map((group, index) => (
+            <div
+              key={`${group.key}-${index}`}
+              className={`channel-subselection-item${!group.selectable ? ' is-disabled' : ''}`}
+              title={!group.selectable ? group.disabledReason ?? undefined : undefined}
+            >
+              <label className="channel-group-select">
+                <input
+                  type="checkbox"
+                  checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
+                  disabled={!group.id || !group.selectable}
+                  onChange={() => toggleFacebookGroupSelection(group.id)}
+                />
+                <span className="channel-group-copy">
+                  <span>{group.name}</span>
+                  <span className="channel-group-meta">
+                    {getFacebookEligibilityLabel(group.eligibilityStatus)}
+                    {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
+                  </span>
+                </span>
+              </label>
+              <button
+                type="button"
+                className="channel-group-info-button"
+                title="Lịch sử đăng bài"
+                aria-label={`Lịch sử đăng bài ${group.name}`}
+                onClick={() => openFacebookPostHistory({
+                  id: group.id,
+                  name: group.name,
+                  url: group.url,
+                })}
+              >
+                <HistoryIcon />
+              </button>
+            </div>
+          ))
+        ) : renderFacebookGroupListEmptyState()}
+      </>
+    );
+  }
+
+  function renderFacebookImageAttachments() {
+    return (
+      <>
+        <input
+          ref={facebookImageInputRef}
+          type="file"
+          accept={FACEBOOK_IMAGE_ACCEPT}
+          className="facebook-image-input"
+          onChange={(event) => void handleFacebookImageFileChange(event)}
+        />
+        {facebookImageAttachments.length > 0 || isFacebookImageReading || facebookImageAttachmentError ? (
+          <div className="facebook-image-upload">
+            {facebookImageAttachments.map((attachment, index) => (
+              <div className="facebook-image-preview" key={`${attachment.fileName}-${attachment.size}-${index}`}>
+                <img src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
+                <div>
+                  <strong>{attachment.fileName}</strong>
+                  <span>{formatFileSize(attachment.size)}</span>
+                </div>
+                <button
+                  type="button"
+                  className="channel-action-button"
+                  title="Xóa ảnh"
+                  aria-label={`Xóa ảnh ${index + 1}`}
+                  disabled={facebookImageUploadDisabled}
+                  onClick={() => void clearFacebookImageAttachment(index)}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            ))}
+            {isFacebookImageReading ? (
+              <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
+            ) : null}
+            {facebookImageAttachmentError ? (
+              <div className="facebook-image-error-row">
+                <p className="channel-subselection-empty is-error">{facebookImageAttachmentError}</p>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => void clearFacebookImageAttachment()}
+                >
+                  Bỏ ảnh
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </>
     );
   }
 
