@@ -43,6 +43,7 @@ import type {
   JobDescriptionQuestionSetContext,
   JobDescriptionSummary,
   JobPostingSummary,
+  ChannelPrepareResult,
   SyncAmisApplicationsRequest,
   SyncAmisApplicationsResponse,
   SyncAmisCareersRequest,
@@ -365,6 +366,21 @@ export async function listJobPostings(
     {
       method: 'GET',
       accessToken,
+    },
+  );
+}
+
+export async function prepareChannelForm(
+  accessToken: string,
+  jobPostingId: string,
+  channel: string,
+) {
+  return request<ChannelPrepareResult>(
+    `/extension/job-postings/${encodeURIComponent(jobPostingId)}/channels/${encodeURIComponent(channel)}/prepare`,
+    {
+      method: 'POST',
+      accessToken,
+      headers: { 'X-Extension-Version': EXTENSION_VERSION },
     },
   );
 }

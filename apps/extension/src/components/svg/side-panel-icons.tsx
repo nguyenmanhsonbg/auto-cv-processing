@@ -124,9 +124,9 @@ export function ChevronRightIcon({ className }: IconProps) {
   );
 }
 
-export function ChevronDownIcon() {
+export function ChevronDownIcon({ className }: IconProps = {}) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
+    <svg className={className} aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <path d="m3.5 6 4.5 4.5L12.5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );

@@ -209,6 +209,24 @@ export interface JobPostingSummary {
   updatedAt?: string;
 }
 
+export interface ChannelPrepareResult {
+  channel: ExtensionChannel;
+  jobPostingId: string;
+  snapshotHash: string;
+  executionMode: 'DIRECT_API' | 'EXTENSION';
+  form: Record<string, unknown>;
+  missingRequiredFields: string[];
+  warnings: Array<{ code: string; field?: string; message: string }>;
+  auth?: {
+    required: boolean;
+    host: string;
+    tokenKey: string;
+    expirationKey: string;
+    publishRequiresBearer: boolean;
+    exchangeTokenUrl: string;
+  };
+}
+
 export interface AmisCareerCatalogItem {
   id: string;
   amisCareerId: string;
@@ -316,14 +334,16 @@ export type ExtensionCapability =
   | 'AMIS_SYNC'
   | 'FACEBOOK_PUBLISH'
   | 'FACEBOOK_VERIFY'
-  | 'CV_UPLOAD_TO_AMIS';
+  | 'CV_UPLOAD_TO_AMIS'
+  | 'CHANNEL_PUBLISH';
 
 export type ExtensionInstanceStatus = 'ONLINE' | 'OFFLINE' | 'DISABLED';
 export type ExtensionTaskType =
   | 'AMIS_SYNC'
   | 'FACEBOOK_PUBLISH'
   | 'FACEBOOK_VERIFY'
-  | 'CV_UPLOAD_TO_AMIS';
+  | 'CV_UPLOAD_TO_AMIS'
+  | 'CHANNEL_PUBLISH';
 export type ExtensionTaskStatus =
   | 'PENDING'
   | 'CLAIMED'

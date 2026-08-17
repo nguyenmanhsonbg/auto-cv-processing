@@ -87,6 +87,15 @@ import { createMockAmisSyncRequest } from '@/lib/mock-amis';
 import { ReferralManagementPanel } from '@/features/referrals/referral-management';
 import { FreelancerCvPanel } from '@/features/freelancer/freelancer-cv-panel';
 import { LoginForm } from '@/features/auth/LoginForm';
+import { checkTopCvAuth, type TopCvAuthState } from '@/features/topcv/topcv-auth';
+import { logoutTopCv } from '@/features/topcv/topcv-login.service';
+import { TopCvEditModal } from '@/features/topcv/TopCvEditModal';
+import { TopCvPreviewModal } from '@/features/topcv/TopCvPreviewModal';
+import { TopCvContentPanel } from '@/features/topcv/TopCvContentPanel';
+import { DEFAULT_TOPCV_FORM, type TopCvFormData } from '@/features/topcv/topcv-form.types';
+
+import { prepareChannelForm } from '@/lib/api-client';
+import { publishTopCvJob, transformTopCvPayload } from '@/features/topcv/topcv-api';
 import { FilterDropdown, SearchField, SelectFilter } from '@/components/filters';
 import {
   BackIcon,
@@ -154,7 +163,7 @@ import type {
 import './styles.css';
 
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
-type ExtensionToastKind = 'SUCCESS' | 'ERROR';
+type ExtensionToastKind = 'SUCCESS' | 'ERROR' | 'INFO';
 type ExtensionToastState = {
   id: number;
   kind: ExtensionToastKind;
@@ -513,6 +522,15 @@ function SidePanel() {
   const [facebookGroupUrlError, setFacebookGroupUrlError] = useState<string | null>(null);
   const [editFacebookGroupName, setEditFacebookGroupName] = useState('');
   const [editFacebookGroupUrl, setEditFacebookGroupUrl] = useState('');
+  const [topCvFormData, setTopCvFormData] = useState<TopCvFormData>(DEFAULT_TOPCV_FORM);
+  const [topCvAuth, setTopCvAuth] = useState<TopCvAuthState | null>(null);
+  const [isCheckingTopCvAuth, setIsCheckingTopCvAuth] = useState(false);
+  const [topCvModalMode, setTopCvModalMode] = useState<'EDIT' | 'PREVIEW' | null>(null);
+  const [isTopCvExpanded, setIsTopCvExpanded] = useState(true);
+  const [topCvLoadingFromBe, setTopCvLoadingFromBe] = useState(false);
+  const [topCvPublishing, setTopCvPublishing] = useState(false);
+
+
   const [error, setError] = useState<string | null>(null);
   const [jobDescriptions, setJobDescriptions] = useState<JobDescriptionSummary[]>([]);
   const [jobDescriptionPagination, setJobDescriptionPagination] = useState<ApiPagination | null>(null);
@@ -699,6 +717,25 @@ function SidePanel() {
   useEffect(() => {
     selectedFacebookGroupIdsRef.current = selectedFacebookGroupIds;
   }, [selectedFacebookGroupIds]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (channels.includes('TOPCV') || activeWorkspaceTab === 'posting') {
+      setIsCheckingTopCvAuth(true);
+      void checkTopCvAuth().then((auth) => {
+        if (isMounted) {
+          setTopCvAuth(auth);
+          setIsCheckingTopCvAuth(false);
+        }
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [channels, activeWorkspaceTab]);
+
+
+
 
   useEffect(() => {
     if (!openCvFilter) return undefined;
@@ -994,6 +1031,7 @@ function SidePanel() {
   const syncDisabled = state === 'EXTRACTING'
     || state === 'SYNCING'
     || facebookRunning
+    || topCvPublishing
     || facebookContentBusy
     || isFacebookImageReading
     || hasFacebookImageAttachmentError
@@ -2730,6 +2768,12 @@ function SidePanel() {
 
     const nextSnapshot = buildAmisJobSnapshotFromJobDescription(jobDescription);
     setSelectedJobDescription(jobDescription);
+    setTopCvFormData((prev) => ({
+      ...prev,
+      title: jobDescription.title || prev.title,
+      jobDescription: jobDescription.description || prev.jobDescription,
+      jobRequirement: jobDescription.requirements || prev.jobRequirement,
+    }));
     setSnapshot(nextSnapshot);
     setResult(null);
     clearFacebookContent();
@@ -2932,11 +2976,87 @@ function SidePanel() {
       return;
     }
 
+    if (channel === 'TOPCV') {
+      await toggleTopCvChannel();
+      return;
+    }
+
     const next = selectedPostingChannels.includes(channel)
       ? selectedPostingChannels.filter((item) => item !== channel)
       : [...selectedPostingChannels, channel];
     setChannels(next);
     void setSelectedChannels(next);
+  }
+
+  async function toggleTopCvChannel() {
+    if (selectedPostingChannels.includes('TOPCV')) {
+      const next = selectedPostingChannels.filter((item) => item !== 'TOPCV');
+      setChannels(next);
+      void setSelectedChannels(next);
+      setError(null);
+      return;
+    }
+
+    const next: ExtensionChannel[] = [...selectedPostingChannels, 'TOPCV'];
+    setChannels(next);
+    setError(null);
+    void setSelectedChannels(next);
+    void fetchTopCvFromBackend();
+
+    try {
+      const auth = await checkTopCvAuth();
+      setTopCvAuth(auth);
+    } catch {
+      // Ignore background check
+    }
+
+  }
+
+  async function fetchTopCvFromBackend() {
+    // Resolve the jobPostingId (not jobDescriptionId) for the prepare API
+    const jobPostingId = result?.amisRecruitmentId === amisRecruitmentId
+      ? result.jobPostingId
+      : applicationsContext?.amisRecruitmentId === amisRecruitmentId
+        ? applicationsContext.jobPostingId
+        : null;
+    if (!token || !jobPostingId) {
+      // No jobPosting mapping yet — pre-fill from snapshot/JD as fallback
+      if (snapshot || selectedJobDescription) {
+        setTopCvFormData((prev) => ({
+          ...prev,
+          title: selectedJobDescription?.title || snapshot?.title || prev.title,
+          jobDescription: selectedJobDescription?.description || snapshot?.description || prev.jobDescription,
+          jobRequirement: selectedJobDescription?.requirements || prev.jobRequirement,
+        }));
+      }
+      return;
+    }
+    try {
+      setTopCvLoadingFromBe(true);
+      const result = await prepareChannelForm(token, jobPostingId, 'TOPCV');
+      if (result && result.form) {
+        const f = result.form as Record<string, { value: unknown }>;
+        setTopCvFormData((prev) => ({
+          ...prev,
+          title: (f.title?.value as string) || prev.title || selectedJobDescription?.title || snapshot?.title || '',
+          jobDescription: (f.jobDescription?.value as string) || prev.jobDescription || selectedJobDescription?.description || snapshot?.description || '',
+          jobRequirement: (f.jobRequirement?.value as string) || prev.jobRequirement || selectedJobDescription?.requirements || '',
+          jobBenefit: (f.jobBenefit?.value as string) || prev.jobBenefit || '',
+          salaryFrom: typeof f.salaryFrom?.value === 'number' ? f.salaryFrom.value : prev.salaryFrom,
+          salaryTo: typeof f.salaryTo?.value === 'number' ? f.salaryTo.value : prev.salaryTo,
+          deadline: (f.deadline?.value as string) || prev.deadline,
+          quantity: typeof f.quantity?.value === 'number' ? f.quantity.value : prev.quantity,
+          contactPhone: (f.contactPhone?.value as string) || prev.contactPhone,
+          contactEmails: Array.isArray(f.contactEmail?.value)
+            ? (f.contactEmail.value as string[])
+            : (typeof f.contactEmail?.value === 'string' ? [f.contactEmail.value] : prev.contactEmails),
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to prepare TopCV form from backend:', err);
+    } finally {
+      setTopCvLoadingFromBe(false);
+    }
   }
 
   async function toggleFacebookChannel() {
@@ -3950,6 +4070,36 @@ function SidePanel() {
       return;
     }
     const shouldPublishFacebook = selectedPostingChannels.includes('FACEBOOK');
+    const shouldPublishTopCv = selectedPostingChannels.includes('TOPCV');
+
+    if (shouldPublishTopCv) {
+      if (!topCvFormData.title?.trim()) {
+        setError('TopCV: Vui lòng nhập tiêu đề bài đăng (chọn "Chỉnh sửa" ở mục TopCV).');
+        setState('ERROR');
+        return;
+      }
+      if (!topCvFormData.position?.trim() || !topCvFormData.employeeLevel?.trim()) {
+        setError('TopCV: Vui lòng chọn vị trí chuyên môn và cấp bậc (chọn "Chỉnh sửa" ở mục TopCV).');
+        setState('ERROR');
+        return;
+      }
+      if (!topCvFormData.jobDescription?.trim() || !topCvFormData.jobRequirement?.trim() || !topCvFormData.jobBenefit?.trim()) {
+        setError('TopCV: Vui lòng nhập đầy đủ mô tả, yêu cầu và quyền lợi (chọn "Chỉnh sửa" ở mục TopCV).');
+        setState('ERROR');
+        return;
+      }
+      if (!topCvFormData.deadline?.trim()) {
+        setError('TopCV: Vui lòng chọn hạn nộp hồ sơ (chọn "Chỉnh sửa" ở mục TopCV).');
+        setState('ERROR');
+        return;
+      }
+      if (!topCvFormData.contactPhone?.trim() || topCvFormData.contactEmails.length === 0) {
+        setError('TopCV: Vui lòng nhập thông tin liên hệ SĐT và Email nhận hồ sơ (chọn "Chỉnh sửa" ở mục TopCV).');
+        setState('ERROR');
+        return;
+      }
+    }
+
     let facebookContentForPublish = shouldPublishFacebook
       ? getEffectiveFacebookContent()
       : '';
@@ -3974,6 +4124,22 @@ function SidePanel() {
     try {
       const response = await syncAndPublishAmisJob(token, payload);
       setResult(response);
+
+      if (shouldPublishTopCv) {
+        setTopCvPublishing(true);
+        try {
+          const topCvPayload = transformTopCvPayload(topCvFormData);
+          await publishTopCvJob(topCvPayload);
+        } catch (topCvErr) {
+          const errMsg = topCvErr instanceof Error ? topCvErr.message : 'Lỗi khi đăng bài lên TopCV';
+          setError(errMsg);
+          setState('ERROR');
+          return;
+        } finally {
+          setTopCvPublishing(false);
+        }
+      }
+
       let publishedFacebookPlan: FacebookPublishPlan | null = null;
       if (response.facebookPublishPlan && shouldPublishFacebook) {
         publishedFacebookPlan = await startFacebookPublish(response.facebookPublishPlan, facebookContentForPublish);
@@ -4667,6 +4833,31 @@ function SidePanel() {
   }
 
   function renderPostingPanel() {
+    if (topCvModalMode === 'EDIT') {
+      return (
+        <TopCvEditModal
+          formData={topCvFormData}
+          onChange={setTopCvFormData}
+          onSave={(data) => {
+            setTopCvFormData(data);
+            setTopCvModalMode(null);
+          }}
+          onPreview={() => setTopCvModalMode('PREVIEW')}
+          onClose={() => setTopCvModalMode(null)}
+        />
+      );
+    }
+
+    if (topCvModalMode === 'PREVIEW') {
+      return (
+        <TopCvPreviewModal
+          formData={topCvFormData}
+          onEdit={() => setTopCvModalMode('EDIT')}
+          onClose={() => setTopCvModalMode(null)}
+        />
+      );
+    }
+
     return (
       <div className="posting-detail-content">
         {renderJobDescriptionPanel()}
@@ -4679,7 +4870,15 @@ function SidePanel() {
           disabled={syncDisabled}
           onClick={sync}
         >
-          {facebookRunning ? 'ĐANG ĐĂNG FACEBOOK...' : state === 'SYNCING' ? 'ĐANG ĐỒNG BỘ...' : isFacebookImageReading ? 'ĐANG TẢI ẢNH...' : 'ĐỒNG BỘ VÀ ĐĂNG'}
+          {facebookRunning
+            ? 'ĐANG ĐĂNG FACEBOOK...'
+            : topCvPublishing
+              ? 'ĐANG ĐĂNG TOPCV...'
+              : state === 'SYNCING'
+                ? 'ĐANG ĐỒNG BỘ...'
+                : isFacebookImageReading
+                  ? 'ĐANG TẢI ẢNH...'
+                  : 'ĐỒNG BỘ VÀ ĐĂNG'}
         </button>
 
         {facebookSelected && facebookPublishResultsVisible ? renderFacebookPublishResultsPanel() : null}
@@ -5225,14 +5424,16 @@ function SidePanel() {
           {POSTING_CHANNELS.map((channel) => {
             const isSelected = selectedPostingChannels.includes(channel);
             const isFacebookChannel = channel === 'FACEBOOK';
+            const isTopCvChannel = channel === 'TOPCV';
             const isFacebookLoading = isFacebookChannel && isFacebookGroupLoading(facebookGroupLoadState);
             const showFacebookGroups = isFacebookChannel
               && (isSelected || facebookGroupLoadState !== 'IDLE' || Boolean(facebookGroupMessage));
+            const showTopCvContent = isTopCvChannel && isSelected;
 
             return (
               <div
                 key={channel}
-                className={`channel-option${isFacebookChannel ? ' is-facebook' : ''}${isSelected ? ' is-selected' : ''}`}
+                className={`channel-option${isFacebookChannel ? ' is-facebook' : ''}${isTopCvChannel ? ' is-topcv' : ''}${isSelected ? ' is-selected' : ''}`}
               >
                 <div className="channel-option-row">
                   <label className="channel-option-label">
@@ -5257,6 +5458,18 @@ function SidePanel() {
                         {isFacebookGroupListExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
                       </button>
                     ) : null}
+                    {showTopCvContent ? (
+                      <button
+                        type="button"
+                        className="channel-action-button channel-groups-toggle"
+                        title={isTopCvExpanded ? 'Ẩn thông tin bài đăng TopCV' : 'Hiện thông tin bài đăng TopCV'}
+                        aria-label={isTopCvExpanded ? 'Ẩn thông tin bài đăng TopCV' : 'Hiện thông tin bài đăng TopCV'}
+                        aria-expanded={isTopCvExpanded}
+                        onClick={() => setIsTopCvExpanded((expanded) => !expanded)}
+                      >
+                        {isTopCvExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                      </button>
+                    ) : null}
                     {isFacebookChannel ? (
                       <button
                         type="button"
@@ -5264,6 +5477,16 @@ function SidePanel() {
                         title="Cài đặt Group Facebook"
                         aria-label="Cài đặt Group Facebook"
                         onClick={(event) => void openFacebookGroupSettings(event)}
+                      >
+                        <GearIcon />
+                      </button>
+                    ) : isTopCvChannel ? (
+                      <button
+                        type="button"
+                        className="channel-action-button"
+                        title="Cài đặt thông tin TopCV"
+                        aria-label="Cài đặt thông tin TopCV"
+                        onClick={() => setTopCvModalMode('EDIT')}
                       >
                         <GearIcon />
                       </button>
@@ -5463,6 +5686,28 @@ function SidePanel() {
                     </div>
                   </div>
                 ) : null}
+                {isSelected && channel === 'TOPCV' && isTopCvExpanded ? (
+                  <TopCvContentPanel
+                    formData={topCvFormData}
+                    topCvAuth={topCvAuth}
+                    isCheckingAuth={isCheckingTopCvAuth}
+                    isLoadingFromBe={topCvLoadingFromBe}
+                    onOpenEdit={() => setTopCvModalMode('EDIT')}
+                    onOpenPreview={() => setTopCvModalMode('PREVIEW')}
+                    onLoginSuccess={(result) => {
+                      setTopCvAuth({ ok: true, reason: 'READY', userEmail: result.userEmail });
+                      showExtensionToast('SUCCESS', 'Kênh TopCV', 'Đăng nhập TopCV thành công.');
+                    }}
+                    onLogout={async () => {
+                      await logoutTopCv();
+                      setTopCvAuth({ ok: false, reason: 'TOKEN_MISSING' });
+                      showExtensionToast('INFO', 'Kênh TopCV', 'Đã đăng xuất tài khoản TopCV.');
+                    }}
+                    onFetchFromBackend={token && selectedJobDescription?.id ? () => void fetchTopCvFromBackend() : undefined}
+                  />
+                ) : null}
+
+
               </div>
             );
           })}
