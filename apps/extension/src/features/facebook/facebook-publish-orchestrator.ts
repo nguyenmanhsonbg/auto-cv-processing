@@ -468,6 +468,16 @@ async function publishAndReportFacebookTarget({
       execution,
     );
     execution.throwIfCancelled();
+    console.warn('[FB16_REPORT_INPUT]', {
+      targetName: reservedTarget.targetName,
+      status: publishResult.status,
+      message: publishResult.message,
+      externalPostId: publishResult.externalPostId ?? null,
+      externalPostUrl: publishResult.externalPostUrl ?? null,
+      pendingReview: publishResult.facebookReviewStatus === 'PENDING_REVIEW',
+      submitClickDispatched: publishResult.submitClickDispatched ?? false,
+      postClickEvidence: publishResult.postClickEvidence ?? false,
+    });
     const payload = buildFacebookPublishResultPayload(plan, reservedTarget, publishResult);
 
     callbacks.onProgress?.({
@@ -480,7 +490,17 @@ async function publishAndReportFacebookTarget({
     });
     const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
     execution.throwIfCancelled();
-    return withReportMessage(payload, reportErrorMessage);
+    const reportedPayload = withReportMessage(payload, reportErrorMessage);
+    console.warn('[FB17_REPORT_RESULT]', {
+      targetName: reservedTarget.targetName,
+      status: reportedPayload.status,
+      message: reportedPayload.message,
+      externalPostId: reportedPayload.externalPostId ?? null,
+      externalPostUrl: reportedPayload.externalPostUrl ?? null,
+      pendingReview: reportedPayload.facebookReviewStatus === 'PENDING_REVIEW',
+      reportErrorMessage,
+    });
+    return reportedPayload;
   };
 
   try {
@@ -1282,6 +1302,16 @@ async function publishTarget(
       message: toAutomationErrorMessage(error),
     }));
 
+    console.warn('[FB15_TARGET_RESULT]', {
+      targetName: target.targetName,
+      status: result.status,
+      message: result.message,
+      externalPostId: result.externalPostId ?? null,
+      externalPostUrl: result.externalPostUrl ?? null,
+      pendingReview: result.facebookReviewStatus === 'PENDING_REVIEW',
+      submitClickDispatched: result.submitClickDispatched ?? false,
+      postClickEvidence: result.postClickEvidence ?? false,
+    });
     latestFailure = result;
     if (
       result.status !== 'FAILED'
@@ -1338,16 +1368,27 @@ async function runFreshTabPublishAttempt({
   execution.throwIfCancelled();
 
   if (preparedPost.status === 'READY_TO_SUBMIT' && preparedPost.submitButton) {
+    const result = await submitPreparedPost(
+      tabId,
+      preparedPost.submitButton,
+      content,
+      targetUrl,
+      targetExternalId,
+      execution,
+    );
+    console.warn('[FB14_FRESH_TAB_RESULT]', {
+      tabId,
+      status: result.status,
+      message: result.message,
+      externalPostId: result.externalPostId ?? null,
+      externalPostUrl: result.externalPostUrl ?? null,
+      pendingReview: result.facebookReviewStatus === 'PENDING_REVIEW',
+      submitClickDispatched: result.submitClickDispatched ?? false,
+      postClickEvidence: result.postClickEvidence ?? false,
+    });
     return {
       kind: 'PUBLISHED',
-      result: await submitPreparedPost(
-        tabId,
-        preparedPost.submitButton,
-        content,
-        targetUrl,
-        targetExternalId,
-        execution,
-      ),
+      result,
     };
   }
 
@@ -2224,6 +2265,17 @@ async function submitPreparedPost(
 ): Promise<FacebookPagePublishResult> {
   execution.throwIfCancelled();
   const hiddenResult = await clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId, execution);
+  console.warn('[FB13_SUBMIT_PREPARED_RESULT]', {
+    tabId,
+    attempt: 1,
+    status: hiddenResult.status,
+    message: hiddenResult.message,
+    externalPostId: hiddenResult.externalPostId ?? null,
+    externalPostUrl: hiddenResult.externalPostUrl ?? null,
+    pendingReview: hiddenResult.facebookReviewStatus === 'PENDING_REVIEW',
+    submitClickDispatched: hiddenResult.submitClickDispatched ?? false,
+    postClickEvidence: hiddenResult.postClickEvidence ?? false,
+  });
   if (
     hiddenResult.status === 'SUCCESS'
     || hiddenResult.submitClickDispatched
@@ -2234,7 +2286,19 @@ async function submitPreparedPost(
   }
 
   await execution.wait(randomDelay(500, 1_200));
-  return clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId, execution);
+  const retryResult = await clickAndWaitForSubmission(tabId, submitButton, content, targetUrl, targetExternalId, execution);
+  console.warn('[FB13_SUBMIT_PREPARED_RESULT]', {
+    tabId,
+    attempt: 2,
+    status: retryResult.status,
+    message: retryResult.message,
+    externalPostId: retryResult.externalPostId ?? null,
+    externalPostUrl: retryResult.externalPostUrl ?? null,
+    pendingReview: retryResult.facebookReviewStatus === 'PENDING_REVIEW',
+    submitClickDispatched: retryResult.submitClickDispatched ?? false,
+    postClickEvidence: retryResult.postClickEvidence ?? false,
+  });
+  return retryResult;
 }
 
 async function clickAndWaitForSubmission(
@@ -2246,6 +2310,10 @@ async function clickAndWaitForSubmission(
   execution: FacebookTargetExecution,
 ): Promise<FacebookPagePublishResult> {
   execution.throwIfCancelled();
+  console.warn('[FB01_ENTER_CLICK_AND_WAIT]', {
+    tabId,
+    version: 'NATIVE_HIDDEN_CLICK_DEBUG_20260817',
+  });
   const preflight = await runScript<[string], FacebookSubmitPreflightResult>(
     tabId,
     verifyFacebookPostReadyToSubmitInPage,
@@ -2255,6 +2323,7 @@ async function clickAndWaitForSubmission(
     message: toAutomationErrorMessage(error),
   }));
   execution.throwIfCancelled();
+  console.warn('[FB02_PREFLIGHT]', { tabId, preflight });
 
   if (!preflight.ready) {
     return {
@@ -2265,8 +2334,9 @@ async function clickAndWaitForSubmission(
 
   const tabBeforeClick = await chrome.tabs?.get(tabId).catch(() => null);
   let graphqlCapture: FacebookPublishGraphqlCapture | null = null;
-  let clickPoint: FacebookSubmitButtonPoint;
+  let activationResult: FacebookSubmitActivationResult;
   try {
+    console.warn('[FB03_BEFORE_GQL_CAPTURE]', { tabId });
     graphqlCapture = await startFacebookPublishGraphqlCapture(
       tabId,
       targetUrl,
@@ -2277,7 +2347,27 @@ async function clickAndWaitForSubmission(
       );
       return null;
     });
-    clickPoint = await clickTabPoint(tabId, submitButton, execution, graphqlCapture?.target);
+    console.warn('[FB04_GQL_CAPTURE_READY]', {
+      tabId,
+      graphqlCaptureAvailable: Boolean(graphqlCapture),
+    });
+    const tabBeforeActivation = await chrome.tabs?.get(tabId).catch(() => null);
+    console.warn('[FB05_BEFORE_NATIVE_ACTIVATION]', {
+      tabId,
+      tab: tabBeforeActivation,
+    });
+    activationResult = await runScript<[string], FacebookSubmitActivationResult>(
+      tabId,
+      activateFacebookSubmitButtonInPage,
+      [content],
+    );
+    console.warn('[FB06_NATIVE_ACTIVATION_RESULT]', {
+      tabId,
+      activationResult,
+    });
+    if (!activationResult.activated) {
+      throw new Error(activationResult.message);
+    }
   } catch (error) {
     await graphqlCapture?.stop();
     return {
@@ -2294,50 +2384,62 @@ async function clickAndWaitForSubmission(
         targetUrl: targetUrl ?? null,
         targetExternalId: targetExternalId ?? null,
         tabActive: (tabBeforeClick as { active?: boolean } | null)?.active ?? null,
-        clickPoint,
+        clickPoint: activationResult.submitButton ?? submitButton,
+        activationMode: 'native-dom-click',
       }],
     );
     execution.throwIfCancelled();
-    if (shouldUseHiddenTabSubmitActivationFallback(submissionResult.message)) {
-      const activationResult = await runScript<[string], FacebookSubmitActivationResult>(
-        tabId,
-        activateFacebookSubmitButtonInPage,
-        [content],
-      ).catch((error): FacebookSubmitActivationResult => ({
-        activated: false,
-        message: toAutomationErrorMessage(error),
-        submitButton: null,
-      }));
-
-      if (activationResult.activated) {
-        const fallbackResult = await runScript<[string, FacebookSubmitDiagnosticInput], FacebookPagePublishResult>(
-          tabId,
-          waitForFacebookSubmissionInPage,
-          [content, {
-            targetUrl: targetUrl ?? null,
-            targetExternalId: targetExternalId ?? null,
-            tabActive: (tabBeforeClick as { active?: boolean } | null)?.active ?? null,
-            clickPoint: activationResult.submitButton ?? clickPoint,
-            activationMode: 'dom-click-fallback',
-          }],
-        );
-        execution.throwIfCancelled();
-        submissionResult = fallbackResult.status === 'FAILED'
-          ? {
-            ...fallbackResult,
-            message: `${fallbackResult.message}; fallbackActivation="${shortenAutomationMessage(activationResult.message)}"; firstFailure="${shortenAutomationMessage(submissionResult.message)}"`,
-          }
-          : fallbackResult;
-      } else {
-        submissionResult = {
-          ...submissionResult,
-          message: `${submissionResult.message}; fallbackActivationFailed="${shortenAutomationMessage(activationResult.message)}"`,
-        };
-      }
-    }
+    await execution.wait(500);
+    const afterClickProbe = await runScript<[], {
+      buttonFound: boolean;
+      ariaDisabled: string | null;
+      buttonText: string | null;
+      dialogCount: number;
+    }>(tabId, () => {
+      const buttons = Array.from(document.querySelectorAll<HTMLElement>(
+        '[role="dialog"] [role="button"], [role="dialog"] button',
+      ));
+      const button = buttons.find((candidate) => {
+        const label = [candidate.getAttribute('aria-label'), candidate.textContent]
+          .filter(Boolean)
+          .join(' ')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .trim();
+        return /^(post|dang)$/.test(label);
+      });
+      return {
+        buttonFound: Boolean(button),
+        ariaDisabled: button?.getAttribute('aria-disabled') ?? null,
+        buttonText: button?.textContent?.trim() ?? null,
+        dialogCount: document.querySelectorAll('[role="dialog"]').length,
+      };
+    }, []);
+    const afterClickPointProbe = await runScript<[], FacebookSubmitButtonPointProbe>(
+      tabId,
+      resolveFacebookSubmitButtonPointInPage,
+      [],
+    ).catch(() => null);
+    console.warn('[FB07_AFTER_500MS]', {
+      tabId,
+      afterClickProbe,
+      afterClickPointProbe,
+    });
     const graphqlResult = await graphqlCapture?.waitForResult(FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS) ?? null;
+    console.warn('[FB12_PRE_ENRICH_RESULT]', {
+      tabId,
+      status: submissionResult.status,
+      message: submissionResult.message,
+      externalPostId: submissionResult.externalPostId ?? null,
+      externalPostUrl: submissionResult.externalPostUrl ?? null,
+      pendingReview: submissionResult.facebookReviewStatus === 'PENDING_REVIEW',
+      submitClickDispatched: submissionResult.submitClickDispatched ?? false,
+      postClickEvidence: submissionResult.postClickEvidence ?? false,
+      graphqlResult,
+    });
     const resultWithGraphql = applyFacebookPublishGraphqlResult(submissionResult, graphqlResult);
-    return await enrichFacebookPublishResultWithPostUrl(
+    const finalResult = await enrichFacebookPublishResultWithPostUrl(
       tabId,
       content,
       {
@@ -2348,6 +2450,18 @@ async function clickAndWaitForSubmission(
       targetExternalId,
       execution,
     );
+    console.warn('[FB12_FINAL_RESULT]', {
+      tabId,
+      status: finalResult.status,
+      message: finalResult.message,
+      externalPostId: finalResult.externalPostId ?? null,
+      externalPostUrl: finalResult.externalPostUrl ?? null,
+      pendingReview: finalResult.facebookReviewStatus === 'PENDING_REVIEW',
+      submitClickDispatched: finalResult.submitClickDispatched ?? false,
+      postClickEvidence: finalResult.postClickEvidence ?? false,
+      graphqlResult,
+    });
+    return finalResult;
   } catch (error) {
     const graphqlResult = await graphqlCapture?.waitForResult(FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS) ?? null;
     const resultWithGraphql = applyFacebookPublishGraphqlResult({
@@ -2355,7 +2469,7 @@ async function clickAndWaitForSubmission(
       message: `Facebook post submission could not be observed after submit click. ${toAutomationErrorMessage(error)}`,
       submitClickDispatched: true,
     }, graphqlResult);
-    return enrichFacebookPublishResultWithPostUrl(
+    const finalResult = await enrichFacebookPublishResultWithPostUrl(
       tabId,
       content,
       resultWithGraphql,
@@ -2363,6 +2477,18 @@ async function clickAndWaitForSubmission(
       targetExternalId,
       execution,
     );
+    console.warn('[FB12_FINAL_RESULT]', {
+      tabId,
+      status: finalResult.status,
+      message: finalResult.message,
+      externalPostId: finalResult.externalPostId ?? null,
+      externalPostUrl: finalResult.externalPostUrl ?? null,
+      pendingReview: finalResult.facebookReviewStatus === 'PENDING_REVIEW',
+      submitClickDispatched: finalResult.submitClickDispatched ?? false,
+      postClickEvidence: finalResult.postClickEvidence ?? false,
+      graphqlResult,
+    });
+    return finalResult;
   } finally {
     await graphqlCapture?.stop();
   }
@@ -2879,11 +3005,6 @@ function shouldRetryBackgroundSubmitFailure(message: string) {
   return /target closed|target page|cannot access|not activated|post editor is not open before submit|post content is not present before submit|post button is not ready before submit|could not resolve facebook post button before submit/i.test(message);
 }
 
-function shouldUseHiddenTabSubmitActivationFallback(message: string) {
-  return /^FB_SUBMIT_(BUTTON_STILL_READY|CLICK_POINT_STALE):/.test(message)
-    && /visibility=hidden|tabActive=false/.test(message);
-}
-
 function shortenAutomationMessage(message: string, maxLength = 360) {
   const normalized = message.replace(/\s+/g, ' ').trim();
   return normalized.length <= maxLength ? normalized : `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
@@ -3263,6 +3384,11 @@ async function startFacebookPublishGraphqlCapture(
       const queryName = readFacebookPublishGraphqlQueryName(postData, request?.headers);
       if (queryName !== 'ComposerStoryCreateMutation') return;
       requests.set(requestId, { requestId, queryName });
+      console.warn('[FB08_GQL_REQUEST]', {
+        tabId,
+        requestId,
+        queryName,
+      });
       return;
     }
 
@@ -3280,9 +3406,27 @@ async function startFacebookPublishGraphqlCapture(
           { requestId: request.requestId },
         );
         const body = decodeChromeDebuggerResponseBody(response);
+        console.warn('[FB09_GQL_RESPONSE]', {
+          tabId,
+          requestId,
+          queryName: request.queryName,
+          bodyAvailable: Boolean(body),
+        });
+        console.warn('[FB10_GQL_BODY]', {
+          tabId,
+          requestId,
+          queryName: request.queryName,
+          body,
+        });
         const parsed = body
           ? parseFacebookPublishGraphqlResponse(body, expectedGroupIds, request.queryName)
           : null;
+        console.warn('[FB11_GQL_PARSED]', {
+          tabId,
+          requestId,
+          queryName: request.queryName,
+          parsed,
+        });
         if (!parsed || capturedResult) return;
         capturedResult = parsed;
         resolveResult(parsed);
@@ -3475,115 +3619,6 @@ function parseFacebookPublishJsonResponse(body: string): unknown {
       return JSON.parse(trimmed.slice(firstObjectIndex)) as unknown;
     } catch {
       return null;
-    }
-  }
-}
-
-async function clickTabPoint(
-  tabId: number,
-  point: FacebookSubmitButtonPoint,
-  execution: FacebookTargetExecution,
-  existingDebuggerTarget?: ChromeDebuggee,
-): Promise<FacebookSubmitButtonPoint> {
-  if (!chrome.debugger) {
-    throw new Error(
-      'chrome.debugger API is unavailable for Facebook submit click.',
-    );
-  }
-
-  const target = existingDebuggerTarget ?? { tabId };
-  const ownsDebuggerSession = !existingDebuggerTarget;
-
-  if (ownsDebuggerSession) {
-    await attachChromeDebugger(target, '1.3');
-  }
-
-  let clickPoint = point;
-
-  try {
-    // DEBUG TEST:
-    // Activate Facebook tab before dispatching the submit mouse click.
-    await sendChromeDebuggerCommand(
-      target,
-      'Page.bringToFront',
-      {},
-    ).catch(() => undefined);
-
-    await execution.wait(500);
-
-    await execution.wait(randomDelay(250, 450));
-
-    const probedPoint = await runScript<
-      [],
-      FacebookSubmitButtonPointProbe
-    >(
-      tabId,
-      resolveFacebookSubmitButtonPointInPage,
-      [],
-    ).catch(() => null);
-
-    if (probedPoint && !probedPoint.found) {
-      throw new Error(
-        'Could not resolve Facebook Post button before submit click.',
-      );
-    }
-
-    clickPoint =
-      probedPoint?.found && probedPoint.submitButton
-        ? probedPoint.submitButton
-        : point;
-
-    execution.throwIfCancelled();
-
-  console.log('[FB_SUBMIT] Bringing tab to front', {
-    tabId,
-    originalPoint: point,
-  });
-
-    await sendChromeDebuggerCommand(
-      target,
-      'Input.dispatchMouseEvent',
-      {
-        type: 'mouseMoved',
-        x: clickPoint.clientX,
-        y: clickPoint.clientY,
-      },
-    );
-
-    await execution.wait(randomDelay(120, 260));
-
-    await sendChromeDebuggerCommand(
-      target,
-      'Input.dispatchMouseEvent',
-      {
-        type: 'mousePressed',
-        x: clickPoint.clientX,
-        y: clickPoint.clientY,
-        button: 'left',
-        buttons: 1,
-        clickCount: 1,
-      },
-    );
-
-    await execution.wait(randomDelay(90, 220));
-
-    await sendChromeDebuggerCommand(
-      target,
-      'Input.dispatchMouseEvent',
-      {
-        type: 'mouseReleased',
-        x: clickPoint.clientX,
-        y: clickPoint.clientY,
-        button: 'left',
-        buttons: 0,
-        clickCount: 1,
-      },
-    );
-
-    return clickPoint;
-  } finally {
-    if (ownsDebuggerSession) {
-      await detachChromeDebugger(target).catch(() => undefined);
     }
   }
 }
@@ -5250,127 +5285,77 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
 
     return false;
   };
-  const resolveClickPoint = (element: Element) => {
-    const clickable = getClickableElement(element);
-    const rect = clickable.getBoundingClientRect();
-    const candidates = [
-      [0.5, 0.5],
-      [0.15, 0.5],
-      [0.85, 0.5],
-      [0.5, 0.25],
-      [0.5, 0.75],
-    ];
-
-    for (const [xRatio, yRatio] of candidates) {
-      const clientX = Math.round(rect.left + rect.width * xRatio);
-      const clientY = Math.round(rect.top + rect.height * yRatio);
-      const hit = document.elementFromPoint(clientX, clientY);
-      const hitClickable = hit?.closest?.('button, [role="button"], [tabindex], a');
-      if (hit && (hit === clickable || clickable.contains(hit) || hitClickable === clickable)) {
-        return { clientX, clientY };
-      }
-    }
-
-    return {
-      clientX: Math.round(rect.left + rect.width / 2),
-      clientY: Math.round(rect.top + rect.height / 2),
-    };
+  const findSubmitButton = (root: Element) => {
+    const uniqueClickables = new Set<Element>();
+    return queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
+      .map((element) => ({
+        source: element,
+        clickable: getClickableElement(element),
+      }))
+      .filter(({ source, clickable }) => {
+        if (uniqueClickables.has(clickable)) return false;
+        uniqueClickables.add(clickable);
+        if (!isVisible(clickable) || isDisabled(clickable) || isInsideCommentSurface(source)) return false;
+        const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
+        return labels.some(isSubmitLabel);
+      })
+      .map(({ source, clickable }) => {
+        const rect = clickable.getBoundingClientRect();
+        const label = elementLabel(clickable) || elementLabel(source);
+        return {
+          element: clickable,
+          score: (/^post$|^dang$/.test(label) ? 120 : 40)
+            + (clickable.tagName === 'BUTTON' || clickable.getAttribute('role') === 'button' ? 60 : 0)
+            + (label.length <= 40 ? 30 : 0)
+            - Math.min(60, (rect.width * rect.height) / 1800),
+        };
+      })
+      .sort((left, right) => right.score - left.score)[0]?.element ?? null;
   };
-  const findSubmitButton = () => {
-    const roots = [
-      ...queryAll(document, '[role="dialog"]').filter(isVisible),
-      document,
-    ];
-    for (const root of roots) {
-      const uniqueClickables = new Set<Element>();
-      const button = queryAll(root, 'button, [role="button"], [tabindex], a, span, div')
-        .map((element) => ({
-          source: element,
-          clickable: getClickableElement(element),
-        }))
-        .filter(({ source, clickable }) => {
-          if (uniqueClickables.has(clickable)) return false;
-          uniqueClickables.add(clickable);
-          if (!isVisible(clickable) || isDisabled(clickable) || isInsideCommentSurface(source)) return false;
-          const labels = [elementLabel(source), elementLabel(clickable)].filter(Boolean);
-          return labels.some(isSubmitLabel);
-        })
-        .map(({ source, clickable }) => {
-          const rect = clickable.getBoundingClientRect();
-          const label = elementLabel(clickable) || elementLabel(source);
-          return {
-            element: clickable,
-            score: (/^post$|^dang$/.test(label) ? 120 : 40)
-              + (clickable.closest('[role="dialog"]') ? 70 : 0)
-              + (clickable.tagName === 'BUTTON' || clickable.getAttribute('role') === 'button' ? 60 : 0)
-              + (label.length <= 40 ? 30 : 0)
-              - Math.min(60, (rect.width * rect.height) / 1800),
-          };
-        })
-        .sort((left, right) => right.score - left.score)[0]?.element ?? null;
-      if (button) return button;
-    }
-
-    return null;
-  };
-  const hasSubmittedContentInEditor = () => {
-    const contentSample = normalize(content).slice(0, 24);
-    if (!contentSample) return true;
-
-    return queryAll(document, '[contenteditable="true"][role="textbox"], [contenteditable="true"]')
+  const contentSample = normalize(content).slice(0, 24);
+  const composerDialog = queryAll(document, '[role="dialog"]')
+    .filter(isVisible)
+    .filter((dialog) => !isInsideCommentSurface(dialog))
+    .find((dialog) => queryAll(dialog, '[contenteditable="true"][role="textbox"], [contenteditable="true"]')
       .filter((element): element is HTMLElement => element instanceof HTMLElement)
       .filter(isVisible)
-      .some((editor) => normalize(editor.innerText || editor.textContent || '').includes(contentSample));
-  };
-  const dispatchMouse = (element: Element, type: string, point: { clientX: number; clientY: number }) => {
-    element.dispatchEvent(new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-      clientX: point.clientX,
-      clientY: point.clientY,
-      button: 0,
-      buttons: type === 'mouseup' || type === 'click' ? 0 : 1,
-    }));
-  };
+      .some((editor) => !contentSample || normalize(editor.innerText || editor.textContent || '').includes(contentSample)));
 
-  if (!hasSubmittedContentInEditor()) {
+  if (!composerDialog) {
     return {
       activated: false,
-      message: 'DOM fallback skipped because submitted content is not present in the composer editor.',
+      message: 'Native submit skipped because the verified Facebook composer dialog was not found.',
       submitButton: null,
     };
   }
 
-  const submitButton = findSubmitButton();
+  const submitButton = findSubmitButton(composerDialog);
   if (!submitButton) {
     return {
       activated: false,
-      message: 'DOM fallback could not find an enabled Facebook submit button.',
+      message: 'Native submit could not find an enabled Facebook submit button in the verified composer.',
       submitButton: null,
     };
   }
 
   const clickable = getClickableElement(submitButton);
-  clickable.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-  const point = resolveClickPoint(clickable);
   const rect = clickable.getBoundingClientRect();
-  if (clickable instanceof HTMLElement) {
-    clickable.focus({ preventScroll: true });
+  if (!(clickable instanceof HTMLElement)) {
+    return {
+      activated: false,
+      message: 'Native submit target is not an HTMLElement.',
+      submitButton: null,
+    };
   }
 
-  dispatchMouse(clickable, 'mouseover', point);
-  dispatchMouse(clickable, 'mousemove', point);
-  dispatchMouse(clickable, 'mousedown', point);
-  dispatchMouse(clickable, 'mouseup', point);
-  dispatchMouse(clickable, 'click', point);
+  clickable.click();
 
   return {
     activated: true,
-    message: 'DOM fallback dispatched mouse events to the enabled Facebook submit button.',
+    message: 'Native HTMLElement.click() dispatched to the enabled Facebook submit button.',
     submitButton: {
-      clientX: point.clientX,
-      clientY: point.clientY,
+      clientX: Math.round(rect.left + rect.width / 2),
+      clientY: Math.round(rect.top + rect.height / 2),
       label: elementLabel(clickable) || elementLabel(submitButton),
       rect: {
         left: Math.round(rect.left),
