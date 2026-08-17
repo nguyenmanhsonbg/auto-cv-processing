@@ -473,8 +473,8 @@ Envelope với `data` dạng `ExtensionSyncResponseDto`.
         }
       ],
       "delay": {
-        "minMs": 45000,
-        "maxMs": 90000
+        "minMs": 5000,
+        "maxMs": 10000
       }
     },
     "warnings": []
