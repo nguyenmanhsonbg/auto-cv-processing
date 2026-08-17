@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { isEmailAddress } from '@interview-assistant/shared';
 import { extractAmisJobFromDetailApi } from '@/integrations/amis/amis-detail-api-extractor';
@@ -63,7 +63,7 @@ import {
   saveFacebookContentDraft as persistFacebookContentDraft,
 } from '@/stores/facebook-content-draft-store';
 import { getSelectedFacebookGroupIds, setSelectedFacebookGroupIds } from '@/stores/facebook-group-preferences';
-import { setActiveFacebookAccountId } from '@/stores/facebook-account-store';
+import { getActiveFacebookAccountId, setActiveFacebookAccountId } from '@/stores/facebook-account-store';
 import {
   beginFacebookImagePublish,
   getFacebookImageAttachments,
@@ -290,6 +290,56 @@ interface AmisCandidateSourceSelectionResponse {
   error?: string;
 }
 
+function normalizeFacebookAccountId(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized || null;
+}
+
+function resolveFacebookAccountIdForPublish(
+  account: Pick<FacebookAccount, 'id'> | null,
+  groups: readonly FacebookPublishTarget[],
+  selectedTargetIds: readonly string[],
+  storedAccountId: string | null,
+) {
+  const sessionAccountId = normalizeFacebookAccountId(account?.id);
+  const activeAccountId = normalizeFacebookAccountId(storedAccountId);
+
+  const selectedIds = new Set(selectedTargetIds);
+
+  const selectedGroupAccountIds = [...new Set(
+    groups
+      .filter((group) => (
+        isString(group.targetId)
+        && selectedIds.has(group.targetId)
+      ))
+      .map((group) => normalizeFacebookAccountId(group.facebookAccountId))
+      .filter((value): value is string => Boolean(value)),
+  )];
+
+  // Không bao giờ publish một request chứa group của nhiều account.
+  if (selectedGroupAccountIds.length > 1) {
+    return null;
+  }
+
+  const groupAccountId = selectedGroupAccountIds[0] ?? null;
+
+  if (groupAccountId) {
+    // Browser/session đang là account khác với group đã chọn.
+    if (sessionAccountId && sessionAccountId !== groupAccountId) {
+      return null;
+    }
+
+    // Chưa resolve được session nhưng active account lưu trước đó lại khác.
+    if (!sessionAccountId && activeAccountId && activeAccountId !== groupAccountId) {
+      return null;
+    }
+
+    return groupAccountId;
+  }
+
+  return sessionAccountId ?? activeAccountId;
+}
+
 const FILL_AMIS_RECRUITMENT_FORM_MESSAGE_TYPE = 'VCS_FILL_AMIS_RECRUITMENT_FORM';
 const FETCH_AMIS_APPLICATIONS_MESSAGE_TYPE = 'VCS_FETCH_AMIS_APPLICATIONS';
 const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
@@ -488,14 +538,15 @@ type AmisSyncPreconditionInput = {
   hasFacebookImageAttachmentError: boolean;
   shouldPublishFacebook: boolean;
   facebookTargetCount: number;
+  facebookAccountId: string | null;
 };
 
 function getAmisSyncPreconditionResult(input: AmisSyncPreconditionInput) {
   if (!input.hasToken || !input.hasSnapshot || !input.hasRecruitmentId || input.missingFieldCount > 0) return 'SKIP';
   if (input.isFacebookImageReading) return 'Vui lòng chờ ảnh upload được xử lý xong trước khi đăng bài.';
   if (input.hasFacebookImageAttachmentError) return 'Vui lòng bỏ ảnh lỗi hoặc chọn ảnh hợp lệ trước khi đăng bài.';
-  if (input.shouldPublishFacebook && input.facebookTargetCount === 0) {
-    return 'Select at least one Facebook group before publishing.';
+  if (input.shouldPublishFacebook && input.facebookTargetCount > 0 && !input.facebookAccountId) {
+    return 'Tài khoản Facebook hiện tại không khớp với nhóm đã chọn. Vui lòng đăng nhập lại Facebook hoặc tải lại danh sách nhóm.';
   }
   return null;
 }
@@ -736,6 +787,7 @@ function SidePanel() {
   const [facebookSettingsGroupSearchInput, setFacebookSettingsGroupSearchInput] = useState('');
   const [facebookSettingsGroupSearchQuery, setFacebookSettingsGroupSearchQuery] = useState('');
   const [facebookAccount, setFacebookAccount] = useState<FacebookAccount | null>(null);
+  const [activeFacebookAccountId, setActiveFacebookAccountIdState] = useState<string | null>(null);
   const [facebookPreviewIdentity, setFacebookPreviewIdentity] = useState<Pick<FacebookAccount, 'displayName' | 'avatarUrl'> | null>(null);
   const [selectedFacebookGroupIds, setSelectedFacebookGroupIdsState] = useState<string[]>([]);
   const [facebookContent, setFacebookContent] = useState('');
@@ -1412,13 +1464,37 @@ function SidePanel() {
     // The selected account is resolved only after the Facebook session check.
     // Never restore selections from an unknown account into the current session.
     setSelectedFacebookGroupIdsState([]);
+    setActiveFacebookAccountIdState(await getActiveFacebookAccountId());
   }
 
-  async function updateSelectedFacebookGroupIds(targetIds: string[], accountId = facebookAccount?.id) {
+  async function updateSelectedFacebookGroupIds(
+    targetIds: string[],
+    accountId?: string | null,
+  ) {
     const uniqueTargetIds = uniqueStrings(targetIds);
+
+    const scopedAccountId =
+      normalizeFacebookAccountId(accountId)
+      ?? resolveFacebookAccountIdForPublish(
+        facebookAccount,
+        facebookGroups,
+        uniqueTargetIds,
+        activeFacebookAccountId,
+      );
+
+    if (uniqueTargetIds.length > 0 && !scopedAccountId) {
+      throw new Error(
+        'FACEBOOK_ACCOUNT_REQUIRED: Không thể lưu nhóm Facebook khi chưa xác định tài khoản.',
+      );
+    }
+
     selectedFacebookGroupIdsRef.current = uniqueTargetIds;
     setSelectedFacebookGroupIdsState(uniqueTargetIds);
-    await setSelectedFacebookGroupIds(uniqueTargetIds, accountId);
+
+    await setSelectedFacebookGroupIds(
+      uniqueTargetIds,
+      scopedAccountId,
+    );
   }
 
   async function reconcileSelectedFacebookGroups(
@@ -3164,6 +3240,7 @@ function SidePanel() {
       setChannels(next);
       setFacebookGroupLoadState('IDLE');
       setFacebookAccount(null);
+      setActiveFacebookAccountIdState(null);
       setFacebookPreviewIdentity(null);
       setFacebookGroupMessage(null);
       setFacebookGroupSyncDetails(null);
@@ -3243,6 +3320,7 @@ function SidePanel() {
     });
     const resolvedAccount = await resolveFacebookAccount(accessToken, session.account);
     setFacebookAccount(resolvedAccount);
+    setActiveFacebookAccountIdState(resolvedAccount.id);
     setFacebookPreviewIdentity({
       displayName: resolvedAccount.displayName,
       avatarUrl: resolvedAccount.avatarUrl,
@@ -3324,6 +3402,7 @@ function SidePanel() {
     if (!activeAccount) {
       throw new Error('Facebook account is not resolved. Please complete Facebook login and try again.');
     }
+    setActiveFacebookAccountIdState(activeAccount.id);
 
     const discoveredGroups = scanResult.groups;
 
@@ -4097,6 +4176,12 @@ function SidePanel() {
     ).trim();
     const jobDescriptionForMetadata = options.selectedJobDescriptionOverride ?? selectedJobDescription;
     const selectedJobDescriptionId = jobDescriptionForMetadata?.id;
+    const facebookAccountId = resolveFacebookAccountIdForPublish(
+      facebookAccount,
+      facebookGroups,
+      selectedFacebookGroupIds,
+      activeFacebookAccountId,
+    );
 
     return {
       sourceSystem: 'AMIS',
@@ -4107,8 +4192,8 @@ function SidePanel() {
       snapshot: sourceSnapshot,
       channels: channelsForPayload,
       ...(channelsForPayload.includes('FACEBOOK') && facebookTargetIds.length > 0 ? { facebookTargetIds } : {}),
-      ...(channelsForPayload.includes('FACEBOOK') && facebookAccount?.id
-        ? { facebookAccountId: facebookAccount.id }
+      ...(channelsForPayload.includes('FACEBOOK') && facebookAccountId
+        ? { facebookAccountId }
         : {}),
       ...(channelsForPayload.includes('FACEBOOK') && includeFacebookContent && trimmedFacebookContent
         ? { facebookContent: trimmedFacebookContent }
@@ -4183,45 +4268,64 @@ function SidePanel() {
   }
 
   async function sync() {
-    const shouldPublishFacebook = selectedPostingChannels.includes('FACEBOOK');
-    const preconditionError = getAmisSyncPreconditionResult({
-      hasToken: Boolean(token),
-      hasSnapshot: Boolean(snapshot),
-      hasRecruitmentId: Boolean(amisRecruitmentId),
-      missingFieldCount: missingFields.length,
-      isFacebookImageReading,
-      hasFacebookImageAttachmentError,
-      shouldPublishFacebook,
-      facebookTargetCount: selectedFacebookGroupIds.length,
-    });
-    if (preconditionError === 'SKIP') return;
-    if (preconditionError) {
-      setError(preconditionError);
-      setState('ERROR');
-      return;
-    }
+  const accessToken = token;
+  const shouldPublishFacebook = selectedPostingChannels.includes('FACEBOOK');
 
-    const accessToken = token;
-    if (!accessToken || !snapshot || !amisRecruitmentId) return;
+  const resolvedFacebookAccountId = resolveFacebookAccountIdForPublish(
+    facebookAccount,
+    facebookGroups,
+    selectedFacebookGroupIds,
+    activeFacebookAccountId,
+  );
 
-    const facebookContentForPublish = await resolveFacebookContentBeforeAmisSync(shouldPublishFacebook);
-    if (facebookContentForPublish === null) return;
+  const preconditionResult = getAmisSyncPreconditionResult({
+    hasToken: Boolean(accessToken),
+    hasSnapshot: Boolean(snapshot),
+    hasRecruitmentId: Boolean(amisRecruitmentId),
+    missingFieldCount: extractionResult?.missingFields?.length ?? 0,
+    isFacebookImageReading,
+    hasFacebookImageAttachmentError,
+    shouldPublishFacebook,
+    facebookTargetCount: selectedFacebookGroupIds.length,
+    facebookAccountId: resolvedFacebookAccountId,
+  });
 
-    const payload = buildAmisJobPostingPayload({
-      facebookContentOverride: facebookContentForPublish || null,
-    });
-    if (!payload) return;
+  if (preconditionResult === 'SKIP') return;
 
-    setState('SYNCING');
-    setError(null);
-
-    try {
-      const response = await syncAndPublishAmisJob(accessToken, payload);
-      await applyAmisSyncResponse(response, shouldPublishFacebook, facebookContentForPublish);
-    } catch (error) {
-      await handleAmisSyncError(error);
-    }
+  if (preconditionResult) {
+    setError(preconditionResult);
+    setState('ERROR');
+    return;
   }
+
+  if (!accessToken || !snapshot || !amisRecruitmentId) return;
+
+  const facebookContentForPublish =
+    await resolveFacebookContentBeforeAmisSync(shouldPublishFacebook);
+
+  if (facebookContentForPublish === null) return;
+
+  const payload = buildAmisJobPostingPayload({
+    facebookContentOverride: facebookContentForPublish || null,
+  });
+
+  if (!payload) return;
+
+  setState('SYNCING');
+  setError(null);
+
+  try {
+    const response = await syncAndPublishAmisJob(accessToken, payload);
+
+    await applyAmisSyncResponse(
+      response,
+      shouldPublishFacebook,
+      facebookContentForPublish,
+    );
+  } catch (error) {
+    await handleAmisSyncError(error);
+  }
+}
 
   async function startFacebookPublish(plan: FacebookPublishPlan, contentOverride?: string | null) {
     if (!token) return null;
@@ -9554,3 +9658,4 @@ createRoot(document.getElementById('root') as HTMLElement).render(
     <SidePanel />
   </React.StrictMode>,
 );
+

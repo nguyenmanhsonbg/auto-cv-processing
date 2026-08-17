@@ -137,6 +137,7 @@ export interface ReportFacebookPublishResultInput {
   jobPostingId: string;
   reservationId?: string | null;
   targetId?: string | null;
+  facebookAccountId?: string | null;
   targetType: FacebookPublishTargetType;
   targetName: string;
   targetUrl?: string | null;
@@ -154,6 +155,7 @@ export interface ReserveFacebookPublishTargetInput {
   ownerUserId: string;
   jobPostingId: string;
   targetId: string;
+  facebookAccountId?: string | null;
   targetType: FacebookPublishTargetType;
   targetName: string;
   targetUrl?: string | null;

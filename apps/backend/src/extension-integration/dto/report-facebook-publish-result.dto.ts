@@ -31,6 +31,11 @@ export class ReportFacebookPublishResultDto {
   @IsUUID()
   targetId?: string | null;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  facebookAccountId?: string | null;
+
   @ApiProperty({ enum: FacebookPublishTargetType, enumName: 'FacebookPublishTargetType' })
   @IsEnum(FacebookPublishTargetType)
   targetType: FacebookPublishTargetType;

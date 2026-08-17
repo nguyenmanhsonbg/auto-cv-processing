@@ -611,6 +611,7 @@ export interface FacebookPublishResultPayload {
   jobPostingId: string;
   reservationId?: string | null;
   targetId?: string | null;
+  facebookAccountId?: string | null;
   targetType: FacebookPublishTargetType;
   targetName: string;
   targetUrl?: string | null;
@@ -626,6 +627,7 @@ export interface FacebookPublishResultPayload {
 export interface FacebookPublishReservationPayload {
   jobPostingId: string;
   targetId: string;
+  facebookAccountId: string;
   targetType: FacebookPublishTargetType;
   targetName: string;
   targetUrl?: string | null;

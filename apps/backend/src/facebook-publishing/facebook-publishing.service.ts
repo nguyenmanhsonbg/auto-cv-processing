@@ -882,11 +882,21 @@ export class FacebookPublishingService {
   }
 
   async reserveExtensionPublishTarget(input: ReserveFacebookPublishTargetInput) {
+    const facebookAccountId =
+    this.requireFacebookAccountId(input.facebookAccountId);
+
+    await this.assertFacebookAccountOwner(
+      input.ownerUserId,
+      facebookAccountId,
+    );
+
     const target = await this.findOwnedActiveGroup(
       input.ownerUserId,
       input.targetId,
       input.extensionInstanceId,
+      facebookAccountId,
     );
+
     const reservationExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
     return this.historiesRepo.manager.transaction(async (manager) => {
@@ -965,21 +975,24 @@ export class FacebookPublishingService {
     return savedHistory;
   }
 
-  private async validateReportedTarget(input: ReportFacebookPublishResultInput) {
+  private async validateReportedTarget(input: ReportFacebookPublishResultInput,) {
     if (!input.targetId) return;
 
-    try {
-      await this.findOwnedActiveGroup(input.ownerUserId, input.targetId, input.extensionInstanceId);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw new BadRequestException({
-          code: 'VALIDATION_ERROR',
-          message: 'Request payload is invalid.',
-        });
-      }
-      throw error;
-    }
-  }
+    const facebookAccountId =
+      this.requireFacebookAccountId(input.facebookAccountId);
+
+    await this.assertFacebookAccountOwner(
+      input.ownerUserId,
+      facebookAccountId,
+    );
+
+    await this.findOwnedActiveGroup(
+      input.ownerUserId,
+      input.targetId,
+      input.extensionInstanceId,
+      facebookAccountId,
+    );
+}
 
   private async findPostingForPublishResult(jobPostingId: string) {
     const posting = await this.jobPostingsRepo.findOne({
@@ -1548,6 +1561,21 @@ export class FacebookPublishingService {
     return !requestedInstanceId
       || !targetExtensionInstanceId
       || targetExtensionInstanceId === requestedInstanceId;
+  }
+
+  private requireFacebookAccountId(
+    value: string | null | undefined,
+  ) {
+    const facebookAccountId = value?.trim();
+
+    if (!facebookAccountId) {
+      throw new BadRequestException({
+        code: 'FACEBOOK_ACCOUNT_REQUIRED',
+        message: 'Facebook account is required for this publish target.',
+      });
+    }
+
+    return facebookAccountId;
   }
 
   private toResolvedFacebookAccount(account: FacebookAccountEntity): ResolvedFacebookAccount {

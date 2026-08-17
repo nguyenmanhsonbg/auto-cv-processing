@@ -607,8 +607,8 @@ async function buildAmisAutoSyncContext(
 ): Promise<AmisAutoSyncContext> {
   const channels = await getSelectedChannels();
   const facebookEnabled = channels.includes('FACEBOOK');
-  const facebookAccountId = facebookEnabled ? await getActiveFacebookAccountId() : null;
-  const facebookTargetIds = facebookEnabled ? await getSelectedFacebookGroupIds(facebookAccountId) : [];
+  const facebookAccountId = facebookEnabled ? await getActiveFacebookAccountId(): null;
+  const facebookTargetIds = facebookEnabled && facebookAccountId ? await getSelectedFacebookGroupIds(facebookAccountId): [];
   const selectedJobQuestionContext = await getSelectedJobQuestionContextForTab(sender.tab?.id);
   const selectedJobDescriptionId = selectedJobQuestionContext?.jobDescriptionId ?? null;
   const facebookContentDraft = facebookEnabled
@@ -687,6 +687,19 @@ async function syncAmisCaptureToBackend(
   context: AmisAutoSyncContext,
   accessToken: string,
 ): Promise<Awaited<ReturnType<typeof syncAndPublishAmisJob>>> {
+   if (context.channels.includes('FACEBOOK')) {
+    if (!context.facebookAccountId?.trim()) {
+      throw new Error(
+        'FACEBOOK_ACCOUNT_REQUIRED: Không xác định được tài khoản Facebook. Vui lòng đăng nhập lại Facebook.',
+      );
+    }
+
+    if (context.facebookTargetIds.length === 0) {
+      throw new Error(
+        'FACEBOOK_TARGETS_REQUIRED: Vui lòng chọn ít nhất một nhóm Facebook trước khi đăng bài.',
+      );
+    }
+  }
   await heartbeatExtensionInstance(accessToken);
   if (!resolveSelectedVcsJobDescriptionId(context.selectedJobDescriptionId)) {
     throw new Error('JOB_DESCRIPTION_REQUIRED: Select an existing VCS Job Description before saving an AMIS recruitment.');

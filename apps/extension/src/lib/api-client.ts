@@ -374,6 +374,7 @@ export async function syncAndPublishAmisJob(
   accessToken: string,
   payload: SyncAmisJobPostingRequest,
 ) {
+  assertFacebookSyncContract(payload);
   const requestId = `ext-${crypto.randomUUID()}`;
   const idempotencyKey = `amis-${payload.amisRecruitmentId}-${crypto.randomUUID()}`;
 
@@ -389,10 +390,44 @@ export async function syncAndPublishAmisJob(
   });
 }
 
+function assertFacebookSyncContract(
+  payload: SyncAmisJobPostingRequest,
+) {
+  if (!payload.channels.includes('FACEBOOK')) return;
+
+  if (!payload.facebookAccountId?.trim()) {
+    throw new ApiClientError(
+      'FACEBOOK_ACCOUNT_REQUIRED',
+      'Không xác định được tài khoản Facebook cho các nhóm đã chọn.',
+      400,
+    );
+  }
+
+  if (
+    !payload.facebookTargetIds
+    || payload.facebookTargetIds.length === 0
+  ) {
+    throw new ApiClientError(
+      'FACEBOOK_TARGETS_REQUIRED',
+      'Vui lòng chọn ít nhất một nhóm Facebook trước khi đăng bài.',
+      400,
+    );
+  }
+
+  if (!payload.facebookContent?.trim()) {
+    throw new ApiClientError(
+      'FACEBOOK_CONTENT_REQUIRED',
+      'Nội dung đăng Facebook đang trống.',
+      400,
+    );
+  }
+}
+
 export async function previewAmisJobPublishPlan(
   accessToken: string,
   payload: SyncAmisJobPostingRequest,
 ) {
+  assertFacebookSyncContract(payload);
   const requestId = `ext-preview-${crypto.randomUUID()}`;
 
   return request<ExtensionPreviewPublishPlanResponse>('/extension/amis/job-postings/preview-plan', {

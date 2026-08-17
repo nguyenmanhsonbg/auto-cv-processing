@@ -31,6 +31,17 @@ import type {
 } from '@/types/types';
 
 const FACEBOOK_TARGET_TIMEOUT_MS = 90_000;
+const FACEBOOK_KEEP_HIDDEN_PUBLISH_TABS_OPEN = true;
+const FACEBOOK_SHOULD_AUTO_CLOSE_HIDDEN_PUBLISH_TABS = !FACEBOOK_KEEP_HIDDEN_PUBLISH_TABS_OPEN;
+
+function shouldAutoCloseHiddenPublishTabs() {
+  return FACEBOOK_SHOULD_AUTO_CLOSE_HIDDEN_PUBLISH_TABS;
+}
+
+async function closeFacebookPublishTabWhenConfigured(tabId: number) {
+  if (!shouldAutoCloseHiddenPublishTabs()) return;
+  await closeFacebookPublishTabSafely(tabId);
+}
 const FACEBOOK_LOGIN_REQUIRED_MESSAGE = 'Vui lòng đăng nhập facebook trước khi thực hiện thao tác này.';
 
 function splitTitleBySeparators(value: string) {
@@ -106,7 +117,7 @@ class FacebookTargetExecution {
     const tabIds = [...this.tabIds];
     this.tabIds.clear();
     for (const tabId of tabIds) {
-      await closeFacebookPublishTabSafely(tabId);
+      await closeFacebookPublishTabWhenConfigured(tabId);
     }
   }
 }
@@ -432,6 +443,7 @@ async function publishAndReportFacebookTarget({
   const execution = new FacebookTargetExecution(target.targetName);
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let reservedTarget = target;
+  const facebookAccountId = requireFacebookTargetAccountId(target);
 
   const operation = async () => {
     execution.throwIfCancelled();
@@ -439,6 +451,7 @@ async function publishAndReportFacebookTarget({
       const reservation = await reserveFacebookPublishTarget(accessToken, {
         jobPostingId: plan.jobPostingId,
         targetId: target.targetId,
+        facebookAccountId,
         targetType: target.targetType,
         targetName: target.targetName,
         targetUrl: target.targetUrl ?? null,
@@ -494,6 +507,18 @@ async function publishAndReportFacebookTarget({
     execution.cancel();
     await execution.cleanup();
   }
+}
+
+function requireFacebookTargetAccountId(target: FacebookPublishTarget) {
+  const facebookAccountId = target.facebookAccountId?.trim();
+
+  if (!facebookAccountId) {
+    throw new Error(
+      `FACEBOOK_ACCOUNT_REQUIRED: Missing Facebook account for ${target.targetName}.`,
+    );
+  }
+
+  return facebookAccountId;
 }
 
 function getFacebookTargetFailureMessage(error: unknown) {
@@ -556,6 +581,7 @@ function buildFacebookPublishTargetPayloadBase(
     jobPostingId: plan.jobPostingId,
     ...(includeReservationId ? { reservationId: target.reservationId ?? null } : {}),
     targetId: target.targetId ?? null,
+    facebookAccountId: target.facebookAccountId ?? null,
     targetType: target.targetType,
     targetName: target.targetName,
     targetUrl: target.targetUrl ?? null,
@@ -1334,7 +1360,7 @@ async function runFreshTabPublishAttempt({
         })
       : 'SKIP';
     if (decision === 'POST_TEXT_ONLY') {
-      await closeFacebookPublishTabSafely(tabId);
+      await closeFacebookPublishTabWhenConfigured(tabId);
       const submitResult = await publishTargetInFreshTab(
         targetUrl,
         targetExternalId,
@@ -1416,7 +1442,7 @@ async function publishTargetInFreshTab(
     };
   } finally {
     execution.unregisterTab(tab.id);
-    await closeFacebookPublishTabSafely(tab.id);
+    await closeFacebookPublishTabWhenConfigured(tab.id);
   }
 }
 
@@ -3003,6 +3029,8 @@ function ensureFacebookPageProbeUtilitiesInPage() {
     /viet binh luan/,
     /tra loi/,
     /viet phan hoi/,
+    /\bgui\b/,
+    /\bsend\b/,
   ];
   const POST_COMPOSER_PATTERNS = [
     /write something/,
@@ -3010,9 +3038,19 @@ function ensureFacebookPageProbeUtilitiesInPage() {
     /create post/,
     /start a post/,
     /what.?s on your mind/,
+    /what are you thinking/,
+    /share something/,
+    /start sharing/,
     /ban viet gi/,
     /viet gi/,
     /tao bai viet/,
+    /ban dang nghi gi/,
+    /ban dang gi/,
+    /ban dang/,
+    /ban muon chia se/,
+    /moi chia se/,
+    /tao bai/,
+    /dang bai/,
   ];
   const CHAT_SURFACE_PATTERNS = [
     /messenger/,
@@ -3123,7 +3161,7 @@ function ensureFacebookPageProbeUtilitiesInPage() {
       const hasComposerCue = hasPostComposerCue(current);
       const hasSubmitControl = hasPostSubmitControl(current);
       const isDialog = current.getAttribute('role') === 'dialog';
-      if ((hasComposerCue && (hasSubmitControl || isDialog)) || (isDialog && hasSubmitControl)) return current;
+      if (hasSubmitControl || (hasComposerCue && isDialog)) return current;
       current = current.parentElement;
       depth += 1;
     }
@@ -3448,53 +3486,105 @@ async function clickTabPoint(
   existingDebuggerTarget?: ChromeDebuggee,
 ): Promise<FacebookSubmitButtonPoint> {
   if (!chrome.debugger) {
-    throw new Error('chrome.debugger API is unavailable for Facebook submit click.');
+    throw new Error(
+      'chrome.debugger API is unavailable for Facebook submit click.',
+    );
   }
 
   const target = existingDebuggerTarget ?? { tabId };
   const ownsDebuggerSession = !existingDebuggerTarget;
-  if (ownsDebuggerSession) await attachChromeDebugger(target, '1.3');
+
+  if (ownsDebuggerSession) {
+    await attachChromeDebugger(target, '1.3');
+  }
+
   let clickPoint = point;
+
   try {
+    // DEBUG TEST:
+    // Activate Facebook tab before dispatching the submit mouse click.
+    await sendChromeDebuggerCommand(
+      target,
+      'Page.bringToFront',
+      {},
+    ).catch(() => undefined);
+
+    await execution.wait(500);
+
     await execution.wait(randomDelay(250, 450));
-    const probedPoint = await runScript<[], FacebookSubmitButtonPointProbe>(
+
+    const probedPoint = await runScript<
+      [],
+      FacebookSubmitButtonPointProbe
+    >(
       tabId,
       resolveFacebookSubmitButtonPointInPage,
       [],
     ).catch(() => null);
+
     if (probedPoint && !probedPoint.found) {
-      throw new Error('Could not resolve Facebook Post button before submit click.');
+      throw new Error(
+        'Could not resolve Facebook Post button before submit click.',
+      );
     }
-    clickPoint = probedPoint?.found && probedPoint.submitButton
-      ? probedPoint.submitButton
-      : point;
+
+    clickPoint =
+      probedPoint?.found && probedPoint.submitButton
+        ? probedPoint.submitButton
+        : point;
+
     execution.throwIfCancelled();
-    await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved',
-      x: clickPoint.clientX,
-      y: clickPoint.clientY,
-    });
+
+  console.log('[FB_SUBMIT] Bringing tab to front', {
+    tabId,
+    originalPoint: point,
+  });
+
+    await sendChromeDebuggerCommand(
+      target,
+      'Input.dispatchMouseEvent',
+      {
+        type: 'mouseMoved',
+        x: clickPoint.clientX,
+        y: clickPoint.clientY,
+      },
+    );
+
     await execution.wait(randomDelay(120, 260));
-    await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mousePressed',
-      x: clickPoint.clientX,
-      y: clickPoint.clientY,
-      button: 'left',
-      buttons: 1,
-      clickCount: 1,
-    });
+
+    await sendChromeDebuggerCommand(
+      target,
+      'Input.dispatchMouseEvent',
+      {
+        type: 'mousePressed',
+        x: clickPoint.clientX,
+        y: clickPoint.clientY,
+        button: 'left',
+        buttons: 1,
+        clickCount: 1,
+      },
+    );
+
     await execution.wait(randomDelay(90, 220));
-    await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mouseReleased',
-      x: clickPoint.clientX,
-      y: clickPoint.clientY,
-      button: 'left',
-      buttons: 0,
-      clickCount: 1,
-    });
+
+    await sendChromeDebuggerCommand(
+      target,
+      'Input.dispatchMouseEvent',
+      {
+        type: 'mouseReleased',
+        x: clickPoint.clientX,
+        y: clickPoint.clientY,
+        button: 'left',
+        buttons: 0,
+        clickCount: 1,
+      },
+    );
+
     return clickPoint;
   } finally {
-    if (ownsDebuggerSession) await detachChromeDebugger(target).catch(() => undefined);
+    if (ownsDebuggerSession) {
+      await detachChromeDebugger(target).catch(() => undefined);
+    }
   }
 }
 
@@ -3791,9 +3881,19 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
     /create post/,
     /start a post/,
     /what.?s on your mind/,
+    /what are you thinking/,
+    /share something/,
+    /start sharing/,
     /ban viet gi/,
     /viet gi/,
     /tao bai viet/,
+    /ban dang nghi gi/,
+    /ban dang gi/,
+    /ban dang/,
+    /ban muon chia se/,
+    /moi chia se/,
+    /tao bai/,
+    /dang bai/,
   ];
   const COMMENT_PATTERNS = [
     /write a comment/,
@@ -3804,6 +3904,8 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
     /viet binh luan/,
     /tra loi/,
     /viet phan hoi/,
+    /\bgui\b/,
+    /\bsend\b/,
   ];
   const JOIN_GROUP_PATTERNS = [
     /^join$/,
@@ -4060,9 +4162,19 @@ async function prepareFacebookPostInPage(
     /create post/,
     /start a post/,
     /what.?s on your mind/,
+    /what are you thinking/,
+    /share something/,
+    /start sharing/,
     /ban viet gi/,
     /viet gi/,
     /tao bai viet/,
+    /ban dang nghi gi/,
+    /ban dang gi/,
+    /ban dang/,
+    /ban muon chia se/,
+    /moi chia se/,
+    /tao bai/,
+    /dang bai/,
   ];
   const POST_BUTTON_PATTERNS = [
     /^post$/,
@@ -4100,6 +4212,8 @@ async function prepareFacebookPostInPage(
     /viet binh luan/,
     /tra loi/,
     /viet phan hoi/,
+    /\bgui\b/,
+    /\bsend\b/,
   ];
   const queryAll = (root: Document | Element, selector: string) => (
     Array.from(root.querySelectorAll(selector))
@@ -4898,6 +5012,8 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
     /viet binh luan/,
     /tra loi/,
     /viet phan hoi/,
+    /\bgui\b/,
+    /\bsend\b/,
   ];
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
   const getClickableElement = (element: Element) => (
@@ -5071,9 +5187,19 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
     /create post/,
     /start a post/,
     /what.?s on your mind/,
+    /what are you thinking/,
+    /share something/,
+    /start sharing/,
     /ban viet gi/,
     /viet gi/,
     /tao bai viet/,
+    /ban dang nghi gi/,
+    /ban dang gi/,
+    /ban dang/,
+    /ban muon chia se/,
+    /moi chia se/,
+    /tao bai/,
+    /dang bai/,
   ];
   const queryAll = (root: Document | Element, selector: string) => (
     Array.from(root.querySelectorAll(selector))
