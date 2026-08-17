@@ -5312,6 +5312,15 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
       })
       .sort((left, right) => right.score - left.score)[0]?.element ?? null;
   };
+  const findExactAriaSubmitButton = (root: Element) => (
+    queryAll(root, '[role="button"][aria-label]')
+      .map((element) => getClickableElement(element))
+      .find((element) => {
+        if (!isVisible(element) || isDisabled(element) || isInsideCommentSurface(element)) return false;
+        const label = normalize(element.getAttribute('aria-label') ?? '');
+        return label === 'post' || label === 'dang';
+      }) ?? null
+  );
   const contentSample = normalize(content).slice(0, 24);
   const composerDialog = queryAll(document, '[role="dialog"]')
     .filter(isVisible)
@@ -5329,7 +5338,8 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
     };
   }
 
-  const submitButton = findSubmitButton(composerDialog);
+  const exactSubmitButton = findExactAriaSubmitButton(composerDialog);
+  const submitButton = exactSubmitButton ?? findSubmitButton(composerDialog);
   if (!submitButton) {
     return {
       activated: false,
@@ -5352,7 +5362,7 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
 
   return {
     activated: true,
-    message: 'Native HTMLElement.click() dispatched to the enabled Facebook submit button.',
+    message: `Native HTMLElement.click() dispatched to the enabled Facebook submit button (${exactSubmitButton ? 'exact-aria' : 'scored-fallback'}).`,
     submitButton: {
       clientX: Math.round(rect.left + rect.width / 2),
       clientY: Math.round(rect.top + rect.height / 2),
