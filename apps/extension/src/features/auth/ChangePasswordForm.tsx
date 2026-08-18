@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { AuthInput, LockIcon, EyeIcon } from './AuthInput';
 
 type ChangePasswordFormProps = {
   error?: string | null;
@@ -51,106 +52,131 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
   const inputError = (field: PasswordField) => fieldErrors[field] ?? serverErrors[field];
 
   return (
-    <form className="freelancer-change-password-form" onSubmit={submit}>
-      <div className="freelancer-change-password-heading">
-        <h2>{isResetPassword ? 'Đặt lại mật khẩu' : 'Đổi mật khẩu'}</h2>
-      </div>
-      {!isResetPassword ? (
-        <PasswordFieldInput
-          label="Nhập mật khẩu cũ"
-          placeholder="Nhập mật khẩu cũ"
-          value={currentPassword}
-          error={inputError('current')}
-          visible={visibleFields.current}
-          onChange={(value) => updateField('current', value)}
-          onToggleVisibility={() => toggleVisibility('current')}
-          autoComplete="current-password"
-        />
-      ) : null}
-      <PasswordFieldInput
-        label="Nhập mật khẩu mới"
-        placeholder="Nhập mật khẩu mới"
-        value={newPassword}
-        error={inputError('new')}
-        visible={visibleFields.new}
-        onChange={(value) => updateField('new', value)}
-        onToggleVisibility={() => toggleVisibility('new')}
-        autoComplete="new-password"
-      />
-      <PasswordFieldInput
-        label="Xác nhận mật khẩu mới"
-        placeholder="Xác nhận mật khẩu mới"
-        value={confirmPassword}
-        error={inputError('confirm')}
-        visible={visibleFields.confirm}
-        onChange={(value) => updateField('confirm', value)}
-        onToggleVisibility={() => toggleVisibility('confirm')}
-        autoComplete="new-password"
-      />
-
-      <div className="freelancer-password-rules" aria-live="polite">
-        <PasswordRule status={getRuleStatus(newPassword, passwordRules.hasCaseAndNumber)}>Có ít nhất 1 chữ hoa, 1 chữ thường và 1 chữ số.</PasswordRule>
-        <PasswordRule status={getRuleStatus(newPassword, passwordRules.hasSpecial)}>Có ít nhất 1 ký tự đặc biệt.</PasswordRule>
-        <PasswordRule status={getRuleStatus(newPassword, passwordRules.hasValidLength)}>Có từ 8 - 16 ký tự.</PasswordRule>
+    <form className="extension-login-card extension-auth-form extension-change-password-form" onSubmit={submit}>
+      <div className="extension-auth-heading-group">
+        <h1>{isResetPassword ? 'Đặt lại mật khẩu' : 'Đổi mật khẩu'}</h1>
       </div>
 
-      <div className="freelancer-change-password-actions">
-        <button type="button" className="secondary-button" onClick={onCancel} disabled={isSaving}>Quay lại</button>
-        <button type="submit" className="primary-button" disabled={isSaving}>
-          {isSaving ? 'Đang lưu...' : 'ĐẶT LẠI MẬT KHẨU'}
+      <div className="extension-auth-fields">
+        {!isResetPassword ? (
+          <div>
+            <AuthInput
+              label="Nhập mật khẩu cũ"
+              required
+              placeholder="Nhập mật khẩu cũ"
+              icon={<LockIcon />}
+              value={currentPassword}
+              hasError={Boolean(inputError('current'))}
+              type={visibleFields.current ? 'text' : 'password'}
+              onChange={(e) => updateField('current', e.target.value)}
+              autoComplete="current-password"
+              trailing={
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => toggleVisibility('current')}
+                  aria-label={visibleFields.current ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                >
+                  <EyeIcon visible={visibleFields.current} />
+                </button>
+              }
+            />
+            {inputError('current') ? <span className="extension-login-error">{inputError('current')}</span> : null}
+          </div>
+        ) : null}
+
+        <div>
+          <AuthInput
+            label="Nhập mật khẩu mới"
+            required
+            placeholder="Nhập mật khẩu mới"
+            icon={<LockIcon />}
+            value={newPassword}
+            hasError={Boolean(inputError('new'))}
+            type={visibleFields.new ? 'text' : 'password'}
+            onChange={(e) => updateField('new', e.target.value)}
+            autoComplete="new-password"
+            trailing={
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => toggleVisibility('new')}
+                aria-label={visibleFields.new ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                <EyeIcon visible={visibleFields.new} />
+              </button>
+            }
+          />
+          {inputError('new') ? <span className="extension-login-error">{inputError('new')}</span> : null}
+        </div>
+
+        <div>
+          <AuthInput
+            label="Xác nhận mật khẩu mới"
+            required
+            placeholder="Xác nhận mật khẩu mới"
+            icon={<LockIcon />}
+            value={confirmPassword}
+            hasError={Boolean(inputError('confirm'))}
+            type={visibleFields.confirm ? 'text' : 'password'}
+            onChange={(e) => updateField('confirm', e.target.value)}
+            autoComplete="new-password"
+            trailing={
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => toggleVisibility('confirm')}
+                aria-label={visibleFields.confirm ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                <EyeIcon visible={visibleFields.confirm} />
+              </button>
+            }
+          />
+          {inputError('confirm') ? <span className="extension-login-error">{inputError('confirm')}</span> : null}
+        </div>
+      </div>
+
+      <div className="extension-password-conditions" aria-live="polite">
+        <PasswordCondition isValid={passwordRules.hasCaseAndNumber && Boolean(newPassword)}>
+          Có ít nhất 1 chữ hoa, 1 chữ thường và 1 chữ số.
+        </PasswordCondition>
+        <PasswordCondition isValid={passwordRules.hasSpecial && Boolean(newPassword)}>
+          Có ít nhất 1 ký tự đặc biệt.
+        </PasswordCondition>
+        <PasswordCondition isValid={passwordRules.hasValidLength && Boolean(newPassword)}>
+          Có từ 8 - 16 ký tự.
+        </PasswordCondition>
+      </div>
+
+      <div className="extension-login-actions">
+        <button type="button" className="secondary-button" onClick={onCancel} disabled={isSaving}>
+          Quay lại
+        </button>
+        <button type="submit" className="confirm-button" disabled={isSaving}>
+          {isSaving ? 'Đang lưu...' : 'Đặt lại mật khẩu'}
         </button>
       </div>
     </form>
   );
 }
 
-function PasswordFieldInput({
-  label,
-  placeholder,
-  value,
-  error,
-  visible,
-  onChange,
-  onToggleVisibility,
-  autoComplete,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  error?: string;
-  visible: boolean;
-  onChange: (value: string) => void;
-  onToggleVisibility: () => void;
-  autoComplete: string;
-}) {
+function PasswordCondition({ isValid, children }: { isValid: boolean; children: string }) {
   return (
-    <label className="freelancer-password-field">
-      <span className="freelancer-password-label">{label} <span className="required-mark">*</span></span>
-      <span className={`freelancer-password-input-shell${error ? ' has-error' : ''}`}>
-        <span className="freelancer-password-lock-icon" aria-hidden="true"><LockIcon /></span>
-        <input
-          type={visible ? 'text' : 'password'}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder}
-          autoComplete={autoComplete}
-        />
-        <button type="button" className="freelancer-password-toggle" onClick={onToggleVisibility} aria-label={visible ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>
-          <EyeIcon hidden={!visible} />
-        </button>
+    <div className={`extension-password-condition${isValid ? ' is-valid' : ''}`}>
+      <span className="extension-condition-tick" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M2.75 8.75L6.25 12.25L13.25 4.75"
+            stroke={isValid ? '#15803d' : '#737373'}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </span>
-      {error ? <span className="freelancer-password-field-error">{error}</span> : null}
-    </label>
+      <span className="extension-condition-text">{children}</span>
+    </div>
   );
-}
-
-function PasswordRule({ status, children }: { status: 'valid' | 'invalid' | 'neutral'; children: string }) {
-  return <span className={`freelancer-password-rule is-${status}`}><span aria-hidden="true">{status === 'invalid' ? '×' : '✓'}</span>{children}</span>;
-}
-
-function getRuleStatus(value: string, valid: boolean): 'valid' | 'invalid' | 'neutral' {
-  if (!value) return 'neutral';
-  return valid ? 'valid' : 'invalid';
 }
 
 function getServerFieldErrors(error?: string | null): Partial<Record<PasswordField, string>> {
@@ -158,12 +184,4 @@ function getServerFieldErrors(error?: string | null): Partial<Record<PasswordFie
   if (error.includes('hiện tại')) return { current: 'Mật khẩu cũ không chính xác. Vui lòng kiểm tra lại' };
   if (error.includes('không khớp')) return { confirm: 'Xác nhận mật khẩu mới không trùng khớp. Vui lòng kiểm tra lại' };
   return { new: error };
-}
-
-function LockIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="5" y="10" width="14" height="11" rx="1" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>;
-}
-
-function EyeIcon({ hidden }: { hidden: boolean }) {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M2.5 12s3.2-5 9.5-5 9.5 5 9.5 5-3.2 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2.2" />{hidden ? <path d="m4 4 16 16" /> : null}</svg>;
 }

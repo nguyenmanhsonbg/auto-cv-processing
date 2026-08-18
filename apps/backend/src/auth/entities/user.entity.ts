@@ -24,6 +24,9 @@ export class UserEntity {
   @Column({ type: 'enum', enum: UserRole, default: UserRole.INTERVIEWER })
   role: UserRole;
 
+  @Column({ name: 'must_change_password', default: false })
+  mustChangePassword: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

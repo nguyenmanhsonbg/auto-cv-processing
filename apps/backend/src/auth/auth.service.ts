@@ -119,13 +119,14 @@ export class AuthService implements OnModuleInit {
     );
   }
 
-  async login(user: { id: string; email: string; role: UserRole; name: string }) {
+  async login(user: { id: string; email: string; role: UserRole; name: string; mustChangePassword?: boolean }) {
     await this.assertUserCanAuthenticate(user);
     const refreshToken = await this.createRefreshToken(user.id);
     return {
       accessToken: this.signAccessToken(user),
       refreshToken,
       user: { id: user.id, email: user.email, role: user.role },
+      mustChangePassword: user.mustChangePassword ?? false,
     };
   }
 
@@ -175,6 +176,7 @@ export class AuthService implements OnModuleInit {
 
       user.password = await bcrypt.hash(generatedPassword, 10);
       user.role = UserRole.INTERNAL;
+      user.mustChangePassword = true;
 
       const sent = await this.mailService.sendMail(
         normalizedEmail,
@@ -350,6 +352,7 @@ export class AuthService implements OnModuleInit {
         email: existingToken.user.email,
         role: existingToken.user.role,
       },
+      mustChangePassword: existingToken.user.mustChangePassword ?? false,
     };
   }
 
@@ -436,6 +439,7 @@ export class AuthService implements OnModuleInit {
     }
 
     user.password = await bcrypt.hash(input.newPassword, 10);
+    user.mustChangePassword = false;
     await this.userRepo.save(user);
     return { message: 'Đổi mật khẩu thành công.' };
   }
@@ -495,6 +499,7 @@ export class AuthService implements OnModuleInit {
         name: dto.name,
         password,
         role: dto.role ?? UserRole.INTERVIEWER,
+        mustChangePassword: true,
       }),
     );
     const { password: _, ...result } = user;
@@ -556,6 +561,7 @@ export class AuthService implements OnModuleInit {
           name: profile.displayName || email,
           password: await bcrypt.hash(uuidv4(), 10),
           role: UserRole.ADMIN,
+          mustChangePassword: true,
         }),
       );
       return this.login(user);

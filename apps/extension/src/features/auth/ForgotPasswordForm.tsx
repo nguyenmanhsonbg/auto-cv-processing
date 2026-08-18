@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { ApiClientError, completePasswordReset, requestPasswordReset, verifyPasswordReset } from '@/lib/api-client';
 import { ChangePasswordForm } from './ChangePasswordForm';
+import { AuthInput, UserIcon } from './AuthInput';
 
 type Step = 'IDENTIFIER' | 'METHOD' | 'OTP' | 'RESET';
 
@@ -88,39 +89,75 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
   }
 
   return (
-    <section className="extension-forgot-password-card">
-      <h1>{step === 'OTP' ? 'Kiểm tra mã xác nhận từ Gmail' : 'Quên mật khẩu'}</h1>
+    <div className="extension-login-card extension-forgot-password-card">
+      <div className="extension-auth-heading-group">
+        <h1>{step === 'OTP' ? (method === 'PHONE' ? 'Kiểm tra mã xác nhận từ SĐT' : 'Kiểm tra mã xác nhận từ Gmail') : 'Quên mật khẩu'}</h1>
+        {step === 'OTP' ? (
+          <p className="extension-auth-subtext">
+            {method === 'PHONE' ? 'Kiểm tra mã xác nhận được gửi tới SĐT' : `Kiểm tra mã xác nhận được gửi tới gmail ${targetEmail || 'người dùng'}`}
+          </p>
+        ) : null}
+      </div>
+
       {step === 'IDENTIFIER' ? (
         <>
-          <label className="extension-forgot-field">
-            <span>Tên đăng nhập <span className="required-mark">*</span></span>
-            <span className={`extension-input-shell${error ? ' has-error' : ''}`}>
-              <span className="extension-input-icon" aria-hidden="true"><UserIcon /></span>
-              <input value={login} onChange={(event) => { setLogin(event.target.value); setError(null); }} placeholder="Nhập tên đăng nhập" autoFocus />
-            </span>
-          </label>
+          <div className="extension-auth-fields">
+            <AuthInput
+              label="Tên đăng nhập"
+              required
+              icon={<UserIcon />}
+              value={login}
+              onChange={(event) => { setLogin(event.target.value); setError(null); }}
+              placeholder="Nhập tên đăng nhập"
+              autoFocus
+              hasError={Boolean(error)}
+            />
+          </div>
           {error ? <p className="extension-login-error">{error}</p> : null}
-          <div className="extension-forgot-actions">
+          <div className="extension-login-actions">
             <button type="button" className="secondary-button" onClick={onCancel}>Quay lại</button>
-            <button type="button" className="confirm-button" onClick={() => { setError(null); setStep('METHOD'); }} disabled={!login.trim()}>Xác nhận</button>
+            <button type="button" className="confirm-button" onClick={() => { setError(null); setStep('METHOD'); }} disabled={!login.trim()}>
+              Xác nhận
+            </button>
           </div>
         </>
       ) : step === 'METHOD' ? (
         <>
-          <div className="extension-forgot-method-heading"><h2>Chọn phương thức khôi phục mật khẩu</h2><p>Bạn muốn nhận mã xác nhận bằng phương thức nào?</p></div>
-          <label className="extension-forgot-method"><input type="radio" checked={method === 'PHONE'} onChange={() => { setMethod('PHONE'); setError(null); }} /><span><strong>Gửi mã xác nhận qua SĐT</strong><small>Mã xác nhận sẽ được gửi qua SĐT người dùng. Vui lòng truy cập và lấy mã xác nhận.</small></span></label>
-          <label className="extension-forgot-method"><input type="radio" checked={method === 'EMAIL'} onChange={() => { setMethod('EMAIL'); setError(null); }} /><span><strong>Gửi mã xác nhận qua Gmail</strong><small>Mã xác nhận sẽ được gửi qua Gmail người dùng. Vui lòng truy cập và lấy mã xác nhận.</small></span></label>
+          <div className="extension-forgot-method-heading">
+            <h2>Chọn phương thức khôi phục mật khẩu</h2>
+            <p>Bạn muốn nhận mã xác nhận bằng phương thức nào?</p>
+          </div>
+          <div className="extension-forgot-method-list">
+            <label className={`extension-forgot-method${method === 'PHONE' ? ' is-selected' : ''}`}>
+              <input type="radio" name="reset-method" checked={method === 'PHONE'} onChange={() => { setMethod('PHONE'); setError(null); }} />
+              <span className="extension-forgot-method-content">
+                <strong>Gửi mã xác nhận qua SĐT</strong>
+                <small>Mã xác nhận sẽ được gửi qua SĐT người dùng. Vui lòng truy cập và lấy mã xác nhận.</small>
+              </span>
+            </label>
+            <label className={`extension-forgot-method${method === 'EMAIL' ? ' is-selected' : ''}`}>
+              <input type="radio" name="reset-method" checked={method === 'EMAIL'} onChange={() => { setMethod('EMAIL'); setError(null); }} />
+              <span className="extension-forgot-method-content">
+                <strong>Gửi mã xác nhận qua Gmail</strong>
+                <small>Mã xác nhận sẽ được gửi qua Gmail người dùng. Vui lòng truy cập và lấy mã xác nhận.</small>
+              </span>
+            </label>
+          </div>
           {error ? <p className="extension-login-error">{error}</p> : null}
-          <div className="extension-forgot-actions"><button type="button" className="secondary-button" onClick={() => setStep('IDENTIFIER')}>Quay lại</button><button type="button" className="confirm-button" onClick={() => void confirmMethod()} disabled={loading}>{loading ? 'Đang gửi...' : 'Xác nhận'}</button></div>
+          <div className="extension-login-actions">
+            <button type="button" className="secondary-button" onClick={() => setStep('IDENTIFIER')}>Quay lại</button>
+            <button type="button" className="confirm-button" onClick={() => void confirmMethod()} disabled={loading}>
+              {loading ? 'Đang gửi...' : 'Xác nhận'}
+            </button>
+          </div>
         </>
       ) : (
         <div className="extension-otp-view">
-          <p className="extension-otp-description">Kiểm tra mã xác nhận được gửi tới Gmail<br />{targetEmail}</p>
           <div className="extension-otp-inputs">
             {Array.from({ length: 6 }, (_, index) => (
               <input
                 key={index}
-                className={error ? 'has-error' : undefined}
+                className={`extension-otp-input${error ? ' has-error' : ''}`}
                 ref={(element) => { otpInputRefs.current[index] = element; }}
                 value={otp[index] ?? ''}
                 onChange={(event) => {
@@ -148,14 +185,24 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
             ))}
           </div>
           {error ? <p className="extension-login-error">{error}</p> : null}
-          <button type="button" className="extension-otp-resend" onClick={() => void resendOtp()} disabled={loading || resendRemaining <= 0}><u>Gửi lại</u> <span>(Còn lại {resendRemaining} lần)</span></button>
-          <p className="extension-otp-hint">Mỗi mã OTP khả dụng trong 15'</p>
-          <p className="extension-otp-hint">Bạn có thể gửi lại mã OTP 5 lần / 1 ngày, tại lúc 00:00:00 hằng ngày</p>
-          <div className="extension-forgot-actions"><button type="button" className="secondary-button" onClick={() => setStep('METHOD')}>Quay lại</button><button type="button" className="confirm-button" onClick={() => void confirmOtp()} disabled={loading || otp.length !== 6}>{loading ? 'Đang xác nhận...' : 'Xác nhận'}</button></div>
+          <div className="extension-otp-resend-row">
+            <button type="button" className="extension-otp-resend-btn" onClick={() => void resendOtp()} disabled={loading || resendRemaining <= 0}>
+              Gửi lại
+            </button>
+            <span className="extension-otp-resend-count">(Còn lại {resendRemaining} lần)</span>
+          </div>
+          <div className="extension-otp-hints">
+            <p className="extension-otp-hint">Mỗi Mã OTP khả dụng trong 15’</p>
+            <p className="extension-otp-hint">Bạn có thể gửi lại mã OTP 5 lần / 1 ngày, cài lại lúc 00:00:00 hàng ngày</p>
+          </div>
+          <div className="extension-login-actions">
+            <button type="button" className="secondary-button" onClick={() => setStep('METHOD')}>Quay lại</button>
+            <button type="button" className="confirm-button" onClick={() => void confirmOtp()} disabled={loading || otp.length !== 6}>
+              {loading ? 'Đang xác nhận...' : 'Xác nhận'}
+            </button>
+          </div>
         </div>
       )}
-    </section>
+    </div>
   );
 }
-
-function UserIcon() { return <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-5.33 0-9 2.67-9 6v2h18v-2c0-3.33-3.67-6-9-6Z" /></svg>; }

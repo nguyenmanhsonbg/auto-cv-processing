@@ -113,6 +113,57 @@ async function hasRememberedRefreshToken(): Promise<boolean> {
   return typeof token === 'string' && Boolean(token);
 }
 
+const SAVED_CREDENTIALS_KEY = 'vcs_extension_saved_credentials';
+
+export interface SavedCredentials {
+  login: string;
+  password: string;
+}
+
+export async function getSavedCredentials(): Promise<SavedCredentials | null> {
+  const storage = chrome.storage?.local;
+  if (!storage) {
+    try {
+      const raw = localStorage.getItem(SAVED_CREDENTIALS_KEY);
+      return raw ? (JSON.parse(raw) as SavedCredentials) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const result = await storage.get(SAVED_CREDENTIALS_KEY);
+  const data = result[SAVED_CREDENTIALS_KEY] as Record<string, unknown> | undefined;
+  if (data && typeof data.login === 'string' && typeof data.password === 'string') {
+    return {
+      login: data.login,
+      password: data.password,
+    };
+  }
+  return null;
+}
+
+export async function saveCredentials(credentials: SavedCredentials): Promise<void> {
+  const storage = chrome.storage?.local;
+  if (storage) {
+    await storage.set({ [SAVED_CREDENTIALS_KEY]: credentials });
+  } else {
+    try {
+      localStorage.setItem(SAVED_CREDENTIALS_KEY, JSON.stringify(credentials));
+    } catch {}
+  }
+}
+
+export async function clearSavedCredentials(): Promise<void> {
+  const storage = chrome.storage?.local;
+  if (storage) {
+    await storage.remove(SAVED_CREDENTIALS_KEY);
+  } else {
+    try {
+      localStorage.removeItem(SAVED_CREDENTIALS_KEY);
+    } catch {}
+  }
+}
+
 export function subscribeAuthTokenChanges(listener: AuthTokenChangeListener) {
   authTokenChangeListeners.add(listener);
   installStorageChangeListener();

@@ -14,9 +14,11 @@ import { GoogleStrategy } from './strategies/google.strategy';
 import { InternalEntity } from '../internals/entities/internal.entity';
 import { NotificationModule } from '../notification/notification.module';
 import { PasswordResetRequestEntity } from './entities/password-reset-request.entity';
+import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
+    CommonModule,
     TypeOrmModule.forFeature([UserEntity, RefreshTokenEntity, FreelancerEntity, InternalEntity, PasswordResetRequestEntity]),
     NotificationModule,
     PassportModule,

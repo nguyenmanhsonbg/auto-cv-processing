@@ -33,6 +33,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   JOB_POSTING_NOT_FOUND: 'Không tìm thấy tin tuyển dụng.',
   QUESTION_SET_NOT_FOUND: 'Không tìm thấy bộ câu hỏi của Job Description.',
   VALIDATION_ERROR: 'Thông tin gửi lên không hợp lệ.',
+  RATE_LIMIT_EXCEEDED: 'Tài khoản đã bị tạm khóa. Vui lòng thử lại sau.',
+  NETWORK_ERROR: 'Có lỗi kết nối mạng, vui lòng kiểm tra lại.',
+  HTTP_0: 'Có lỗi kết nối mạng, vui lòng kiểm tra lại.',
 };
 
 const MESSAGE_PATTERNS: Array<[RegExp, string]> = [
@@ -69,6 +72,26 @@ export function toVietnameseErrorMessage(error: unknown, fallback = 'Không th�
   return fallback;
 }
 
+export type ToastErrorInfo = {
+  kind: 'ERROR' | 'WARNING';
+  title: string;
+  message: string;
+};
+
+export function toToastError(error: unknown, fallback = 'Không thể hoàn tất thao tác. Vui lòng thử lại.'): ToastErrorInfo {
+  const details = isErrorDetails(error) ? error : null;
+  const code = typeof details?.code === 'string' ? details.code : '';
+  const isWarning = code === 'FACEBOOK_DAILY_QUOTA_EXCEEDED';
+  const title = isWarning ? 'Cảnh báo' : 'Lỗi';
+  const message = toVietnameseErrorMessage(error, fallback);
+
+  return {
+    kind: isWarning ? 'WARNING' : 'ERROR',
+    title,
+    message,
+  };
+}
+
 function isErrorDetails(value: unknown): value is ErrorDetails {
   return typeof value === 'object' && value !== null;
 }
@@ -76,3 +99,4 @@ function isErrorDetails(value: unknown): value is ErrorDetails {
 function containsVietnamese(value: string) {
   return /[À-ỹ]/u.test(value);
 }
+

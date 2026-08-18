@@ -191,433 +191,666 @@ a {
 }
 
 .extension-login-shell {
-  min-height: calc(100vh - 36px);
+  min-height: calc(100vh - 45px);
   background: #ffffff;
 }
 
 .extension-login-brand {
-  border-bottom: 1px solid #d8dee9;
+  border-bottom: 1px solid #e5e5e5;
   padding: 3px 0 14px;
-  color: #1f2937;
-  font-size: 15px;
-  font-weight: 800;
-}
-
-.extension-login-card {
-  display: grid;
-  gap: 16px;
-  max-width: 658px;
-  margin: 20px auto 0;
-  padding: 0 0 28px;
-  border: 0;
-  background: #ffffff;
-}
-
-.extension-login-card h1 {
-  margin: 0 0 8px;
-  color: #171b24;
-  text-align: center;
-  font-size: 24px;
-  line-height: 1.2;
+  color: #262626;
+  font-size: 14px;
   font-weight: 700;
 }
 
-.extension-login-card label {
-  gap: 11px;
-  color: #3f424a;
-  font-size: 13px;
-  font-weight: 500;
+.extension-login-card {
+  display: flex;
+  flex-direction: column;
+  max-width: 658px;
+  margin: 0 auto;
+  padding: 20px 16px 28px;
+  background: #ffffff;
 }
 
-.required-mark {
-  color: #ef1d25;
+.extension-auth-heading-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  margin-bottom: 20px;
+}
+
+.extension-auth-heading-group h1,
+.extension-auth-heading-group h2,
+.extension-login-card h1 {
+  margin: 0;
+  color: #262626;
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.extension-auth-subtext {
+  margin: 0;
+  color: #85888e;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  text-align: center;
+}
+
+.extension-auth-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.extension-field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .extension-field-label {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
+  color: #262626;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.required-mark {
+  color: #dc2626;
 }
 
 .extension-input-shell {
   display: flex;
   align-items: center;
-  min-height: 40px;
-  overflow: hidden;
-  border: 1px solid #c9cdd6;
-  border-radius: 7px;
+  height: 40px;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
   background: #ffffff;
+  padding: 0 15px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.extension-input-shell:focus-within {
+  border-color: #15803d;
+  box-shadow: 0 0 0 1px #15803d;
 }
 
 .extension-input-shell.has-error {
-  border-color: #ff1e2d;
+  border-color: #dc2626;
+}
+
+.extension-input-shell.has-error:focus-within {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 1px #dc2626;
 }
 
 .extension-input-icon {
-  display: grid;
-  width: 52px;
-  height: 38px;
-  flex: 0 0 52px;
-  place-items: center;
-  border-right: 1px solid #c9cdd6;
-  color: #747474;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: #737373;
 }
 
-.extension-input-icon svg,
-.password-toggle svg {
-  width: 21px;
-  height: 21px;
+.extension-input-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.extension-input-divider {
+  width: 1px;
+  height: 20px;
+  background-color: #d4d4d4;
+  margin: 0 12px;
+  flex-shrink: 0;
 }
 
 .extension-input-shell input {
-  min-height: 38px;
   flex: 1;
+  min-width: 0;
   border: 0;
-  border-radius: 0;
-  padding: 8px 14px;
-  outline: 0;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  font-family: 'Inter', sans-serif;
   font-size: 14px;
   font-weight: 400;
+  line-height: 20px;
+  color: #262626;
 }
 
-.extension-input-shell input:focus {
-  box-shadow: inset 0 0 0 1px #0b805f;
+.extension-input-shell input::placeholder {
+  color: #a3a3a3;
+  opacity: 1;
+}
+
+.extension-input-clear-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  color: #a3a3a3;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.extension-input-clear-btn:hover {
+  color: #737373;
+  background-color: #f5f5f5;
+}
+
+.extension-input-clear-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .password-toggle {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border: 0;
-  color: #747474;
-  background: transparent;
-}
-
-.extension-login-card .remember-me-control {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 0;
-  color: #55585f;
-  font-size: 14px;
-  font-weight: 400;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: #737373;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 6px;
+  flex-shrink: 0;
 }
 
-.extension-login-card .remember-me-control input {
-  width: 17px;
-  height: 17px;
-  accent-color: #0b805f;
+.password-toggle:hover {
+  color: #262626;
 }
 
-.extension-login-links {
-  display: grid;
-  justify-content: flex-end;
-  gap: 8px;
-  justify-items: end;
-}
-
-.extension-login-links .text-button {
-  color: #0b65f5;
-  font-size: 14px;
-  font-weight: 400;
-  text-transform: none;
-  text-decoration: underline;
-}
-
-.extension-login-options {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: start;
-  margin-top: 5px;
-}
-
-.extension-login-card .primary-button {
-  width: 100%;
-  margin-top: 3px;
-  background: #087e5d;
+.extension-login-error-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 0 4px;
 }
 
 .extension-login-error {
-  margin: -7px 4px 0;
-  color: #ff1e2d;
-  font-size: 14px;
-  padding-left: 10%;
-}
-
-.extension-login-success {
-  margin: -7px 4px 0;
-  color: #087e5d;
-  font-size: 14px;
-}
-
-.extension-internal-success {
-  justify-items: center;
-  gap: 12px;
-  text-align: center;
-}
-
-.extension-internal-success h1 {
-  margin-bottom: 28px;
-}
-
-.extension-internal-success-icon {
-  color: #000000;
-}
-
-.extension-internal-success strong {
-  color: #171b24;
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.extension-internal-success p {
   margin: 0;
-  color: #52627a;
+  color: #dc2626;
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 19.6px;
+  font-weight: 400;
 }
 
-.extension-internal-success .primary-button {
+.extension-error-forgot-link {
+  color: #2563eb;
+  font-size: 14px;
+  font-weight: 400;
+  text-decoration: underline;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.extension-login-options {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 0 4px;
+}
+
+.remember-me-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 20px;
+  color: #262626;
+  cursor: pointer;
+}
+
+.remember-me-control input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #a3a3a3;
+  border-radius: 4px;
+  accent-color: #15803d;
+  cursor: pointer;
+  margin: 0;
+}
+
+.extension-login-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.extension-login-links .text-button {
+  color: #2563eb;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  text-transform: none;
+  text-decoration: underline;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.extension-submit-btn,
+.extension-login-card .primary-button {
   width: 100%;
-  margin-top: 25px;
-  background: #087e5d;
+  height: 40px;
+  background: #15803d;
+  color: #ffffff;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 16px;
+  border-radius: 4px;
+  border: 0;
+  cursor: pointer;
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.extension-submit-btn:hover,
+.extension-login-card .primary-button:hover {
+  background: #166534;
 }
 
 .extension-login-actions {
   display: flex;
-  gap: 12px;
-  margin-top: 135px;
-}
-
-.extension-login-actions-centered {
+  align-items: center;
   justify-content: center;
+  gap: 16px;
+  margin-top: 24px;
 }
 
-.extension-forgot-password-card {
-  display: grid;
-  gap: 14px;
-  max-width: 648px;
-  margin: 20px auto 0;
-  padding: 0 0 28px;
-  color: #3f424a;
+.extension-login-actions .secondary-button,
+.secondary-button {
+  min-width: 100px;
+  height: 40px;
+  border: 1px solid #737373;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #525252;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  transition: background 0.15s;
 }
 
-.extension-forgot-password-card h1 {
-  margin: 0 0 20px;
-  color: #171b24;
+.extension-login-actions .secondary-button:hover,
+.secondary-button:hover {
+  background: #f5f5f5;
+}
+
+.extension-login-actions .confirm-button,
+.confirm-button {
+  min-width: 100px;
+  height: 40px;
+  border: 0;
+  border-radius: 6px;
+  background: #15803d;
+  color: #ffffff;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  transition: background 0.15s;
+}
+
+.extension-login-actions .confirm-button:hover,
+.confirm-button:hover {
+  background: #166534;
+}
+
+.extension-login-actions .confirm-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.extension-internal-success {
+  align-items: center;
   text-align: center;
-  font-size: 24px;
-  line-height: 1.2;
+}
+
+.extension-internal-success-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  max-width: 629px;
+  margin: 0 auto;
+}
+
+.extension-internal-success-icon {
+  color: #000000;
+  width: 50px;
+  height: 50px;
+}
+
+.extension-internal-success-texts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+}
+
+.extension-internal-success-texts strong {
+  color: #262626;
+  font-size: 16px;
   font-weight: 700;
+  line-height: 24px;
 }
 
-.extension-forgot-field {
-  display: grid;
-  gap: 11px;
-  font-size: 13px;
-}
-
-.extension-forgot-method-heading h2 {
+.extension-internal-success-texts p {
   margin: 0;
-  color: #171b24;
-  font-size: 24px;
+  color: #262626;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.extension-auth-btn-back {
+  width: 100%;
+  height: 40px;
+  background: #15803d;
+  color: #ffffff;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 4px;
+  border: 0;
+  cursor: pointer;
+  margin-top: 16px;
 }
 
 .extension-forgot-method-heading {
-  padding-left: 10%;
+  margin-bottom: 16px;
 }
 
-.extension-forgot-method-heading p,
-.extension-otp-description {
+.extension-forgot-method-heading h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #262626;
+  margin: 0 0 4px 0;
+}
+
+.extension-forgot-method-heading p {
+  font-size: 14px;
+  font-weight: 400;
+  color: #85888e;
   margin: 0;
-  color: #8b929a;
-  font-size: 16px;
-  text-align: left;
+}
+
+.extension-forgot-method-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 8px;
 }
 
 .extension-forgot-method {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  color: #52627a;
-  font-size: 14px;
-  padding-left: 4%;
+  padding: 12px 16px;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
 }
 
-.extension-forgot-method input {
-  width: 17px;
-  height: 17px;
-  margin-top: 2px;
-  accent-color: #ff1e2d;
+.extension-forgot-method.is-selected {
+  border-color: #15803d;
+  background: #f0fdf4;
 }
 
-.extension-forgot-method span {
-  display: grid;
-  gap: 5px;
+.extension-forgot-method input[type="radio"] {
+  margin-top: 3px;
+  accent-color: #15803d;
+  width: 16px;
+  height: 16px;
 }
 
-.extension-forgot-method strong {
-  color: #132238;
-  font-size: 16px;
-}
-
-.extension-forgot-method small {
-  font-size: 14px;
-}
-
-.extension-forgot-actions {
+.extension-forgot-method-content {
   display: flex;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 135px;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.extension-forgot-method-heading~.extension-forgot-actions {
-  margin-top: 34px;
-}
-
-.extension-forgot-actions button {
-  min-width: 100px;
-  min-height: 42px;
-  border-radius: 6px;
-  padding: 0 20px;
+.extension-forgot-method-content strong {
   font-size: 14px;
-  font-weight: 500;
-  text-transform: none;
+  font-weight: 600;
+  color: #262626;
 }
 
-.extension-forgot-actions .confirm-button {
-  color: #fff;
-  background: #168842;
+.extension-forgot-method-content small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #737373;
+  line-height: 16px;
+}
+
+.extension-otp-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
 }
 
 .extension-otp-inputs {
   display: flex;
   justify-content: center;
-  gap: 7px;
+  gap: 10px;
 }
 
-.extension-otp-inputs input {
+.extension-otp-input {
   width: 44px;
   height: 44px;
-  border: 1px solid #000000;
-  border-radius: 7px;
-  color: #171b24;
-  font-size: 24px;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  font-family: 'Inter', sans-serif;
+  font-size: 20px;
+  font-weight: 600;
   text-align: center;
-  outline: 0;
+  color: #262626;
+  outline: none;
+  background: #ffffff;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.extension-otp-inputs input.has-error {
-  border-color: #FF0000;
+.extension-otp-input:focus {
+  border-color: #15803d;
+  box-shadow: 0 0 0 1px #15803d;
 }
 
-.extension-otp-view {
-  display: grid;
-  justify-items: center;
+.extension-otp-input.has-error {
+  border-color: #dc2626;
+}
+
+.extension-otp-resend-row {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  font-size: 14px;
 }
 
-.extension-otp-resend {
-  margin-top: 10px;
+.extension-otp-resend-btn {
   border: 0;
-  color: #1f2937;
   background: transparent;
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
   font-size: 14px;
 }
 
-.extension-otp-resend span,
-.extension-otp-hint {
-  color: #8b929a;
+.extension-otp-resend-count {
+  color: #737373;
+  font-size: 14px;
+}
+
+.extension-otp-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+  margin-top: 4px;
 }
 
 .extension-otp-hint {
-  margin: 0;
   font-size: 12px;
+  color: #737373;
+  margin: 0;
+  line-height: 16px;
 }
 
-.extension-otp-view .extension-forgot-actions {
-  margin-top: 15px;
+.extension-password-conditions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
 }
 
-.extension-login-actions .secondary-button,
-.extension-login-actions .confirm-button {
-  min-width: 100px;
-  min-height: 42px;
-  border-radius: 6px;
-  padding: 0 20px;
-  font-size: 14px;
+.extension-password-condition {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 16px;
+  color: #737373;
 }
 
-.extension-login-actions .secondary-button {
-  border: 1px solid #D1D5DB;
-  background: #FFFFFF;
+.extension-password-condition.is-valid {
+  color: #262626;
 }
 
-.extension-login-actions .confirm-button {
-  color: #ffffff;
-  background: #168842;
+.extension-condition-tick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .extension-toast {
   position: fixed;
-  top: 12px;
-  right: 12px;
-  z-index: 100;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 16px;
-  align-items: start;
-  gap: 8px;
-  width: min(360px, calc(100vw - 24px));
-  min-height: 72px;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  align-items: stretch;
+  width: min(340px, calc(100vw - 32px));
+  min-height: 58px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
   overflow: hidden;
-  border-radius: 8px;
-  padding: 16px 16px 20px;
-  background: #2b3f3a;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.24);
+  animation: extension-toast-in 0.25s ease-out;
+}
+
+@keyframes extension-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.extension-toast-accent {
+  width: 7px;
+  flex-shrink: 0;
+}
+
+.extension-toast.is-success .extension-toast-accent {
+  background: #22c55e;
+}
+
+.extension-toast.is-error .extension-toast-accent {
+  background: #ef4444;
+}
+
+.extension-toast.is-warning .extension-toast-accent {
+  background: #fb923c;
+}
+
+.extension-toast.is-info .extension-toast-accent {
+  background: #3b82f6;
+}
+
+.extension-toast-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 10px 10px 10px;
+  flex: 1;
+  min-width: 0;
 }
 
 .extension-toast-icon {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .extension-toast-icon svg {
-  width: 22px;
-  height: 22px;
-}
-
-.extension-toast.is-success .extension-toast-icon,
-.extension-toast.is-success .extension-toast-copy strong {
-  color: #5ae02f;
-}
-
-.extension-toast.is-error .extension-toast-icon,
-.extension-toast.is-error .extension-toast-copy strong {
-  color: #ff7a7a;
-}
-
-.extension-toast.is-success .extension-toast-progress {
-  background-color: #5ae02f;
-}
-
-.extension-toast.is-error .extension-toast-progress {
-  background-color: #ff7a7a;
-}
-
-.extension-toast.is-success .extension-toast-icon,
-.extension-toast.is-error .extension-toast-icon {
-  background: transparent;
+  width: 20px;
+  height: 20px;
 }
 
 .extension-toast-copy {
-  display: grid;
-  min-width: 0;
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
 
 .extension-toast-copy strong {
@@ -626,8 +859,24 @@ a {
   line-height: 22px;
 }
 
+.extension-toast.is-success .extension-toast-copy strong {
+  color: #22c55e;
+}
+
+.extension-toast.is-error .extension-toast-copy strong {
+  color: #ef4444;
+}
+
+.extension-toast.is-warning .extension-toast-copy strong {
+  color: #fb923c;
+}
+
+.extension-toast.is-info .extension-toast-copy strong {
+  color: #3b82f6;
+}
+
 .extension-toast-copy span {
-  color: #eff0f7;
+  color: #737373;
   font-size: 12px;
   font-weight: 400;
   line-height: 18px;
@@ -635,34 +884,55 @@ a {
 }
 
 .extension-toast-close {
-  display: grid;
-  width: 16px;
-  height: 16px;
-  place-items: center;
-  border-radius: 3px;
-  padding: 0;
-  color: #6c708a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
   background: transparent;
+  color: #6c708a;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background-color 0.15s, color 0.15s;
 }
 
 .extension-toast-close:hover {
-  color: #eff0f7;
-  background: rgba(239, 240, 247, 0.1);
+  background-color: #f3f4f6;
+  color: #262626;
 }
 
 .extension-toast-close svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 .extension-toast-progress {
   position: absolute;
   right: 0;
   bottom: 0;
-  left: 0;
-  height: 4px;
+  left: 7px;
+  height: 2px;
   transform-origin: left center;
   animation: extension-toast-progress 5s linear forwards;
+}
+
+.extension-toast.is-success .extension-toast-progress {
+  background-color: #22c55e;
+}
+
+.extension-toast.is-error .extension-toast-progress {
+  background-color: #ef4444;
+}
+
+.extension-toast.is-warning .extension-toast-progress {
+  background-color: #fb923c;
+}
+
+.extension-toast.is-info .extension-toast-progress {
+  background-color: #3b82f6;
 }
 
 @keyframes extension-toast-progress {
@@ -4890,21 +5160,22 @@ dd {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 33px;
-  border-bottom: 1px solid #e8edf3;
+  min-height: 44px;
+  border-bottom: 1px solid #e5e5e5;
   padding: 0 16px;
+  background: #ffffff;
 }
 
 .extension-header h1 {
   margin: 0;
-  color: #263449;
-  font-size: 15px;
-  font-weight: 850;
-  line-height: 1.2;
+  color: #262626;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
 }
 
 .extension-header-logo {
-  color: #172033;
+  color: #262626;
   font-size: 14px;
   font-weight: 700;
   font-style: normal;
@@ -10516,19 +10787,6 @@ dd {
     align-items: flex-start;
     flex-direction: column;
   }
-}
-
-.extension-login-card.extension-auth-form>label {
-  display: grid;
-  gap: 11px;
-}
-
-.extension-login-card.extension-auth-form {
-  gap: 16px;
-  border: 0;
-  border-radius: 0;
-  padding: 0 0 28px;
-  background: #ffffff;
 }
 
 /* Keep focus feedback to a single border without stacked outlines or glows. */

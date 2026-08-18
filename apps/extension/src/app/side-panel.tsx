@@ -44,9 +44,18 @@ import {
   verifyFacebookGroup,
 } from '@/lib/api-client';
 import { createAiMatchPreviewPdfBase64 } from '@/features/recruitment/ai-match-preview-pdf-export';
-import { clearAccessToken, getAccessToken, setAuthTokens, subscribeAuthTokenChanges } from '@/features/auth/auth-store';
+import {
+  clearAccessToken,
+  clearSavedCredentials,
+  getAccessToken,
+  getSavedCredentials,
+  saveCredentials,
+  setAuthTokens,
+  subscribeAuthTokenChanges,
+} from '@/features/auth/auth-store';
 import { getSelectedChannels, setSelectedChannels } from '@/stores/channel-preferences';
-import { toVietnameseErrorMessage } from '@/lib/error-messages';
+import { toToastError, toVietnameseErrorMessage } from '@/lib/error-messages';
+import { Toast, type ExtensionToastKind, type ExtensionToastState } from '@/components/toast';
 import {
   DEFAULT_POSTING_CHANNELS,
   FACEBOOK_MAX_IMAGE_ATTACHMENTS,
@@ -163,13 +172,6 @@ import type {
 import './styles.css';
 
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
-type ExtensionToastKind = 'SUCCESS' | 'ERROR' | 'INFO';
-type ExtensionToastState = {
-  id: number;
-  kind: ExtensionToastKind;
-  title: string;
-  message: string;
-};
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv' | 'freelancer' | 'internal';
@@ -679,6 +681,16 @@ function SidePanel() {
   useEffect(() => {
     tokenRef.current = token;
   }, [token]);
+
+  useEffect(() => {
+    void getSavedCredentials().then((saved) => {
+      if (saved) {
+        setEmail(saved.login);
+        setPassword(saved.password);
+        setRememberMe(true);
+      }
+    });
+  }, []);
 
   useEffect(() => () => {
     if (jobDescriptionSearchDebounceRef.current !== null) {
@@ -1586,8 +1598,24 @@ function SidePanel() {
     event.preventDefault();
     setError(null);
 
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError('Tên đăng nhập là bắt buộc');
+      return;
+    }
+    if (!password) {
+      setError('Mật khẩu là bắt buộc');
+      return;
+    }
+
     try {
-      const auth = await login(email, password);
+      const auth = await login(trimmedEmail, password);
+      if (rememberMe) {
+        await saveCredentials({ login: trimmedEmail, password });
+      } else {
+        await clearSavedCredentials();
+      }
+
       if (auth.user.role === 'FREELANCER' || auth.user.role === 'INTERNAL') {
         await setAuthTokens({
           accessToken: auth.accessToken,
@@ -1614,7 +1642,11 @@ function SidePanel() {
       await loadJobDescriptions(auth.accessToken);
       await loadLatestAmisCapture({ silent: true }, auth.accessToken);
     } catch (err) {
-      setError(toErrorMessage(err));
+      if (err instanceof ApiClientError && (err.status === 401 || err.code === 'HTTP_401')) {
+        setError('Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại.');
+      } else {
+        setError(toErrorMessage(err));
+      }
       setState('AUTH_REQUIRED');
     }
   }
@@ -1669,7 +1701,6 @@ function SidePanel() {
   async function logout() {
     await clearAccessToken();
     setToken(null);
-    setRememberMe(false);
     setUser(null);
     setIsFreelancerPasswordFormOpen(false);
     setIsInternalPasswordRequestOpen(false);
@@ -1684,6 +1715,17 @@ function SidePanel() {
     setOpenCvFilter(null);
     setCvApplicationPage(1);
     setSelectedCvApplicationIds(new Set());
+
+    const saved = await getSavedCredentials();
+    if (saved) {
+      setEmail(saved.login);
+      setPassword(saved.password);
+      setRememberMe(true);
+    } else {
+      setEmail('');
+      setPassword('');
+      setRememberMe(false);
+    }
     setState('AUTH_REQUIRED');
   }
 
@@ -4937,11 +4979,16 @@ function SidePanel() {
     }, 5000);
   }
 
+  function showErrorToast(error: unknown, fallback?: string) {
+    const info = toToastError(error, fallback);
+    showExtensionToast(info.kind, info.title, info.message);
+  }
+
   async function handleManuallyIncludeFacebookGroup(group: FacebookGroupSyncDetailItem) {
     if (!token || !facebookAccount || !group.url) {
       const message = 'Không thể thêm nhóm vì Facebook account hoặc URL group chưa có.';
       setFacebookGroupMessage(message);
-      showExtensionToast('ERROR', 'Thất bại', message);
+      showExtensionToast('ERROR', 'Lỗi', message);
       return;
     }
 
@@ -4975,7 +5022,7 @@ function SidePanel() {
       }
       const message = toErrorMessage(err);
       setFacebookGroupMessage(message);
-      showExtensionToast('ERROR', 'Thất bại', message);
+      showErrorToast(err, message);
     } finally {
       setManualIncludingFacebookGroupKeys((keys) => keys.filter((key) => key !== groupKey));
     }
@@ -6622,30 +6669,13 @@ function SidePanel() {
       </section>
 
       {extensionToast ? (
-        <aside
+        <Toast
           key={extensionToast.id}
-          className={`extension-toast is-${extensionToast.kind.toLowerCase()}`}
-          role="status"
-          aria-live="polite"
-        >
-          <div className="extension-toast-icon" aria-hidden="true">
-            {extensionToast.kind === 'SUCCESS' ? <CheckCircleIcon /> : <WarningIcon />}
-          </div>
-          <div className="extension-toast-copy">
-            <strong>{extensionToast.title}</strong>
-            <span>{extensionToast.message}</span>
-          </div>
-          <button
-            type="button"
-            className="extension-toast-close"
-            title="Đóng thông báo"
-            aria-label="Đóng thông báo"
-            onClick={dismissExtensionToast}
-          >
-            <CloseIcon />
-          </button>
-          <span className="extension-toast-progress" aria-hidden="true" />
-        </aside>
+          kind={extensionToast.kind}
+          title={extensionToast.title}
+          message={extensionToast.message}
+          onClose={dismissExtensionToast}
+        />
       ) : null}
 
       {facebookPreviewModalMode ? renderFacebookPreviewModal() : null}
