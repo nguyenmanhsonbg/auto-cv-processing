@@ -30,17 +30,6 @@ import type {
 } from '@/types/types';
 
 const FACEBOOK_TARGET_TIMEOUT_MS = 90_000;
-const FACEBOOK_KEEP_HIDDEN_PUBLISH_TABS_OPEN = true;
-const FACEBOOK_SHOULD_AUTO_CLOSE_HIDDEN_PUBLISH_TABS = !FACEBOOK_KEEP_HIDDEN_PUBLISH_TABS_OPEN;
-
-function shouldAutoCloseHiddenPublishTabs() {
-  return FACEBOOK_SHOULD_AUTO_CLOSE_HIDDEN_PUBLISH_TABS;
-}
-
-async function closeFacebookPublishTabWhenConfigured(tabId: number) {
-  if (!shouldAutoCloseHiddenPublishTabs()) return;
-  await closeFacebookPublishTabSafely(tabId);
-}
 const FACEBOOK_LOGIN_REQUIRED_MESSAGE = 'Vui lòng đăng nhập facebook trước khi thực hiện thao tác này.';
 
 function splitTitleBySeparators(value: string) {
@@ -116,7 +105,7 @@ class FacebookTargetExecution {
     const tabIds = [...this.tabIds];
     this.tabIds.clear();
     for (const tabId of tabIds) {
-      await closeFacebookPublishTabWhenConfigured(tabId);
+      await closeFacebookPublishTabSafely(tabId);
     }
   }
 }
@@ -1407,7 +1396,7 @@ async function runFreshTabPublishAttempt({
         })
       : 'SKIP';
     if (decision === 'POST_TEXT_ONLY') {
-      await closeFacebookPublishTabWhenConfigured(tabId);
+      await closeFacebookPublishTabSafely(tabId);
       const submitResult = await publishTargetInFreshTab(
         targetUrl,
         targetExternalId,
@@ -1489,7 +1478,7 @@ async function publishTargetInFreshTab(
     };
   } finally {
     execution.unregisterTab(tab.id);
-    await closeFacebookPublishTabWhenConfigured(tab.id);
+    await closeFacebookPublishTabSafely(tab.id);
   }
 }
 
