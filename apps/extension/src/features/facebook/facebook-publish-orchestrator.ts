@@ -3,7 +3,6 @@ import { getAccessToken } from '@/features/auth/auth-store';
 import { summarizeFacebookPublishResults } from '@/features/facebook/facebook-channel-status';
 import { toVietnameseErrorMessage } from '@/lib/error-messages';
 import { FACEBOOK_MAX_IMAGE_ATTACHMENTS } from '@/lib/config';
-import { hashText } from '@/hash-text';
 import { secureRandomFraction } from '@/secure-random';
 import { trimTrailingSlashes } from '@/text-normalization';
 import {
@@ -1366,6 +1365,13 @@ async function runFreshTabPublishAttempt({
     [content, imageAttachments],
   );
   execution.throwIfCancelled();
+  console.warn('[FB_PREPARE_RESULT]', {
+    tabId,
+    attempt,
+    status: preparedPost.status,
+    message: preparedPost.message,
+    submitButton: preparedPost.submitButton ?? null,
+  });
 
   if (preparedPost.status === 'READY_TO_SUBMIT' && preparedPost.submitButton) {
     const result = await submitPreparedPost(
@@ -2377,7 +2383,7 @@ async function clickAndWaitForSubmission(
   }
 
   try {
-    let submissionResult = await runScript<[string, FacebookSubmitDiagnosticInput], FacebookPagePublishResult>(
+    const submissionPromise = runScript<[string, FacebookSubmitDiagnosticInput], FacebookPagePublishResult>(
       tabId,
       waitForFacebookSubmissionInPage,
       [content, {
@@ -2388,6 +2394,48 @@ async function clickAndWaitForSubmission(
         activationMode: 'native-dom-click',
       }],
     );
+    const initialGraphqlResult = await graphqlCapture?.waitForResult(1_500) ?? null;
+    if (!initialGraphqlResult) {
+      const fallbackPointProbe = await runScript<[], FacebookSubmitButtonPointProbe>(
+        tabId,
+        resolveFacebookSubmitButtonPointInPage,
+        [],
+      ).catch(() => null);
+      console.warn('[FB06B_NATIVE_FALLBACK_PROBE]', {
+        tabId,
+        graphqlObserved: false,
+        submitButtonStillEnabled: fallbackPointProbe?.found ?? false,
+        fallbackPoint: fallbackPointProbe?.submitButton ?? null,
+      });
+      if (fallbackPointProbe?.found && fallbackPointProbe.submitButton) {
+        try {
+          if (graphqlCapture) {
+            await clickTabCoordinatePointOnAttachedDebugger(
+              tabId,
+              fallbackPointProbe.submitButton,
+              execution,
+            );
+          } else {
+            await clickTabCoordinatePoint(tabId, fallbackPointProbe.submitButton, execution);
+          }
+          console.warn('[FB06B_COORDINATE_FALLBACK_DISPATCHED]', {
+            tabId,
+            point: fallbackPointProbe.submitButton,
+          });
+        } catch (error) {
+          console.warn('[FB06B_COORDINATE_FALLBACK_FAILED]', {
+            tabId,
+            message: toAutomationErrorMessage(error),
+          });
+        }
+      }
+    } else {
+      console.warn('[FB06B_NATIVE_CLICK_TRIGGERED_GQL]', {
+        tabId,
+        graphqlResult: initialGraphqlResult,
+      });
+    }
+    let submissionResult = await submissionPromise;
     execution.throwIfCancelled();
     await execution.wait(500);
     const afterClickProbe = await runScript<[], {
@@ -3232,6 +3280,15 @@ function ensureFacebookPageProbeUtilitiesInPage() {
       || /^aa$|dang hoat dong|active now|doan chat|cuoc tro chuyen/.test(compactText)
       || isDockedChatLikeSurface(element);
   };
+  // Keep surface detection independent from the full post body. A JD can
+  // legitimately contain words such as "trả lời", "gửi", or "send".
+  const surfaceLabel = (element: Element) => {
+    const directText = Array.from(element.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent ?? '')
+      .join(' ');
+    return normalize([elementAttributeLabel(element), directText].filter(Boolean).join(' '));
+  };
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex], a') ?? element
   );
@@ -3240,12 +3297,12 @@ function ensureFacebookPageProbeUtilitiesInPage() {
     return clickable.hasAttribute('disabled') || clickable.getAttribute('aria-disabled') === 'true';
   };
   const isInsideCommentSurface = (element: Element) => {
-    if (isCommentLabel(elementLabel(element)) || isChatSurface(element)) return true;
+    if (isCommentLabel(surfaceLabel(element)) || isChatSurface(element)) return true;
 
     let current = element.parentElement;
     let depth = 0;
     while (current && depth < 9) {
-      const label = elementLabel(current);
+      const label = surfaceLabel(current);
       if (matchesAny(label, POST_COMPOSER_PATTERNS) || isSubmitLabel(label)) return false;
       if (isCommentLabel(label) || isChatSurface(current)) return true;
       current = current.parentElement;
@@ -3668,6 +3725,42 @@ async function clickTabCoordinatePoint(
   }
 }
 
+async function clickTabCoordinatePointOnAttachedDebugger(
+  tabId: number,
+  point: FacebookSubmitButtonPoint,
+  execution?: FacebookTargetExecution,
+) {
+  const target = { tabId };
+  await sendChromeDebuggerCommand(target, 'Page.bringToFront', {}).catch(() => undefined);
+  if (execution) await execution.wait(randomDelay(120, 240));
+  else await sleep(randomDelay(120, 240));
+  await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: point.clientX,
+    y: point.clientY,
+  });
+  if (execution) await execution.wait(randomDelay(90, 180));
+  else await sleep(randomDelay(90, 180));
+  await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: point.clientX,
+    y: point.clientY,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  });
+  if (execution) await execution.wait(randomDelay(80, 180));
+  else await sleep(randomDelay(80, 180));
+  await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: point.clientX,
+    y: point.clientY,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  });
+}
+
 function randomDelay(minMs: number, maxMs: number) {
   const min = Math.max(0, minMs);
   const max = Math.max(min, maxMs);
@@ -3980,6 +4073,19 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
     ];
     return normalize([text, ...attributes].join(' '));
   };
+  const surfaceLabel = (element: Element) => {
+    const attributes = [
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('aria-placeholder') ?? '',
+      element.getAttribute('placeholder') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    const directText = Array.from(element.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent ?? '')
+      .join(' ');
+    return normalize([...attributes, directText].filter(Boolean).join(' '));
+  };
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex], a') ?? element
@@ -3992,12 +4098,12 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
   };
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
   const isInsideCommentSurface = (element: Element) => {
-    if (isCommentLabel(elementLabel(element))) return true;
+    if (isCommentLabel(surfaceLabel(element))) return true;
 
     let current = element.parentElement;
     let depth = 0;
     while (current && depth < 6) {
-      const label = elementLabel(current);
+      const label = surfaceLabel(current);
       if (matchesAny(label, POST_COMPOSER_PATTERNS)) return false;
       if (isCommentLabel(label)) return true;
       current = current.parentElement;
@@ -4273,6 +4379,19 @@ async function prepareFacebookPostInPage(
     ];
     return normalize(label.join(' '));
   };
+  const surfaceLabel = (element: Element) => {
+    const attributes = [
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('aria-placeholder') ?? '',
+      element.getAttribute('placeholder') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    const directText = Array.from(element.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent ?? '')
+      .join(' ');
+    return normalize([...attributes, directText].filter(Boolean).join(' '));
+  };
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
@@ -4285,12 +4404,12 @@ async function prepareFacebookPostInPage(
     return nativeDisabled || ariaDisabled;
   };
   const isInsideCommentSurface = (element: Element) => {
-    const directLabel = elementLabel(element);
+    const directLabel = surfaceLabel(element);
     const isDirectSurface = isCommentLabel(directLabel) || isChatSurface(element);
     if (isDirectSurface) return true;
 
     const classifyAncestorSurface = (ancestor: Element) => {
-      const label = elementLabel(ancestor);
+      const label = surfaceLabel(ancestor);
       if (matchesAny(label, POST_COMPOSER_PATTERNS)) return 'post';
       if (isCommentLabel(label) || isChatSurface(ancestor)) return 'comment';
       return 'none';
@@ -4445,6 +4564,17 @@ async function prepareFacebookPostInPage(
       })
       .sort((left, right) => right.score - left.score)[0]?.element ?? null;
   };
+  const findExactPostSubmitButton = (root: Document | Element) => (
+    queryAll(root, 'button[aria-label], [role="button"][aria-label]')
+      .map((element) => getClickableElement(element))
+      .find((element) => {
+        const label = normalize(element.getAttribute('aria-label') ?? '');
+        return (label === 'post' || label === 'dang')
+          && isVisible(element)
+          && !isDisabled(element)
+          && !isInsideCommentSurface(element);
+      }) ?? null
+  );
   const hasPostSubmitControl = (root: Document | Element) => {
     const uniqueClickables = new Set<Element>();
 
@@ -4585,7 +4715,7 @@ async function prepareFacebookPostInPage(
       const openedSurface = await waitForPostSurface(2_500);
       if (openedSurface) return { surface: openedSurface, composerSeen };
 
-      await sleepInPage(800 + secureRandomFraction() * 1_200);
+      await sleepInPage(800 + Math.random() * 1_200);
     }
 
     return { surface: null, composerSeen };
@@ -4596,11 +4726,17 @@ async function prepareFacebookPostInPage(
   ): Promise<Element | null> => {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const button = findClickable(surface, POST_BUTTON_PATTERNS, {
-        enabledOnly: true,
-        excludeCommentSurfaces: true,
-        maxLabelLength: 80,
-      }) ?? findPostSubmitButton(surface);
+      const composerDialog = queryAll(document, '[role="dialog"]')
+        .filter((element) => isVisible(element))
+        .find((dialog) => findPostEditor(dialog));
+      const button = findExactPostSubmitButton(surface)
+        ?? (composerDialog ? findExactPostSubmitButton(composerDialog) : null)
+        ?? findClickable(surface, POST_BUTTON_PATTERNS, {
+          enabledOnly: true,
+          excludeCommentSurfaces: true,
+          maxLabelLength: 80,
+        })
+        ?? findPostSubmitButton(surface);
       if (button) return button;
       await sleepInPage(500);
     }
@@ -4971,7 +5107,7 @@ async function prepareFacebookPostInPage(
       message: 'Could not insert Facebook post content into the verified composer.',
     };
   }
-  await sleepInPage(2_500 + secureRandomFraction() * 3_500);
+  await sleepInPage(2_500 + Math.random() * 3_500);
 
   if (imageAttachments.length > 0) {
     const attached = await attachImagesToComposer(surface, imageAttachments);
@@ -5036,6 +5172,19 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
     element.getAttribute('aria-label') ?? '',
     element.getAttribute('title') ?? '',
   ].join(' '));
+  const surfaceLabel = (element: Element) => {
+    const attributes = [
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('aria-placeholder') ?? '',
+      element.getAttribute('placeholder') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    const directText = Array.from(element.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent ?? '')
+      .join(' ');
+    return normalize([...attributes, directText].filter(Boolean).join(' '));
+  };
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
   const COMMENT_PATTERNS = [
@@ -5095,12 +5244,12 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
     };
   };
   const isInsideCommentSurface = (element: Element) => {
-    if (isCommentLabel(elementLabel(element))) return true;
+    if (isCommentLabel(surfaceLabel(element))) return true;
 
     let current = element.parentElement;
     let depth = 0;
     while (current && depth < 6) {
-      const label = elementLabel(current);
+      const label = surfaceLabel(current);
       if (isSubmitLabel(label)) return false;
       if (isCommentLabel(label)) return true;
       current = current.parentElement;
@@ -5256,6 +5405,19 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
     ];
     return normalize(fields.join(' '));
   };
+  const surfaceLabel = (element: Element) => {
+    const attributes = [
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('aria-placeholder') ?? '',
+      element.getAttribute('placeholder') ?? '',
+      element.getAttribute('title') ?? '',
+    ];
+    const directText = Array.from(element.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent ?? '')
+      .join(' ');
+    return normalize([...attributes, directText].filter(Boolean).join(' '));
+  };
   const matchesAny = (label: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(label));
   const isSubmitLabel = (label: string) => matchesAny(label, POST_BUTTON_PATTERNS);
   const isCommentLabel = (label: string) => matchesAny(label, COMMENT_PATTERNS);
@@ -5271,12 +5433,12 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
     ));
   };
   const isInsideCommentSurface = (element: Element) => {
-    if (isCommentLabel(elementLabel(element))) return true;
+    if (isCommentLabel(surfaceLabel(element))) return true;
 
     let current = element.parentElement;
     let depth = 0;
     while (current && depth < 8) {
-      const label = elementLabel(current);
+      const label = surfaceLabel(current);
       if (matchesAny(label, POST_COMPOSER_PATTERNS) || isSubmitLabel(label)) return false;
       if (isCommentLabel(label)) return true;
       current = current.parentElement;
@@ -5313,12 +5475,12 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
       .sort((left, right) => right.score - left.score)[0]?.element ?? null;
   };
   const findExactAriaSubmitButton = (root: Element) => (
-    queryAll(root, '[role="button"][aria-label]')
-      .map((element) => getClickableElement(element))
+    queryAll(root, 'button[aria-label], [role="button"][aria-label]')
       .find((element) => {
-        if (!isVisible(element) || isDisabled(element) || isInsideCommentSurface(element)) return false;
         const label = normalize(element.getAttribute('aria-label') ?? '');
-        return label === 'post' || label === 'dang';
+        return (label === 'post' || label === 'dang')
+          && isVisible(element)
+          && !isDisabled(element);
       }) ?? null
   );
   const contentSample = normalize(content).slice(0, 24);
@@ -5358,11 +5520,24 @@ function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActi
     };
   }
 
+  const ariaLabel = clickable.getAttribute('aria-label') ?? submitButton.getAttribute('aria-label') ?? '';
+  const ariaDisabled = clickable.getAttribute('aria-disabled');
+  const disabledAttribute = clickable.hasAttribute('disabled');
+  const clickTargetDescription = `${clickable.tagName.toLowerCase()}[role=${clickable.getAttribute('role') ?? 'none'}][aria-label=${ariaLabel}][aria-disabled=${ariaDisabled ?? 'none'}][disabled=${disabledAttribute}]`;
+  console.warn('[FB_PAGE_NATIVE_CLICK_TARGET]', {
+    clickTargetDescription,
+    rect: {
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    },
+  });
   clickable.click();
 
   return {
     activated: true,
-    message: `Native HTMLElement.click() dispatched to the enabled Facebook submit button (${exactSubmitButton ? 'exact-aria' : 'scored-fallback'}).`,
+    message: `Native HTMLElement.click() dispatched to the enabled Facebook submit button (${exactSubmitButton ? 'exact-aria' : 'scored-fallback'}; ${clickTargetDescription}).`,
     submitButton: {
       clientX: Math.round(rect.left + rect.width / 2),
       clientY: Math.round(rect.top + rect.height / 2),
@@ -7495,6 +7670,14 @@ async function waitForFacebookSubmissionInPage(
   diagnosticInput: FacebookSubmitDiagnosticInput = {},
 ): Promise<FacebookPagePublishResult> {
   const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const trimTrailingSlashesInPage = (value: string) => value.replace(/\/+$/, '');
+  const hashTextInPage = (value: string) => {
+    let hash = 2_166_136_261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = Math.imul(hash ^ value.charCodeAt(index), 16_777_619);
+    }
+    return (hash >>> 0).toString(16);
+  };
   const utilities = (globalThis as FacebookPageProbeGlobal).__vcsFacebookPageProbeUtilities;
   if (!utilities) throw new Error('Facebook page probe utilities are unavailable.');
   const {
@@ -7541,9 +7724,9 @@ async function waitForFacebookSubmissionInPage(
     const safeDecode = (value: string | null | undefined) => {
       if (!value) return null;
       try {
-        return trimTrailingSlashes(decodeURIComponent(value).trim());
+        return trimTrailingSlashesInPage(decodeURIComponent(value).trim());
       } catch {
-        return trimTrailingSlashes(value.trim());
+        return trimTrailingSlashesInPage(value.trim());
       }
     };
     const normalizeGroupId = (value: string | null | undefined) => safeDecode(value);
@@ -7837,7 +8020,7 @@ async function waitForFacebookSubmissionInPage(
     const bodyErrorCue = extra.bodyErrorCue ?? readBodyErrorCue() ?? 'none';
     const pendingSignalScope = readPendingSignalScope();
     const clickPoint = diagnosticInput.clickPoint ?? null;
-    const contentHash = hashText(normalize(content));
+    const contentHash = hashTextInPage(normalize(content));
     const currentUrl = shorten(window.location.href, 180);
     const fields = [
       `targetGroupId=${getTargetGroupId()}`,
