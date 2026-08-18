@@ -93,6 +93,12 @@ export class AuthController {
     return this.authService.requestPasswordReset(dto.login);
   }
 
+  @Post('password-reset/check-login')
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  async checkPasswordResetLogin(@Body() dto: RequestPasswordResetDto) {
+    return this.authService.checkPasswordResetLogin(dto.login);
+  }
+
   @Post('password-reset/verify')
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   async verifyPasswordReset(@Body() dto: VerifyPasswordResetDto) {

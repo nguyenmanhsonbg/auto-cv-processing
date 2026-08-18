@@ -95,6 +95,14 @@ export async function requestPasswordReset(login: string) {
   });
 }
 
+export async function checkPasswordResetLogin(login: string) {
+  return request<{ exists: boolean; hint?: 'INVALID_LOGIN' | 'INTERNAL_PASSWORD_REQUIRED' }>('/auth/password-reset/check-login', {
+    method: 'POST',
+    body: { login },
+    skipExtensionInstanceHeader: true,
+  });
+}
+
 export async function verifyPasswordReset(challengeId: string, otp: string) {
   return request<{ resetToken: string; message: string }>('/auth/password-reset/verify', {
     method: 'POST',

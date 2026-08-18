@@ -208,6 +208,22 @@ export class AuthService implements OnModuleInit {
     return { message: 'Mật khẩu đã được gửi tới email nội bộ của bạn.' };
   }
 
+  async checkPasswordResetLogin(login: string) {
+    const normalizedLogin = login.trim();
+    const user = await this.findUserForPasswordReset(normalizedLogin);
+    if (!user) {
+      const internal = await this.internalRepo.findOne({
+        where: { email: normalizedLogin.toLowerCase(), isActive: true },
+        relations: { user: true },
+      });
+      if (internal) {
+        return { exists: false, hint: 'INTERNAL_PASSWORD_REQUIRED' as const };
+      }
+      return { exists: false, hint: 'INVALID_LOGIN' as const };
+    }
+    return { exists: true };
+  }
+
   async requestPasswordReset(login: string) {
     const normalizedLogin = login.trim();
     const user = await this.findUserForPasswordReset(normalizedLogin);

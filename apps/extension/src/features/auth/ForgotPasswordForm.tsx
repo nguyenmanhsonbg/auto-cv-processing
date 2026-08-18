@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
-import { ApiClientError, completePasswordReset, requestPasswordReset, verifyPasswordReset } from '@/lib/api-client';
+import { ApiClientError, checkPasswordResetLogin, completePasswordReset, requestPasswordReset, verifyPasswordReset } from '@/lib/api-client';
 import { ChangePasswordForm } from './ChangePasswordForm';
-import { AuthInput, UserIcon } from './AuthInput';
+import { AuthInput } from './AuthInput';
+import { UserIcon } from '@/components/svg';
 
 type Step = 'IDENTIFIER' | 'METHOD' | 'OTP' | 'RESET';
 
@@ -17,6 +18,25 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
   const [loading, setLoading] = useState(false);
   const [resendRemaining, setResendRemaining] = useState(3);
   const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  async function confirmIdentifier() {
+    const trimmed = login.trim();
+    if (!trimmed) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await checkPasswordResetLogin(trimmed);
+      if (!result.exists) {
+        setError('Tên đăng nhập không hợp lệ. Vui lòng kiểm tra lại.');
+        return;
+      }
+      setStep('METHOD');
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Không thể kiểm tra tên đăng nhập. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function confirmMethod() {
     if (method === 'PHONE') {
@@ -100,7 +120,13 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
       </div>
 
       {step === 'IDENTIFIER' ? (
-        <>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!login.trim() || loading) return;
+            void confirmIdentifier();
+          }}
+        >
           <div className="extension-auth-fields">
             <AuthInput
               label="Tên đăng nhập"
@@ -111,18 +137,25 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
               placeholder="Nhập tên đăng nhập"
               autoFocus
               hasError={Boolean(error)}
+              maxLength={255}
             />
           </div>
           {error ? <p className="extension-login-error">{error}</p> : null}
           <div className="extension-login-actions">
             <button type="button" className="secondary-button" onClick={onCancel}>Quay lại</button>
-            <button type="button" className="confirm-button" onClick={() => { setError(null); setStep('METHOD'); }} disabled={!login.trim()}>
-              Xác nhận
+            <button type="submit" className="confirm-button" disabled={!login.trim() || loading}>
+              {loading ? 'Đang kiểm tra...' : 'Xác nhận'}
             </button>
           </div>
-        </>
+        </form>
       ) : step === 'METHOD' ? (
-        <>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (loading) return;
+            void confirmMethod();
+          }}
+        >
           <div className="extension-forgot-method-heading">
             <h2>Chọn phương thức khôi phục mật khẩu</h2>
             <p>Bạn muốn nhận mã xác nhận bằng phương thức nào?</p>
@@ -146,13 +179,20 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
           {error ? <p className="extension-login-error">{error}</p> : null}
           <div className="extension-login-actions">
             <button type="button" className="secondary-button" onClick={() => setStep('IDENTIFIER')}>Quay lại</button>
-            <button type="button" className="confirm-button" onClick={() => void confirmMethod()} disabled={loading}>
+            <button type="submit" className="confirm-button" disabled={loading}>
               {loading ? 'Đang gửi...' : 'Xác nhận'}
             </button>
           </div>
-        </>
+        </form>
       ) : (
-        <div className="extension-otp-view">
+        <form
+          className="extension-otp-view"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (loading || otp.length !== 6) return;
+            void confirmOtp();
+          }}
+        >
           <div className="extension-otp-inputs">
             {Array.from({ length: 6 }, (_, index) => (
               <input
@@ -197,11 +237,11 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
           </div>
           <div className="extension-login-actions">
             <button type="button" className="secondary-button" onClick={() => setStep('METHOD')}>Quay lại</button>
-            <button type="button" className="confirm-button" onClick={() => void confirmOtp()} disabled={loading || otp.length !== 6}>
+            <button type="submit" className="confirm-button" disabled={loading || otp.length !== 6}>
               {loading ? 'Đang xác nhận...' : 'Xác nhận'}
             </button>
           </div>
-        </div>
+        </form>
       )}
     </div>
   );
