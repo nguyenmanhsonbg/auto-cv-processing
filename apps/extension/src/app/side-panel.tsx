@@ -5533,7 +5533,7 @@ function SidePanel() {
                         className="channel-action-button"
                         title="Cài đặt thông tin TopCV"
                         aria-label="Cài đặt thông tin TopCV"
-                        onClick={() => setTopCvModalMode('EDIT')}
+                      // onClick={() => setTopCvModalMode('EDIT')}
                       >
                         <GearIcon />
                       </button>
@@ -5876,7 +5876,7 @@ function SidePanel() {
 
         {jobDescriptionFillMessage ? (
           <p className={jobDescriptionFillState === 'ERROR' ? 'error-text' : 'muted-text'}>
-            {jobDescriptionFillMessage} 
+            {jobDescriptionFillMessage}
           </p>
         ) : null}
 
