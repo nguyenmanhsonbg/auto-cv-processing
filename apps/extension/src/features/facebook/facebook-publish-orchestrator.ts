@@ -28,6 +28,7 @@ import type {
   FacebookPublishTarget,
   FacebookReviewStatus,
 } from '@/types/types';
+import { probeFacebookReviewStatusByNetwork } from './facebook-review-status-network-capture';
 
 const FACEBOOK_TARGET_TIMEOUT_MS = 90_000;
 const FACEBOOK_LOGIN_REQUIRED_MESSAGE = 'Vui lòng đăng nhập facebook trước khi thực hiện thao tác này.';
@@ -201,23 +202,6 @@ interface FacebookPublishGraphqlResponseBody {
 
 const FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS = 3_000;
 
-interface FacebookPostReviewStatusProbeInput {
-  title?: string | null;
-  contentPreview?: string | null;
-  externalPostUrl?: string | null;
-  expectedPathType?: FacebookGroupPostPathType | null;
-}
-
-interface FacebookPostReviewStatusProbeResult {
-  facebookReviewStatus: FacebookReviewStatus;
-  message: string;
-  externalPostId?: string | null;
-  externalPostUrl?: string | null;
-  postOpenClickPoints?: FacebookSubmitButtonPoint[] | null;
-  timestampClickPoint?: FacebookSubmitButtonPoint | null;
-  timestampClickPoints?: FacebookSubmitButtonPoint[] | null;
-}
-
 interface FacebookSubmitButtonPoint {
   clientX: number;
   clientY: number;
@@ -228,6 +212,16 @@ interface FacebookSubmitButtonPoint {
     width: number;
     height: number;
   };
+}
+
+interface FacebookPostReviewStatusProbeResult {
+  facebookReviewStatus: FacebookReviewStatus;
+  message: string;
+  externalPostId?: string | null;
+  externalPostUrl?: string | null;
+  postOpenClickPoints?: FacebookSubmitButtonPoint[] | null;
+  timestampClickPoint?: FacebookSubmitButtonPoint | null;
+  timestampClickPoints?: FacebookSubmitButtonPoint[] | null;
 }
 
 interface FacebookPreparedPostResult {
@@ -817,439 +811,71 @@ export async function refreshFacebookPostReviewStatus(
   history: FacebookPublishHistoryListItem,
 ): Promise<FacebookPublishHistoryStatusCheckRequest> {
   const checkedAt = new Date().toISOString();
-  const unresolvedStatus = getUnresolvedFacebookReviewStatus(history);
-  const postUrl = parseFacebookGroupPostUrl(history.externalPostUrl);
-  if (!postUrl) {
-    return recoverFacebookPendingPostUrlFromGroup(history, checkedAt);
-  }
 
   try {
-    await ensureFacebookSession({ allowInteractiveLogin: false });
+    await ensureFacebookSession({
+      allowInteractiveLogin: false,
+    });
   } catch (error) {
-    return {
-      facebookReviewStatus: unresolvedStatus,
-      message: `Post status check skipped: ${toAutomationErrorMessage(error)}`,
-      externalPostId: postUrl.postId,
-      externalPostUrl: postUrl.url,
+    const payload: FacebookPublishHistoryStatusCheckRequest = {
+      facebookReviewStatus: history.facebookReviewStatus,
+      message:
+        `Post status check skipped: ${toAutomationErrorMessage(error)}`,
       checkedAt,
     };
-  }
 
-  const postedUrl = buildFacebookGroupPostUrl(postUrl.groupId, postUrl.postId, 'posts');
-  const pendingUrl = buildFacebookGroupPostUrl(postUrl.groupId, postUrl.postId, 'pending_posts');
-  const shouldCheckPendingFirst = postUrl.pathType === 'pending_posts'
-    && history.facebookReviewStatus !== 'POSTED';
-  const tab = await openTab(shouldCheckPendingFirst ? pendingUrl : postedUrl, false);
-  try {
-    await waitForTabComplete(tab.id);
-    await sleep(randomDelay(1_500, 3_000));
-
-    const checkPendingUrl = async () => {
-      const pendingResult = await runScript<[FacebookPostReviewStatusProbeInput], FacebookPostReviewStatusProbeResult>(
-        tab.id,
-        checkFacebookPostReviewStatusInPage,
-        [{
-          title: history.title,
-          contentPreview: history.contentPreview ?? null,
-          externalPostUrl: pendingUrl,
-          expectedPathType: 'pending_posts',
-        }],
-      );
-      const normalizedPendingUrl = parseFacebookGroupPostUrl(pendingResult.externalPostUrl)?.url ?? pendingUrl;
-      const unresolvedProbe = pendingResult.facebookReviewStatus === 'PENDING_REVIEW'
-        && history.facebookReviewStatus === 'UNKNOWN'
-        && /not visible|not detectable|unavailable|could not/i.test(pendingResult.message);
-
-      return {
-        facebookReviewStatus: unresolvedProbe ? 'UNKNOWN' : pendingResult.facebookReviewStatus,
-        message: pendingResult.message,
-        externalPostId: postUrl.postId,
-        externalPostUrl: normalizedPendingUrl,
-        checkedAt,
-      } satisfies FacebookPublishHistoryStatusCheckRequest;
-    };
-
-    if (shouldCheckPendingFirst) {
-      const pendingFirstResult = await checkPendingUrl();
-      if (pendingFirstResult.facebookReviewStatus === 'PENDING_REVIEW') {
-        return pendingFirstResult;
-      }
-
-      if (pendingFirstResult.facebookReviewStatus === 'REJECTED') {
-        return pendingFirstResult;
-      }
-
-      await chrome.tabs?.update(tab.id, { url: postedUrl });
-      await waitForTabComplete(tab.id);
-      await sleep(randomDelay(1_500, 3_000));
+    if (history.externalPostId) {
+      payload.externalPostId = history.externalPostId;
     }
 
-    const postedResult = await runScript<[FacebookPostReviewStatusProbeInput], FacebookPostReviewStatusProbeResult>(
-      tab.id,
-      checkFacebookPostReviewStatusInPage,
-      [{
-        title: history.title,
-        contentPreview: history.contentPreview ?? null,
-        externalPostUrl: postedUrl,
-        expectedPathType: 'posts',
-      }],
-    );
-    if (postedResult.facebookReviewStatus === 'POSTED') {
-      const visiblePostUrl = parseFacebookGroupPostUrl(postedResult.externalPostUrl)?.url ?? postedUrl;
-      return {
-        facebookReviewStatus: 'POSTED',
-        message: postedResult.message,
-        externalPostId: postUrl.postId,
-        externalPostUrl: visiblePostUrl,
-        checkedAt,
-      };
+    if (history.externalPostUrl) {
+      payload.externalPostUrl = history.externalPostUrl;
     }
 
-    if (postedResult.facebookReviewStatus === 'DELETED') {
-      return {
-        facebookReviewStatus: 'DELETED',
-        message: postedResult.message,
-        externalPostId: postUrl.postId,
-        externalPostUrl: postedResult.externalPostUrl ?? postUrl.url,
-        checkedAt,
-      };
-    }
-
-    await chrome.tabs?.update(tab.id, { url: pendingUrl });
-    await waitForTabComplete(tab.id);
-    await sleep(randomDelay(1_500, 3_000));
-
-    return await checkPendingUrl();
-  } catch (error) {
-    return {
-      facebookReviewStatus: unresolvedStatus,
-      message: `Post status is still pending or not detectable: ${toAutomationErrorMessage(error)}`,
-      externalPostId: postUrl.postId,
-      externalPostUrl: postUrl.url,
-      checkedAt,
-    };
-  } finally {
-    await closeTabSafely(tab.id);
-  }
-}
-
-async function recoverFacebookPendingPostUrlFromGroup(
-  history: FacebookPublishHistoryListItem,
-  checkedAt: string,
-): Promise<FacebookPublishHistoryStatusCheckRequest> {
-  const unresolvedStatus = getUnresolvedFacebookReviewStatus(history);
-  const pendingManagerUrl = buildFacebookPendingPostsManagerUrl(history.targetUrl, history.targetExternalId);
-  if (!pendingManagerUrl) {
-    return {
-      facebookReviewStatus: unresolvedStatus,
-      message: 'Post status could not be checked because this history has no valid Facebook post URL or group URL yet.',
-      externalPostId: history.externalPostId ?? null,
-      checkedAt,
-    };
+    return payload;
   }
 
-  try {
-    await ensureFacebookSession();
-  } catch (error) {
-    return {
-      facebookReviewStatus: unresolvedStatus,
-      message: `Post status check skipped: ${toAutomationErrorMessage(error)}`,
-      externalPostId: history.externalPostId ?? null,
-      checkedAt,
-    };
-  }
-
-  const tab = await openTab(pendingManagerUrl, false);
-  try {
-    await waitForTabComplete(tab.id);
-    await sleep(randomDelay(1_500, 3_000));
-
-    const recoverInCurrentPage = async () => runScript<[FacebookPendingPostUrlRecoveryInput], FacebookPostReviewStatusProbeResult>(
-      tab.id,
-      recoverFacebookPendingPostUrlInPage,
-      [{
-        title: history.title,
-        contentPreview: history.contentPreview ?? null,
-        targetUrl: history.targetUrl ?? null,
-        targetExternalId: history.targetExternalId ?? null,
-      }],
-    );
-
-    let recoveryResult = await recoverInCurrentPage();
-    const recoveredUrl = parseFacebookGroupPostUrl(recoveryResult.externalPostUrl);
-    if (recoveredUrl) {
-      return {
-        facebookReviewStatus: recoveredUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
-        message: recoveryResult.message,
-        externalPostId: recoveredUrl.postId,
-        externalPostUrl: recoveredUrl.url,
-        checkedAt,
-      };
-    }
-
-    const postOpenClickPoints = getPostOpenClickPoints(recoveryResult);
-    if (postOpenClickPoints.length > 0) {
-      const clickRecovery = await recoverFacebookPendingPostFromClickQueue(
-        tab.id,
-        history,
-        checkedAt,
-        recoveryResult,
-        recoverInCurrentPage,
-        postOpenClickPoints,
-      );
-      if (clickRecovery.result) return clickRecovery.result;
-      recoveryResult = clickRecovery.recoveryResult;
-    }
-
-    return {
-      facebookReviewStatus: recoveryResult.facebookReviewStatus === 'REJECTED' ? 'REJECTED' : unresolvedStatus,
-      message: recoveryResult.message,
-      externalPostId: history.externalPostId ?? null,
-      checkedAt,
-    };
-  } catch (error) {
-    return {
-      facebookReviewStatus: unresolvedStatus,
-      message: `Pending post URL could not be recovered from the group: ${toAutomationErrorMessage(error)}`,
-      externalPostId: history.externalPostId ?? null,
-      checkedAt,
-    };
-  } finally {
-    await closeTabSafely(tab.id);
-  }
-}
-
-type FacebookPendingPostGroupRecoveryState = {
-  tabId: number;
-  history: FacebookPublishHistoryListItem;
-  checkedAt: string;
-  recoveryResult: FacebookPostReviewStatusProbeResult;
-  recoverInCurrentPage: () => Promise<FacebookPostReviewStatusProbeResult | null>;
-  clickQueue: FacebookSubmitButtonPoint[];
-  queuedClickPointKeys: Set<string>;
-  openedTabIdsToClose: Set<number>;
-  lastDetection: FacebookPostUrlDetectionResult | null;
-  lastClickErrorMessage: string | null;
-  lastSurfaceProbeMessage: string | null;
-  lastPageProbeErrorMessage: string | null;
-  activationErrorMessage: string | null;
-  activatedForTimestampClick: boolean;
-  stopAfterClickFailure: boolean;
-};
-
-function isAcceptedFacebookPendingPostUrl(
-  state: FacebookPendingPostGroupRecoveryState,
-  postUrl: FacebookParsedGroupPostUrl | null,
-) {
-  return Boolean(
-    postUrl
-    && (
-      isExpectedFacebookGroupPostUrl(
-        postUrl,
-        getExpectedFacebookGroupIds(state.history.targetUrl, state.history.targetExternalId),
-      )
-      || state.lastDetection?.trustedTimestampNavigation
-    ),
-  );
-}
-
-function buildFacebookPendingPostRecoveryResult(
-  state: FacebookPendingPostGroupRecoveryState,
-  postUrl: FacebookParsedGroupPostUrl,
-  message: string,
-): FacebookPublishHistoryStatusCheckRequest {
-  return {
-    facebookReviewStatus: postUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
-    message,
-    externalPostId: postUrl.postId,
-    externalPostUrl: postUrl.url,
-    checkedAt: state.checkedAt,
-  };
-}
-
-async function inspectFacebookPendingPostSurfaceAfterClick(
-  state: FacebookPendingPostGroupRecoveryState,
-  clickPoint: FacebookSubmitButtonPoint,
-): Promise<FacebookPublishHistoryStatusCheckRequest | null> {
-  const surfaceProbe = await runScript<
-    [FacebookPendingPostOpenSurfaceProbeInput],
-    FacebookPendingPostOpenSurfaceProbeResult
-  >(
-    state.tabId,
-    inspectFacebookPendingPostOpenSurfaceInPage,
-    [{
-      title: state.history.title,
-      contentPreview: state.history.contentPreview ?? null,
-      targetUrl: state.history.targetUrl ?? null,
-      targetExternalId: state.history.targetExternalId ?? null,
-      clickPoint,
-    }],
-  ).catch((error) => {
-    state.lastSurfaceProbeMessage = toAutomationErrorMessage(error);
-    return null;
+  const result = await probeFacebookReviewStatusByNetwork({
+    initialStatus: history.facebookReviewStatus,
+    targetUrl: history.targetUrl ?? null,
+    targetExternalId:
+      history.targetExternalId ?? null,
+    externalPostUrl:
+      history.externalPostUrl ?? null,
+    externalPostId:
+      history.externalPostId ?? null,
+    title: history.title,
+    contentPreview:
+      history.contentPreview ?? null,
   });
-  if (!surfaceProbe) return null;
 
-  state.lastSurfaceProbeMessage = surfaceProbe.diagnostics ?? null;
-  const surfacePostUrl = parseFacebookGroupPostUrl(surfaceProbe.externalPostUrl);
-  if (isAcceptedFacebookPendingPostUrl(state, surfacePostUrl)) {
-    await closeAutomationOpenedTabs(state.openedTabIdsToClose, state.tabId);
-    return buildFacebookPendingPostRecoveryResult(
-      state,
-      surfacePostUrl!,
-      'Recovered Facebook group post URL from the menu or dialog opened by the matched pending post controls.',
-    );
-  }
-  addUniqueClickPoints(state.clickQueue, surfaceProbe.clickPoints ?? [], state.queuedClickPointKeys);
-  return null;
-}
-
-async function inspectFacebookPendingPostPageAfterClick(
-  state: FacebookPendingPostGroupRecoveryState,
-): Promise<FacebookPublishHistoryStatusCheckRequest | null> {
-  const pageRecovery = await state.recoverInCurrentPage().catch((error) => {
-    state.lastPageProbeErrorMessage = toAutomationErrorMessage(error);
-    return null;
-  });
-  if (!pageRecovery) return null;
-  state.recoveryResult = pageRecovery;
-  const pagePostUrl = parseFacebookGroupPostUrl(pageRecovery.externalPostUrl);
-  if (isAcceptedFacebookPendingPostUrl(state, pagePostUrl)) {
-    await closeAutomationOpenedTabs(state.openedTabIdsToClose, state.tabId);
-    return buildFacebookPendingPostRecoveryResult(state, pagePostUrl!, pageRecovery.message);
-  }
-  addUniqueClickPoints(state.clickQueue, getPostOpenClickPoints(pageRecovery), state.queuedClickPointKeys);
-  return null;
-}
-
-async function processFacebookPendingPostGroupRecoveryClick(
-  state: FacebookPendingPostGroupRecoveryState,
-  clickPoint: FacebookSubmitButtonPoint,
-): Promise<FacebookPublishHistoryStatusCheckRequest | null> {
-  const tabSnapshot = await snapshotTabsForTimestampClick(state.tabId);
-  try {
-    await clickTabCoordinatePoint(state.tabId, clickPoint);
-  } catch (error) {
-    state.lastClickErrorMessage = toAutomationErrorMessage(error);
-    state.stopAfterClickFailure = true;
-    return null;
-  }
-
-  const detectedPostUrl = await waitForFacebookPostUrlAfterTimestampClick(
-    state.tabId,
-    state.history.targetUrl,
-    state.history.targetExternalId,
-    tabSnapshot,
-    12_000,
-  );
-  detectedPostUrl.openedTabIds.forEach((openedTabId) => state.openedTabIdsToClose.add(openedTabId));
-  state.lastDetection = detectedPostUrl;
-  if (detectedPostUrl.postUrl && (detectedPostUrl.matchedExpectedGroup || detectedPostUrl.trustedTimestampNavigation)) {
-    await closeAutomationOpenedTabs(state.openedTabIdsToClose, state.tabId);
-    return buildFacebookPendingPostRecoveryResult(
-      state,
-      detectedPostUrl.postUrl,
-      buildRecoveredPendingPostUrlMessage(detectedPostUrl),
-    );
-  }
-
-  await sleep(randomDelay(700, 1_200));
-  const surfaceResult = await inspectFacebookPendingPostSurfaceAfterClick(state, clickPoint);
-  if (surfaceResult) return surfaceResult;
-  return inspectFacebookPendingPostPageAfterClick(state);
-}
-
-async function prepareFacebookPendingPostGroupRecoveryClicks(state: FacebookPendingPostGroupRecoveryState) {
-  addUniqueClickPoints(state.clickQueue, getPostOpenClickPoints(state.recoveryResult), state.queuedClickPointKeys);
-  state.activationErrorMessage = await activateTabForTimestampRecovery(state.tabId);
-  state.activatedForTimestampClick = !state.activationErrorMessage;
-  if (!state.activatedForTimestampClick) return;
-
-  const activePageRecovery = await state.recoverInCurrentPage().catch((error) => {
-    state.lastPageProbeErrorMessage = toAutomationErrorMessage(error);
-    return null;
-  });
-  if (!activePageRecovery) return;
-  state.recoveryResult = activePageRecovery;
-  const activeRecoveredUrl = parseFacebookGroupPostUrl(activePageRecovery.externalPostUrl);
-  if (activeRecoveredUrl) return;
-  addUniqueClickPoints(state.clickQueue, getPostOpenClickPoints(activePageRecovery), state.queuedClickPointKeys);
-}
-
-async function recoverFacebookPendingPostFromClickQueue(
-  tabId: number,
-  history: FacebookPublishHistoryListItem,
-  checkedAt: string,
-  recoveryResult: FacebookPostReviewStatusProbeResult,
-  recoverInCurrentPage: () => Promise<FacebookPostReviewStatusProbeResult>,
-  postOpenClickPoints: FacebookSubmitButtonPoint[],
-): Promise<{
-  result: FacebookPublishHistoryStatusCheckRequest | null;
-  recoveryResult: FacebookPostReviewStatusProbeResult;
-}> {
-  const state: FacebookPendingPostGroupRecoveryState = {
-    tabId,
-    history,
+  const payload: FacebookPublishHistoryStatusCheckRequest = {
+    facebookReviewStatus:
+      result.facebookReviewStatus,
+    message:
+      `${result.message} evidence=${result.evidence}`,
     checkedAt,
-    recoveryResult,
-    recoverInCurrentPage,
-    clickQueue: [],
-    queuedClickPointKeys: new Set<string>(),
-    openedTabIdsToClose: new Set<number>(),
-    lastDetection: null,
-    lastClickErrorMessage: null,
-    lastSurfaceProbeMessage: null,
-    lastPageProbeErrorMessage: null,
-    activationErrorMessage: null,
-    activatedForTimestampClick: false,
-    stopAfterClickFailure: false,
   };
-  addUniqueClickPoints(state.clickQueue, postOpenClickPoints, state.queuedClickPointKeys);
-  await prepareFacebookPendingPostGroupRecoveryClicks(state);
-  const activeRecoveredUrl = parseFacebookGroupPostUrl(state.recoveryResult.externalPostUrl);
-  if (activeRecoveredUrl) {
-    return {
-      result: {
-        facebookReviewStatus: activeRecoveredUrl.pathType === 'posts' ? 'POSTED' : 'PENDING_REVIEW',
-        message: state.recoveryResult.message,
-        externalPostId: activeRecoveredUrl.postId,
-        externalPostUrl: activeRecoveredUrl.url,
-        checkedAt,
-      },
-      recoveryResult: state.recoveryResult,
-    };
+
+  const externalPostId =
+    result.externalPostId
+    ?? history.externalPostId
+    ?? null;
+
+  const externalPostUrl =
+    result.externalPostUrl
+    ?? history.externalPostUrl
+    ?? null;
+
+  if (externalPostId) {
+    payload.externalPostId = externalPostId;
   }
 
-  for (let clickIndex = 0; clickIndex < state.clickQueue.length && clickIndex < 8; clickIndex += 1) {
-    const clickPoint = state.clickQueue[clickIndex];
-    if (!clickPoint) continue;
-    const clickResult = await processFacebookPendingPostGroupRecoveryClick(state, clickPoint);
-    if (clickResult) return { result: clickResult, recoveryResult: state.recoveryResult };
-    if (state.stopAfterClickFailure) break;
+  if (externalPostUrl) {
+    payload.externalPostUrl = externalPostUrl;
   }
 
-  await closeAutomationOpenedTabs(state.openedTabIdsToClose, state.tabId);
-  if (isTrustedTimestampClickRequiredMessage(state.recoveryResult.message)) {
-    return {
-      result: {
-        facebookReviewStatus: state.recoveryResult.facebookReviewStatus === 'REJECTED' ? 'REJECTED' : getUnresolvedFacebookReviewStatus(history),
-        message: buildPendingPostTimestampRecoveryFailureMessage({
-          clickPointCount: state.queuedClickPointKeys.size,
-          expectedGroupIds: getExpectedFacebookGroupIds(history.targetUrl, history.targetExternalId),
-          lastClickErrorMessage: state.lastClickErrorMessage,
-          lastDetection: state.lastDetection,
-          lastPageProbeErrorMessage: state.lastPageProbeErrorMessage,
-          lastSurfaceProbeMessage: state.lastSurfaceProbeMessage,
-          activatedForTimestampClick: state.activatedForTimestampClick,
-          activationErrorMessage: state.activationErrorMessage,
-        }),
-        externalPostId: history.externalPostId ?? null,
-        checkedAt,
-      },
-      recoveryResult: state.recoveryResult,
-    };
-  }
-  return { result: null, recoveryResult: state.recoveryResult };
+  return payload;
 }
 
 async function publishTarget(
@@ -1574,10 +1200,6 @@ function getPublishResultReviewStatus(result: FacebookPagePublishResult): Facebo
   return 'UNKNOWN';
 }
 
-function getUnresolvedFacebookReviewStatus(history: FacebookPublishHistoryListItem): FacebookReviewStatus {
-  return history.facebookReviewStatus === 'UNKNOWN' ? 'UNKNOWN' : 'PENDING_REVIEW';
-}
-
 function normalizeFacebookAutomationText(value: string | null | undefined) {
   return (value ?? '')
     .normalize('NFD')
@@ -1863,13 +1485,6 @@ function isTrustedTimestampClickRequiredMessage(message: string) {
   return /trusted (?:timestamp|open-post|facebook) click is required to capture the pending post url/i.test(message);
 }
 
-function buildRecoveredPendingPostUrlMessage(result: FacebookPostUrlDetectionResult) {
-  const source = result.source === 'new-tab' ? 'a newly opened tab' : 'the pending post tab';
-  const groupNote = result.matchedExpectedGroup
-    ? ''
-    : ' Facebook returned a post URL whose group id differs from the configured group, so it was accepted from the matched pending card.';
-  return `Recovered Facebook group post URL by opening the pending post controls in ${source}.${groupNote}`;
-}
 
 function buildPendingPostTimestampRecoveryFailureMessage(input: {
   clickPointCount: number;
@@ -7328,329 +6943,6 @@ async function inspectFacebookPendingPostOpenSurfaceInPage(
       mismatchedPostLinks.length > 0 ? `mismatchedPostLinks=${mismatchedPostLinks.join(',')}` : null,
       `currentUrl=${shorten(window.location.href, 180)}`,
     ].filter(Boolean).join('; '),
-  };
-}
-
-async function checkFacebookPostReviewStatusInPage(
-  input: FacebookPostReviewStatusProbeInput,
-): Promise<FacebookPostReviewStatusProbeResult> {
-  const sleepInPage = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  const utilities = (globalThis as FacebookPageProbeGlobal).__vcsFacebookPageProbeUtilities;
-  if (!utilities) throw new Error('Facebook page probe utilities are unavailable.');
-  const {
-    normalize,
-    isVisible,
-    containsPhrase,
-    scoreSamplesInText,
-    scoreTitleSamplesInText,
-  } = utilities;
-  const bodyText = () => normalize(document.body?.innerText ?? '');
-  const hasRejectedCue = (text: string) => (
-    /rejected|declined|not approved|was removed|has been removed|tu choi|bi tu choi|khong duoc phe duyet|da bi go/.test(text)
-  );
-  const hasDeletedCue = (text: string) => (
-    /content isn't available|this content isn't available|noi dung nay khong hien co|khong tim thay noi dung|page isn't available|this page isn't available|link may be broken|page may have been removed|trang nay khong kha dung|trang nay khong hien thi|lien ket da hong|trang da bi go|bai viet nay da bi xoa|post was deleted|post has been deleted/.test(text)
-  );
-  const hasPendingCue = (text: string) => (
-    /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet|admin approval/.test(text)
-  );
-  const hasEmptyPendingReviewCue = (text: string) => (
-    /chua co bai viet nao de xem xet|khong co bai viet nao dang cho xem xet|no posts? to review|no posts? (are )?waiting for review|nothing to review/.test(text)
-  );
-  const queryAll = (root: Document | Element, selector: string) => Array.from(root.querySelectorAll(selector));
-  const elementLabel = (element: Element) => normalize([
-    element.textContent ?? '',
-    element.getAttribute('aria-label') ?? '',
-    element.getAttribute('title') ?? '',
-    element.getAttribute('role') ?? '',
-  ].join(' '));
-  const getClickableElement = (element: Element) => (
-    element.closest('[role="button"], button, a[href], [tabindex]') ?? element
-  );
-  const makeSearchSamples = () => {
-    const values = [input.title, input.contentPreview]
-      .map((value) => normalize(value ?? ''))
-      .filter((value) => value.length >= 16);
-
-    return values.flatMap((value) => {
-      const compact = value.slice(0, 140);
-      const words = value.split(' ').filter((word) => word.length > 2);
-      const wordSample = words.slice(0, 12).join(' ');
-      return [compact, wordSample].filter((sample) => sample.length >= 16);
-    });
-  };
-  const samples = [...new Set(makeSearchSamples())];
-  const titleSamples = [...new Set([
-    normalize(input.title ?? ''),
-    ...splitTitleBySeparators(normalize(input.title ?? '')),
-  ].filter((sample) => sample.length >= 8))];
-  const contentPreviewSamples = [...new Set(
-    normalize(input.contentPreview ?? '')
-      .split(/\r?\n+/)
-      .flatMap((line) => [line.trim(), line.trim().slice(0, 140)])
-      .filter((sample) => sample.length >= 24),
-  )];
-  const scoreTitleSamples = (text: string) => scoreTitleSamplesInText(text, titleSamples);
-  const titleTokens = normalize(input.title ?? '')
-    .split(/[^a-z0-9]+/i)
-    .filter((word) => word.length >= 3);
-  const hasDistinctiveTitleToken = titleTokens.some((word) => /\d/.test(word) || word.length >= 5);
-  const getTitleTokenScore = (text: string) => {
-    if (titleTokens.length < 3 || !hasDistinctiveTitleToken) return 0;
-    return titleTokens.every((word) => containsPhrase(text, word)) ? 90 : 0;
-  };
-  const hasSubmittedContentMatch = (value: string) => {
-    const text = normalize(value);
-    if (text.length < 8) return samples.length === 0;
-
-    const titleScore = scoreTitleSamples(text) + getTitleTokenScore(text);
-    const previewScore = scoreSamplesInText(text, contentPreviewSamples, 4);
-    const sampleScore = scoreSamplesInText(text, samples, 3);
-    const hasTitleRequirement = titleSamples.length > 0;
-    return samples.length === 0
-      || titleScore > 0
-      || (!hasTitleRequirement && (previewScore > 0 || sampleScore >= 80));
-  };
-  const containsSubmittedPost = () => {
-    if (samples.length === 0) return false;
-
-    const candidates = [
-      bodyText(),
-      ...Array.from(document.querySelectorAll('[role="article"], article, [data-pagelet*="FeedUnit"], [role="dialog"]'))
-        .map((element) => normalize(element.textContent ?? '')),
-    ];
-
-    return candidates.some((candidate) => (
-      candidate.length >= 40
-      && hasSubmittedContentMatch(candidate)
-    ));
-  };
-  const getSubmittedPostRoots = () => {
-    const candidates = queryAll(document, '[role="dialog"], [role="article"], article, [data-pagelet*="FeedUnit"]');
-    const roots = candidates
-    .filter(isVisible)
-      .filter((element) => hasSubmittedContentMatch(elementLabel(element)));
-
-    if (roots.length > 0) return roots;
-
-    const dialogs = candidates.filter((element) => (
-      element.getAttribute('role') === 'dialog' && isVisible(element)
-    ));
-    if (dialogs.length === 1) return dialogs;
-
-    const articles = candidates.filter((element) => (
-      element.matches('[role="article"], article, [data-pagelet*="FeedUnit"]') && isVisible(element)
-    ));
-    if (articles.length === 1) return articles;
-
-    return containsSubmittedPost() ? [document.body] : [];
-  };
-  const scrollSubmittedPostToActions = async () => {
-    const roots = getSubmittedPostRoots();
-    const scrollables = new Set<Element>();
-
-    if (document.scrollingElement) scrollables.add(document.scrollingElement);
-    for (const root of roots) {
-      const descendants = queryAll(root, '*').slice(0, 2_000);
-      for (const candidate of [root, ...descendants]) {
-        if (candidate.scrollHeight > candidate.clientHeight + 40) {
-          scrollables.add(candidate);
-        }
-      }
-    }
-
-    let stablePasses = 0;
-    let previousSignature = '';
-    let maxScrollHeight = 0;
-    let lastScrollTop = 0;
-    let passes = 0;
-    for (; passes < 12; passes += 1) {
-      for (const scrollable of scrollables) {
-        scrollable.scrollTop = Math.max(0, scrollable.scrollHeight - scrollable.clientHeight);
-        maxScrollHeight = Math.max(maxScrollHeight, scrollable.scrollHeight);
-        lastScrollTop = Math.max(lastScrollTop, scrollable.scrollTop);
-      }
-      const documentHeight = document.scrollingElement?.scrollHeight ?? document.body.scrollHeight;
-      window.scrollTo(0, Math.max(0, documentHeight - window.innerHeight));
-      await sleepInPage(260);
-
-      const signature = [...scrollables]
-        .map((scrollable) => `${Math.round(scrollable.scrollTop)}:${Math.round(scrollable.scrollHeight)}`)
-        .join('|');
-      if (signature === previousSignature) stablePasses += 1;
-      else stablePasses = 0;
-      previousSignature = signature;
-      if (stablePasses >= 3) break;
-    }
-
-    return {
-      passes: Math.min(passes + 1, 12),
-      scrollableCount: scrollables.size,
-      stablePasses,
-      maxScrollHeight,
-      lastScrollTop,
-    };
-  };
-  type PostActionKind = 'LIKE' | 'COMMENT' | 'SEND';
-  const getPostActionKind = (label: string): PostActionKind | null => {
-    if (/(^|\s)(binh luan|comment)(?=\s|$|[.,;:!?])/.test(label)) return 'COMMENT';
-    if (/(^|\s)(gui|send|share|chia se)(?=\s|$|[.,;:!?])/.test(label)) return 'SEND';
-    if (/(^|\s)(thich|like|react|bay to cam xuc)(?=\s|$|[.,;:!?])/.test(label)) return 'LIKE';
-    return null;
-  };
-  const getPostEngagementActionState = () => {
-    const roots = getSubmittedPostRoots();
-    const sourceRoots = roots.length > 0 ? roots : [document.body];
-    const seenTargets = new Set<Element>();
-    const actions = sourceRoots
-      .flatMap((root) => queryAll(root, '[role="button"], button, a[href], [tabindex]'))
-      .filter(isVisible)
-      .map((element) => {
-        const target = getClickableElement(element);
-        if (seenTargets.has(target) || !isVisible(target)) return null;
-        seenTargets.add(target);
-
-        const label = normalize(`${elementLabel(element)} ${elementLabel(target)}`);
-        const kind = getPostActionKind(label);
-        if (!kind) return null;
-
-        const rect = target.getBoundingClientRect();
-        const maxActionWidth = Math.max(520, window.innerWidth * 0.8);
-        if (rect.height > 64 || rect.width < 12 || rect.width > maxActionWidth) return null;
-
-        return {
-          kind,
-          label,
-          centerX: rect.left + rect.width / 2,
-          centerY: rect.top + rect.height / 2,
-        };
-      })
-      .filter((action): action is NonNullable<typeof action> => Boolean(action));
-
-    const likes = actions.filter((action) => action.kind === 'LIKE');
-    const comments = actions.filter((action) => action.kind === 'COMMENT');
-    const sends = actions.filter((action) => action.kind === 'SEND');
-    const sameRow = (left: typeof actions[number], right: typeof actions[number]) => (
-      Math.abs(left.centerY - right.centerY) <= 48
-    );
-
-    for (const like of likes) {
-      for (const send of sends) {
-        if (!sameRow(like, send) || Math.abs(like.centerX - send.centerX) < 90) continue;
-        const leftX = Math.min(like.centerX, send.centerX);
-        const rightX = Math.max(like.centerX, send.centerX);
-        const commentBetween = comments.some((comment) => (
-          sameRow(comment, like)
-            && comment.centerX > leftX + 24
-            && comment.centerX < rightX - 24
-        ));
-
-        return {
-          hasLikeAndSendRow: true,
-          hasCommentBetweenLikeAndSend: commentBetween,
-          rootCount: roots.length,
-          actionCount: actions.length,
-          labels: actions.map((action) => action.label).slice(0, 8),
-        };
-      }
-    }
-
-    return {
-      hasLikeAndSendRow: false,
-      hasCommentBetweenLikeAndSend: false,
-      rootCount: roots.length,
-      actionCount: actions.length,
-      labels: actions.map((action) => action.label).slice(0, 8),
-    };
-  };
-  let lastActionState: ReturnType<typeof getPostEngagementActionState> = {
-    hasLikeAndSendRow: false,
-    hasCommentBetweenLikeAndSend: false,
-    rootCount: 0,
-    actionCount: 0,
-    labels: [],
-  };
-  const resolvePostReviewStatus = (
-    text: string,
-    submittedPostVisible: boolean,
-    actionState: ReturnType<typeof getPostEngagementActionState>,
-  ): FacebookPostReviewStatusProbeResult | null => {
-    if (actionState.hasCommentBetweenLikeAndSend) {
-      return {
-        facebookReviewStatus: 'POSTED',
-        message: 'Bài viết đã được đăng thành công trên Facebook.',
-        externalPostUrl: window.location.href,
-      };
-    }
-    if (actionState.hasLikeAndSendRow) {
-      return {
-        facebookReviewStatus: 'PENDING_REVIEW',
-        message: 'Bài viết đang chờ Facebook xét duyệt.',
-        externalPostUrl: input.externalPostUrl ?? window.location.href,
-      };
-    }
-    if (!submittedPostVisible && hasDeletedCue(text)) {
-      return {
-        facebookReviewStatus: 'DELETED',
-        message: 'Facebook post URL loaded but the post content is unavailable or deleted.',
-        externalPostUrl: input.externalPostUrl ?? window.location.href,
-      };
-    }
-    if (hasRejectedCue(text)) {
-      return {
-        facebookReviewStatus: 'REJECTED',
-        message: 'Facebook shows a clear rejected/removed signal for this post.',
-        externalPostUrl: window.location.href,
-      };
-    }
-    if (input.expectedPathType === 'pending_posts' && !submittedPostVisible && hasEmptyPendingReviewCue(text)) {
-      return {
-        facebookReviewStatus: 'REJECTED',
-        message: 'Facebook no longer shows this post in the pending-review list; the post is treated as rejected.',
-        externalPostUrl: input.externalPostUrl ?? window.location.href,
-      };
-    }
-    if (hasPendingCue(text) && (submittedPostVisible || input.expectedPathType === 'pending_posts')) {
-      return {
-        facebookReviewStatus: 'PENDING_REVIEW',
-        message: 'Facebook still indicates that this post is pending approval.',
-        externalPostUrl: input.externalPostUrl ?? null,
-      };
-    }
-    return null;
-  };
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await sleepInPage(attempt === 0 ? 0 : 900);
-    await scrollSubmittedPostToActions();
-    lastActionState = getPostEngagementActionState();
-    const text = bodyText();
-    const submittedPostVisible = containsSubmittedPost() || lastActionState.hasLikeAndSendRow;
-    const reviewStatus = resolvePostReviewStatus(text, submittedPostVisible, lastActionState);
-    if (reviewStatus) return reviewStatus;
-    window.scrollBy({ top: Math.max(420, window.innerHeight * 0.7), behavior: 'auto' });
-  }
-
-  lastActionState = getPostEngagementActionState();
-  if (lastActionState.hasCommentBetweenLikeAndSend) {
-    return {
-      facebookReviewStatus: 'POSTED',
-      message: 'Bài viết đã được đăng thành công trên Facebook.',
-      externalPostUrl: window.location.href,
-    };
-  }
-
-  if (lastActionState.hasLikeAndSendRow) {
-    return {
-      facebookReviewStatus: 'PENDING_REVIEW',
-      message: 'Bài viết đang chờ Facebook xét duyệt.',
-      externalPostUrl: input.externalPostUrl ?? window.location.href,
-    };
-  }
-
-  return {
-    facebookReviewStatus: 'UNKNOWN',
-    message: 'Chưa thể xác định trạng thái bài viết trên Facebook.',
-    externalPostUrl: input.externalPostUrl ?? null,
   };
 }
 
