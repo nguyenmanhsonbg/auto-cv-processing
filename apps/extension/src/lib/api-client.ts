@@ -96,7 +96,7 @@ export async function requestPasswordReset(login: string) {
 }
 
 export async function checkPasswordResetLogin(login: string) {
-  return request<{ exists: boolean; hint?: 'INVALID_LOGIN' | 'INTERNAL_PASSWORD_REQUIRED' }>('/auth/password-reset/check-login', {
+  return request<{ exists: boolean; hint?: 'INVALID_LOGIN' | 'INTERNAL_PASSWORD_REQUIRED' | 'HR_NOT_ALLOWED' }>('/auth/password-reset/check-login', {
     method: 'POST',
     body: { login },
     skipExtensionInstanceHeader: true,

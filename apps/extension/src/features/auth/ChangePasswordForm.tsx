@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { AuthInput } from './AuthInput';
 import { LockIcon, EyeIcon } from '@/components/svg';
 
@@ -19,17 +19,56 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
   const [visibleFields, setVisibleFields] = useState<Record<PasswordField, boolean>>({ current: false, new: false, confirm: false });
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<PasswordField, string>>>({});
 
+  const currentPasswordRef = useRef<HTMLInputElement | null>(null);
+  const newPasswordRef = useRef<HTMLInputElement | null>(null);
+  const confirmPasswordRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!isResetPassword) {
+        currentPasswordRef.current?.focus();
+      } else {
+        newPasswordRef.current?.focus();
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [isResetPassword]);
+
   const passwordRules = useMemo(() => ({
     hasCaseAndNumber: /[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) && /\d/.test(newPassword),
     hasSpecial: /[^A-Za-z0-9]/.test(newPassword),
     hasValidLength: newPassword.length >= 8 && newPassword.length <= 16,
   }), [newPassword]);
 
+  const isFormFilled = isResetPassword
+    ? Boolean(newPassword && confirmPassword)
+    : Boolean(currentPassword && newPassword && confirmPassword);
+
   function updateField(field: PasswordField, value: string) {
-    if (field === 'current') setCurrentPassword(value);
-    if (field === 'new') setNewPassword(value);
-    if (field === 'confirm') setConfirmPassword(value);
+    const trimmed = value.slice(0, 64);
+    if (field === 'current') setCurrentPassword(trimmed);
+    if (field === 'new') setNewPassword(trimmed);
+    if (field === 'confirm') setConfirmPassword(trimmed);
     setFieldErrors((current) => ({ ...current, [field]: undefined }));
+  }
+
+  function handleBlur(field: PasswordField) {
+    if (field === 'current' && !isResetPassword && !currentPassword) {
+      setFieldErrors((current) => ({ ...current, current: 'Nhập mật khẩu cũ là bắt buộc' }));
+    }
+    if (field === 'new' && !newPassword) {
+      setFieldErrors((current) => ({ ...current, new: 'Nhập mật khẩu mới là bắt buộc' }));
+    }
+    if (field === 'confirm' && !confirmPassword) {
+      setFieldErrors((current) => ({ ...current, confirm: 'Xác nhận mật khẩu mới là bắt buộc' }));
+    }
+  }
+
+  function handleClear(field: PasswordField) {
+    updateField(field, '');
+    if (field === 'current') currentPasswordRef.current?.focus();
+    if (field === 'new') newPasswordRef.current?.focus();
+    if (field === 'confirm') confirmPasswordRef.current?.focus();
   }
 
   function toggleVisibility(field: PasswordField) {
@@ -38,14 +77,34 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSaving || !isFormFilled) return;
     const nextErrors: Partial<Record<PasswordField, string>> = {};
-    if (!isResetPassword && !currentPassword) nextErrors.current = 'Vui lòng nhập mật khẩu cũ.';
-    if (!passwordRules.hasCaseAndNumber || !passwordRules.hasSpecial || !passwordRules.hasValidLength) {
+    if (!isResetPassword && !currentPassword) {
+      nextErrors.current = 'Nhập mật khẩu cũ là bắt buộc';
+    }
+    if (!newPassword) {
+      nextErrors.new = 'Nhập mật khẩu mới là bắt buộc';
+    } else if (!passwordRules.hasCaseAndNumber || !passwordRules.hasSpecial || !passwordRules.hasValidLength) {
       nextErrors.new = 'Mật khẩu mới không hợp lệ. Vui lòng nhập lại.';
     }
-    if (newPassword !== confirmPassword) nextErrors.confirm = 'Xác nhận mật khẩu mới không trùng khớp. Vui lòng kiểm tra lại';
+    if (!confirmPassword) {
+      nextErrors.confirm = 'Xác nhận mật khẩu mới là bắt buộc';
+    } else if (newPassword !== confirmPassword) {
+      nextErrors.confirm = 'Xác nhận mật khẩu mới không trùng khớp. Vui lòng kiểm tra lại';
+    }
     setFieldErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
+    if (nextErrors.current) {
+      currentPasswordRef.current?.focus();
+      return;
+    }
+    if (nextErrors.new) {
+      newPasswordRef.current?.focus();
+      return;
+    }
+    if (nextErrors.confirm) {
+      confirmPasswordRef.current?.focus();
+      return;
+    }
     await onSubmit({ currentPassword, newPassword, confirmPassword });
   }
 
@@ -62,6 +121,7 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
         {!isResetPassword ? (
           <div>
             <AuthInput
+              ref={currentPasswordRef}
               label="Nhập mật khẩu cũ"
               required
               placeholder="Nhập mật khẩu cũ"
@@ -70,7 +130,12 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
               hasError={Boolean(inputError('current'))}
               type={visibleFields.current ? 'text' : 'password'}
               onChange={(e) => updateField('current', e.target.value)}
+              onBlur={() => handleBlur('current')}
+              onClear={() => handleClear('current')}
+              allowClear
               autoComplete="current-password"
+              autoFocus
+              maxLength={64}
               trailing={
                 <button
                   type="button"
@@ -88,6 +153,7 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
 
         <div>
           <AuthInput
+            ref={newPasswordRef}
             label="Nhập mật khẩu mới"
             required
             placeholder="Nhập mật khẩu mới"
@@ -96,7 +162,12 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
             hasError={Boolean(inputError('new'))}
             type={visibleFields.new ? 'text' : 'password'}
             onChange={(e) => updateField('new', e.target.value)}
+            onBlur={() => handleBlur('new')}
+            onClear={() => handleClear('new')}
+            allowClear
             autoComplete="new-password"
+            autoFocus={isResetPassword}
+            maxLength={64}
             trailing={
               <button
                 type="button"
@@ -113,6 +184,7 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
 
         <div>
           <AuthInput
+            ref={confirmPasswordRef}
             label="Xác nhận mật khẩu mới"
             required
             placeholder="Xác nhận mật khẩu mới"
@@ -121,7 +193,11 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
             hasError={Boolean(inputError('confirm'))}
             type={visibleFields.confirm ? 'text' : 'password'}
             onChange={(e) => updateField('confirm', e.target.value)}
+            onBlur={() => handleBlur('confirm')}
+            onClear={() => handleClear('confirm')}
+            allowClear
             autoComplete="new-password"
+            maxLength={64}
             trailing={
               <button
                 type="button"
@@ -153,8 +229,8 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
         <button type="button" className="secondary-button" onClick={onCancel} disabled={isSaving}>
           Quay lại
         </button>
-        <button type="submit" className="confirm-button" disabled={isSaving}>
-          {isSaving ? 'Đang lưu...' : 'Đặt lại mật khẩu'}
+        <button type="submit" className="confirm-button" disabled={isSaving || !isFormFilled}>
+          {isSaving ? 'Đang lưu...' : (isResetPassword ? 'Đặt lại mật khẩu' : 'Đặt lại mật khẩu')}
         </button>
       </div>
     </form>

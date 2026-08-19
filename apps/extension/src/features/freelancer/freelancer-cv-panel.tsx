@@ -20,11 +20,18 @@ type FreelancerCvPanelProps = {
   onNotify?: (kind: 'SUCCESS' | 'ERROR', title: string, message: string) => void;
   isChangePasswordFormOpen?: boolean;
   onCloseChangePassword?: () => void;
+  onPasswordChanged?: () => void;
 };
 
 type StatusCategory = 'PROCESSING' | 'PASSED' | 'REJECTED';
 
-export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormOpen = false, onCloseChangePassword }: FreelancerCvPanelProps) {
+export function FreelancerCvPanel({
+  accessToken,
+  onNotify,
+  isChangePasswordFormOpen = false,
+  onCloseChangePassword,
+  onPasswordChanged,
+}: FreelancerCvPanelProps) {
   const [summary, setSummary] = useState<FreelancerSelfSummary | null>(null);
   const [applications, setApplications] = useState<FreelancerSelfApplication[]>([]);
   const [pagination, setPagination] = useState<ApiPagination | null>(null);
@@ -123,8 +130,9 @@ export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormO
     setChangePasswordError(null);
     try {
       await changePassword(accessToken, input);
-      onNotify?.('SUCCESS', 'Thành công', 'Đã đổi mật khẩu.');
+      onNotify?.('SUCCESS', 'Thành công', 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.');
       onCloseChangePassword?.();
+      onPasswordChanged?.();
     } catch (err) {
       setChangePasswordError(err instanceof ApiClientError ? err.message : 'Không thể đổi mật khẩu.');
     } finally {

@@ -350,7 +350,7 @@ export function LoginForm({
           </label>
           <div className="extension-login-links">
             <button type="button" className="text-button" onClick={onForgotPassword}>Quên mật khẩu</button>
-            <button type="button" className="text-button" onClick={onInternalModeChange}>Là nhân sự nội bộ</button>
+            <button type="button" className="text-button" onClick={onInternalModeChange}>Nhân sự nội bộ đăng nhập lần đầu</button>
           </div>
         </div>
 

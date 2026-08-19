@@ -6634,6 +6634,7 @@ function SidePanel() {
               onNotify={showExtensionToast}
               isChangePasswordFormOpen={isFreelancerPasswordFormOpen}
               onCloseChangePassword={() => setIsFreelancerPasswordFormOpen(false)}
+              onPasswordChanged={logout}
             />
           </section>
         ) : user ? (

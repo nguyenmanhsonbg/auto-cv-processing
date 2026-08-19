@@ -16,8 +16,9 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
   const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [resendRemaining, setResendRemaining] = useState(3);
+  const [resendRemaining, setResendRemaining] = useState(5);
   const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const loginInputRef = useRef<HTMLInputElement | null>(null);
 
   async function confirmIdentifier() {
     const trimmed = login.trim();
@@ -27,14 +28,34 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
     try {
       const result = await checkPasswordResetLogin(trimmed);
       if (!result.exists) {
-        setError('Tên đăng nhập không hợp lệ. Vui lòng kiểm tra lại.');
+        if (result.hint === 'HR_NOT_ALLOWED' || result.hint === 'INTERNAL_PASSWORD_REQUIRED') {
+          setError('Bạn không có quyền thực hiện chức năng này.');
+        } else {
+          setError('Tên đăng nhập không hợp lệ. Vui lòng kiểm tra lại.');
+        }
+        loginInputRef.current?.focus();
         return;
       }
-      setStep('METHOD');
+      // Login hợp lệ → bỏ qua METHOD, gửi OTP và điều hướng thẳng tới màn Kiểm tra xác nhận từ Gmail.
+      await sendOtpAndAdvance();
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Không thể kiểm tra tên đăng nhập. Vui lòng thử lại.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function sendOtpAndAdvance() {
+    try {
+      const response = await requestPasswordReset(login.trim());
+      setChallengeId(response.challengeId);
+      setTargetEmail(response.email);
+      setMethod('EMAIL');
+      setOtp('');
+      setStep('OTP');
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Không thể gửi mã xác nhận. Vui lòng thử lại.');
+      throw err;
     }
   }
 
@@ -129,6 +150,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
         >
           <div className="extension-auth-fields">
             <AuthInput
+              ref={loginInputRef}
               label="Tên đăng nhập"
               required
               icon={<UserIcon />}
@@ -142,7 +164,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
           </div>
           {error ? <p className="extension-login-error">{error}</p> : null}
           <div className="extension-login-actions">
-            <button type="button" className="secondary-button" onClick={onCancel}>Quay lại</button>
+            <button type="button" className="secondary-button" onClick={() => { setError(null); onCancel(); }}>Quay lại</button>
             <button type="submit" className="confirm-button" disabled={!login.trim() || loading}>
               {loading ? 'Đang kiểm tra...' : 'Xác nhận'}
             </button>
@@ -178,7 +200,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
           </div>
           {error ? <p className="extension-login-error">{error}</p> : null}
           <div className="extension-login-actions">
-            <button type="button" className="secondary-button" onClick={() => setStep('IDENTIFIER')}>Quay lại</button>
+            <button type="button" className="secondary-button" onClick={() => { setError(null); setStep('IDENTIFIER'); }}>Quay lại</button>
             <button type="submit" className="confirm-button" disabled={loading}>
               {loading ? 'Đang gửi...' : 'Xác nhận'}
             </button>
@@ -224,7 +246,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
               />
             ))}
           </div>
-          {error ? <p className="extension-login-error">{error}</p> : null}
+          {error ? <p className="extension-login-error extension-otp-error">{error}</p> : null}
           <div className="extension-otp-resend-row">
             <button type="button" className="extension-otp-resend-btn" onClick={() => void resendOtp()} disabled={loading || resendRemaining <= 0}>
               Gửi lại
@@ -236,7 +258,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
             <p className="extension-otp-hint">Bạn có thể gửi lại mã OTP 5 lần / 1 ngày, cài lại lúc 00:00:00 hàng ngày</p>
           </div>
           <div className="extension-login-actions">
-            <button type="button" className="secondary-button" onClick={() => setStep('METHOD')}>Quay lại</button>
+            <button type="button" className="secondary-button" onClick={() => { setError(null); setStep('METHOD'); }}>Quay lại</button>
             <button type="submit" className="confirm-button" disabled={loading || otp.length !== 6}>
               {loading ? 'Đang xác nhận...' : 'Xác nhận'}
             </button>

@@ -221,6 +221,10 @@ export class AuthService implements OnModuleInit {
       }
       return { exists: false, hint: 'INVALID_LOGIN' as const };
     }
+        // HR and ADMIN roles are not allowed to use password reset.
+    if (user.role === UserRole.HR || user.role === UserRole.ADMIN) {
+      return { exists: false, hint: 'HR_NOT_ALLOWED' as const };
+    }
     return { exists: true };
   }
 
@@ -259,7 +263,7 @@ export class AuthService implements OnModuleInit {
       `Mã xác nhận khôi phục mật khẩu của bạn là: ${otp}. Mã có hiệu lực trong 15 phút.`,
     );
     if (!sent) throw new BadRequestException({ code: 'PASSWORD_RESET_EMAIL_FAILED', message: 'Không thể gửi mã xác nhận. Vui lòng thử lại sau.' });
-    return { challengeId: request.id, email: this.maskEmail(user.email), message: 'Mã xác nhận đã được gửi tới Gmail của bạn.' };
+    return { challengeId: request.id, email: user.email, message: 'Mã xác nhận đã được gửi tới Gmail của bạn.' };
   }
 
   async verifyPasswordReset(challengeId: string, otp: string) {
@@ -457,6 +461,7 @@ export class AuthService implements OnModuleInit {
     user.password = await bcrypt.hash(input.newPassword, 10);
     user.mustChangePassword = false;
     await this.userRepo.save(user);
+    await this.refreshTokenRepo.update({ userId: user.id, revokedAt: IsNull() }, { revokedAt: new Date() });
     return { message: 'Đổi mật khẩu thành công.' };
   }
 
