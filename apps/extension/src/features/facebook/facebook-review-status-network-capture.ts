@@ -13,7 +13,6 @@ import type { FacebookReviewStatus } from '@/types/types';
 const FB_ORIGIN = 'https://www.facebook.com';
 const DEBUGGER_VERSION = '1.3';
 const NAVIGATION_TIMEOUT_MS = 30_000;
-const NETWORK_SETTLE_MS = 4_000;
 const MAX_BODY_LENGTH = 1_500_000;
 const MAX_RESPONSES = 48;
 const JSON_PREFIX = 'for (;;);';
