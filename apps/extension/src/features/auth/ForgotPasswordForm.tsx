@@ -126,7 +126,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
   }
 
   if (step === 'RESET') {
-    return <ChangePasswordForm error={error} isSaving={loading} isResetPassword onCancel={onCancel} onSubmit={completeReset} />;
+    return <ChangePasswordForm error={error} isSaving={loading} isResetPassword onCancel={() => setStep('METHOD')} onSubmit={completeReset} />;
   }
 
   return (

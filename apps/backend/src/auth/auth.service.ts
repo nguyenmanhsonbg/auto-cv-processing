@@ -293,6 +293,9 @@ export class AuthService implements OnModuleInit {
     }
     const user = await this.userRepo.findOne({ where: { id: request.userId } });
     if (!user) throw new BadRequestException('Không tìm thấy tài khoản.');
+    if (await bcrypt.compare(input.newPassword, user.password)) {
+      throw new BadRequestException('Mật khẩu mới không được trùng với mật khẩu gần nhất.');
+    }
     user.password = await bcrypt.hash(input.newPassword, 10);
     await this.userRepo.save(user);
     await this.refreshTokenRepo.update({ userId: user.id, revokedAt: IsNull() }, { revokedAt: new Date() });
@@ -456,6 +459,9 @@ export class AuthService implements OnModuleInit {
     if (!user) throw new BadRequestException('Không tìm thấy tài khoản.');
     if (!(await bcrypt.compare(input.currentPassword, user.password))) {
       throw new BadRequestException('Mật khẩu hiện tại không đúng.');
+    }
+    if (input.newPassword === input.currentPassword || await bcrypt.compare(input.newPassword, user.password)) {
+      throw new BadRequestException('Mật khẩu mới không được trùng với mật khẩu gần nhất.');
     }
 
     user.password = await bcrypt.hash(input.newPassword, 10);

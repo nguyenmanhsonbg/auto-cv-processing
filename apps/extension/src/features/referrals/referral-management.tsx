@@ -20,7 +20,7 @@ import type {
 } from '@/types/types';
 import { buildFreelancerIdentifierCopyText } from '@/features/referrals/referral-management-utils';
 import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
-import { FilterDropdown, MultiSelectFilter } from '@/components/filters';
+import { DateRangeFilter, type DateRangeValue, FilterDropdown, MultiSelectFilter } from '@/components/filters';
 import { ReferralFilters } from './components/ReferralFilters';
 
 type CvStatusFilter = string;
@@ -128,6 +128,7 @@ export function ReferralManagementPanel({
   const isAllJdSelected = jdFilter.length === 0;
   const [isJdFilterOpen, setIsJdFilterOpen] = useState(false);
   const [accountStatusFilter, setAccountStatusFilter] = useState<AccountStatusFilter>('ALL');
+  const [dateRange, setDateRange] = useState<DateRangeValue>({ from: '', to: '' });
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -388,7 +389,30 @@ export function ReferralManagementPanel({
     setPage(1);
   }, [cvRoundOptions, cvStatusFilter]);
 
-  const isClientFilterMode = !isAllJdSelected || cvStatusFilter !== 'ALL';
+  function matchesDateRange(appliedAt: string | undefined, range: DateRangeValue): boolean {
+    if (!range.from && !range.to) return true;
+    if (!appliedAt) return false;
+
+    const appliedDate = new Date(appliedAt);
+    if (Number.isNaN(appliedDate.getTime())) return false;
+
+    const appliedIsoDate = `${appliedDate.getFullYear()}-${String(appliedDate.getMonth() + 1).padStart(2, '0')}-${String(appliedDate.getDate()).padStart(2, '0')}`;
+
+    if (range.from && range.to) {
+      const start = range.from <= range.to ? range.from : range.to;
+      const end = range.from <= range.to ? range.to : range.from;
+      return appliedIsoDate >= start && appliedIsoDate <= end;
+    }
+    if (range.from) {
+      return appliedIsoDate >= range.from;
+    }
+    if (range.to) {
+      return appliedIsoDate <= range.to;
+    }
+    return true;
+  }
+
+  const isClientFilterMode = !isAllJdSelected || cvStatusFilter !== 'ALL' || Boolean(dateRange.from || dateRange.to);
   const filteredPeople = useMemo(() => {
     const sourcePeople = isClientFilterMode && allPeopleForJd.length > 0 ? allPeopleForJd : people;
     const normalizedSearch = search.trim().toLocaleLowerCase();
@@ -410,13 +434,14 @@ export function ReferralManagementPanel({
       applications: person.applications.filter((application) => (
         (isAllJdSelected || jdFilter.includes(application.jobPosting.jobPostingId))
         && matchesCvStatus(application, cvStatusFilter, cvRoundOptions)
+        && matchesDateRange(application.appliedAt, dateRange)
       )),
     }))
     .filter(({ person, applications }) => (
       applications.length > 0
-      || (cvStatusFilter === 'ALL' && isAllJdSelected && person.applications.length === 0)
+      || (cvStatusFilter === 'ALL' && isAllJdSelected && !dateRange.from && !dateRange.to && person.applications.length === 0)
     ));
-  }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, isAllJdSelected, isClientFilterMode, jdFilter, people, search]);
+  }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, dateRange, isAllJdSelected, isClientFilterMode, jdFilter, people, search]);
   const visiblePeople = isClientFilterMode
     ? filteredPeople.slice((page - 1) * REFERRAL_PAGE_SIZE, page * REFERRAL_PAGE_SIZE)
     : filteredPeople;
@@ -561,7 +586,8 @@ export function ReferralManagementPanel({
   const hasActiveFilter = Boolean(search.trim())
     || cvStatusFilter !== 'ALL'
     || !isAllJdSelected
-    || accountStatusFilter !== 'ALL';
+    || accountStatusFilter !== 'ALL'
+    || Boolean(dateRange.from || dateRange.to);
   const noMatchingPeopleText = source === 'INTERNAL'
     ? 'Không tìm thấy thông tin NSNB phù hợp'
     : 'Không có CV phù hợp với bộ lọc.';
@@ -586,7 +612,7 @@ export function ReferralManagementPanel({
           setSearch(value.trim().slice(0, 64));
           setPage(1);
         }}
-        placeholder={source === 'FREELANCER' ? 'Tìm kiếm tên, Mã Freelancer' : 'Tìm kiếm tên, email, số điện thoại'}
+        placeholder={source === 'FREELANCER' ? 'Tìm kiếm theo tên, mã Freelancer' : 'Tìm kiếm theo tên, email, số điện thoại'}
         ariaLabel={`Tìm kiếm ${title}`}
         clearButton={search ? (
           <button
@@ -604,7 +630,8 @@ export function ReferralManagementPanel({
         ) : null}
         action={source === 'FREELANCER' ? (
           <button type="button" className="referral-primary-button" onClick={openCreateModal}>
-            Thêm nhân sự
+            <PlusIcon />
+            <span>Thêm nhân sự</span>
           </button>
         ) : null}
       >
@@ -646,6 +673,14 @@ export function ReferralManagementPanel({
               }}
             />
           ) : null}
+          <DateRangeFilter
+            label="Thời gian"
+            value={dateRange}
+            onChange={(range) => {
+              setDateRange(range);
+              setPage(1);
+            }}
+          />
       </ReferralFilters>
 
       {loading ? <div className="referral-state">Đang tải danh sách...</div> : null}
@@ -660,14 +695,20 @@ export function ReferralManagementPanel({
         <div className="referral-people-list">
           {visiblePeople.map(({ person, applications }) => {
             const isExpanded = Boolean(expandedIds[person.sourceId]);
-            const metrics = person.metrics;
+            const metrics = isClientFilterMode ? {
+              total: applications.length,
+              processing: applications.filter((app) => app.statusCategory === 'PROCESSING').length,
+              passed: applications.filter((app) => app.statusCategory === 'PASSED').length,
+              failed: applications.filter((app) => app.statusCategory === 'REJECTED').length,
+              passRate: applications.length > 0 ? Math.round((applications.filter((app) => app.statusCategory === 'PASSED').length / applications.length) * 100) : 0,
+            } : person.metrics;
             return (
               <article className={`referral-person-card${person.isActive ? '' : ' is-inactive'}`} key={person.sourceId}>
                 <div className="referral-person-heading">
                   <div className="referral-person-identity">
                     <div className="referral-person-name-row">
                       <h3>{person.name || null}</h3>
-                      {!person.isActive ? <span className="referral-active-badge is-inactive">Đã khoá</span> : null}
+                      {!person.isActive ? <span className="referral-active-badge is-inactive">Đã khóa</span> : null}
                     </div>
                     {person.identifier ? (
                       <div className="referral-person-identifier-row">
@@ -725,7 +766,11 @@ export function ReferralManagementPanel({
                   <DetailChevronIcon isOpen={isExpanded} />
                 </button>
 
-                {isExpanded ? <ApplicationTable applications={applications} source={source} /> : null}
+                {isExpanded ? (
+                  <div className="referral-expanded-overlay">
+                    <ApplicationTable applications={applications} source={source} />
+                  </div>
+                ) : null}
               </article>
             );
           })}
@@ -744,11 +789,12 @@ export function ReferralManagementPanel({
           <div>
             <button
               type="button"
+              className="referral-page-btn"
               aria-label="Trang trước"
               disabled={page <= 1}
               onClick={() => setPage((current) => Math.max(1, current - 1))}
             >
-              ‹
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg>
             </button>
             {buildReferralPaginationPages(page, visibleTotalPages).map((paginationPage, index) => (
               paginationPage === 'ellipsis' ? (
@@ -757,7 +803,7 @@ export function ReferralManagementPanel({
                 <button
                   key={paginationPage}
                   type="button"
-                  className={paginationPage === page ? 'is-active' : ''}
+                  className={`referral-page-btn${paginationPage === page ? ' is-active' : ''}`}
                   aria-current={paginationPage === page ? 'page' : undefined}
                   onClick={() => setPage(paginationPage)}
                 >
@@ -767,11 +813,12 @@ export function ReferralManagementPanel({
             ))}
             <button
               type="button"
+              className="referral-page-btn"
               aria-label="Trang sau"
               disabled={page >= visibleTotalPages}
               onClick={() => setPage((current) => Math.min(visibleTotalPages, current + 1))}
             >
-              ›
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
             </button>
           </div>
         </div>
@@ -1126,4 +1173,12 @@ function SearchClearIcon() {
 
 function DetailChevronIcon({ isOpen }: { isOpen: boolean }) {
   return <svg className={`referral-detail-chevron${isOpen ? ' is-open' : ''}`} width="6" height="11" viewBox="0 0 6 11" fill="none" aria-hidden="true"><path d="M0.859375 10.8594L5.85938 5.85937C5.90104 5.80729 5.9349 5.7526 5.96094 5.69531C5.98698 5.63802 6 5.57292 6 5.5C6 5.42708 5.98698 5.36198 5.96094 5.30469C5.9349 5.2474 5.90104 5.19271 5.85938 5.14062L0.859375 0.140625C0.807292 0.0989583 0.752604 0.0651042 0.695312 0.0390625C0.638021 0.0130208 0.572917 0 0.5 0C0.364583 0 0.247396 0.0494792 0.148438 0.148437C0.0494792 0.247396 0 0.364583 0 0.5C0 0.572917 0.0130208 0.638021 0.0390625 0.695312C0.0651042 0.752604 0.0989583 0.807292 0.140625 0.859375L4.79688 5.5L0.140625 10.1406C0.0989583 10.1927 0.0651042 10.2474 0.0390625 10.3047C0.0130208 10.362 0 10.4271 0 10.5C0 10.6354 0.0494792 10.7526 0.148438 10.8516C0.247396 10.9505 0.364583 11 0.5 11C0.572917 11 0.638021 10.987 0.695313 10.9609C0.752604 10.9349 0.807292 10.901 0.859375 10.8594Z" fill="white" /></svg>;
+}
+
+function PlusIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M6 2.5V9.5M2.5 6H9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
 }

@@ -10,6 +10,8 @@ type InputFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'onCha
   inputWrapperClassName?: string;
   leading?: ReactNode;
   trailing?: ReactNode;
+  /** Strip all whitespace from the value as the user types. */
+  stripWhitespace?: boolean;
 };
 
 export function InputField({
@@ -24,6 +26,7 @@ export function InputField({
   inputWrapperClassName = '',
   leading,
   trailing,
+  stripWhitespace = false,
   onBlur,
   ...inputProps
 }: InputFieldProps) {
@@ -40,7 +43,9 @@ export function InputField({
   const displayedError = error || internalError;
 
   const handleChange: ChangeEventHandler<HTMLInputElement> = (event) => {
-    event.target.value = event.target.value.trim();
+    let next = event.target.value.trim();
+    if (stripWhitespace) next = next.replace(/\s+/g, '');
+    event.target.value = next;
     onChange(event);
   };
 

@@ -35,6 +35,7 @@ export function DateRangeFilter({ label = 'Thời gian', value, onChange, classN
 
   const nextMonth = addMonths(visibleMonth, 1);
   const classes = `shared-filter-field shared-filter-date-range ${className}`.trim();
+  const hasValue = Boolean(value.from || value.to);
 
   function selectDate(date: Date) {
     const selected = toInputValue(date);
@@ -55,15 +56,71 @@ export function DateRangeFilter({ label = 'Thời gian', value, onChange, classN
         aria-expanded={isOpen}
         onClick={() => setIsOpen((current) => !current)}
       >
-        <span className="shared-filter-date-range-value">{formatDateRange(value)}</span>
-        <CalendarIcon />
+        <span className={`shared-filter-date-range-value ${!hasValue ? 'is-placeholder' : ''}`}>
+          {formatDateRange(value)}
+        </span>
+        <div className="shared-filter-date-range-icons">
+          {hasValue ? (
+            <span
+              role="button"
+              tabIndex={0}
+              className="shared-filter-date-range-clear-btn"
+              aria-label="Xóa bộ lọc thời gian"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange({ from: '', to: '' });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation();
+                  onChange({ from: '', to: '' });
+                }
+              }}
+            >
+              ×
+            </span>
+          ) : null}
+          <CalendarIcon />
+        </div>
       </button>
       {isOpen ? (
         <div className="shared-filter-date-range-popup" role="dialog" aria-label="Chọn khoảng thời gian">
-          <button type="button" className="shared-filter-date-range-nav is-previous" aria-label="Tháng trước" onClick={() => setVisibleMonth(addMonths(visibleMonth, -1))}>‹</button>
-          <CalendarMonth month={visibleMonth} value={value} onSelect={selectDate} />
-          <CalendarMonth month={nextMonth} value={value} onSelect={selectDate} />
-          <button type="button" className="shared-filter-date-range-nav is-next" aria-label="Tháng sau" onClick={() => setVisibleMonth(addMonths(visibleMonth, 1))}>›</button>
+          <div className="shared-filter-date-range-popup-header">
+            <button
+              type="button"
+              className="shared-filter-date-range-nav is-previous"
+              aria-label="Tháng trước"
+              onClick={() => setVisibleMonth(addMonths(visibleMonth, -1))}
+            >
+              ‹
+            </button>
+            <div className="shared-filter-date-range-months">
+              <CalendarMonth month={visibleMonth} value={value} onSelect={selectDate} />
+              <CalendarMonth month={nextMonth} value={value} onSelect={selectDate} />
+            </div>
+            <button
+              type="button"
+              className="shared-filter-date-range-nav is-next"
+              aria-label="Tháng sau"
+              onClick={() => setVisibleMonth(addMonths(visibleMonth, 1))}
+            >
+              ›
+            </button>
+          </div>
+          {hasValue ? (
+            <div className="shared-filter-date-range-footer">
+              <button
+                type="button"
+                className="shared-filter-date-range-reset-action"
+                onClick={() => {
+                  onChange({ from: '', to: '' });
+                  setIsOpen(false);
+                }}
+              >
+                Đặt lại thời gian
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -134,10 +134,10 @@ import {
   SourceIcon,
   SparklesIcon,
   TrashIcon,
-  WarningIcon,
 } from '@/components/icons';
 import { CandidateAvatar } from '@/components/candidates/CandidateAvatar';
 import { FacebookGroupFormModal } from '@/components/facebook/FacebookGroupFormModal';
+import { FacebookGroupDeleteModal } from '@/components/facebook/FacebookGroupDeleteModal';
 import { clearSelectedJobQuestionContextForTab, saveSelectedJobQuestionContext } from '@/stores/selected-job-question-store';
 import type {
   AmisAutoSyncState,
@@ -340,8 +340,8 @@ const CV_EVALUATION_FILTER_OPTIONS: Array<{ value: CvEvaluationFilter; label: st
   { value: 'EVALUATION_UPLOADED', label: 'Đã tải lên file đánh giá' },
 ];
 const CV_SORT_OPTIONS: Array<{ value: CvSortMode; label: string }> = [
-  { value: 'APPLIED_DESC', label: 'Đã nộp mới đây' },
-  { value: 'APPLIED_ASC', label: 'Đã nộp lâu nhất' },
+  { value: 'APPLIED_DESC', label: 'Mới nhất' },
+  { value: 'APPLIED_ASC', label: 'Cũ nhất' },
   { value: 'SCORE_DESC', label: 'Điểm cao đến thấp' },
   { value: 'SCORE_ASC', label: 'Điểm thấp đến cao' },
 ];
@@ -356,7 +356,6 @@ const JOB_DESCRIPTION_STATUS_OPTIONS = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'ACTIVE', label: 'Công khai' },
   { value: 'DRAFT', label: 'Nội bộ' },
-  { value: 'CLOSED', label: 'Đóng' },
   { value: 'ARCHIVED', label: 'Ngừng tuyển' },
 ];
 const FACEBOOK_HISTORY_PAGE_SIZE = 5;
@@ -6333,6 +6332,16 @@ function SidePanel() {
               const rejectionReason = application.amisReasonRemoved?.trim() || null;
               const recruiterName = application.attractivePersonnelName ?? '-';
               const appliedDate = formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-';
+              const sourceFilterBucket = getCvSourceFilterBucket(application);
+              const sourceToneClass = sourceFilterBucket === 'FACEBOOK'
+                ? 'is-facebook'
+                : sourceFilterBucket === 'VCS_PORTAL'
+                  ? 'is-vcs-portal'
+                  : sourceFilterBucket === 'FREELANCER'
+                    ? 'is-freelancer'
+                    : sourceFilterBucket === 'INTERNAL'
+                      ? 'is-internal'
+                      : '';
 
               return (
                 <li key={application.applicationId} className={isSelected ? 'is-selected' : ''}>
@@ -6383,7 +6392,7 @@ function SidePanel() {
                         <span className="cv-candidate-source">
                           <SourceIcon />
                           <span>Nguồn</span>
-                          <span className="cv-source-chip">{getCvSourceLabel(application)}</span>
+                          <span className={`cv-source-chip ${sourceToneClass}`.trim()}>{getCvSourceLabel(application)}</span>
                         </span>
                         <span className="cv-candidate-recruiter">
                           Nhân sự khai thác: <strong>{recruiterName}</strong>
@@ -6927,65 +6936,15 @@ function SidePanel() {
             />
           ) : null}
           {facebookGroupModalMode === 'DELETE' && selectedFacebookGroup ? (
-            <section
-              className="facebook-group-modal delete-group-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="facebook-group-delete-title"
-            >
-              <header className="modal-header">
-                <div>
-                  <h2 id="facebook-group-delete-title">Xác nhận xóa nhóm</h2>
-                </div>
-                <button
-                  type="button"
-                  className="icon-button"
-                  title="Đóng"
-                  aria-label="Đóng"
-                  disabled={facebookSettingsState === 'SAVING'}
-                  onClick={closeFacebookGroupActionModal}
-                >
-                  <CloseIcon />
-                </button>
-              </header>
-
-              <div className="modal-body delete-confirm-body">
-                <div className="warning-icon">
-                  <WarningIcon />
-                </div>
-                <div className="delete-copy">
-                  <h3>Bạn có chắc chắn muốn xóa nhóm này không?</h3>
-                  <p>Hành động này không thể hoàn tác và dữ liệu liên quan sẽ bị mất.</p>
-                </div>
-                <div className="delete-target-preview">
-                  <span>Nhóm sẽ bị xóa:</span>
-                  <strong>{selectedFacebookGroup.targetName}</strong>
-                </div>
-                {facebookSettingsMessage ? (
-                  <p className={`modal-status${facebookSettingsState === 'ERROR' ? ' is-error' : ''}`}>
-                    {facebookSettingsMessage}
-                  </p>
-                ) : null}
-                <div className="form-actions">
-                  <button
-                    type="button"
-                    className="text-button"
-                    disabled={facebookSettingsState === 'SAVING'}
-                    onClick={closeFacebookGroupActionModal}
-                  >
-                    Hủy
-                  </button>
-                  <button
-                    type="button"
-                    className="danger-button compact-button"
-                    disabled={facebookSettingsState === 'SAVING'}
-                    onClick={() => void confirmDeleteFacebookGroup()}
-                  >
-                    {facebookSettingsState === 'SAVING' ? 'Đang xóa...' : 'Xác nhận'}
-                  </button>
-                </div>
-              </div>
-            </section>
+            <FacebookGroupDeleteModal
+              groupName={selectedFacebookGroup.targetName}
+              isDeleting={facebookSettingsState === 'SAVING'}
+              message={facebookSettingsMessage}
+              messageIsError={facebookSettingsState === 'ERROR'}
+              onConfirm={() => void confirmDeleteFacebookGroup()}
+              onCancel={closeFacebookGroupActionModal}
+              onClose={closeFacebookGroupActionModal}
+            />
           ) : null}
         </div>
       ) : null}
