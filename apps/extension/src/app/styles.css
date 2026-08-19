@@ -7523,7 +7523,7 @@ dd {
   min-width: 0;
 }
 
-.shared-filter-date-range > span {
+.shared-filter-date-range>span {
   display: block;
   font-family: Inter, sans-serif;
   font-size: 12px;
@@ -7710,7 +7710,7 @@ dd {
 }
 
 .shared-filter-calendar-days button,
-.shared-filter-calendar-days > span {
+.shared-filter-calendar-days>span {
   display: grid;
   width: 28px;
   height: 28px;
@@ -8934,47 +8934,141 @@ dd {
   margin-top: 4px;
 }
 
+.referral-application-table-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  background: #FFFFFF;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.05);
+}
+
 .referral-table-wrap {
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: #b8c3d1 transparent;
-  border-radius: 8px;
+  scrollbar-width: none;
   background: #FFFFFF;
+  border: 0;
+  cursor: grab;
 }
 
 .referral-table-wrap::-webkit-scrollbar {
+  display: none;
+  height: 0;
+}
+
+.referral-table-wrap:active {
+  cursor: grabbing;
+}
+
+.referral-table-scrollbar-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: #FFFFFF;
+  padding: 6px 12px 8px;
+  box-sizing: border-box;
+}
+
+.referral-custom-scrollbar-track {
+  width: 100%;
   height: 6px;
+  min-width: 0;
+  background: #F1F5F9;
+  border: 0;
+  border-radius: 9999px;
+  position: relative;
+  cursor: pointer;
+  box-sizing: border-box;
 }
 
-.referral-table-wrap::-webkit-scrollbar-track {
-  background: transparent;
+.referral-custom-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: #737373;
+  border-radius: 8px;
+  cursor: grab;
+  transition: background 150ms ease;
 }
 
-.referral-table-wrap::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: #b8c3d1;
+.referral-custom-scrollbar-thumb:hover {
+  background: #525252;
+}
+
+.referral-custom-scrollbar-thumb:active {
+  cursor: grabbing;
+  background: #262626;
 }
 
 .referral-application-table {
   width: 100%;
-  min-width: 630px;
+  min-width: 1180px;
   border-collapse: collapse;
   font-size: 14px;
+  background: #FFFFFF;
 }
 
 .referral-application-table th {
   padding: 12px 16px;
   color: #262626;
-  background: #BFDBFE;
-  border-bottom: 1px solid #E5E5E5;
+  background: #E5EEFF;
+  border-bottom: 1px solid #D4D4D4;
   font-family: Inter, sans-serif;
   font-size: 13px;
   font-weight: 600;
   line-height: 18px;
   letter-spacing: 0.02em;
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
+  height: 60px;
+  box-sizing: border-box;
+}
+
+.referral-application-table th:first-child,
+.referral-application-table td:first-child {
+  width: 50px;
+  min-width: 50px;
+  text-align: center;
+  padding: 12px 8px;
+}
+
+.referral-application-table th:nth-child(2),
+.referral-application-table td:nth-child(2) {
+  min-width: 120px;
+  text-align: left;
+}
+
+.referral-application-table th:nth-child(3),
+.referral-application-table td:nth-child(3) {
+  min-width: 120px;
+  text-align: left;
+}
+
+.referral-application-table th:nth-child(4),
+.referral-application-table td:nth-child(4) {
+  min-width: 120px;
+  text-align: center;
+}
+
+.referral-application-table th:nth-child(5),
+.referral-application-table td:nth-child(5) {
+  min-width: 120px;
+  text-align: left;
+}
+
+.referral-application-table th:nth-child(6),
+.referral-application-table td:nth-child(6) {
+  min-width: 180px;
+  text-align: left;
+}
+
+.referral-application-table th:nth-child(7),
+.referral-application-table td:nth-child(7) {
+  min-width: 200px;
+  text-align: left;
 }
 
 .referral-application-table td {
@@ -8986,7 +9080,6 @@ dd {
   font-style: normal;
   font-weight: 400;
   line-height: 20px;
-  text-align: center;
   vertical-align: middle;
   height: 60px;
   box-sizing: border-box;
@@ -10973,6 +11066,7 @@ dd {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .cv-candidate-process-step::before,
   .cv-candidate-process-marker,
   .cv-candidate-process-marker::before {
