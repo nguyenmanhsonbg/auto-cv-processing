@@ -1,53 +1,31 @@
-import { useRef, useState, type ChangeEvent, type FormEventHandler } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEventHandler } from 'react';
+import { ApiClientError, login as loginApi, requestInternalPassword } from '@/lib/api-client';
+import { clearSavedCredentials, getSavedCredentials, saveCredentials, setAuthTokens } from './auth-store';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
 import { AuthInput } from './AuthInput';
 import { UserIcon, LockIcon, EyeIcon, InternalPasswordSentIcon } from '@/components/svg';
+import { toErrorMessage } from '@/lib/utils';
+import type { ExtensionUser } from '@/types/types';
 
-type LoginFormProps = {
-  login: string;
-  password: string;
-  rememberMe: boolean;
-  error: string | null;
-  internalMode: boolean;
-  forgotPasswordMode: boolean;
-  internalEmail: string;
-  internalMessage: string | null;
-  internalSubmitting: boolean;
-  onLoginChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onPasswordChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onInternalEmailChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onRememberMeChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onForgotPassword: () => void;
-  onForgotPasswordCancel: () => void;
-  onInternalModeChange: () => void;
-  onInternalCancel: () => void;
-  onInternalSubmit: FormEventHandler<HTMLFormElement>;
-  onSubmit: FormEventHandler<HTMLFormElement>;
+export type LoginFormProps = {
+  onLoginSuccess: (user: ExtensionUser, accessToken: string) => Promise<void> | void;
 };
 
-export function LoginForm({
-  login,
-  password,
-  rememberMe,
-  error,
-  internalMode,
-  forgotPasswordMode,
-  internalEmail,
-  internalMessage,
-  internalSubmitting,
-  onLoginChange,
-  onPasswordChange,
-  onInternalEmailChange,
-  onRememberMeChange,
-  onForgotPassword,
-  onForgotPasswordCancel,
-  onInternalModeChange,
-  onInternalCancel,
-  onInternalSubmit,
-  onSubmit,
-}: LoginFormProps) {
-  const [showPassword, setShowPassword] = useState(false);
+export function LoginForm({ onLoginSuccess }: LoginFormProps) {
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [internalMode, setInternalMode] = useState(false);
+  const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
+  const [internalEmail, setInternalEmail] = useState('');
   const [internalFullName, setInternalFullName] = useState('');
+  const [internalMessage, setInternalMessage] = useState<string | null>(null);
+  const [internalSubmitting, setInternalSubmitting] = useState(false);
+
+  const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<'login' | 'password' | null>(null);
 
@@ -59,6 +37,20 @@ export function LoginForm({
   const internalFullNameRef = useRef<HTMLInputElement | null>(null);
   const internalEmailRef = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => {
+    let active = true;
+    getSavedCredentials().then((saved) => {
+      if (active && saved) {
+        setLogin(saved.login);
+        setPassword(saved.password);
+        setRememberMe(true);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const displayedError = localError || error;
   const hasLoginError = errorField === 'login' || (Boolean(error) && !errorField);
   const hasPasswordError = errorField === 'password' || (Boolean(error) && !errorField);
@@ -68,19 +60,21 @@ export function LoginForm({
   const hasInternalEmailError = internalErrorField === 'email' || (Boolean(error) && !internalErrorField);
 
   const handleLoginChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (localError || errorField) {
+    if (localError || errorField || error) {
       setLocalError(null);
       setErrorField(null);
+      setError(null);
     }
-    onLoginChange(e);
+    setLogin(e.target.value);
   };
 
   const handlePasswordChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (localError || errorField) {
+    if (localError || errorField || error) {
       setLocalError(null);
       setErrorField(null);
+      setError(null);
     }
-    onPasswordChange(e);
+    setPassword(e.target.value);
   };
 
   const handleLoginBlur = () => {
@@ -98,22 +92,26 @@ export function LoginForm({
   };
 
   const handleLoginClear = () => {
-    onLoginChange({ target: { value: '' }, currentTarget: { value: '' } } as ChangeEvent<HTMLInputElement>);
+    setLogin('');
     setLocalError(null);
     setErrorField(null);
+    setError(null);
     loginInputRef.current?.focus();
   };
 
   const handlePasswordClear = () => {
-    onPasswordChange({ target: { value: '' }, currentTarget: { value: '' } } as ChangeEvent<HTMLInputElement>);
+    setPassword('');
     setLocalError(null);
     setErrorField(null);
+    setError(null);
     passwordInputRef.current?.focus();
   };
 
-  const handleLoginSubmit: FormEventHandler<HTMLFormElement> = (e) => {
+  const handleLoginSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();
-    if (!login.trim()) {
+    setError(null);
+    const trimmedEmail = login.trim();
+    if (!trimmedEmail) {
       setLocalError('Tên đăng nhập là bắt buộc');
       setErrorField('login');
       loginInputRef.current?.focus();
@@ -125,9 +123,46 @@ export function LoginForm({
       passwordInputRef.current?.focus();
       return;
     }
+
     setLocalError(null);
     setErrorField(null);
-    onSubmit(e);
+    setSubmitting(true);
+
+    try {
+      const auth = await loginApi(trimmedEmail, password);
+      if (rememberMe) {
+        await saveCredentials({ login: trimmedEmail, password });
+      } else {
+        await clearSavedCredentials();
+      }
+
+      if (
+        auth.user.role !== 'ADMIN'
+        && auth.user.role !== 'HR'
+        && auth.user.role !== 'FREELANCER'
+        && auth.user.role !== 'INTERNAL'
+      ) {
+        throw new ApiClientError('FORBIDDEN', 'Bạn không có quyền truy cập extension.', 403);
+      }
+
+      await setAuthTokens(
+        {
+          accessToken: auth.accessToken,
+          refreshToken: auth.refreshToken,
+        },
+        { rememberMe },
+      );
+
+      await onLoginSuccess(auth.user, auth.accessToken);
+    } catch (err) {
+      if (err instanceof ApiClientError && (err.status === 401 || err.code === 'HTTP_401')) {
+        setError('Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại.');
+      } else {
+        setError(toErrorMessage(err));
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleInternalFullNameChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -143,10 +178,8 @@ export function LoginForm({
       setInternalLocalError(null);
       setInternalErrorField(null);
     }
-    if (e.target.value.length > 255) {
-      e.target.value = e.target.value.slice(0, 255);
-    }
-    onInternalEmailChange(e);
+    const val = e.target.value.length > 255 ? e.target.value.slice(0, 255) : e.target.value;
+    setInternalEmail(val);
   };
 
   const handleInternalFullNameBlur = () => {
@@ -171,41 +204,55 @@ export function LoginForm({
   };
 
   const handleInternalEmailClear = () => {
-    onInternalEmailChange({ target: { value: '' }, currentTarget: { value: '' } } as ChangeEvent<HTMLInputElement>);
+    setInternalEmail('');
     setInternalLocalError(null);
     setInternalErrorField(null);
     internalEmailRef.current?.focus();
   };
 
-  const handleInternalSubmit: FormEventHandler<HTMLFormElement> = (e) => {
+  const handleInternalSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();
+    setError(null);
+    setInternalMessage(null);
+
     if (!internalFullName.trim()) {
       setInternalLocalError('Họ tên nhân sự là bắt buộc');
       setInternalErrorField('fullName');
       internalFullNameRef.current?.focus();
       return;
     }
-    if (!internalEmail.trim()) {
+    const normalizedEmail = internalEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
       setInternalLocalError('Gmail nội bộ nhân sự là bắt buộc');
       setInternalErrorField('email');
       internalEmailRef.current?.focus();
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(internalEmail.trim())) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(normalizedEmail)) {
       setInternalLocalError('Gmail nội bộ không chính xác. Vui lòng kiểm tra và thử lại.');
       setInternalErrorField('email');
       internalEmailRef.current?.focus();
       return;
     }
+
     setInternalLocalError(null);
     setInternalErrorField(null);
-    onInternalSubmit(e);
+    setInternalSubmitting(true);
+    try {
+      const response = await requestInternalPassword(normalizedEmail);
+      setInternalMessage(response.message);
+      setInternalEmail(normalizedEmail);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setInternalSubmitting(false);
+    }
   };
 
   if (forgotPasswordMode) {
     return (
       <section className="extension-login-shell">
-        <ForgotPasswordForm onCancel={onForgotPasswordCancel} />
+        <ForgotPasswordForm onCancel={() => setForgotPasswordMode(false)} />
       </section>
     );
   }
@@ -225,7 +272,14 @@ export function LoginForm({
                 <p>Vui lòng kiểm tra để lấy mật khẩu đăng nhập và đổi lại mật khẩu mới sau khi đăng nhập lần đầu.</p>
               </div>
             </div>
-            <button type="button" className="primary-button extension-auth-btn-back" onClick={onInternalCancel}>
+            <button
+              type="button"
+              className="primary-button extension-auth-btn-back"
+              onClick={() => {
+                setInternalMode(false);
+                setInternalMessage(null);
+              }}
+            >
               Quay lại màn hình đăng nhập
             </button>
           </div>
@@ -272,7 +326,17 @@ export function LoginForm({
           </div>
           {displayedInternalError ? <p className="extension-login-error">{displayedInternalError}</p> : null}
           <div className="extension-login-actions">
-            <button type="button" className="secondary-button" onClick={onInternalCancel}>Hủy</button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setInternalMode(false);
+                setError(null);
+                setInternalLocalError(null);
+              }}
+            >
+              Hủy
+            </button>
             <button type="submit" className="confirm-button" disabled={internalSubmitting}>
               {internalSubmitting ? 'Đang gửi...' : 'Xác nhận'}
             </button>
@@ -336,7 +400,11 @@ export function LoginForm({
           <div className="extension-login-error-row">
             <p className="extension-login-error">{displayedError}</p>
             {error && !localError ? (
-              <button type="button" className="text-button extension-error-forgot-link" onClick={onForgotPassword}>
+              <button
+                type="button"
+                className="text-button extension-error-forgot-link"
+                onClick={() => setForgotPasswordMode(true)}
+              >
                 Quên mật khẩu?
               </button>
             ) : null}
@@ -345,18 +413,44 @@ export function LoginForm({
 
         <div className="extension-login-options">
           <label className="remember-me-control">
-            <input type="checkbox" checked={rememberMe} onChange={onRememberMeChange} />
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+            />
             <span>Ghi nhớ mật khẩu</span>
           </label>
           <div className="extension-login-links">
-            <button type="button" className="text-button" onClick={onForgotPassword}>Quên mật khẩu</button>
-            <button type="button" className="text-button" onClick={onInternalModeChange}>Nhân sự nội bộ đăng nhập lần đầu</button>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setForgotPasswordMode(true);
+                setError(null);
+                setLocalError(null);
+              }}
+            >
+              Quên mật khẩu
+            </button>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setInternalMode(true);
+                setInternalMessage(null);
+                setError(null);
+                setLocalError(null);
+              }}
+            >
+              Nhân sự nội bộ đăng nhập lần đầu
+            </button>
           </div>
         </div>
 
-        <button type="submit" className="primary-button extension-submit-btn">Đăng nhập</button>
+        <button type="submit" className="primary-button extension-submit-btn" disabled={submitting}>
+          {submitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
+        </button>
       </form>
     </section>
   );
 }
-

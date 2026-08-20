@@ -3611,7 +3611,7 @@ dd {
   row-gap: 0;
 }
 
-.facebook-group-settings-modal .facebook-group-pagination>span {
+.facebook-group-settings-modal .facebook-group-pagination > span {
   flex: 0 0 auto;
   font-size: 12px;
   font-style: normal;
@@ -3619,7 +3619,7 @@ dd {
   white-space: nowrap;
 }
 
-.facebook-group-settings-modal .facebook-group-pagination>div {
+.facebook-group-settings-modal .facebook-group-pagination > div {
   width: auto;
   flex: 1 1 auto;
   min-width: 0;
