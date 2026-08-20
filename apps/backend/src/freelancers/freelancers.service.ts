@@ -148,6 +148,7 @@ export class FreelancersService {
           if (existingFreelancer && !existingFreelancer.isActive) {
             existingUser.name = name;
             existingUser.password = await bcrypt.hash(existingFreelancer.identifier, 10);
+            existingUser.mustChangePassword = true;
             await usersRepo.save(existingUser);
 
             existingFreelancer.phone = phone;
@@ -186,6 +187,7 @@ export class FreelancersService {
             name,
             password,
             role: UserRole.FREELANCER,
+            mustChangePassword: true,
           }),
         );
 

@@ -239,7 +239,7 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
           Quay lại
         </button>
         <button type="submit" className="confirm-button" disabled={isSaving || !isFormFilled}>
-          {isSaving ? 'Đang lưu...' : (isResetPassword ? 'Đặt lại mật khẩu' : 'Đặt lại mật khẩu')}
+          {isSaving ? 'Đang lưu...' : (isResetPassword ? 'Đặt lại mật khẩu' : 'Đổi mật khẩu')}
         </button>
       </div>
     </form>

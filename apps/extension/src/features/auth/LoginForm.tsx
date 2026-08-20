@@ -8,10 +8,11 @@ import { toErrorMessage } from '@/lib/utils';
 import type { ExtensionUser } from '@/types/types';
 
 export type LoginFormProps = {
-  onLoginSuccess: (user: ExtensionUser, accessToken: string) => Promise<void> | void;
+  onLoginSuccess: (user: ExtensionUser, accessToken: string, mustChangePassword: boolean) => Promise<void> | void;
+  onError?: (message: string) => void;
 };
 
-export function LoginForm({ onLoginSuccess }: LoginFormProps) {
+export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -51,11 +52,9 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
     };
   }, []);
 
-  const displayedError = localError || error;
   const hasLoginError = errorField === 'login' || (Boolean(error) && !errorField);
   const hasPasswordError = errorField === 'password' || (Boolean(error) && !errorField);
 
-  const displayedInternalError = internalLocalError || error;
   const hasInternalFullNameError = internalErrorField === 'fullName';
   const hasInternalEmailError = internalErrorField === 'email' || (Boolean(error) && !internalErrorField);
 
@@ -153,13 +152,12 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
         { rememberMe },
       );
 
-      await onLoginSuccess(auth.user, auth.accessToken);
+      await onLoginSuccess(auth.user, auth.accessToken, Boolean(auth.mustChangePassword));
     } catch (err) {
-      if (err instanceof ApiClientError && (err.status === 401 || err.code === 'HTTP_401')) {
-        setError('Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại.');
-      } else {
-        setError(toErrorMessage(err));
-      }
+      const msg = err instanceof ApiClientError && (err.status === 401 || err.code === 'HTTP_401')
+        ? 'Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại.'
+        : toErrorMessage(err);
+      onError ? onError(msg) : setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -243,7 +241,8 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
       setInternalMessage(response.message);
       setInternalEmail(normalizedEmail);
     } catch (err) {
-      setError(toErrorMessage(err));
+      const msg = toErrorMessage(err);
+      onError ? onError(msg) : setError(msg);
     } finally {
       setInternalSubmitting(false);
     }
@@ -305,6 +304,7 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
               onClear={handleInternalFullNameClear}
               placeholder="Nhập tên nhân sự"
               hasError={hasInternalFullNameError}
+              errorMessage={internalErrorField === 'fullName' ? internalLocalError : null}
               maxLength={255}
             />
             <AuthInput
@@ -321,10 +321,10 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
               placeholder="Nhập gmail nội bộ nhân sự"
               autoFocus
               hasError={hasInternalEmailError}
+              errorMessage={internalErrorField === 'email' ? internalLocalError : null}
               maxLength={255}
             />
           </div>
-          {displayedInternalError ? <p className="extension-login-error">{displayedInternalError}</p> : null}
           <div className="extension-login-actions">
             <button
               type="button"
@@ -366,6 +366,7 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
             autoComplete="username"
             placeholder="Nhập tên đăng nhập"
             hasError={hasLoginError}
+            errorMessage={errorField === 'login' ? localError : null}
             maxLength={64}
           />
 
@@ -382,6 +383,7 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
             autoComplete="current-password"
             placeholder="Nhập mật khẩu"
             hasError={hasPasswordError}
+            errorMessage={errorField === 'password' ? localError : null}
             maxLength={64}
             trailing={
               <button
@@ -396,20 +398,6 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
           />
         </div>
 
-        {displayedError ? (
-          <div className="extension-login-error-row">
-            <p className="extension-login-error">{displayedError}</p>
-            {error && !localError ? (
-              <button
-                type="button"
-                className="text-button extension-error-forgot-link"
-                onClick={() => setForgotPasswordMode(true)}
-              >
-                Quên mật khẩu?
-              </button>
-            ) : null}
-          </div>
-        ) : null}
 
         <div className="extension-login-options">
           <label className="remember-me-control">
@@ -447,7 +435,11 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
           </div>
         </div>
 
-        <button type="submit" className="primary-button extension-submit-btn" disabled={submitting}>
+        <button
+          type="submit"
+          className="primary-button extension-submit-btn"
+          disabled={submitting || !login.trim() || !password}
+        >
           {submitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
         </button>
       </form>

@@ -74,7 +74,12 @@ export class ApiClientError extends Error {
 const SHOULD_BYPASS_NGROK_WARNING = getApiHost().includes('ngrok');
 
 export async function login(loginIdentifier: string, password: string) {
-  return request<{ accessToken: string; refreshToken: string; user: ExtensionUser }>('/auth/login', {
+  return request<{
+    accessToken: string;
+    refreshToken: string;
+    user: ExtensionUser;
+    mustChangePassword?: boolean;
+  }>('/auth/login', {
     method: 'POST',
     body: { login: loginIdentifier, password },
   });

@@ -397,6 +397,14 @@ a {
   font-weight: 400;
 }
 
+.auth-field-error {
+  margin: 4px 0 0;
+  color: #dc2626;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+}
+
 .extension-error-forgot-link {
   color: #2563eb;
   font-size: 14px;
@@ -800,8 +808,7 @@ a {
   width: min(340px, calc(100vw - 32px));
   min-height: 58px;
   background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
   overflow: hidden;
   animation: extension-toast-in 0.25s ease-out;
@@ -822,6 +829,7 @@ a {
 .extension-toast-accent {
   width: 7px;
   flex-shrink: 0;
+  border-radius: 8px 0 0 8px;
 }
 
 .extension-toast.is-success .extension-toast-accent {
@@ -844,7 +852,7 @@ a {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 10px 10px 10px 10px;
+  padding: 8px;
   flex: 1;
   min-width: 0;
 }
@@ -935,7 +943,7 @@ a {
   left: 7px;
   height: 2px;
   transform-origin: left center;
-  animation: extension-toast-progress 5s linear forwards;
+  animation: extension-toast-progress 3s linear forwards;
 }
 
 .extension-toast.is-success .extension-toast-progress {
@@ -956,11 +964,11 @@ a {
 
 @keyframes extension-toast-progress {
   from {
-    transform: scaleX(1);
+    transform: scaleX(0);
   }
 
   to {
-    transform: scaleX(0);
+    transform: scaleX(1);
   }
 }
 
@@ -5297,7 +5305,8 @@ dd {
   display: grid;
   width: min(100%, 1120px);
   margin: 0 auto;
-  overflow: hidden;
+  container-type: inline-size;
+  overflow: visible;
   border: 1px solid #d8dee9;
   border-radius: 8px;
   background: #ffffff;
@@ -7516,7 +7525,7 @@ dd {
 .freelancer-cv-panel {
   display: grid;
   gap: 14px;
-  padding: 12px 0 20px;
+  padding: 12px 14px 20px;
 }
 
 .freelancer-change-password-form {
@@ -7691,7 +7700,7 @@ dd {
 .freelancer-cv-identity h2 {
   font-size: 25px;
   font-weight: 400;
-  margin-bottom: 15px;
+  margin-bottom: 6px;
 }
 
 .freelancer-cv-identity em {
@@ -7729,7 +7738,7 @@ dd {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  padding: 0 8cap;
+  padding: 0 8%;
 }
 
 .stats-metric-card {
@@ -7745,6 +7754,10 @@ dd {
 .stats-metric-card strong {
   color: #172238;
   font-size: 23px;
+}
+
+.stats-metric-card span {
+  text-align: center;
 }
 
 .stats-metric-card.is-accent strong {
@@ -7951,6 +7964,8 @@ dd {
   gap: 8px;
   width: min(540px, calc(100vw - 24px));
   max-width: 90vw;
+  max-height: min(560px, calc(100vh - 24px));
+  overflow-y: auto;
   padding: 12px 14px;
   border: 1px solid #E5E7EB;
   border-radius: 8px;
@@ -7959,52 +7974,80 @@ dd {
   box-sizing: border-box;
 }
 
-.shared-filter-date-range-popup-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-}
-
 .shared-filter-date-range-months {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 16px;
-  flex: 1 1 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
   min-width: 0;
+}
+
+.shared-filter-date-range-nav.is-mobile-only {
+  display: none;
+}
+
+@container (max-width: 480px) {
+  .shared-filter-date-range-months {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shared-filter-date-range-months>.shared-filter-calendar-month:nth-child(2) {
+    display: none;
+  }
+
+  .shared-filter-date-range-nav.is-mobile-only {
+    display: inline-flex;
+  }
 }
 
 .shared-filter-date-range-nav {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   border: 0;
-  border-radius: 6px;
+  border-radius: 0;
   padding: 0;
-  color: #374151;
-  background: #F3F4F6;
-  font-size: 18px;
-  font-weight: 500;
+  color: #262626;
+  background: transparent;
   cursor: pointer;
-  margin-top: 2px;
+}
+
+.shared-filter-date-range-nav svg {
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+}
+
+.shared-filter-date-range-nav-placeholder {
+  display: block;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
 }
 
 .shared-filter-date-range-nav:hover {
-  color: #000000;
-  background: #E5E7EB;
+  color: #262626;
+  background: transparent;
 }
 
 .shared-filter-calendar-month {
   min-width: 0;
 }
 
-.shared-filter-calendar-month h3 {
-  margin: 0 0 10px;
-  color: #000000;
+.shared-filter-calendar-month-header {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 20px;
+  box-sizing: border-box;
+}
+
+.shared-filter-calendar-month-header p {
+  margin: 0;
+  color: #262626;
   font-family: Inter, sans-serif;
   font-size: 14px;
   font-weight: 500;
@@ -8018,7 +8061,7 @@ dd {
   align-items: center;
   text-align: center;
   margin-bottom: 6px;
-  color: #EF4444;
+  color: #16A34A;
   font-family: Inter, sans-serif;
   font-size: 12px;
   font-style: normal;
@@ -8056,18 +8099,18 @@ dd {
 }
 
 .shared-filter-calendar-days button:hover {
-  background: #FFF1F1;
+  background: #DCFCE7;
 }
 
 .shared-filter-calendar-days button.is-in-range {
-  background: #FEE2E2;
+  background: #DCFCE7;
   color: #000000;
-  border-radius: 0;
+  border-radius: 6px;
 }
 
 .shared-filter-calendar-days button.is-selected {
   color: #FFFFFF;
-  background: #EF4444;
+  background: #16A34A;
   border-radius: 8px;
   font-weight: 500;
 }
@@ -8283,14 +8326,12 @@ dd {
 }
 
 .freelancer-cv-empty {
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-  border: 1px dashed #cbd5e1;
+  border: 1px solid #cbd5e1;
   border-radius: 10px;
-  padding: 28px 14px;
+  padding: 10px 14px;
   color: #677489;
-  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .freelancer-cv-empty.freelancer-cv-error {
@@ -9076,11 +9117,22 @@ dd {
 .referral-person-meta {
   display: flex;
   align-items: center;
+  min-width: 0;
   color: #262626;
   font-family: Inter, sans-serif;
   font-size: 11px;
   font-weight: 400;
   line-height: 16.5px;
+  overflow: hidden;
+}
+
+.referral-person-meta>span {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .referral-identifier {

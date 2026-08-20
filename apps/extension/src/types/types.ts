@@ -5,6 +5,7 @@ export interface ExtensionUser {
   email: string;
   name?: string;
   role: UserRole;
+  mustChangePassword?: boolean;
 }
 
 export type ReferralManagementSource = 'FREELANCER' | 'INTERNAL';

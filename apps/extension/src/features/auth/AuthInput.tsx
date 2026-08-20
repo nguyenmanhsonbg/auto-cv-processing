@@ -11,6 +11,7 @@ export type AuthInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'onChan
   required?: boolean;
   icon?: ReactNode;
   hasError?: boolean;
+  errorMessage?: string | null;
   allowClear?: boolean;
   onClear?: () => void;
   onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -23,6 +24,7 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(({
   required = false,
   icon,
   hasError = false,
+  errorMessage,
   allowClear = true,
   onClear,
   onChange,
@@ -90,7 +92,12 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(({
   );
 
   if (!label) {
-    return inputContent;
+    return (
+      <>
+        {inputContent}
+        {errorMessage ? <p className="auth-field-error">{errorMessage}</p> : null}
+      </>
+    );
   }
 
   return (
@@ -100,6 +107,7 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(({
         {required ? <span className="required-mark"> *</span> : null}
       </span>
       {inputContent}
+      {errorMessage ? <p className="auth-field-error">{errorMessage}</p> : null}
     </label>
   );
 });

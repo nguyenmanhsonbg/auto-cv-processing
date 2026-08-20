@@ -197,7 +197,7 @@ export function FreelancerCvPanel({
         </div>
       ) : null}
       {!loading && !error && visibleApplications.length === 0 ? (
-        <div className="freelancer-cv-empty"><strong>Chưa có CV phù hợp</strong><span>Danh sách CV bạn giới thiệu sẽ hiển thị tại đây.</span></div>
+        <div className="freelancer-cv-empty"><span>Chưa có CV phù hợp</span></div>
       ) : null}
 
       <div className="freelancer-cv-list">

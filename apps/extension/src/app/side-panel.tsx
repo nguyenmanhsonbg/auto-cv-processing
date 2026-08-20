@@ -29,6 +29,7 @@ import {
   syncAndPublishAmisJob,
   syncVcsPortalJobDescriptions,
   updateAmisApplicationStage,
+  changePassword,
 } from '@/lib/api-client';
 import { createAiMatchPreviewPdfBase64 } from '@/features/recruitment/ai-match-preview-pdf-export';
 import {
@@ -47,6 +48,7 @@ import { createMockAmisSyncRequest } from '@/lib/mock-amis';
 import { ReferralManagementPanel } from '@/features/referrals/referral-management';
 import { FreelancerCvPanel } from '@/features/freelancer/freelancer-cv-panel';
 import { LoginForm } from '@/features/auth/LoginForm';
+import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
 import { checkTopCvAuth, type TopCvAuthState } from '@/features/topcv/topcv-auth';
 import { logoutTopCv } from '@/features/topcv/topcv-login.service';
 import { DEFAULT_TOPCV_FORM, type TopCvFormData } from '@/features/topcv/topcv-form.types';
@@ -130,7 +132,7 @@ import type {
 } from '@/types/types';
 import './styles.css';
 
-type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
+type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'PASSWORD_CHANGE_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type CareerQuestionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv' | 'freelancer' | 'internal';
@@ -200,6 +202,8 @@ function SidePanel() {
   const [user, setUser] = useState<ExtensionUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isFreelancerPasswordFormOpen, setIsFreelancerPasswordFormOpen] = useState(false);
+  const [initialPasswordError, setInitialPasswordError] = useState<string | null>(null);
+  const [isChangingInitialPassword, setIsChangingInitialPassword] = useState(false);
   const loadReferralRecruitmentRounds = useCallback(async (
     targets: Array<{ jobPostingId: string; amisRecruitmentId: string }>,
   ) => {
@@ -327,7 +331,7 @@ function SidePanel() {
     extensionToastTimerRef.current = window.setTimeout(() => {
       extensionToastTimerRef.current = null;
       setExtensionToast(null);
-    }, 5000);
+    }, 3000);
   }
 
   const selectedPostingChannels = useMemo(() => normalizePostingChannels(channels), [channels]);
@@ -730,6 +734,12 @@ function SidePanel() {
       }
 
       const currentUser = await getCurrentUser(storedToken);
+      if (currentUser.mustChangePassword) {
+        setToken(storedToken);
+        setUser(currentUser);
+        setState('PASSWORD_CHANGE_REQUIRED');
+        return;
+      }
       if (currentUser.role === 'FREELANCER' || currentUser.role === 'INTERNAL') {
         setToken(storedToken);
         setUser(currentUser);
@@ -766,9 +776,14 @@ function SidePanel() {
     setChannels(normalizePostingChannels(await getSelectedChannels()));
   }
 
-  async function handleLoginSuccess(authenticatedUser: ExtensionUser, accessToken: string) {
+  async function handleLoginSuccess(authenticatedUser: ExtensionUser, accessToken: string, mustChangePassword: boolean) {
     setToken(accessToken);
     setUser(authenticatedUser);
+    if (mustChangePassword) {
+      setInitialPasswordError(null);
+      setState('PASSWORD_CHANGE_REQUIRED');
+      return;
+    }
     if (authenticatedUser.role === 'FREELANCER' || authenticatedUser.role === 'INTERNAL') {
       setActiveWorkspaceTab('cv');
       setState('READY');
@@ -779,6 +794,30 @@ function SidePanel() {
     setState('READY');
     await loadJobDescriptions(accessToken);
     await loadLatestAmisCapture({ silent: true }, accessToken);
+  }
+
+  async function submitInitialPasswordChange(input: { currentPassword: string; newPassword: string; confirmPassword: string }) {
+    if (!token) return;
+    setIsChangingInitialPassword(true);
+    setInitialPasswordError(null);
+    try {
+      await changePassword(token, input);
+      setUser((current) => current ? { ...current, mustChangePassword: false } : current);
+      if (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') {
+        setActiveWorkspaceTab('cv');
+        setState('READY');
+        return;
+      }
+      await ensureRegisteredExtensionInstance(token);
+      setActiveWorkspaceTab('posting');
+      setState('READY');
+      await loadJobDescriptions(token);
+      await loadLatestAmisCapture({ silent: true }, token);
+    } catch (err) {
+      setInitialPasswordError(err instanceof ApiClientError ? err.message : 'Không thể đổi mật khẩu.');
+    } finally {
+      setIsChangingInitialPassword(false);
+    }
   }
 
   async function logout() {
@@ -2388,7 +2427,7 @@ function SidePanel() {
           <JobPostingPanel
             token={token}
             syncConfig={{
-              state,
+              state: state === 'PASSWORD_CHANGE_REQUIRED' ? 'AUTH_REQUIRED' : state,
               error,
               result,
               syncDisabled,
@@ -2517,10 +2556,24 @@ function SidePanel() {
         {state === 'AUTH_LOADING' ? <p className="muted-text extension-loading">Checking session...</p> : null}
 
         {state === 'AUTH_REQUIRED' ? (
-          <LoginForm onLoginSuccess={handleLoginSuccess} />
+          <LoginForm
+            onLoginSuccess={handleLoginSuccess}
+            onError={(msg) => showExtensionToast('ERROR', 'Đăng nhập', msg)}
+          />
         ) : null}
 
-        {(user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
+        {state === 'PASSWORD_CHANGE_REQUIRED' ? (
+          <section className="extension-login-shell">
+            <ChangePasswordForm
+              error={initialPasswordError}
+              isSaving={isChangingInitialPassword}
+              onCancel={() => void logout()}
+              onSubmit={submitInitialPasswordChange}
+            />
+          </section>
+        ) : null}
+
+        {state === 'READY' && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
           <section className="freelancer-extension-shell">
             {!isFreelancerPasswordFormOpen ? (
               <nav className="extension-tabs freelancer-extension-tabs" aria-label="Freelancer sections">
@@ -2538,7 +2591,7 @@ function SidePanel() {
               onPasswordChanged={logout}
             />
           </section>
-        ) : user ? (
+        ) : state === 'READY' && user ? (
           <>
             <nav className="extension-tabs" aria-label="VCS Recruitment sections">
               {WORKSPACE_TABS.map((tab) => {

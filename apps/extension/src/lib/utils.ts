@@ -71,15 +71,21 @@ export function normalizeStatus(value?: string | null): string {
 }
 
 export function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'string') return error;
+  if (error instanceof Error) return translateKnownError(error.message);
+  if (typeof error === 'string') return translateKnownError(error);
   if (
     error
     && typeof error === 'object'
     && 'message' in error
     && typeof (error as { message: unknown }).message === 'string'
   ) {
-    return (error as { message: string }).message;
+    return translateKnownError((error as { message: string }).message);
   }
   return String(error ?? 'Đã xảy ra lỗi không xác định.');
+}
+
+function translateKnownError(message: string) {
+  return /request payload is invalid/i.test(message)
+    ? 'Dữ liệu yêu cầu không hợp lệ.'
+    : message;
 }

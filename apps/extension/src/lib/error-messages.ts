@@ -39,6 +39,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 const MESSAGE_PATTERNS: Array<[RegExp, string]> = [
+  [/request payload is invalid/i, 'Nội dung nhập không hợp lệ.'],
   [/daily publish limit|quota.*(reached|exceeded)|đạt tối đa .* bài/i, 'Nhóm Facebook đã đạt giới hạn đăng bài trong ngày.'],
   [/facebook.*(login|logged in)|login.*facebook|facebook session.*(expired|required)/i, 'Vui lòng đăng nhập Facebook trước khi thực hiện thao tác này.'],
   [/active facebook browser account does not match|account.*does not match.*selected facebook/i, 'Tài khoản Facebook trên trình duyệt không khớp với các nhóm đã chọn.'],
@@ -99,4 +100,3 @@ function isErrorDetails(value: unknown): value is ErrorDetails {
 function containsVietnamese(value: string) {
   return /[À-ỹ]/u.test(value);
 }
-

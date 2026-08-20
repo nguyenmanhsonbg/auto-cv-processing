@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarIcon } from '@/components/icons';
+import { BackIcon, CalendarIcon, ChevronRightIcon } from '@/components/icons';
 
 export type DateRangeValue = {
   from: string;
@@ -85,42 +85,21 @@ export function DateRangeFilter({ label = 'Thời gian', value, onChange, classN
       </button>
       {isOpen ? (
         <div className="shared-filter-date-range-popup" role="dialog" aria-label="Chọn khoảng thời gian">
-          <div className="shared-filter-date-range-popup-header">
-            <button
-              type="button"
-              className="shared-filter-date-range-nav is-previous"
-              aria-label="Tháng trước"
-              onClick={() => setVisibleMonth(addMonths(visibleMonth, -1))}
-            >
-              ‹
-            </button>
-            <div className="shared-filter-date-range-months">
-              <CalendarMonth month={visibleMonth} value={value} onSelect={selectDate} />
-              <CalendarMonth month={nextMonth} value={value} onSelect={selectDate} />
-            </div>
-            <button
-              type="button"
-              className="shared-filter-date-range-nav is-next"
-              aria-label="Tháng sau"
-              onClick={() => setVisibleMonth(addMonths(visibleMonth, 1))}
-            >
-              ›
-            </button>
+          <div className="shared-filter-date-range-months">
+            <CalendarMonth
+              month={visibleMonth}
+              value={value}
+              onSelect={selectDate}
+              onPreviousMonth={() => setVisibleMonth(addMonths(visibleMonth, -1))}
+              onNextMonth={() => setVisibleMonth(addMonths(visibleMonth, 1))}
+            />
+            <CalendarMonth
+              month={nextMonth}
+              value={value}
+              onSelect={selectDate}
+              onNextMonth={() => setVisibleMonth(addMonths(visibleMonth, 1))}
+            />
           </div>
-          {hasValue ? (
-            <div className="shared-filter-date-range-footer">
-              <button
-                type="button"
-                className="shared-filter-date-range-reset-action"
-                onClick={() => {
-                  onChange({ from: '', to: '' });
-                  setIsOpen(false);
-                }}
-              >
-                Đặt lại thời gian
-              </button>
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>
@@ -131,13 +110,37 @@ type CalendarMonthProps = {
   month: Date;
   value: DateRangeValue;
   onSelect: (date: Date) => void;
+  onPreviousMonth?: () => void;
+  onNextMonth?: () => void;
 };
 
-function CalendarMonth({ month, value, onSelect }: CalendarMonthProps) {
+function CalendarMonth({ month, value, onSelect, onPreviousMonth, onNextMonth }: CalendarMonthProps) {
   const days = useMemo(() => getCalendarDays(month), [month]);
   return (
     <section className="shared-filter-calendar-month" aria-label={`${MONTH_NAMES[month.getMonth()]} ${month.getFullYear()}`}>
-      <h3>{MONTH_NAMES[month.getMonth()]} {month.getFullYear()}</h3>
+      <div className="shared-filter-calendar-month-header">
+        {onPreviousMonth ? (
+          <button
+            type="button"
+            className="shared-filter-date-range-nav is-previous"
+            aria-label="Tháng trước"
+            onClick={onPreviousMonth}
+          >
+            <BackIcon />
+          </button>
+        ) : <span className="shared-filter-date-range-nav-placeholder" aria-hidden="true" />}
+        <p>{MONTH_NAMES[month.getMonth()]} năm {month.getFullYear()}</p>
+        {onNextMonth ? (
+          <button
+            type="button"
+            className={`shared-filter-date-range-nav is-next${onPreviousMonth ? ' is-mobile-only' : ''}`}
+            aria-label="Tháng sau"
+            onClick={onNextMonth}
+          >
+            <ChevronRightIcon />
+          </button>
+        ) : <span className="shared-filter-date-range-nav-placeholder" aria-hidden="true" />}
+      </div>
       <div className="shared-filter-calendar-weekdays">
         {WEEKDAYS.map((weekday) => <span key={weekday}>{weekday}</span>)}
       </div>

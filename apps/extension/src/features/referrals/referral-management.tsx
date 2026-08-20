@@ -727,7 +727,14 @@ export function ReferralManagementPanel({
                       </div>
                     ) : null}
                     <div className="referral-person-meta">
-                      <span>{[person.email, person.phone].filter(Boolean).join(' • ')}</span>
+                      {(() => {
+                        const fullText = [person.email, person.phone].filter(Boolean).join(' • ');
+                        return (
+                          <span title={fullText.length > 50 ? fullText : undefined}>
+                            {fullText}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                   {source === 'FREELANCER' ? (

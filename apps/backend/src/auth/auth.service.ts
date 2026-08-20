@@ -43,8 +43,11 @@ export class AuthService implements OnModuleInit {
     if (!normalizedLogin) return null;
 
     let user = await this.userRepo.findOne({ where: { email: normalizedLogin } });
+    let freelancer = user
+      ? await this.freelancerRepo.findOne({ where: { userId: user.id } })
+      : null;
     if (!user) {
-      const freelancer = await this.freelancerRepo.findOne({
+      freelancer = await this.freelancerRepo.findOne({
         where: { identifier: normalizedLogin.toUpperCase() },
         relations: { user: true },
       });
@@ -52,6 +55,15 @@ export class AuthService implements OnModuleInit {
     }
 
     if (user && (await bcrypt.compare(password, user.password))) {
+      if (
+        user.role === UserRole.FREELANCER
+        && freelancer
+        && password === freelancer.identifier
+        && !user.mustChangePassword
+      ) {
+        user.mustChangePassword = true;
+        await this.userRepo.save(user);
+      }
       await this.assertUserCanAuthenticate(user);
       const { password: _, ...result } = user;
       return result;
