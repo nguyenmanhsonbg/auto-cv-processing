@@ -1,6 +1,5 @@
 export * from './types';
 export * from './side-panel-icons';
-export * from './ChevronUpIcon';
 export * from './EditIcon';
 export * from './ExternalLinkIcon';
 export * from './GearIcon';

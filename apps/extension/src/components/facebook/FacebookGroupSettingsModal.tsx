@@ -230,7 +230,7 @@ export function FacebookGroupSettingsModal({
                       >
                         <div className="facebook-group-info">
                           <div className="facebook-group-title-row">
-                            <strong>{group.targetName}</strong>
+                            <strong title={group.targetName ?? undefined}>{group.targetName}</strong>
                           </div>
                         </div>
                         <div className="facebook-group-item-actions">

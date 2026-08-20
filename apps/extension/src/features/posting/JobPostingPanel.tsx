@@ -47,6 +47,8 @@ export type FacebookGroupLoadState =
   | 'ERROR';
 export type FacebookContentState = 'IDLE' | 'GENERATING' | 'READY' | 'ERROR';
 export type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
+import { POSTING_CHANNELS } from '@/lib/config';
+
 export type TopCvModalMode = 'EDIT' | 'PREVIEW' | null;
 export type ExtensionToastKind = 'SUCCESS' | 'ERROR' | 'INFO';
 
@@ -62,7 +64,7 @@ export interface FacebookGroupUiItem {
   disabledReason?: string | null;
 }
 
-export const POSTING_CHANNELS: ExtensionChannel[] = ['FACEBOOK', 'VCS_PORTAL', 'TOPCV'];
+export { POSTING_CHANNELS };
 export const FACEBOOK_IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
 export const JOB_DESCRIPTION_STATUS_OPTIONS = [
   { value: 'ALL', label: 'Tất cả' },
@@ -385,8 +387,8 @@ export function JobPostingPanel({
                 void onLoadJobDescriptions(token, 1, { search: value.trim() });
               }, 300);
             }}
-            placeholder="Tìm kiếm công việc"
-            ariaLabel="Tìm kiếm công việc"
+            placeholder="Tìm kiếm JD"
+            ariaLabel="Tìm kiếm JD"
             clearButton={jobDescriptionSearch ? (
               <button
                 type="button"
@@ -690,14 +692,13 @@ export function JobPostingPanel({
                 </div>
                 {showFacebookGroups ? (
                   <div
-                    className={`channel-subselection${isFacebookGroupListExpanded ? ' is-expanded' : ' is-collapsed'}`}
+                    className={`channel-subselection-outer${isFacebookGroupListExpanded ? ' is-expanded' : ' is-collapsed'}`}
                     aria-hidden={!isFacebookGroupListExpanded}
                   >
-                    <div className="channel-subselection-content">
-                      <div className="channel-subselection-title">
-                        <div className="channel-subselection-heading">
-                          <span>Nhóm Facebook</span>
-                        </div>
+                    {/* Inner card: NHÓM FACEBOOK */}
+                    <div className="channel-inner-card">
+                      <div className="channel-inner-card-header">
+                        <span>Nhóm Facebook</span>
                         <button
                           type="button"
                           className="channel-subselection-reload-button"
@@ -707,27 +708,27 @@ export function JobPostingPanel({
                           disabled={!token || isFacebookLoading}
                           onClick={() => void onSyncFacebookGroups()}
                         >
-                          <span>{isFacebookLoading ? 'Đang tải lại...' : 'Tải lại'}</span>
+                          {isFacebookLoading ? 'Đang tải lại...' : 'Tải lại'}
                         </button>
                       </div>
-                      <div className="channel-subselection-list">
-                        {facebookGroupLoadState === 'READY' && visibleFacebookGroups.length > 0 ? (
-                          <div className="channel-subselection-summary-row">
-                            <p className="channel-subselection-summary">
-                              {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook đã được chọn
-                            </p>
-                            {facebookGroupLoadState === 'READY' && onOpenFacebookIneligibleModal ? (
-                              <button
-                                type="button"
-                                className="facebook-ineligible-trigger"
-                                onClick={() => onOpenFacebookIneligibleModal()}
-                              >
-                                <span>Xem nhóm không phù hợp</span>
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        {visibleFacebookGroups.length > 0 ? (
+                      {facebookGroupLoadState === 'READY' && visibleFacebookGroups.length > 0 ? (
+                        <div className="channel-inner-card-summary">
+                          <span>
+                            {visibleSelectedFacebookGroupCount}/{visibleFacebookGroups.length} nhóm Facebook đã được chọn
+                          </span>
+                          {onOpenFacebookIneligibleModal ? (
+                            <button
+                              type="button"
+                              className="facebook-ineligible-trigger"
+                              onClick={() => onOpenFacebookIneligibleModal()}
+                            >
+                              Xem nhóm không phù hợp
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {visibleFacebookGroups.length > 0 ? (
+                        <div className="channel-inner-card-search">
                           <SearchField
                             className="channel-subselection-search"
                             inputRef={facebookGroupSearchInputRef as any}
@@ -759,118 +760,120 @@ export function JobPostingPanel({
                               </button>
                             ) : null}
                           />
+                        </div>
+                      ) : null}
+                      <div className="channel-inner-card-list">
+                        {facebookGroupMessage
+                          && !facebookGroupSearchQuery
+                          && facebookGroupLoadState !== 'READY' ? (
+                          <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
+                            {facebookGroupMessage}
+                          </p>
                         ) : null}
-                        <div className="channel-subselection-items">
-                          {facebookGroupMessage
-                            && !facebookGroupSearchQuery
-                            && facebookGroupLoadState !== 'READY' ? (
-                            <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
-                              <span>{facebookGroupMessage}</span>
-                            </p>
-                          ) : null}
-                          {facebookGroupDiagnostic ? (
-                            <details className="channel-subselection-debug">
-                              <summary>Chi tiết lỗi GraphQL để báo</summary>
-                              <code>{facebookGroupDiagnostic}</code>
-                            </details>
-                          ) : null}
-                          {filteredFacebookGroups.length > 0 ? (
-                            filteredFacebookGroups.map((group, index) => (
-                              <div
-                                key={`${group.key}-${index}`}
-                                className={`channel-subselection-item${!group.selectable ? ' is-disabled' : ''}`}
-                                title={!group.selectable ? group.disabledReason ?? undefined : undefined}
-                              >
-                                <label className="channel-group-select">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
-                                    disabled={!group.id || !group.selectable}
-                                    onChange={() => onToggleFacebookGroupSelection(group.id)}
-                                  />
-                                  <span className="channel-group-copy">
-                                    <span>{group.name}</span>
-                                    <span className="channel-group-meta">
-                                      {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                                      {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
-                                    </span>
+                        {facebookGroupDiagnostic ? (
+                          <details className="channel-subselection-debug">
+                            <summary>Chi tiết lỗi GraphQL để báo</summary>
+                            <code>{facebookGroupDiagnostic}</code>
+                          </details>
+                        ) : null}
+                        {filteredFacebookGroups.length > 0 ? (
+                          filteredFacebookGroups.map((group, index) => (
+                            <div
+                              key={`${group.key}-${index}`}
+                              className={`channel-group-item${!group.selectable ? ' is-disabled' : ''}`}
+                              title={!group.selectable ? group.disabledReason ?? undefined : undefined}
+                            >
+                              <label className="channel-group-select">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
+                                  disabled={!group.id || !group.selectable}
+                                  onChange={() => onToggleFacebookGroupSelection(group.id)}
+                                />
+                                <span className="channel-group-copy">
+                                  <span className="channel-group-name">{group.name}</span>
+                                  <span className="channel-group-meta">
+                                    {getFacebookEligibilityLabel(group.eligibilityStatus)}
+                                    {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
                                   </span>
-                                </label>
+                                </span>
+                              </label>
+                              <button
+                                type="button"
+                                className="channel-group-info-button"
+                                title="Lịch sử đăng bài"
+                                aria-label={`Lịch sử đăng bài ${group.name}`}
+                                onClick={() => onOpenFacebookPostHistory({
+                                  id: group.id,
+                                  name: group.name,
+                                  url: group.url,
+                                })}
+                              >
+                                <HistoryIcon />
+                              </button>
+                            </div>
+                          ))
+                        ) : facebookGroupSearchQuery ? (
+                          <p className="channel-subselection-empty">Không tìm thấy nhóm Facebook phù hợp.</p>
+                        ) : (
+                          facebookGroupLoadState === 'READY'
+                            ? <p className="channel-subselection-empty">Đã quét được 0 nhóm</p>
+                            : null
+                        )}
+                      </div>
+                    </div>
+                    {/* Image upload (hidden input + preview strip) */}
+                    {isSelected ? (
+                      <>
+                        <input
+                          ref={facebookImageInputRef as any}
+                          type="file"
+                          accept={FACEBOOK_IMAGE_ACCEPT}
+                          className="facebook-image-input"
+                          onChange={(event) => void onHandleFacebookImageFileChange(event)}
+                        />
+                        {facebookImageAttachments.length > 0 || isFacebookImageReading || facebookImageAttachmentError ? (
+                          <div className="facebook-image-upload">
+                            {facebookImageAttachments.map((attachment, index) => (
+                              <div className="facebook-image-preview" key={`${attachment.fileName}-${attachment.size}-${index}`}>
+                                <img src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
+                                <div>
+                                  <strong>{attachment.fileName}</strong>
+                                  <span>{formatFileSize(attachment.size)}</span>
+                                </div>
                                 <button
                                   type="button"
-                                  className="channel-group-info-button"
-                                  title="Lịch sử đăng bài"
-                                  aria-label={`Lịch sử đăng bài ${group.name}`}
-                                  onClick={() => onOpenFacebookPostHistory({
-                                    id: group.id,
-                                    name: group.name,
-                                    url: group.url,
-                                  })}
+                                  className="channel-action-button"
+                                  title="Xóa ảnh"
+                                  aria-label={`Xóa ảnh ${index + 1}`}
+                                  disabled={facebookImageUploadDisabled}
+                                  onClick={() => void onClearFacebookImageAttachment(index)}
                                 >
-                                  <HistoryIcon />
+                                  <CloseIcon />
                                 </button>
                               </div>
-                            ))
-                          ) : facebookGroupSearchQuery ? (
-                            <p className="channel-subselection-empty">Không tìm thấy nhóm Facebook phù hợp.</p>
-                          ) : (
-                            facebookGroupLoadState === 'READY'
-                              ? <p className="channel-subselection-empty">Đã quét được 0 nhóm</p>
-                              : null
-                          )}
-                        </div>
-                      </div>
-                      {isSelected ? (
-                        <>
-                          <input
-                            ref={facebookImageInputRef as any}
-                            type="file"
-                            accept={FACEBOOK_IMAGE_ACCEPT}
-                            className="facebook-image-input"
-                            onChange={(event) => void onHandleFacebookImageFileChange(event)}
-                          />
-                          {facebookImageAttachments.length > 0 || isFacebookImageReading || facebookImageAttachmentError ? (
-                            <div className="facebook-image-upload">
-                              {facebookImageAttachments.map((attachment, index) => (
-                                <div className="facebook-image-preview" key={`${attachment.fileName}-${attachment.size}-${index}`}>
-                                  <img src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
-                                  <div>
-                                    <strong>{attachment.fileName}</strong>
-                                    <span>{formatFileSize(attachment.size)}</span>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    className="channel-action-button"
-                                    title="Xóa ảnh"
-                                    aria-label={`Xóa ảnh ${index + 1}`}
-                                    disabled={facebookImageUploadDisabled}
-                                    onClick={() => void onClearFacebookImageAttachment(index)}
-                                  >
-                                    <CloseIcon />
-                                  </button>
-                                </div>
-                              ))}
-                              {isFacebookImageReading ? (
-                                <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
-                              ) : null}
-                              {facebookImageAttachmentError ? (
-                                <div className="facebook-image-error-row">
-                                  <p className="channel-subselection-empty is-error">{facebookImageAttachmentError}</p>
-                                  <button
-                                    type="button"
-                                    className="text-button"
-                                    onClick={() => void onClearFacebookImageAttachment()}
-                                  >
-                                    Bỏ ảnh
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </>
-                      ) : null}
-                      {isSelected ? renderFacebookContentPanel() : null}
-                    </div>
+                            ))}
+                            {isFacebookImageReading ? (
+                              <p className="channel-subselection-empty">Đang xử lý ảnh...</p>
+                            ) : null}
+                            {facebookImageAttachmentError ? (
+                              <div className="facebook-image-error-row">
+                                <p className="channel-subselection-empty is-error">{facebookImageAttachmentError}</p>
+                                <button
+                                  type="button"
+                                  className="text-button"
+                                  onClick={() => void onClearFacebookImageAttachment()}
+                                >
+                                  Bỏ ảnh
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {/* Inner card: XEM TRƯỚC BÀI ĐĂNG */}
+                    {isSelected ? renderFacebookContentPanel() : null}
                   </div>
                 ) : null}
                 {isSelected && channel === 'TOPCV' && isTopCvExpanded ? (
@@ -913,29 +916,34 @@ export function JobPostingPanel({
       : summarizeText(snapshot?.summary ?? snapshot?.description ?? selectedJobDescription?.summary ?? selectedJobDescription?.description);
 
     return (
-      <div className="facebook-content-panel">
-        <p className="channel-subselection-title facebook-preview-title">Xem trước bài đăng</p>
-        <div className="facebook-preview-card">
-          {facebookImageAttachments.length > 0 ? (
-            <div className="facebook-preview-image-grid">
-              {facebookImageAttachments.map((attachment, index) => (
-                <img key={`${attachment.fileName}-${attachment.size}-${index}`} src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
-              ))}
+      <div className="channel-inner-card">
+        <div className="channel-inner-card-header">
+          <span>Xem trước bài đăng</span>
+        </div>
+        <div className="channel-inner-card-preview">
+          {/* Thumbnail + Copy row */}
+          <div className="facebook-preview-row">
+            {facebookImageAttachments.length > 0 ? (
+              <div className="facebook-preview-image-grid">
+                {facebookImageAttachments.map((attachment, index) => (
+                  <img key={`${attachment.fileName}-${attachment.size}-${index}`} src={attachment.dataUrl} alt={`Ảnh bài đăng ${index + 1}`} />
+                ))}
+              </div>
+            ) : (
+              <span className="facebook-preview-thumb" aria-hidden="true">VCS</span>
+            )}
+            <div className="facebook-preview-copy">
+              <strong title={previewTitle}>{previewTitle}</strong>
+              <span>{previewCopy || 'Chưa có nội dung preview.'}</span>
             </div>
-          ) : (
-            <span className="facebook-preview-thumb" aria-hidden="true">VCS</span>
-          )}
-          <div className="facebook-preview-copy">
-            <strong title={previewTitle}>{previewTitle}</strong>
-            <span>{previewCopy || 'Chưa có nội dung preview.'}</span>
           </div>
-          <div className="facebook-content-meta is-preview">
-            <span>{effectiveContent.length} ký tự</span>
-          </div>
+          {/* Character count */}
+          <p className="facebook-preview-charcount">{effectiveContent.length} ký tự</p>
+          {/* Action buttons: 2-column grid */}
           <div className="facebook-preview-actions">
             <button
               type="button"
-              className="secondary-button compact-button facebook-generate-button"
+              className="facebook-generate-button"
               disabled={!canGenerate}
               onClick={() => void onGenerateFacebookPostContent({ mode: 'AI' })}
             >
@@ -944,7 +952,7 @@ export function JobPostingPanel({
             </button>
             <button
               type="button"
-              className="secondary-button compact-button facebook-full-button"
+              className="facebook-full-button"
               disabled={facebookContentBusy || !facebookPreviewIdentity}
               onClick={() => void onOpenFacebookPreviewModal()}
             >
@@ -995,6 +1003,11 @@ export function JobPostingPanel({
         ? 'is-failed'
         : 'is-processing';
 
+    const totalCount = displayTargets.length;
+    const postedCount = progressResults.filter((p) => p.status === 'SUCCESS').length;
+    const rejectedCount = progressResults.filter((p) => p.status === 'FAILED' || p.status === 'SKIPPED').length;
+    const pendingCount = Math.max(0, totalCount - postedCount - rejectedCount);
+
     return (
       <section className="facebook-publish-results-panel" aria-label="Kết quả đăng Facebook">
         <div className="facebook-publish-results-heading">
@@ -1017,36 +1030,58 @@ export function JobPostingPanel({
           </span>
         </div>
         {isFacebookResultsExpanded ? (
-          <div className="facebook-publish-results-list">
-            {displayTargets.length > 0 ? displayTargets.map((group: FacebookGroupUiItem) => {
-              const progress = progressByTarget.get(group.id ?? group.name);
-              const statusClass = progress?.status === 'SUCCESS'
-                ? 'is-posted'
-                : progress?.status === 'FAILED'
-                  || progress?.status === 'SKIPPED'
-                  || facebookProgress?.status === 'PARTIAL_SUCCESS'
-                  || facebookProgress?.status === 'ERROR'
-                  ? 'is-failed'
-                  : 'is-posting';
-              const statusLabel = progress?.status === 'SUCCESS'
-                ? 'Đã đăng'
-                : progress?.status === 'FAILED'
-                  || progress?.status === 'SKIPPED'
-                  || facebookProgress?.status === 'PARTIAL_SUCCESS'
-                  || facebookProgress?.status === 'ERROR'
-                  ? 'Đăng lỗi'
-                  : 'Đang đăng';
-
-              return (
-                <div className="facebook-publish-result-row" key={group.key}>
-                  <span className="facebook-publish-result-name" title={group.name}>{group.name}</span>
-                  <span className={`facebook-publish-result-state ${statusClass}`}>{statusLabel}</span>
+          <>
+            {facebookProgress ? (
+              <div className="publish-result-metrics-grid">
+                <div className="publish-result-metric-card is-total">
+                  <span className="metric-label">TỔNG</span>
+                  <strong className="metric-value">{totalCount}</strong>
                 </div>
-              );
-            }) : (
-              <p className="facebook-publish-results-empty">Chưa có nhóm Facebook được chọn.</p>
-            )}
-          </div>
+                <div className="publish-result-metric-card is-posted">
+                  <span className="metric-label">ĐÃ ĐĂNG</span>
+                  <strong className="metric-value">{postedCount}</strong>
+                </div>
+                <div className="publish-result-metric-card is-pending">
+                  <span className="metric-label">CHỜ DUYỆT</span>
+                  <strong className="metric-value">{pendingCount}</strong>
+                </div>
+                <div className="publish-result-metric-card is-rejected">
+                  <span className="metric-label">BỊ TỪ CHỐI</span>
+                  <strong className="metric-value">{rejectedCount}</strong>
+                </div>
+              </div>
+            ) : null}
+            <div className="facebook-publish-results-list">
+              {displayTargets.length > 0 ? displayTargets.map((group: FacebookGroupUiItem) => {
+                const progress = progressByTarget.get(group.id ?? group.name);
+                const statusClass = progress?.status === 'SUCCESS'
+                  ? 'is-posted'
+                  : progress?.status === 'FAILED'
+                    || progress?.status === 'SKIPPED'
+                    || facebookProgress?.status === 'PARTIAL_SUCCESS'
+                    || facebookProgress?.status === 'ERROR'
+                    ? 'is-failed'
+                    : 'is-posting';
+                const statusLabel = progress?.status === 'SUCCESS'
+                  ? 'Đã đăng'
+                  : progress?.status === 'FAILED'
+                    || progress?.status === 'SKIPPED'
+                    || facebookProgress?.status === 'PARTIAL_SUCCESS'
+                    || facebookProgress?.status === 'ERROR'
+                    ? 'Đăng lỗi'
+                    : 'Đang đăng';
+
+                return (
+                  <div className="facebook-publish-result-row" key={group.key}>
+                    <span className="facebook-publish-result-name" title={group.name}>{group.name}</span>
+                    <span className={`facebook-publish-result-state ${statusClass}`}>{statusLabel}</span>
+                  </div>
+                );
+              }) : (
+                <p className="facebook-publish-results-empty">Chưa có nhóm Facebook được chọn.</p>
+              )}
+            </div>
+          </>
         ) : null}
         {otherChannelPostings.map((channelPosting) => renderPublishResultChannel(channelPosting))}
       </section>
@@ -1152,8 +1187,6 @@ export function buildCompactPaginationPages(currentPage: number, totalPages: num
 }
 
 export function formatChannelLabel(channel: ExtensionChannel) {
-  if (channel === 'FACEBOOK') return 'Facebook Group';
-  if (channel === 'TOPCV') return 'TopCV';
   return channel;
 }
 

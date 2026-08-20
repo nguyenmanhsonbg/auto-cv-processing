@@ -8,6 +8,7 @@ export {
   CheckCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronUpIcon,
   CloseIcon,
   CvIcon,
   DoubleBackIcon,
@@ -30,7 +31,6 @@ export {
   UploadIcon,
   WarningIcon,
 } from '../svg/side-panel-icons';
-export { ChevronUpIcon } from '../svg/ChevronUpIcon';
 export { EditIcon } from '../svg/EditIcon';
 export { ExternalLinkIcon } from '../svg/ExternalLinkIcon';
 export { GearIcon } from '../svg/GearIcon';
