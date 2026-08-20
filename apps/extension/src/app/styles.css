@@ -5958,6 +5958,22 @@ dd {
   min-width: 0;
 }
 
+.jd-status-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jd-status-controls .jd-status-filter {
+  flex: 1;
+}
+
+.jd-status-controls .portal-sync-button {
+  align-self: flex-end;
+}
+
 .jd-status-filter>span {
   color: rgba(47, 43, 61, 0.9);
   font-size: 14px;
@@ -6030,6 +6046,7 @@ dd {
   border-radius: 8px;
   padding: 0 18px;
   background: #15803d;
+  color: #fff;
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;

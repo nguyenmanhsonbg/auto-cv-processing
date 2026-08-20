@@ -895,9 +895,6 @@ function SidePanel() {
     }
   }
 
-  // The Portal sync control is intentionally hidden until its UI is enabled again.
-  void syncPortalJobDescriptions;
-
   async function loadAmisApplications(
     accessToken = token,
     recruitmentId = amisRecruitmentId,
@@ -2444,6 +2441,7 @@ function SidePanel() {
               jobDescriptionError,
               jobDescriptionFillMessage,
               vcsPortalSyncResult,
+              onSyncVcsPortalJobDescriptions: syncPortalJobDescriptions,
               jobDescriptionPagination,
               onLoadJobDescriptions: loadJobDescriptions,
               onFillJobDescriptionInAmis: fillJobDescriptionInAmis,

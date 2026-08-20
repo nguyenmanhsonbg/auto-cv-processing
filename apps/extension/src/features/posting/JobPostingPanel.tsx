@@ -83,6 +83,7 @@ export interface JobDescriptionConfig {
   jobDescriptionError: string | null;
   jobDescriptionFillMessage: string | null;
   vcsPortalSyncResult: SyncVcsPortalJdsResponse | null;
+  onSyncVcsPortalJobDescriptions: () => Promise<void>;
   jobDescriptionPagination: ApiPagination | null;
   onLoadJobDescriptions: (token: string | null, page: number, options?: { search?: string; status?: string }) => Promise<void>;
   onFillJobDescriptionInAmis: (jobDescription: JobDescriptionSummary) => Promise<void>;
@@ -200,6 +201,7 @@ export function JobPostingPanel({
     jobDescriptionError,
     jobDescriptionFillMessage,
     vcsPortalSyncResult,
+    onSyncVcsPortalJobDescriptions,
     jobDescriptionPagination,
     onLoadJobDescriptions,
     onFillJobDescriptionInAmis,
@@ -407,18 +409,28 @@ export function JobPostingPanel({
               </button>
             ) : null}
           />
-          <SelectFilter
-            className="jd-status-filter"
-            label="Trạng thái JD"
-            ariaLabel="Lọc trạng thái JD"
-            value={jobDescriptionStatusFilter}
-            options={JOB_DESCRIPTION_STATUS_OPTIONS}
-            disabled={jobDescriptionStatus === 'LOADING'}
-            onChange={(value: string) => {
-              setJobDescriptionStatusFilter(value);
-              void onLoadJobDescriptions(token, 1, { status: value });
-            }}
-          />
+          <div className="jd-status-controls">
+            <button
+              type="button"
+              className="portal-sync-button"
+              onClick={() => void onSyncVcsPortalJobDescriptions()}
+              disabled={jobDescriptionStatus === 'LOADING'}
+            >
+              Đồng bộ portal
+            </button>
+            <SelectFilter
+              className="jd-status-filter"
+              label="Trạng thái JD"
+              ariaLabel="Lọc trạng thái JD"
+              value={jobDescriptionStatusFilter}
+              options={JOB_DESCRIPTION_STATUS_OPTIONS}
+              disabled={jobDescriptionStatus === 'LOADING'}
+              onChange={(value: string) => {
+                setJobDescriptionStatusFilter(value);
+                void onLoadJobDescriptions(token, 1, { status: value });
+              }}
+            />
+          </div>
         </form>
 
         {vcsPortalSyncResult ? (

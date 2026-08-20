@@ -128,7 +128,7 @@ export function CvManagementPanel({
   onRunAiScreeningForApplication,
   onUploadAiEvaluationToAmis,
 }: CvManagementPanelProps) {
-  const [cvWorkspaceView, setCvWorkspaceView] = React.useState<CvWorkspaceView>('overview');
+  const [cvWorkspaceView, setCvWorkspaceView] = React.useState<CvWorkspaceView>('list');
   const [cvQuestionFilter, setCvQuestionFilter] = React.useState<CvQuestionFilter>('ALL');
   const [cvSyncFilter, setCvSyncFilter] = React.useState<CvSyncFilter>('ALL');
   const [cvEvaluationFilter, setCvEvaluationFilter] = React.useState<CvEvaluationFilter>('ALL');
