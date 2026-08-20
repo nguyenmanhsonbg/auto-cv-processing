@@ -32,6 +32,7 @@ type EvidenceKind =
   | 'PUBLISHED_COLLECTION'
   | 'DECLINED_COLLECTION'
   | 'REMOVED_COLLECTION'
+  | 'REJECTED_POST_PAGE'
   | 'EMPTY_PENDING_COLLECTION'
   | 'INSUFFICIENT';
 
@@ -343,6 +344,24 @@ async function probeKnownPost(
     capture,
     postedUrl,
   );
+
+  if (
+    hasRejectedPostPageEvidence(
+      postedResponses,
+      groupId,
+      postId,
+      postedUrl,
+    )
+  ) {
+    return {
+      facebookReviewStatus: 'REJECTED',
+      message:
+        'Facebook network response xác nhận bài viết bị từ chối hoặc không còn khả dụng.',
+      evidence: 'REJECTED_POST_PAGE',
+      externalPostId: postId,
+      externalPostUrl: input.externalPostUrl ?? postedUrl,
+    };
+  }
 
   if (
     hasPostedRoute(
@@ -1341,12 +1360,21 @@ function responseHasEmptyCollection(
     && !state.nonEmpty;
 }
 
-function hasPostedRoute(
+export function hasPostedRoute(
   responses: CapturedResponse[],
   groupId: string,
   postId: string,
   postedUrl: string,
 ) {
+  // Facebook can resolve a pending post through the normal /posts/{id}/ route
+  // and still return the same CometSinglePostDialogRoute definition as a
+  // published post. The page payload is authoritative in this case: the
+  // pending HAR contains both the pending layout/copy and the exact
+  // /pending_posts/{id}/ URL for the same story.
+  if (hasPendingPostPageEvidence(responses, groupId, postId)) {
+    return false;
+  }
+
   const expectedPath = urlPath(postedUrl);
 
   for (const route of routeDefinitions(responses)) {
@@ -1390,6 +1418,58 @@ function hasPostedRoute(
   }
 
   return false;
+}
+
+export function hasRejectedPostPageEvidence(
+  responses: CapturedResponse[],
+  groupId: string,
+  postId: string,
+  postedUrl: string,
+) {
+  const expectedPath = urlPath(postedUrl);
+  if (expectedPath !== `/groups/${groupId}/posts/${postId}`) return false;
+
+  const hasErrorRoute = routeDefinitions(responses).some((route) =>
+    route.error
+    && urlPath(route.routeUrl) === expectedPath,
+  );
+
+  if (!hasErrorRoute) return false;
+
+  return responses.some((response) => {
+    if (
+      response.type !== 'Document'
+      || urlPath(response.url) !== expectedPath
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function hasPendingPostPageEvidence(
+  responses: CapturedResponse[],
+  groupId: string,
+  postId: string,
+) {
+  const pendingPath = `/groups/${groupId}/pending_posts/${postId}`;
+  const escapedPendingPath = pendingPath.replaceAll('/', '\\/');
+
+  return responses.some((response) => {
+    const text = searchableText(response.body);
+    if (!text || !text.includes(groupId) || !text.includes(postId)) return false;
+
+    const normalizedText = normalized(text);
+    const hasPendingUrl = text.includes(pendingPath)
+      || text.includes(escapedPendingPath);
+    const hasPendingPageMarker = text.includes('CometStoryPendingParticipationPostLayoutStrategy')
+      || normalizedText.includes('bai viet dang cho phe duyet')
+      || normalizedText.includes('bai viet cua ban dang cho quan tri vien phe duyet')
+      || normalizedText.includes('your post is pending approval');
+
+    return hasPendingUrl || hasPendingPageMarker;
+  });
 }
 
 function hasCollectionRoute(

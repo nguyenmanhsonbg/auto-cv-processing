@@ -1109,7 +1109,10 @@ export class FacebookPublishingService {
       .createQueryBuilder('history')
       .leftJoinAndSelect('history.jobPosting', 'jobPosting')
       .leftJoinAndSelect('history.target', 'target')
-      .where('history.targetId = :targetId', { targetId: target.id });
+      .where('history.targetId = :targetId', { targetId: target.id })
+      .andWhere('history.status != :failedPublishStatus', {
+        failedPublishStatus: FacebookPublishResultStatus.FAILED,
+      });
 
     if (input.facebookReviewStatus) {
       baseQuery.andWhere('history.facebookReviewStatus = :facebookReviewStatus', {
@@ -1177,6 +1180,9 @@ export class FacebookPublishingService {
       .select('history.facebookReviewStatus', 'facebookReviewStatus')
       .addSelect('COUNT(*)', 'count')
       .where('history.targetId = :targetId', { targetId })
+      .andWhere('history.status != :failedPublishStatus', {
+        failedPublishStatus: FacebookPublishResultStatus.FAILED,
+      })
       .groupBy('history.facebookReviewStatus')
       .getRawMany<{ facebookReviewStatus: FacebookReviewStatus | null; count: string }>();
 
@@ -1205,6 +1211,7 @@ export class FacebookPublishingService {
   private toPublishHistoryListItem(history: FacebookPublishHistoryEntity) {
     const content = history.content ?? '';
     const title = history.jobPosting?.title || this.extractTitleFromContent(content, history.jobPostingId);
+    const externalPostUrl = this.parseFacebookGroupPostUrl(history.externalPostUrl)?.url ?? history.externalPostUrl;
 
     return {
       id: history.id,
@@ -1223,7 +1230,7 @@ export class FacebookPublishingService {
       lastStatusCheckedAt: history.lastStatusCheckedAt?.toISOString() ?? null,
       lastStatusCheckMessage: history.lastStatusCheckMessage,
       externalPostId: history.externalPostId,
-      externalPostUrl: history.externalPostUrl,
+      externalPostUrl,
       createdAt: history.createdAt?.toISOString() ?? null,
       updatedAt: history.updatedAt?.toISOString() ?? null,
       extensionInstanceId: history.extensionInstanceId ?? null,
@@ -1733,17 +1740,15 @@ export class FacebookPublishingService {
 
     const directMatch = parsedUrl.pathname.match(/^\/groups\/([^/]+)\/(posts|pending_posts|permalink)\/([^/?#]+)\/?$/i);
     if (directMatch) {
-      const [, rawGroupId, rawPathType, postId] = directMatch;
+      const [, rawGroupId, , postId] = directMatch;
       const groupId = this.decodeUrlPathSegment(rawGroupId).trim();
-      const pathType = rawPathType.toLowerCase() === 'pending_posts' ? 'pending_posts' : 'posts';
       if (!groupId || !postId) return null;
 
-      const suffix = pathType === 'posts' ? '/' : '';
       return {
         groupId,
         postId,
-        pathType,
-        url: `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/${pathType}/${postId}${suffix}`,
+        pathType: 'posts',
+        url: `https://www.facebook.com/groups/${encodeURIComponent(groupId)}/posts/${postId}/`,
       };
     }
 

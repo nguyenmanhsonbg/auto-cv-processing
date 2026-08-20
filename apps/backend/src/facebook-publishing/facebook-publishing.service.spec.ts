@@ -6,6 +6,63 @@ declare const it: any;
 declare const jest: any;
 
 describe('FacebookPublishingService preview generation', () => {
+  it('excludes failed publish attempts from the Facebook history query', async () => {
+    const queryBuilder = {} as any;
+    for (const method of ['leftJoinAndSelect', 'select', 'addSelect', 'where', 'andWhere', 'orderBy', 'addOrderBy', 'skip', 'take', 'groupBy']) {
+      queryBuilder[method] = jest.fn().mockReturnValue(queryBuilder);
+    }
+    queryBuilder.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+    queryBuilder.getRawMany = jest.fn().mockResolvedValue([]);
+
+    const historiesRepo = {
+      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+    };
+    const service = new FacebookPublishingService(
+      {} as any,
+      {} as any,
+      historiesRepo as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    (service as any).findOwnedActiveGroup = jest.fn().mockResolvedValue({ id: 'target-1' });
+
+    await service.listExtensionGroupPublishHistories({
+      ownerUserId: 'user-1',
+      targetId: 'target-1',
+      page: 1,
+      limit: 10,
+    });
+
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'history.status != :failedPublishStatus',
+      { failedPublishStatus: 'FAILED' },
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledTimes(2);
+  });
+
+  it('stores a pending Facebook group URL as the exact post URL', () => {
+    const service = new FacebookPublishingService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    const parsed = (service as any).parseFacebookGroupPostUrl(
+      'https://www.facebook.com/groups/1934436680847972/pending_posts/1986056959019277',
+    );
+
+    expect(parsed).toEqual({
+      groupId: '1934436680847972',
+      postId: '1986056959019277',
+      pathType: 'posts',
+      url: 'https://www.facebook.com/groups/1934436680847972/posts/1986056959019277/',
+    });
+  });
+
   it('uses the template by default without calling AI', async () => {
     const contentService = {
       buildFromSnapshot: jest.fn().mockReturnValue('Facebook post'),

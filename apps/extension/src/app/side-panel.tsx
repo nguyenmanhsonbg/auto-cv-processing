@@ -88,6 +88,7 @@ import {
   collectFacebookGroupsFromGraphql,
   type FacebookGraphqlCollectionResult,
 } from '@/features/facebook/facebook-group-graphql-capture';
+import { FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST } from '@/features/facebook/facebook-history-refresh-message';
 import { getLastFacebookPublishProgress, saveLastFacebookPublishProgress } from '@/stores/facebook-publish-store';
 import { createMockAmisSyncRequest } from '@/lib/mock-amis';
 import { ReferralManagementPanel } from '@/features/referrals/referral-management';
@@ -3872,10 +3873,13 @@ function SidePanel() {
     try {
       const itemsToRefresh = await loadRefreshableFacebookHistoryItems(accessToken, group);
       if (itemsToRefresh.length === 0) {
-        const unresolvedCount = (facebookHistoryData?.summary.pendingReview ?? 0) + (facebookHistoryData?.summary.unknown ?? 0);
-        setFacebookHistoryMessage(unresolvedCount > 0
-          ? 'Có bài chờ duyệt/chưa rõ trạng thái nhưng thiếu cả URL bài viết và URL group hợp lệ để kiểm tra lại.'
-          : 'Không có bài chờ duyệt/chưa rõ trạng thái cần kiểm tra lại.');
+        await loadFacebookPostHistory(group, facebookHistoryFilter, facebookHistoryPage);
+        setFacebookHistoryMessage(null);
+        showExtensionToast(
+          FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.kind,
+          FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.title,
+          FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.message,
+        );
         return;
       }
 
@@ -3897,11 +3901,11 @@ function SidePanel() {
       }
 
       await loadFacebookPostHistory(group, facebookHistoryFilter, facebookHistoryPage);
-      const issueSuffix = refreshSummary.issueCount
-        ? `, ${refreshSummary.issueCount} lỗi`
-        : '';
-      setFacebookHistoryMessage(
-        `Đã kiểm tra ${itemsToRefresh.length} bài. ${refreshSummary.postedCount} đã đăng, ${refreshSummary.pendingCount} đang duyệt, ${refreshSummary.rejectedCount} bị từ chối, ${refreshSummary.unresolvedCount} chưa đủ bằng chứng${issueSuffix}.`,
+      setFacebookHistoryMessage(null);
+      showExtensionToast(
+        FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.kind,
+        FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.title,
+        FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.message,
       );
     } catch (err) {
       setFacebookHistoryMessage(toErrorMessage(err));
