@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { DateRangeFilter, FilterBar, MultiSelectFilter, SearchField, SelectFilter } from '@/components/filters';
 import type { DateRangeValue, SelectFilterOption } from '@/components/filters';
 
-export type FreelancerCvStatusFilter = 'ALL' | 'PROCESSING' | 'PASSED' | 'REJECTED';
+export type FreelancerCvStatusFilter = string;
 
 export type FreelancerCvFilterValues = {
   search: string;
@@ -15,10 +15,11 @@ type FreelancerCvFiltersProps = {
   value: FreelancerCvFilterValues;
   statusOptions: SelectFilterOption[];
   jdOptions: SelectFilterOption[];
+  statusDisabled?: boolean;
   onChange: (value: FreelancerCvFilterValues) => void;
 };
 
-export function FreelancerCvFilters({ value, statusOptions, jdOptions, onChange }: FreelancerCvFiltersProps) {
+export function FreelancerCvFilters({ value, statusOptions, jdOptions, statusDisabled = false, onChange }: FreelancerCvFiltersProps) {
   const [isJdFilterOpen, setIsJdFilterOpen] = useState(false);
 
   return (
@@ -30,7 +31,7 @@ export function FreelancerCvFilters({ value, statusOptions, jdOptions, onChange 
         placeholder="Tìm kiếm CV theo tên ứng viên, vị trí ứng tuyển"
         ariaLabel="Tìm kiếm CV theo tên ứng viên, vị trí ứng tuyển"
       />
-      <SelectFilter label="Tình trạng CV" value={value.status} options={statusOptions} onChange={(status) => onChange({ ...value, status: status as FreelancerCvFilterValues['status'] })} />
+      <SelectFilter label="Tình trạng CV" value={value.status} options={statusOptions} disabled={statusDisabled} onChange={(status) => onChange({ ...value, status: status as FreelancerCvFilterValues['status'] })} />
       <MultiSelectFilter
         label="Lọc theo JD"
         allLabel="Tất cả JD"

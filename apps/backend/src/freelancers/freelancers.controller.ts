@@ -303,12 +303,26 @@ export class FreelancersController {
       jobPosting: {
         jobPostingId: data.jobPosting.jobPostingId,
         title: data.jobPosting.title,
+        sourceSystem: data.jobPosting.sourceSystem,
+        sourceJobId: data.jobPosting.sourceJobId,
+        amisRecruitmentId: data.jobPosting.amisRecruitmentId,
       },
       processStatus: data.processStatus,
       hrReceptionStatus: data.hrReceptionStatus,
       evaluation: data.evaluation,
       appliedAt: data.appliedAt?.toISOString(),
       assignees: data.assignees,
+      attractivePersonnelName: data.attractivePersonnelName,
+      currentAmisStage: data.currentAmisStage
+        ? {
+            recruitmentRoundId: data.currentAmisStage.recruitmentRoundId,
+            recruitmentRoundName: data.currentAmisStage.recruitmentRoundName,
+            amisStatus: data.currentAmisStage.amisStatus,
+            reasonRemoved: data.currentAmisStage.reasonRemoved,
+            updatedAt: data.currentAmisStage.updatedAt?.toISOString() ?? null,
+          }
+        : null,
+      statusCategory: data.statusCategory,
       createdAt: data.createdAt?.toISOString(),
       updatedAt: data.updatedAt?.toISOString(),
     };

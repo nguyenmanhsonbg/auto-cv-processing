@@ -15,6 +15,7 @@ import type {
   ParsedProfileRecord,
   AmisApplicationsForRecruitment,
   AmisRecruitmentJobDescriptionMapping,
+  AmisRecruitmentRound,
   AmisCandidateStageChangedPayload,
   AmisCareerCatalogItem,
   AmisCareerQuestionContext,
@@ -510,6 +511,44 @@ export async function getAmisRecruitmentJobDescription(
     {
       method: 'GET',
       accessToken,
+    },
+  );
+}
+
+export async function getAmisRecruitmentRounds(
+  accessToken: string,
+  amisRecruitmentId: string,
+) {
+  return request<AmisRecruitmentRound[]>(
+    `/extension/amis/recruitments/${encodeURIComponent(amisRecruitmentId)}/rounds`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
+}
+
+export async function syncAmisRecruitmentRounds(
+  accessToken: string,
+  amisRecruitmentId: string,
+  payload: { rounds: AmisRecruitmentRound[]; sourceUrl?: string | null },
+) {
+  return request<AmisRecruitmentRound[]>(
+    `/extension/amis/recruitments/${encodeURIComponent(amisRecruitmentId)}/rounds/sync`,
+    {
+      method: 'POST',
+      accessToken,
+      body: {
+        sourceUrl: payload.sourceUrl ?? undefined,
+        rounds: payload.rounds.map((round) => ({
+          amisRoundId: round.id,
+          name: round.name,
+          sortOrder: round.sortOrder,
+          roundType: round.roundType,
+          roundTypeId: round.roundTypeId,
+          color: round.color,
+        })),
+      },
     },
   );
 }

@@ -2288,6 +2288,11 @@ export class ExtensionIntegrationService {
       currentStages.set(source.applicationId, {
         recruitmentRoundId,
         recruitmentRoundName: this.optionalText(source.rawPayload.recruitmentRoundName),
+        attractivePersonnelName: this.optionalText(
+          source.rawPayload.attractivePersonnelName
+            ?? source.rawPayload.AttractivePersonnel
+            ?? source.rawPayload.AttractivePersonnelName,
+        ),
         amisStatus: this.toNullableNumber(source.rawPayload.status),
         reasonRemoved: this.optionalText(
           source.rawPayload.reasonRemoved

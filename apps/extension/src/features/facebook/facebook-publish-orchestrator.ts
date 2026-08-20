@@ -224,6 +224,10 @@ interface FacebookPostReviewStatusProbeResult {
   timestampClickPoints?: FacebookSubmitButtonPoint[] | null;
 }
 
+export interface FacebookReviewStatusRefreshCallbacks {
+  onLoginRequired?: () => void;
+}
+
 interface FacebookPreparedPostResult {
   status: 'READY_TO_SUBMIT' | 'IMAGE_ATTACH_FAILED' | 'FAILED';
   message: string;
@@ -809,31 +813,9 @@ export async function verifyFacebookGroupPostingEligibility(
 
 export async function refreshFacebookPostReviewStatus(
   history: FacebookPublishHistoryListItem,
+  callbacks: FacebookReviewStatusRefreshCallbacks = {},
 ): Promise<FacebookPublishHistoryStatusCheckRequest> {
   const checkedAt = new Date().toISOString();
-
-  try {
-    await ensureFacebookSession({
-      allowInteractiveLogin: false,
-    });
-  } catch (error) {
-    const payload: FacebookPublishHistoryStatusCheckRequest = {
-      facebookReviewStatus: history.facebookReviewStatus,
-      message:
-        `Post status check skipped: ${toAutomationErrorMessage(error)}`,
-      checkedAt,
-    };
-
-    if (history.externalPostId) {
-      payload.externalPostId = history.externalPostId;
-    }
-
-    if (history.externalPostUrl) {
-      payload.externalPostUrl = history.externalPostUrl;
-    }
-
-    return payload;
-  }
 
   const result = await probeFacebookReviewStatusByNetwork({
     initialStatus: history.facebookReviewStatus,
@@ -847,6 +829,8 @@ export async function refreshFacebookPostReviewStatus(
     title: history.title,
     contentPreview:
       history.contentPreview ?? null,
+  }, {
+    onLoginRequired: callbacks.onLoginRequired,
   });
 
   const payload: FacebookPublishHistoryStatusCheckRequest = {

@@ -9,6 +9,7 @@
     "test:cv-list": "node --test scripts/cv-list-regression.test.mjs",
     "test:tab-labels": "node --test scripts/tab-label-visibility.test.mjs",
     "test:referral-utils": "tsx --test src/features/referrals/referral-management-utils.spec.ts",
+    "test:freelancer-cv-filter-utils": "tsx --test src/features/freelancer/freelancer-cv-filter-utils.spec.ts",
     "typecheck": "tsc --noEmit",
     "build": "vite build && vite build --config vite.injected.config.ts --mode amis-bridge && vite build --config vite.injected.config.ts --mode amis-page-hook"
   },

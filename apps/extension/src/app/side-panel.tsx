@@ -24,6 +24,7 @@ import {
   getApplicationParsedProfile,
   getAmisApplicationsForRecruitment,
   getAmisRecruitmentJobDescription,
+  getAmisRecruitmentRounds,
   getCurrentUser,
   getFacebookGroups,
   getJobDescriptionQuestionSet,
@@ -38,6 +39,7 @@ import {
   resolveFacebookAccount,
   runApplicationAiScreening,
   syncAmisApplications,
+  syncAmisRecruitmentRounds,
   syncAndPublishAmisJob,
   syncFacebookGroups,
   updateAmisApplicationStage,
@@ -145,6 +147,7 @@ import type {
   FacebookPublishAttachment,
   FacebookPublishHistoriesResponse,
   FacebookPublishHistoryListItem,
+  FacebookPublishHistoryStatusCheckRequest,
   FacebookPublishPlan,
   FacebookPublishProgress,
   FacebookPublishTarget,
@@ -680,11 +683,13 @@ async function refreshFacebookHistoryItems(
   items: FacebookPublishHistoryListItem[],
   onProgress: (message: string) => void,
   syncImageStatus: (item: FacebookPublishHistoryListItem, status: FacebookReviewStatus) => Promise<void>,
+  onItemUpdated: (item: FacebookPublishHistoryListItem, statusCheck: FacebookPublishHistoryStatusCheckRequest) => void,
+  onLoginRequired: () => void,
 ) {
   const summary = {
     postedCount: 0,
+    pendingCount: 0,
     rejectedCount: 0,
-    deletedCount: 0,
     unresolvedCount: 0,
     issueCount: 0,
     authExpired: false,
@@ -695,12 +700,13 @@ async function refreshFacebookHistoryItems(
     onProgress(`Đang kiểm tra ${index + 1}/${items.length}: ${item.title}`);
 
     try {
-      const statusCheck = await refreshFacebookPostReviewStatus(item);
+      const statusCheck = await refreshFacebookPostReviewStatus(item, { onLoginRequired });
       await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
+      onItemUpdated(item, statusCheck);
       await syncImageStatus(item, statusCheck.facebookReviewStatus);
       if (statusCheck.facebookReviewStatus === 'POSTED') summary.postedCount += 1;
+      else if (statusCheck.facebookReviewStatus === 'PENDING_REVIEW') summary.pendingCount += 1;
       else if (statusCheck.facebookReviewStatus === 'REJECTED') summary.rejectedCount += 1;
-      else if (statusCheck.facebookReviewStatus === 'DELETED') summary.deletedCount += 1;
       else summary.unresolvedCount += 1;
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
@@ -732,18 +738,10 @@ function SidePanel() {
   ) => {
     if (targets.length === 0) return [];
 
-    let activeTab: Awaited<ReturnType<typeof getActiveTab>>;
-    try {
-      activeTab = await getActiveTab();
-    } catch {
-      return targets.map((target) => ({ ...target, rounds: [] as AmisRecruitmentRound[] }));
-    }
-
-    if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
-      return targets.map((target) => ({ ...target, rounds: [] as AmisRecruitmentRound[] }));
-    }
-
-    return Promise.all(targets.map(async (target) => {
+    const loadRoundsFromAmis = async (
+      activeTab: Awaited<ReturnType<typeof getActiveTab>>,
+      target: { jobPostingId: string; amisRecruitmentId: string },
+    ) => {
       try {
         const response = await sendMessageToAmisTab(activeTab.id, {
           type: GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE,
@@ -754,14 +752,70 @@ function SidePanel() {
           && response.ok
           && response.amisRecruitmentId === target.amisRecruitmentId
         ) {
+          if (token && response.rounds.length > 0) {
+            try {
+              await syncAmisRecruitmentRounds(token, target.amisRecruitmentId, {
+                rounds: response.rounds,
+                sourceUrl: response.sourceUrl,
+              });
+            } catch {
+              // Persisting the catalog must not block the existing AMIS fallback.
+            }
+          }
           return { ...target, rounds: response.rounds };
         }
       } catch {
         // The referral filter falls back to rounds already present on applications.
       }
       return { ...target, rounds: [] as AmisRecruitmentRound[] };
+    };
+
+    const persistedResults = await Promise.all(targets.map(async (target) => {
+      if (!token) return null;
+      try {
+        const rounds = await getAmisRecruitmentRounds(token, target.amisRecruitmentId);
+        if (rounds.length > 0) return { ...target, rounds };
+      } catch {
+        // An unavailable catalog falls through to the AMIS-tab loader below.
+      }
+      return null;
     }));
-  }, []);
+
+    const persistedByRecruitmentId = new Map(
+      persistedResults
+        .filter((result): result is NonNullable<typeof result> => Boolean(result))
+        .map((result) => [result.amisRecruitmentId, result]),
+    );
+    const missingTargets = targets.filter((target) => !persistedByRecruitmentId.has(target.amisRecruitmentId));
+    if (missingTargets.length === 0) {
+      return targets.map((target) => persistedByRecruitmentId.get(target.amisRecruitmentId)!);
+    }
+
+    let activeTab: Awaited<ReturnType<typeof getActiveTab>>;
+    try {
+      activeTab = await getActiveTab();
+    } catch {
+      return targets.map((target) => persistedByRecruitmentId.get(target.amisRecruitmentId) ?? {
+        ...target,
+        rounds: [] as AmisRecruitmentRound[],
+      });
+    }
+
+    if (!activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+      return targets.map((target) => persistedByRecruitmentId.get(target.amisRecruitmentId) ?? {
+        ...target,
+        rounds: [] as AmisRecruitmentRound[],
+      });
+    }
+
+    const fetchedResults = await Promise.all(missingTargets.map((target) => loadRoundsFromAmis(activeTab, target)));
+    const fetchedByRecruitmentId = new Map(fetchedResults.map((result) => [result.amisRecruitmentId, result]));
+    return targets.map((target) => (
+      persistedByRecruitmentId.get(target.amisRecruitmentId)
+      ?? fetchedByRecruitmentId.get(target.amisRecruitmentId)
+      ?? { ...target, rounds: [] as AmisRecruitmentRound[] }
+    ));
+  }, [token]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -1184,6 +1238,11 @@ function SidePanel() {
           return;
         }
         setAmisRecruitmentRounds(message.payload.rounds);
+        void persistAmisRecruitmentRoundsSnapshot(
+          message.payload.amisRecruitmentId,
+          message.payload.rounds,
+          message.payload.sourceUrl,
+        );
         return;
       }
 
@@ -2243,6 +2302,11 @@ function SidePanel() {
         && roundsResponse.amisRecruitmentId === context.amisRecruitmentId
       ) {
         setAmisRecruitmentRounds(roundsResponse.rounds);
+        await persistAmisRecruitmentRoundsSnapshot(
+          roundsResponse.amisRecruitmentId,
+          roundsResponse.rounds,
+          roundsResponse.sourceUrl,
+        );
       }
     } catch {
       // The passive AMIS response capture may arrive shortly after route hydration.
@@ -2256,6 +2320,21 @@ function SidePanel() {
 
     if (tokenRef.current && context.sourceUrl && lastApplicationsFallbackSyncUrlRef.current !== context.sourceUrl) {
       await syncAmisApplicationsFromAmisTab(tokenRef.current, activeTab.id, context.sourceUrl);
+    }
+  }
+
+  async function persistAmisRecruitmentRoundsSnapshot(
+    recruitmentId: string,
+    rounds: AmisRecruitmentRound[],
+    sourceUrl?: string,
+  ) {
+    const accessToken = tokenRef.current;
+    if (!accessToken || !recruitmentId.trim() || rounds.length === 0) return;
+
+    try {
+      await syncAmisRecruitmentRounds(accessToken, recruitmentId, { rounds, sourceUrl });
+    } catch {
+      // Catalog persistence is best-effort and must not block CV or posting flows.
     }
   }
 
@@ -3749,6 +3828,30 @@ function SidePanel() {
     await loadFacebookPostHistory(selectedFacebookHistoryGroup, facebookHistoryFilter, nextPage);
   }
 
+  function applyFacebookHistoryStatusCheckToView(
+    item: FacebookPublishHistoryListItem,
+    statusCheck: FacebookPublishHistoryStatusCheckRequest,
+  ) {
+    setFacebookHistoryData((current) => {
+      if (!current) return current;
+
+      const items = current.items.map((candidate) => {
+        if (candidate.id !== item.id) return candidate;
+
+        return {
+          ...candidate,
+          facebookReviewStatus: statusCheck.facebookReviewStatus,
+          lastStatusCheckedAt: statusCheck.checkedAt ?? new Date().toISOString(),
+          lastStatusCheckMessage: statusCheck.message ?? null,
+          externalPostId: statusCheck.externalPostId ?? candidate.externalPostId,
+          externalPostUrl: statusCheck.externalPostUrl ?? candidate.externalPostUrl,
+        };
+      });
+
+      return { ...current, items };
+    });
+  }
+
   async function refreshFacebookHistoryGroupStatuses() {
     const group = selectedFacebookHistoryGroup;
     const accessToken = tokenRef.current;
@@ -3781,6 +3884,8 @@ function SidePanel() {
         itemsToRefresh,
         (message) => setFacebookHistoryMessage(message),
         (item, status) => syncFacebookImageStatusFromHistoryItem(item, status),
+        (item, statusCheck) => applyFacebookHistoryStatusCheckToView(item, statusCheck),
+        () => setFacebookHistoryMessage('Facebook chưa đăng nhập. Hãy đăng nhập trong tab Facebook đang được mở, tiến trình sẽ tự tiếp tục.'),
       );
       if (refreshSummary.authExpired) {
         await clearAccessToken();
@@ -3796,7 +3901,7 @@ function SidePanel() {
         ? `, ${refreshSummary.issueCount} lỗi`
         : '';
       setFacebookHistoryMessage(
-        `Đã kiểm tra ${itemsToRefresh.length} bài. ${refreshSummary.postedCount} đã đăng, ${refreshSummary.rejectedCount} bị từ chối, ${refreshSummary.deletedCount} đã xóa, ${refreshSummary.unresolvedCount} chưa xác định/chờ duyệt${issueSuffix}.`,
+        `Đã kiểm tra ${itemsToRefresh.length} bài. ${refreshSummary.postedCount} đã đăng, ${refreshSummary.pendingCount} đang duyệt, ${refreshSummary.rejectedCount} bị từ chối, ${refreshSummary.unresolvedCount} chưa đủ bằng chứng${issueSuffix}.`,
       );
     } catch (err) {
       setFacebookHistoryMessage(toErrorMessage(err));
@@ -4518,7 +4623,15 @@ function SidePanel() {
       );
     }
     if (tab === 'internal' && token) {
-      return <ReferralManagementPanel source="INTERNAL" accessToken={token} refreshVersion={referralRefreshVersion} onNotify={showExtensionToast} />;
+      return (
+        <ReferralManagementPanel
+          source="INTERNAL"
+          accessToken={token}
+          refreshVersion={referralRefreshVersion}
+          onNotify={showExtensionToast}
+          loadRecruitmentRounds={loadReferralRecruitmentRounds}
+        />
+      );
     }
     return null;
   }
@@ -6807,6 +6920,7 @@ function SidePanel() {
             <FreelancerCvPanel
               accessToken={token ?? ''}
               onNotify={showExtensionToast}
+              loadRecruitmentRounds={loadReferralRecruitmentRounds}
               isChangePasswordFormOpen={isFreelancerPasswordFormOpen}
               onCloseChangePassword={() => setIsFreelancerPasswordFormOpen(false)}
             />

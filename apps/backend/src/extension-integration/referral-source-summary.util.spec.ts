@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ApplicationStatus, HrReviewDecisionType } from '../recruitment-common';
 import {
   buildReferralSourceMetrics,
+  buildCurrentAmisStageMap,
   mapReferralApplicationRow,
   normalizeFreelancerPhone,
 } from './referral-source-summary.util';
@@ -48,6 +49,7 @@ describe('referral-source-summary.util', () => {
         currentAmisStage: {
           recruitmentRoundId: 'offer-round',
           recruitmentRoundName: 'Offer',
+          attractivePersonnelName: null,
           amisStatus: 1,
           reasonRemoved: null,
           updatedAt: new Date('2026-07-27T08:00:00.000Z'),
@@ -59,6 +61,7 @@ describe('referral-source-summary.util', () => {
         currentAmisStage: {
           recruitmentRoundId: 'hired-round',
           recruitmentRoundName: 'Đã tuyển',
+          attractivePersonnelName: null,
           amisStatus: 1,
           reasonRemoved: null,
           updatedAt: new Date('2026-07-27T08:01:00.000Z'),
@@ -70,6 +73,7 @@ describe('referral-source-summary.util', () => {
         currentAmisStage: {
           recruitmentRoundId: 'rejected-round',
           recruitmentRoundName: 'Phỏng vấn',
+          attractivePersonnelName: null,
           amisStatus: 0,
           reasonRemoved: 'Không đạt',
           updatedAt: new Date('2026-07-27T08:02:00.000Z'),
@@ -120,6 +124,7 @@ describe('referral-source-summary.util', () => {
     const currentAmisStage = {
       recruitmentRoundId: 'round-1',
       recruitmentRoundName: 'Phỏng vấn',
+      attractivePersonnelName: null,
       amisStatus: 1,
       reasonRemoved: null,
       updatedAt: new Date('2026-07-27T08:00:00.000Z'),
@@ -140,5 +145,50 @@ describe('referral-source-summary.util', () => {
 
     expect(row.currentAmisStage).toEqual(currentAmisStage);
     expect(row.statusCategory).toBe('PROCESSING');
+  });
+
+  it('selects the latest AMIS stage for the Freelancer self-service response', () => {
+    const stages = buildCurrentAmisStageMap([
+      {
+        applicationId: 'application-1',
+        rawPayload: {
+          sourceSystem: 'AMIS',
+          recruitmentRoundId: 'old-round',
+          recruitmentRoundName: 'Ứng tuyển',
+          attractivePersonnelName: 'Người cũ',
+          status: 1,
+          stageUpdatedAt: '2026-08-18T08:00:00.000Z',
+        },
+        receivedAt: new Date('2026-08-18T08:00:01.000Z'),
+      },
+      {
+        applicationId: 'application-1',
+        rawPayload: {
+          sourceSystem: 'AMIS',
+          recruitmentRoundId: 'hired-round',
+          recruitmentRoundName: 'Đã tuyển',
+          attractivePersonnelName: 'Phạm Đức Việt',
+          status: 1,
+          stageUpdatedAt: '2026-08-18T09:00:00.000Z',
+        },
+        receivedAt: new Date('2026-08-18T09:00:01.000Z'),
+      },
+      {
+        applicationId: 'application-1',
+        rawPayload: {
+          sourceSystem: 'VCS_PORTAL',
+          recruitmentRoundId: 'ignored-round',
+          recruitmentRoundName: 'Không dùng',
+        },
+        receivedAt: new Date('2026-08-18T10:00:00.000Z'),
+      },
+    ]);
+
+    expect(stages.get('application-1')).toMatchObject({
+      recruitmentRoundId: 'hired-round',
+      recruitmentRoundName: 'Đã tuyển',
+      attractivePersonnelName: 'Phạm Đức Việt',
+      amisStatus: 1,
+    });
   });
 });

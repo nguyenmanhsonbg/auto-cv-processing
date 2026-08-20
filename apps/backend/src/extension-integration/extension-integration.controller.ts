@@ -27,9 +27,11 @@ import {
   UpdateJobDescriptionQuestionSetItemDto,
   ListExtensionReferralSourcesQueryDto,
   GetJobDescriptionQuestionSetQueryDto,
+  SyncAmisRecruitmentRoundsDto,
 } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { ExtensionInstancesService } from './extension-instances.service';
+import { AmisRecruitmentRoundsService } from './amis-recruitment-rounds.service';
 
 type HeaderValue = string | string[] | undefined;
 
@@ -51,6 +53,7 @@ export class ExtensionIntegrationController {
   constructor(
     private readonly extensionIntegrationService: ExtensionIntegrationService,
     private readonly extensionInstancesService: ExtensionInstancesService,
+    private readonly amisRecruitmentRoundsService: AmisRecruitmentRoundsService,
   ) {}
 
   @Post('job-postings/sync-and-publish')
@@ -257,6 +260,24 @@ export class ExtensionIntegrationController {
   })
   async listApplicationsForRecruitment(@Param('amisRecruitmentId') amisRecruitmentId: string) {
     return this.extensionIntegrationService.listAmisApplicationsForRecruitment(amisRecruitmentId);
+  }
+
+  @Post('recruitments/:amisRecruitmentId/rounds/sync')
+  @ApiOperation({ summary: 'Persist the AMIS recruitment process captured by the browser extension' })
+  @ApiBody({ type: SyncAmisRecruitmentRoundsDto })
+  async syncRecruitmentRounds(
+    @Param('amisRecruitmentId') amisRecruitmentId: string,
+    @Body() dto: SyncAmisRecruitmentRoundsDto,
+  ) {
+    const data = await this.amisRecruitmentRoundsService.sync(amisRecruitmentId, dto);
+    return this.successResponse(data);
+  }
+
+  @Get('recruitments/:amisRecruitmentId/rounds')
+  @ApiOperation({ summary: 'List the persisted active rounds for an AMIS recruitment' })
+  async listRecruitmentRounds(@Param('amisRecruitmentId') amisRecruitmentId: string) {
+    const data = await this.amisRecruitmentRoundsService.list(amisRecruitmentId);
+    return this.successResponse(data);
   }
 
   @Get('recruitments/:amisRecruitmentId/job-description')

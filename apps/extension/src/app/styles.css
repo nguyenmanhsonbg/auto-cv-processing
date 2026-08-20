@@ -7048,7 +7048,7 @@ dd {
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 38px;
+  min-height: 40px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -7092,13 +7092,14 @@ dd {
   position: absolute;
   z-index: 20;
   top: calc(100% + 5px);
+  left: auto;
   right: 0;
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) minmax(0, 1fr) 26px;
-  gap: 6px;
-  width: min(520px, calc(100vw - 24px));
-  padding: 20px 8px 14px;
-  border: 1px solid #e5e7eb;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 20px;
+  width: min(550px, calc(100vw - 24px));
+  padding: 10px 15px;
+  border: 0;
   margin: 0;
   max-width: none;
   background: #fff;
@@ -7107,14 +7108,27 @@ dd {
 }
 
 .shared-filter-date-range-nav {
-  align-self: start;
+  position: absolute;
+  top: 10px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
   border: 0;
   padding: 0;
-  color: #666;
+  color: #000;
   background: transparent;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 300;
-  line-height: 24px;
+  line-height: 20px;
+}
+
+.shared-filter-date-range-nav.is-previous {
+  left: 15px;
+}
+
+.shared-filter-date-range-nav.is-next {
+  right: 15px;
 }
 
 .shared-filter-date-range-nav:hover {
@@ -7126,10 +7140,12 @@ dd {
 }
 
 .shared-filter-calendar-month h3 {
-  margin: 0 0 15px;
-  color: #666;
-  font-size: 18px;
-  font-weight: 400;
+  margin: 0 0 12px;
+  color: #000;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
   text-align: center;
 }
 
@@ -7137,31 +7153,40 @@ dd {
 .shared-filter-calendar-days {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
+  column-gap: 5px;
   align-items: center;
+  justify-content: center;
   text-align: center;
 }
 
 .shared-filter-calendar-weekdays {
-  margin-bottom: 9px;
-  color: #ff5961;
-  font-size: 11px;
+  margin-bottom: 0;
+  color: #ef4444;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
 }
 
 .shared-filter-calendar-days {
-  row-gap: 4px;
+  row-gap: 0;
   color: #252525;
-  font-size: 14px;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
 }
 
 .shared-filter-calendar-days button,
 .shared-filter-calendar-days > span {
   display: grid;
-  width: 28px;
+  width: min(30px, 100%);
   height: 28px;
+  max-width: 100%;
   margin: 0 auto;
   place-items: center;
   border: 0;
-  border-radius: 9px;
+  border-radius: 16px;
   color: inherit;
   background: transparent;
   font: inherit;
@@ -7173,8 +7198,9 @@ dd {
 }
 
 .shared-filter-calendar-days button.is-selected {
-  color: #fff;
-  background: #b91c1c;
+  color: rgba(255, 255, 255, 0.87);
+  background: #ef4444;
+  border-radius: 8px;
 }
 
 .shared-filter-date-range-popup button:focus-visible {
@@ -7655,13 +7681,13 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .referral-filter-row {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   gap: 10px;
 }
 
 .referral-filter-row.is-internal {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .referral-filter-row label {
@@ -7669,17 +7695,20 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   gap: 4px;
   min-width: 0;
   color: #536074;
-  font-size: 14px;
+  font-size: 12px;
   font-style: normal;
-  font-weight: 400;
+  font-weight: 500;
   text-transform: none;
 }
 
-.referral-filter-row label > span {
-  font-size: 14px;
+.referral-filter-row label > span,
+.referral-filter-row .shared-filter-field > span:first-child,
+.referral-filter-row .shared-filter-multi-select-label {
+  color: #45464d;
+  font-size: 12px;
   font-style: normal;
-  font-weight: 400;
-  line-height: 1.2;
+  font-weight: 500;
+  line-height: 16px;
 }
 
 .referral-filter-row select,
@@ -7695,6 +7724,8 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-filter-row select {
+  min-height: 40px;
+  border-radius: 8px;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -7717,12 +7748,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   position: relative;
   display: flex;
   width: 100%;
-  min-height: 38px;
+  min-height: 40px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   border: 1px solid #c5cdd9;
-  border-radius: 7px;
+  border-radius: 8px;
   padding: 0 10px;
   color: #263449;
   background: #fff;
@@ -7765,12 +7796,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .referral-filter-trigger {
   display: flex;
   width: 100%;
-  min-height: 38px;
+  min-height: 40px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   border: 1px solid #c5cdd9;
-  border-radius: 7px;
+  border-radius: 8px;
   padding: 0 10px;
   color: #263449;
   background: #ffffff;
@@ -7778,6 +7809,21 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-weight: 400;
   line-height: 20px;
   text-align: left;
+}
+
+.referral-filter-row .shared-filter-date-range {
+  position: relative;
+  min-width: 0;
+  grid-column: 2;
+}
+
+.referral-filter-row.is-internal .shared-filter-date-range {
+  grid-column: 3;
+}
+
+.referral-filter-row .shared-filter-date-range-control {
+  min-height: 40px;
+  border-radius: 8px;
 }
 
 .referral-filter-trigger:focus,
@@ -8580,6 +8626,10 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   .referral-filter-row {
     align-items: stretch;
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .referral-filter-row .shared-filter-date-range {
+    grid-column: auto;
   }
 
   .referral-filter-row label {

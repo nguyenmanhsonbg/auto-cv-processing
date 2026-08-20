@@ -2,8 +2,9 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PaginatedResponse, UserRole } from '@interview-assistant/shared';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ApplicationEntity } from '../applications/entities/application.entity';
+import { ApplicationSourceEntity } from '../applications/entities/application-source.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import {
   CleanCvFileAccessResult,
@@ -16,7 +17,19 @@ import { FreelancerStatusFilter } from './dto/list-freelancers-query.dto';
 import { ApplicationReferralEntity } from './entities/application-referral.entity';
 import { FreelancerIdentifierCounterEntity } from './entities/freelancer-identifier-counter.entity';
 import { FreelancerEntity } from './entities/freelancer.entity';
-import { normalizeFreelancerPhone } from '../extension-integration/referral-source-summary.util';
+import { RecruitmentExternalReferenceEntity } from '../extension-integration/entities/recruitment-external-reference.entity';
+import {
+  ExtensionExternalEntityType,
+  ExtensionInternalEntityType,
+  ExtensionSourceSystem,
+} from '../extension-integration/enums/extension-integration.enum';
+import {
+  buildCurrentAmisStageMap,
+  getReferralApplicationStatusCategory,
+  normalizeFreelancerPhone,
+  type ReferralApplicationStatusCategory,
+  type ReferralCurrentAmisStage,
+} from '../extension-integration/referral-source-summary.util';
 import { normalizePagination, totalPages } from '../common/http/list-response';
 
 export interface CreateFreelancerInput {
@@ -88,6 +101,9 @@ export interface FreelancerApplicationSummary {
   jobPosting: {
     jobPostingId: string;
     title: string;
+    sourceSystem: string | null;
+    sourceJobId: string | null;
+    amisRecruitmentId: string | null;
   };
   processStatus: ApplicationStatus;
   hrReceptionStatus: HrReviewDecisionType | null;
@@ -98,6 +114,9 @@ export interface FreelancerApplicationSummary {
     name: string;
     email: string;
   }>;
+  attractivePersonnelName: string | null;
+  currentAmisStage: ReferralCurrentAmisStage | null;
+  statusCategory: ReferralApplicationStatusCategory;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -346,11 +365,12 @@ export class FreelancersService {
         internal.id,
         ApplicationReferralSourceType.INTERNAL,
         params,
+        true,
       );
     }
 
     const freelancer = await this.resolveActiveByUserIdOrThrow(userId);
-    return this.findApplicationsByFreelancerId(freelancer.id, params);
+    return this.findApplicationsByFreelancerId(freelancer.id, params, true);
   }
 
   async updateMyApplicationEvaluation(
@@ -376,7 +396,9 @@ export class FreelancersService {
       relations: {
         application: {
           candidate: true,
-          jobPosting: true,
+          jobPosting: {
+            jobDescription: true,
+          },
         },
       },
     });
@@ -389,7 +411,11 @@ export class FreelancersService {
 
     referral.evaluation = this.normalizeNullableText(input.evaluation, 2000);
     const savedReferral = await this.referralsRepo.save(referral);
-    return this.toFreelancerApplicationSummary(savedReferral);
+    const currentAmisStage = (await this.findCurrentAmisStages([savedReferral.applicationId]))
+      .get(savedReferral.applicationId) ?? null;
+    const amisRecruitmentId = (await this.findAmisRecruitmentIds([savedReferral.application.jobPostingId]))
+      .get(savedReferral.application.jobPostingId) ?? null;
+    return this.toFreelancerApplicationSummary(savedReferral, currentAmisStage, amisRecruitmentId);
   }
 
   async getMyApplicationCv(
@@ -522,12 +548,14 @@ export class FreelancersService {
   private async findApplicationsByFreelancerId(
     freelancerId: string,
     params: ListFreelancerApplicationsParams,
+    includeCurrentAmisStage = false,
   ): Promise<PaginatedResponse<FreelancerApplicationSummary>> {
     return this.findApplicationsByOwnerId(
       'freelancerId',
       freelancerId,
       ApplicationReferralSourceType.FREELANCER,
       params,
+      includeCurrentAmisStage,
     );
   }
 
@@ -536,6 +564,7 @@ export class FreelancersService {
     ownerId: string,
     sourceType: ApplicationReferralSourceType,
     params: ListFreelancerApplicationsParams,
+    includeCurrentAmisStage = false,
   ): Promise<PaginatedResponse<FreelancerApplicationSummary>> {
     const { page, limit } = normalizePagination(params);
     const sortOrder = params.sortOrder === 'ASC' ? 'ASC' : 'DESC';
@@ -546,6 +575,7 @@ export class FreelancersService {
       .innerJoinAndSelect('application.candidate', 'candidate')
       .leftJoinAndSelect('candidate.assignees', 'assignee')
       .innerJoinAndSelect('application.jobPosting', 'jobPosting')
+      .leftJoinAndSelect('jobPosting.jobDescription', 'jobDescription')
       .where(`referral.${ownerColumn} = :ownerId`, { ownerId })
       .andWhere('referral.sourceType = :sourceType', { sourceType })
       .orderBy('referral.createdAt', sortOrder)
@@ -573,13 +603,55 @@ export class FreelancersService {
     }
 
     const [data, total] = await qb.getManyAndCount();
+    const currentAmisStages = includeCurrentAmisStage
+      ? await this.findCurrentAmisStages(data.map((referral) => referral.applicationId))
+      : new Map<string, ReferralCurrentAmisStage>();
+    const amisRecruitmentIds = await this.findAmisRecruitmentIds(
+      data.map((referral) => referral.application.jobPostingId),
+    );
+
     return {
-      data: data.map((referral) => this.toFreelancerApplicationSummary(referral)),
+      data: data.map((referral) => this.toFreelancerApplicationSummary(
+        referral,
+        currentAmisStages.get(referral.applicationId) ?? null,
+        amisRecruitmentIds.get(referral.application.jobPostingId) ?? null,
+      )),
       total,
       page,
       limit,
       totalPages: totalPages(total, limit),
     };
+  }
+
+  private async findCurrentAmisStages(applicationIds: string[]) {
+    const uniqueApplicationIds = [...new Set(applicationIds.filter(Boolean))];
+    if (uniqueApplicationIds.length === 0) return new Map<string, ReferralCurrentAmisStage>();
+
+    const sources = await this.dataSource.getRepository(ApplicationSourceEntity).find({
+      where: { applicationId: In(uniqueApplicationIds) },
+    });
+
+    return buildCurrentAmisStageMap(sources.map((source) => ({
+      applicationId: source.applicationId,
+      rawPayload: source.rawPayload,
+      receivedAt: source.receivedAt,
+    })));
+  }
+
+  private async findAmisRecruitmentIds(jobPostingIds: string[]) {
+    const uniqueJobPostingIds = [...new Set(jobPostingIds.filter(Boolean))];
+    if (uniqueJobPostingIds.length === 0) return new Map<string, string>();
+
+    const references = await this.dataSource.getRepository(RecruitmentExternalReferenceEntity).find({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+        internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
+        internalEntityId: In(uniqueJobPostingIds),
+      },
+    });
+
+    return new Map(references.map((reference) => [reference.internalEntityId, reference.externalId]));
   }
 
   private buildFreelancerSummaryQuery() {
@@ -659,6 +731,8 @@ export class FreelancersService {
 
   private toFreelancerApplicationSummary(
     referral: ApplicationReferralEntity,
+    currentAmisStage: ReferralCurrentAmisStage | null = null,
+    amisRecruitmentId: string | null = null,
   ): FreelancerApplicationSummary {
     const application = referral.application;
     if (!application?.candidate || !application.jobPosting) {
@@ -678,6 +752,9 @@ export class FreelancersService {
       jobPosting: {
         jobPostingId: application.jobPostingId,
         title: application.jobPosting.title,
+        sourceSystem: application.jobPosting.jobDescription?.sourceSystem ?? null,
+        sourceJobId: application.jobPosting.jobDescription?.sourceJobId ?? null,
+        amisRecruitmentId,
       },
       processStatus: application.status,
       hrReceptionStatus: application.hrReviewStatus,
@@ -688,6 +765,13 @@ export class FreelancersService {
         name: assignee.name,
         email: assignee.email,
       })),
+      attractivePersonnelName: currentAmisStage?.attractivePersonnelName ?? null,
+      currentAmisStage,
+      statusCategory: getReferralApplicationStatusCategory({
+        processStatus: application.status,
+        hrReceptionStatus: application.hrReviewStatus,
+        currentAmisStage,
+      }),
       createdAt: referral.createdAt,
       updatedAt: referral.updatedAt,
     };

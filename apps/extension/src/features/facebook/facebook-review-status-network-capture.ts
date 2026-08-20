@@ -14,8 +14,13 @@ const FB_ORIGIN = 'https://www.facebook.com';
 const DEBUGGER_VERSION = '1.3';
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const MAX_BODY_LENGTH = 1_500_000;
-const MAX_RESPONSES = 48;
+// Facebook loads route definitions plus several data responses before the
+// collection response. Keep a bounded capture, but allow the full sequence
+// observed in the status HARs to be inspected.
+const MAX_RESPONSES = 128;
 const JSON_PREFIX = 'for (;;);';
+const REVIEW_LOGIN_WAIT_TIMEOUT_MS = 10 * 60_000;
+const REVIEW_LOGIN_POLL_INTERVAL_MS = 2_000;
 
 const CAPTURE_TYPES = new Set(['Document', 'XHR', 'Fetch']);
 const EMPTY_LIST_KEYS = new Set(['edges', 'nodes', 'items', 'stories', 'posts']);
@@ -48,40 +53,55 @@ export interface FacebookReviewNetworkResult {
   externalPostUrl?: string | null;
 }
 
+export interface FacebookReviewNetworkCallbacks {
+  onLoginRequired?: () => void;
+}
+
+interface FacebookReviewPageAuthState {
+  ready: boolean;
+  loginRequired: boolean;
+  url: string;
+}
+
 interface CollectionConfig {
-  suffix: string;
-  routeName: string;
-  section: string;
+  suffixes: readonly string[];
+  routeNames: readonly string[];
+  sections: readonly string[];
   status: FacebookReviewStatus;
   evidence: EvidenceKind;
 }
 
 const COLLECTIONS: Record<CollectionKind, CollectionConfig> = {
   pending: {
-    suffix: 'my_pending_content',
-    routeName: 'comet.fbweb.GroupsCometViewerContentPendingRoute',
-    section: 'pending',
+    // Facebook currently serves both routes depending on the group/account
+    // rollout. Probe both so a pending post is not treated as unresolved.
+    suffixes: ['my_pending_content', 'pending_posts'],
+    routeNames: [
+      'comet.fbweb.GroupsCometViewerContentPendingRoute',
+      'comet.fbweb.CometGroupPendingPostsRoute',
+    ],
+    sections: ['pending', 'pending_posts'],
     status: 'PENDING_REVIEW',
     evidence: 'PENDING_COLLECTION',
   },
   published: {
-    suffix: 'my_posted_content',
-    routeName: 'comet.fbweb.GroupsCometViewerContentPublishedRoute',
-    section: 'published',
+    suffixes: ['my_posted_content'],
+    routeNames: ['comet.fbweb.GroupsCometViewerContentPublishedRoute'],
+    sections: ['published'],
     status: 'POSTED',
     evidence: 'PUBLISHED_COLLECTION',
   },
   declined: {
-    suffix: 'my_declined_content',
-    routeName: 'comet.fbweb.GroupsCometViewerContentDeclinedRoute',
-    section: 'declined',
+    suffixes: ['my_declined_content'],
+    routeNames: ['comet.fbweb.GroupsCometViewerContentDeclinedRoute'],
+    sections: ['declined'],
     status: 'REJECTED',
     evidence: 'DECLINED_COLLECTION',
   },
   removed: {
-    suffix: 'my_removed_content',
-    routeName: 'comet.fbweb.GroupsCometViewerContentRemovedRoute',
-    section: 'removed',
+    suffixes: ['my_removed_content'],
+    routeNames: ['comet.fbweb.GroupsCometViewerContentRemovedRoute'],
+    sections: ['removed'],
     status: 'DELETED',
     evidence: 'REMOVED_COLLECTION',
   },
@@ -151,6 +171,7 @@ interface HistorySamples {
 
 export async function probeFacebookReviewStatusByNetwork(
   input: FacebookReviewNetworkInput,
+  callbacks: FacebookReviewNetworkCallbacks = {},
 ): Promise<FacebookReviewNetworkResult> {
   const parsedPost = parseFacebookGroupPostUrl(input.externalPostUrl);
   const groupId = parsedPost?.groupId
@@ -170,6 +191,12 @@ export async function probeFacebookReviewStatusByNetwork(
   let capture: CaptureSession | null = null;
   try {
     capture = await startCapture(tab.id);
+    await ensureFacebookReviewTabAuthenticated(
+      tab.id,
+      capture,
+      buildFacebookGroupUrl(groupId),
+      callbacks.onLoginRequired,
+    );
     if (postId) {
       return await probeKnownPost(input, groupId, postId, tab.id, capture);
     }
@@ -179,6 +206,118 @@ export async function probeFacebookReviewStatusByNetwork(
   } finally {
     if (capture) await capture.stop().catch(() => undefined);
     await closeTab(tab.id);
+  }
+}
+
+async function ensureFacebookReviewTabAuthenticated(
+  tabId: number,
+  capture: CaptureSession,
+  groupUrl: string,
+  onLoginRequired?: () => void,
+) {
+  await navigateAndCapture(tabId, capture, groupUrl);
+  let authState = await readFacebookReviewPageAuthState(tabId);
+  if (authState.ready) return;
+
+  onLoginRequired?.();
+  await revealFacebookReviewLoginTab(tabId, authState.url);
+
+  const deadline = Date.now() + REVIEW_LOGIN_WAIT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(REVIEW_LOGIN_POLL_INTERVAL_MS);
+    authState = await readFacebookReviewPageAuthState(tabId);
+    if (!authState.ready) continue;
+
+    await chrome.tabs?.update(tabId, { active: false });
+    await navigateAndCapture(tabId, capture, groupUrl);
+    return;
+  }
+
+  throw new Error('Facebook login is required before checking post status.');
+}
+
+async function readFacebookReviewPageAuthState(
+  tabId: number,
+): Promise<FacebookReviewPageAuthState> {
+  const tab = await getChromeTabSafely(tabId);
+  if (!tab) {
+    return { ready: false, loginRequired: true, url: '' };
+  }
+
+  const fallbackState: FacebookReviewPageAuthState = {
+    ready: false,
+    loginRequired: isFacebookLoginLikeUrl(tab.url ?? ''),
+    url: tab.url ?? '',
+  };
+  let pageState = fallbackState;
+
+  try {
+    const [result] = await chrome.scripting?.executeScript<[], FacebookReviewPageAuthState>({
+      target: { tabId },
+      func: readFacebookReviewPageAuthInPage,
+      args: [],
+    }) ?? [];
+    if (result?.result) pageState = result.result;
+  } catch {
+    // Cookie state below remains the fallback when page scripting is unavailable.
+  }
+
+  if (pageState.loginRequired) return pageState;
+
+  let cookieApiAvailable = typeof chrome.cookies?.get === 'function';
+  try {
+    const cookie = await chrome.cookies?.get({ url: `${FB_ORIGIN}/`, name: 'c_user' });
+    if (/^\d+$/.test(cookie?.value?.trim() ?? '')) {
+      return { ...pageState, ready: true, loginRequired: false };
+    }
+  } catch {
+    cookieApiAvailable = false;
+  }
+
+  return cookieApiAvailable
+    ? { ...pageState, ready: false, loginRequired: true }
+    : pageState;
+}
+
+function readFacebookReviewPageAuthInPage(): FacebookReviewPageAuthState {
+  const url = window.location.href;
+  const pathname = new URL(url).pathname.toLowerCase();
+  const loginLike = /\/(?:login|checkpoint(?:\/|$)|recover(?:\/|$)|confirmemail(?:\/|$)|two_step(?:\/|$)|login_identify(?:\/|$))/.test(pathname);
+  const hasLoginForm = Boolean(document.querySelector(
+    'form[action*="login" i], input[type="password"], input[name="pass"], input[name="email"]',
+  ));
+  const bodyText = (document.body?.innerText ?? '').toLowerCase().slice(0, 3_000);
+  const loginRequired = loginLike || (hasLoginForm && /log in|login|đăng nhập|dang nhap/.test(bodyText));
+
+  return {
+    ready: document.readyState === 'complete'
+      && /facebook\.com$/i.test(new URL(url).hostname)
+      && !loginRequired,
+    loginRequired,
+    url,
+  };
+}
+
+async function revealFacebookReviewLoginTab(
+  tabId: number,
+  currentUrl: string,
+) {
+  const loginUrl = isFacebookLoginLikeUrl(currentUrl)
+    ? currentUrl
+    : `${FB_ORIGIN}/login`;
+  const tab = await chrome.tabs?.update(tabId, { url: loginUrl, active: true });
+  if (tab?.windowId !== undefined) {
+    await chrome.windows?.update(tab.windowId, { focused: true });
+  }
+}
+
+function isFacebookLoginLikeUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return /facebook\.com$/i.test(url.hostname)
+      && /\/(?:login|checkpoint|recover|confirmemail|two_step|login_identify)(?:\/|$)/i.test(url.pathname);
+  } catch {
+    return false;
   }
 }
 
@@ -242,10 +381,24 @@ async function probeKnownPost(
         postId,
         dataObserved:
         directPendingEvidence.dataObserved,
-        explicitlyEmpty:
-        directPendingEvidence.explicitlyEmpty,
-    },
-    );
+         explicitlyEmpty:
+         directPendingEvidence.explicitlyEmpty,
+         matchedPost:
+         directPendingEvidence.matchedPost,
+     },
+     );
+  if (directPendingEvidence.matchedPost) {
+    return {
+      facebookReviewStatus: 'PENDING_REVIEW',
+      message:
+        'Facebook network response xác nhận bài viết vẫn còn trong trang pending cụ thể.',
+      evidence: 'PENDING_COLLECTION',
+      externalPostId: postId,
+      externalPostUrl:
+        input.externalPostUrl
+        ?? buildFacebookGroupPostUrl(groupId, postId, 'pending_posts'),
+    };
+  }
   const samples = historySamples(input);
 
   /*
@@ -407,46 +560,72 @@ interface ProbeCollectionInput {
 async function probeCollection(
   input: ProbeCollectionInput,
 ): Promise<CollectionEvidence> {
-  const url = collectionUrl(
-    input.groupId,
-    input.kind,
-  );
+  let combinedEvidence = emptyCollectionEvidence();
 
-  const responses = await navigateAndCapture(
-    input.tabId,
-    input.capture,
-    url,
-  );
-
-  const evidence = inspectCollection(
-    responses,
-    {
-      groupId: input.groupId,
-      kind: input.kind,
+  for (const url of collectionUrls(input.groupId, input.kind)) {
+    const responses = await navigateAndCapture(
+      input.tabId,
+      input.capture,
       url,
-      postId: input.postId,
-      samples: input.samples,
-    },
-  );
+    );
 
-  console.warn(
-    '[FB_REVIEW_COLLECTION_EVIDENCE]',
-    {
-      kind: input.kind,
-      groupId: input.groupId,
-      postId: input.postId,
-      responseCount: responses.length,
-      matched: evidence.matched,
-      routeLoaded: evidence.routeLoaded,
-      dataObserved: evidence.dataObserved,
-      explicitlyEmpty:
-        evidence.explicitlyEmpty,
-      recoveredPostId:
-        evidence.postId,
-    },
-  );
+    const evidence = inspectCollection(
+      responses,
+      {
+        groupId: input.groupId,
+        kind: input.kind,
+        url,
+        postId: input.postId,
+        samples: input.samples,
+      },
+    );
 
-  return evidence;
+    console.warn(
+      '[FB_REVIEW_COLLECTION_EVIDENCE]',
+      {
+        kind: input.kind,
+        groupId: input.groupId,
+        postId: input.postId,
+        url,
+        responseCount: responses.length,
+        matched: evidence.matched,
+        routeLoaded: evidence.routeLoaded,
+        dataObserved: evidence.dataObserved,
+        explicitlyEmpty: evidence.explicitlyEmpty,
+        recoveredPostId: evidence.postId,
+      },
+    );
+
+    if (evidence.matched) return evidence;
+    combinedEvidence = combineCollectionEvidence(combinedEvidence, evidence);
+  }
+
+  return combinedEvidence;
+}
+
+function emptyCollectionEvidence(): CollectionEvidence {
+  return {
+    matched: false,
+    routeLoaded: false,
+    dataObserved: false,
+    explicitlyEmpty: false,
+    postId: null,
+    postUrl: null,
+  };
+}
+
+function combineCollectionEvidence(
+  first: CollectionEvidence,
+  second: CollectionEvidence,
+): CollectionEvidence {
+  return {
+    matched: first.matched || second.matched,
+    routeLoaded: first.routeLoaded || second.routeLoaded,
+    dataObserved: first.dataObserved || second.dataObserved,
+    explicitlyEmpty: first.explicitlyEmpty || second.explicitlyEmpty,
+    postId: first.postId ?? second.postId,
+    postUrl: first.postUrl ?? second.postUrl,
+  };
 }
 
 function hasStrongEmptyPendingEvidence(
@@ -478,7 +657,6 @@ function inspectCollection(
       input,
     );
     if (!collectionResponse) continue;
-    if (!isCollectionDataResponse(response, input)) continue;
     const text = searchableText(response.body);
     if (!text) continue;
 
@@ -522,6 +700,8 @@ interface CollectionResultInput {
 }
 
 interface DirectPendingPostEvidence {
+  routeLoaded: boolean;
+  matchedPost: boolean;
   dataObserved: boolean;
   explicitlyEmpty: boolean;
 }
@@ -555,7 +735,11 @@ function collectionResult(input: CollectionResultInput): FacebookReviewNetworkRe
   if (!postUrl) postUrl = normalizeText(input.source.externalPostUrl);
 
   return {
-    facebookReviewStatus: config.status,
+    // The refresh workflow intentionally exposes only POSTED, PENDING_REVIEW,
+    // and REJECTED. Facebook's removed collection is the negative outcome of
+    // the pending review lifecycle, so normalize it at this boundary.
+    facebookReviewStatus:
+      input.kind === 'removed' ? 'REJECTED' : config.status,
     message: `Facebook network response xác nhận bài nằm trong ${input.kind} collection.`,
     evidence: config.evidence,
     externalPostId: postId,
@@ -1218,9 +1402,17 @@ function hasCollectionRoute(
   const expectedPath = urlPath(url);
   return routeDefinitions(responses).some((route) => {
     if (route.error || urlPath(route.routeUrl) !== expectedPath) return false;
-    if (route.canonicalRouteName !== config.routeName) return false;
+    if (
+      route.canonicalRouteName
+      && !config.routeNames.includes(route.canonicalRouteName)
+    ) return false;
     if (route.groupId && route.groupId !== groupId) return false;
-    if (route.section && normalized(route.section) !== normalized(config.section)) return false;
+    if (
+      route.section
+      && !config.sections.some(
+        (section) => normalized(route.section ?? '') === normalized(section),
+      )
+    ) return false;
     return true;
   });
 }
@@ -1249,18 +1441,8 @@ function isCollectionDataResponse(
     return false;
   }
 
-  if (!responseContainsGroup(
-    response,
-    input.groupId,
-  )) {
+  if (!hasUsableResponsePayload(response.body)) {
     return false;
-  }
-
-  if (!isGraphql(response.url)) {
-    return responseBodyMatchesCollectionKind(
-      response.body,
-      input.kind,
-    );
   }
 
   const friendlyName =
@@ -1274,37 +1456,53 @@ function isCollectionDataResponse(
       .toLowerCase()
       .includes('mutation')
   ) {
-    return false;
+      return false;
   }
 
-  const params =
-    new URLSearchParams(
-      response.postData,
-    );
-
-  const routeName =
-    params.get('__crn');
-
+  const routeName = readFacebookRouteName(
+    response.url,
+    response.postData,
+  );
   if (
     routeName
-    === COLLECTIONS[input.kind].routeName
+    && COLLECTIONS[input.kind].routeNames.includes(routeName)
   ) {
     return true;
   }
 
-  if (
-    friendlyNameMatchesCollection(
-      friendlyName,
-      input.kind,
-    )
-  ) {
+  if (friendlyNameMatchesCollection(friendlyName, input.kind)) {
     return true;
   }
 
-  return responseBodyMatchesCollectionKind(
-    response.body,
-    input.kind,
+  return responseContainsGroup(response, input.groupId)
+    && responseBodyMatchesCollectionKind(response.body, input.kind);
+}
+
+function hasUsableResponsePayload(body: string) {
+  const payload = parseJson(body);
+  if (payload === null) return false;
+
+  const record = asRecord(payload);
+  return !(
+    record
+    && Object.prototype.hasOwnProperty.call(record, 'payload')
+    && record.payload === null
   );
+}
+
+function readFacebookRouteName(responseUrl: string, postData: string) {
+  try {
+    const routeFromUrl = new URL(responseUrl, 'https://www.facebook.com')
+      .searchParams
+      .get('__crn')
+      ?.trim();
+    if (routeFromUrl) return routeFromUrl;
+  } catch {
+    // The route name may be encoded in the POST body for GraphQL requests.
+  }
+
+  if (!postData) return '';
+  return new URLSearchParams(postData).get('__crn')?.trim() ?? '';
 }
 
 function responseContainsGroup(
@@ -1390,10 +1588,6 @@ function isExplicitlyEmptyPendingResponse(
     return true;
   }
 
-  if (response.type === 'Document') {
-    return false;
-  }
-
   const friendlyName =
     readGraphqlFriendlyName(response.postData);
 
@@ -1459,6 +1653,13 @@ function inspectDirectPendingPost(
 ): DirectPendingPostEvidence {
   const expectedPath = urlPath(pendingUrl);
 
+  const routeLoaded = hasCollectionRoute(
+    responses,
+    groupId,
+    'pending',
+    pendingUrl,
+  );
+  let matchedPost = false;
   let dataObserved = false;
   let explicitlyEmpty = false;
 
@@ -1470,9 +1671,18 @@ function inspectDirectPendingPost(
     const isExactDocument =
       response.type === 'Document'
       && urlPath(response.url) === expectedPath;
+    const isCollectionResponse = isCollectionDataResponse(
+      response,
+      {
+        groupId,
+        kind: 'pending',
+        url: pendingUrl,
+      },
+    );
 
     const isRelevantFacebookResponse =
       isExactDocument
+      || isCollectionResponse
       || (
         (
           response.type === 'XHR'
@@ -1485,6 +1695,10 @@ function inspectDirectPendingPost(
       );
 
     if (!isRelevantFacebookResponse) {
+      continue;
+    }
+
+    if (!isExactDocument && !hasUsableResponsePayload(response.body)) {
       continue;
     }
 
@@ -1512,6 +1726,9 @@ function inspectDirectPendingPost(
     }
 
     dataObserved = true;
+    if (text.includes(groupId) && text.includes(expectedPath.split('/').at(-1) ?? '')) {
+      matchedPost = true;
+    }
 
     const hasEmptyText =
       hasExplicitPendingEmptyText(
@@ -1532,6 +1749,8 @@ function inspectDirectPendingPost(
   }
 
   return {
+    routeLoaded,
+    matchedPost,
     dataObserved,
     explicitlyEmpty,
   };
@@ -1732,8 +1951,14 @@ function storyMatches(storyId: string, postId: string) {
   }
 }
 
-function collectionUrl(groupId: string, kind: CollectionKind) {
-  return `${FB_ORIGIN}/groups/${encodeURIComponent(groupId)}/${COLLECTIONS[kind].suffix}`;
+function collectionUrls(groupId: string, kind: CollectionKind) {
+  return COLLECTIONS[kind].suffixes.map(
+    (suffix) => `${FB_ORIGIN}/groups/${encodeURIComponent(groupId)}/${suffix}`,
+  );
+}
+
+function buildFacebookGroupUrl(groupId: string) {
+  return `${FB_ORIGIN}/groups/${encodeURIComponent(groupId)}`;
 }
 
 function readGroupId(value: string | null | undefined) {

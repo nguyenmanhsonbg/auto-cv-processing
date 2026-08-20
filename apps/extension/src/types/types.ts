@@ -42,6 +42,9 @@ export interface ReferralManagementApplication {
   jobPosting: {
     jobPostingId: string;
     title: string;
+    sourceSystem?: string | null;
+    sourceJobId?: string | null;
+    amisRecruitmentId?: string | null;
   };
   processStatus: string | null;
   hrReceptionStatus: string | null;
@@ -115,6 +118,9 @@ export interface FreelancerSelfApplication {
   jobPosting: {
     jobPostingId: string;
     title: string;
+    sourceSystem?: string | null;
+    sourceJobId?: string | null;
+    amisRecruitmentId?: string | null;
   };
   processStatus: string | null;
   hrReceptionStatus: string | null;
@@ -127,6 +133,9 @@ export interface FreelancerSelfApplication {
     name: string;
     email: string;
   }>;
+  attractivePersonnelName: string | null;
+  currentAmisStage: ReferralManagementCurrentAmisStage | null;
+  statusCategory: ReferralManagementStatusCategory;
 }
 
 export interface ApiPagination {

@@ -18,9 +18,14 @@ import type {
   JobPostingSummary,
   AmisRecruitmentRound,
 } from '@/types/types';
-import { buildFreelancerIdentifierCopyText } from '@/features/referrals/referral-management-utils';
+import {
+  buildFreelancerIdentifierCopyText,
+  isDateRangeComplete,
+  isValueWithinDateRange,
+  usesDynamicReferralRounds,
+} from '@/features/referrals/referral-management-utils';
 import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
-import { FilterDropdown, MultiSelectFilter } from '@/components/filters';
+import { DateRangeFilter, FilterDropdown, MultiSelectFilter } from '@/components/filters';
 import { ReferralFilters } from './components/ReferralFilters';
 
 type JdFilter = string[];
@@ -659,12 +664,13 @@ export function ReferralManagementPanel({
   const [search, setSearch] = useState('');
   const [cvStatusFilter, setCvStatusFilter] = useState<string>('ALL');
   const [cvRoundOptions, setCvRoundOptions] = useState<ReferralRoundOption[]>(() => (
-    buildReferralRoundOptions([], source !== 'FREELANCER')
+    buildReferralRoundOptions([], !usesDynamicReferralRounds(source))
   ));
   const [roundsLoading, setRoundsLoading] = useState(false);
   const [jdFilter, setJdFilter] = useState<JdFilter>([]);
   const isAllJdSelected = jdFilter.length === 0;
   const [isJdFilterOpen, setIsJdFilterOpen] = useState(false);
+  const [dateRangeFilter, setDateRangeFilter] = useState({ from: '', to: '' });
   const [accountStatusFilter, setAccountStatusFilter] = useState<AccountStatusFilter>('ALL');
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -858,8 +864,14 @@ export function ReferralManagementPanel({
       return rightTime - leftTime || left[1].title.localeCompare(right[1].title, 'vi');
     });
   }, [allPeopleForJd, jobDescriptions, jobPostings, people]);
+  const jobPostingCreatedAtById = useMemo(
+    () => new Map(jobPostings.map((posting) => [posting.jobPostingId, posting.createdAt])),
+    [jobPostings],
+  );
+  const isDateFilterActive = (source === 'FREELANCER' || source === 'INTERNAL')
+    && isDateRangeComplete(dateRangeFilter);
   useEffect(() => {
-    if (source !== 'FREELANCER') {
+    if (!usesDynamicReferralRounds(source)) {
       setCvRoundOptions(buildReferralRoundOptions([], true));
       setRoundsLoading(false);
       return undefined;
@@ -926,7 +938,7 @@ export function ReferralManagementPanel({
     setPage(1);
   }, [cvRoundOptions, cvStatusFilter]);
 
-  const isClientFilterMode = !isAllJdSelected || cvStatusFilter !== 'ALL';
+  const isClientFilterMode = !isAllJdSelected || cvStatusFilter !== 'ALL' || isDateFilterActive;
   const filteredPeople = useMemo(() => {
     const sourcePeople = isClientFilterMode && allPeopleForJd.length > 0 ? allPeopleForJd : people;
     const normalizedSearch = search.trim().toLocaleLowerCase();
@@ -947,14 +959,18 @@ export function ReferralManagementPanel({
       person,
       applications: person.applications.filter((application) => (
         (isAllJdSelected || jdFilter.includes(application.jobPosting.jobPostingId))
+        && (!isDateFilterActive || isValueWithinDateRange(
+          jobPostingCreatedAtById.get(application.jobPosting.jobPostingId),
+          dateRangeFilter,
+        ))
         && matchesCvStatus(application, cvStatusFilter, cvRoundOptions)
       )),
     }))
     .filter(({ person, applications }) => (
       applications.length > 0
-      || (cvStatusFilter === 'ALL' && isAllJdSelected && person.applications.length === 0)
+      || (cvStatusFilter === 'ALL' && isAllJdSelected && !isDateFilterActive && person.applications.length === 0)
     ));
-  }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, isAllJdSelected, isClientFilterMode, jdFilter, people, search]);
+  }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, dateRangeFilter, isAllJdSelected, isClientFilterMode, isDateFilterActive, jdFilter, jobPostingCreatedAtById, people, search]);
   const visiblePeople = isClientFilterMode
     ? filteredPeople.slice((page - 1) * REFERRAL_PAGE_SIZE, page * REFERRAL_PAGE_SIZE)
     : filteredPeople;
@@ -1071,7 +1087,8 @@ export function ReferralManagementPanel({
   const hasActiveFilter = Boolean(search.trim())
     || cvStatusFilter !== 'ALL'
     || !isAllJdSelected
-    || accountStatusFilter !== 'ALL';
+    || accountStatusFilter !== 'ALL'
+    || isDateFilterActive;
   const noMatchingPeopleText = source === 'INTERNAL'
     ? 'Không tìm thấy thông tin NSNB phù hợp'
     : 'Không có CV phù hợp với bộ lọc.';
@@ -1152,6 +1169,15 @@ export function ReferralManagementPanel({
               ]}
               onChange={(value) => {
                 setAccountStatusFilter(value as AccountStatusFilter);
+                setPage(1);
+              }}
+            />
+          ) : null}
+          {source === 'FREELANCER' || source === 'INTERNAL' ? (
+            <DateRangeFilter
+              value={dateRangeFilter}
+              onChange={(value) => {
+                setDateRangeFilter(value);
                 setPage(1);
               }}
             />

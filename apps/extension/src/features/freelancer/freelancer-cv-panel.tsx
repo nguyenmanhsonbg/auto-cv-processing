@@ -13,20 +13,43 @@ import { Pagination } from '@/components/pagination/Pagination';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
 import { FreelancerCvFilters } from './components/FreelancerCvFilters';
 import type { FreelancerCvFilterValues } from './components/FreelancerCvFilters';
-import type { ApiPagination, FreelancerSelfApplication, FreelancerSelfSummary } from '@/types/types';
+import {
+  buildFreelancerCvStatusOptions,
+  matchesFreelancerCvStatus,
+} from './freelancer-cv-filter-utils';
+import type {
+  AmisRecruitmentRound,
+  ApiPagination,
+  FreelancerSelfApplication,
+  FreelancerSelfSummary,
+} from '@/types/types';
+
+type RecruitmentRoundLoadTarget = {
+  jobPostingId: string;
+  amisRecruitmentId: string;
+};
+
+type RecruitmentRoundLoadResult = RecruitmentRoundLoadTarget & {
+  rounds: AmisRecruitmentRound[];
+};
 
 type FreelancerCvPanelProps = {
   accessToken: string;
   onNotify?: (kind: 'SUCCESS' | 'ERROR', title: string, message: string) => void;
+  loadRecruitmentRounds?: (
+    targets: RecruitmentRoundLoadTarget[],
+  ) => Promise<RecruitmentRoundLoadResult[]>;
   isChangePasswordFormOpen?: boolean;
   onCloseChangePassword?: () => void;
 };
 
 type StatusCategory = 'PROCESSING' | 'PASSED' | 'REJECTED';
 
-export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormOpen = false, onCloseChangePassword }: FreelancerCvPanelProps) {
+export function FreelancerCvPanel({ accessToken, onNotify, loadRecruitmentRounds, isChangePasswordFormOpen = false, onCloseChangePassword }: FreelancerCvPanelProps) {
   const [summary, setSummary] = useState<FreelancerSelfSummary | null>(null);
   const [applications, setApplications] = useState<FreelancerSelfApplication[]>([]);
+  const [roundsByJobPostingId, setRoundsByJobPostingId] = useState<Record<string, AmisRecruitmentRound[]>>({});
+  const [roundsLoading, setRoundsLoading] = useState(false);
   const [pagination, setPagination] = useState<ApiPagination | null>(null);
   const [filters, setFilters] = useState<FreelancerCvFilterValues>({ search: '', status: 'ALL', jd: 'ALL', dateRange: { from: '', to: '' } });
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({});
@@ -76,16 +99,81 @@ export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormO
     return Array.from(values.entries());
   }, [applications]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRounds() {
+      const targets = Array.from(new Map(
+        applications
+          .filter((application) => (
+            Boolean((application.jobPosting.amisRecruitmentId ?? application.jobPosting.sourceJobId)?.trim())
+            && (filters.jd === 'ALL' || application.jobPosting.jobPostingId === filters.jd)
+          ))
+          .map((application) => [application.jobPosting.jobPostingId, {
+            jobPostingId: application.jobPosting.jobPostingId,
+            amisRecruitmentId: (application.jobPosting.amisRecruitmentId ?? application.jobPosting.sourceJobId)?.trim() ?? '',
+          }]),
+      ).values());
+
+      if (!loadRecruitmentRounds || targets.length === 0) {
+        setRoundsByJobPostingId({});
+        setRoundsLoading(false);
+        return;
+      }
+
+      setRoundsLoading(true);
+      try {
+        const results = await loadRecruitmentRounds(targets);
+        if (cancelled) return;
+        setRoundsByJobPostingId(Object.fromEntries(results.map((result) => [result.jobPostingId, result.rounds])));
+      } catch {
+        if (!cancelled) setRoundsByJobPostingId({});
+      } finally {
+        if (!cancelled) setRoundsLoading(false);
+      }
+    }
+
+    void loadRounds();
+    return () => {
+      cancelled = true;
+    };
+  }, [applications, filters.jd, loadRecruitmentRounds]);
+
+  const scopedApplications = useMemo(
+    () => filters.jd === 'ALL'
+      ? applications
+      : applications.filter((application) => application.jobPosting.jobPostingId === filters.jd),
+    [applications, filters.jd],
+  );
+  const statusOptions = useMemo(() => {
+    const configuredRounds = scopedApplications.flatMap((application) => (
+      roundsByJobPostingId[application.jobPosting.jobPostingId] ?? []
+    )).map((round) => ({ id: round.id, name: round.name, sortOrder: round.sortOrder }));
+    const currentStageRounds = scopedApplications
+      .map((application) => application.currentAmisStage)
+      .filter((stage): stage is NonNullable<typeof stage> => Boolean(stage?.recruitmentRoundName?.trim()))
+      .map((stage) => ({
+        id: stage.recruitmentRoundId,
+        name: stage.recruitmentRoundName?.trim() ?? '',
+        sortOrder: Number.MAX_SAFE_INTEGER - 4,
+      }));
+    return buildFreelancerCvStatusOptions([...configuredRounds, ...currentStageRounds]);
+  }, [roundsByJobPostingId, scopedApplications]);
+
+  useEffect(() => {
+    if (statusOptions.some((option) => option.value === filters.status)) return;
+    setFilters((current) => ({ ...current, status: 'ALL' }));
+  }, [filters.status, statusOptions]);
+
   const visibleApplications = useMemo(() => applications.filter((application) => {
-    const category = getStatusCategory(application);
-    if (filters.status !== 'ALL' && category !== filters.status) return false;
+    if (!matchesFreelancerCvStatus(application, filters.status, statusOptions)) return false;
     if (filters.jd !== 'ALL' && application.jobPosting.jobPostingId !== filters.jd) return false;
 
     const appliedAt = new Date(application.appliedAt).getTime();
     if (filters.dateRange.from && appliedAt < new Date(`${filters.dateRange.from}T00:00:00`).getTime()) return false;
     if (filters.dateRange.to && appliedAt > new Date(`${filters.dateRange.to}T23:59:59`).getTime()) return false;
     return true;
-  }), [applications, filters]);
+  }), [applications, filters, statusOptions]);
 
   const pageMetrics = useMemo(() => {
     const passed = applications.filter((application) => getStatusCategory(application) === 'PASSED').length;
@@ -95,7 +183,7 @@ export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormO
       total,
       processing: Math.max(0, total - passed - rejected),
       passed,
-      passRate: total ? Math.round((passed / total) * 1000) / 10 : 0,
+      passRate: total ? Math.round((passed / total) * 100) : 0,
     };
   }, [applications, pagination?.total, summary?.applicationCount]);
 
@@ -173,12 +261,10 @@ export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormO
       <FreelancerCvFilters
         value={filters}
         statusOptions={[
-          { value: 'ALL', label: 'Tất cả các vòng' },
-          { value: 'PROCESSING', label: 'Đang xử lý' },
-          { value: 'PASSED', label: 'Đã đậu' },
-          { value: 'REJECTED', label: 'Không đạt' },
+          ...statusOptions.map((option) => ({ value: option.value, label: option.label })),
         ]}
         jdOptions={[{ value: 'ALL', label: 'Tất cả các vòng' }, ...jdOptions.map(([value, label]) => ({ value, label }))]}
+        statusDisabled={roundsLoading}
         onChange={setFilters}
       />
 
@@ -211,7 +297,14 @@ export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormO
               </header>
               <div className="freelancer-cv-card-meta">
                 <div><span>TRẠNG THÁI CV HIỆN TẠI</span><strong>{getStatusLabel(application)}</strong></div>
-                <div><span>TA PHỤ TRÁCH</span><strong>{application.assignees[0]?.name ?? 'Chưa phân công'}</strong></div>
+                <div>
+                  <span>TA PHỤ TRÁCH</span>
+                  <strong>
+                    {application.attractivePersonnelName?.trim()
+                      || application.assignees[0]?.name
+                      || 'Chưa phân công'}
+                  </strong>
+                </div>
               </div>
               <div className="freelancer-cv-note">
                 <label htmlFor={`freelancer-note-${application.referralId}`}>Ghi chú của bạn</label>
@@ -262,6 +355,7 @@ export function FreelancerCvPanel({ accessToken, onNotify, isChangePasswordFormO
 }
 
 function getStatusCategory(application: FreelancerSelfApplication): StatusCategory {
+  if (application.statusCategory) return application.statusCategory;
   const value = `${application.processStatus ?? ''} ${application.hrReceptionStatus ?? ''}`.toUpperCase();
   if (value.includes('REJECT') || value.includes('INVALID') || value.includes('MALWARE')) return 'REJECTED';
   if (value.includes('APPROVED') || value.includes('TALENT_POOL') || value.includes('PASSED')) return 'PASSED';
@@ -269,6 +363,8 @@ function getStatusCategory(application: FreelancerSelfApplication): StatusCatego
 }
 
 function getStatusLabel(application: FreelancerSelfApplication) {
+  const currentStageName = application.currentAmisStage?.recruitmentRoundName?.trim();
+  if (currentStageName) return currentStageName;
   const status = application.hrReceptionStatus || application.processStatus;
   if (!status) return 'Chưa cập nhật';
   return status.replaceAll('_', ' ').toLocaleLowerCase('vi-VN').replace(/^./, (value) => value.toUpperCase());

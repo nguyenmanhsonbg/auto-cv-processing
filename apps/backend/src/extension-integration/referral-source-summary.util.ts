@@ -11,9 +11,16 @@ export type ReferralApplicationStatusCategory = 'PROCESSING' | 'PASSED' | 'REJEC
 export interface ReferralCurrentAmisStage {
   recruitmentRoundId: string;
   recruitmentRoundName: string | null;
+  attractivePersonnelName: string | null;
   amisStatus: number | null;
   reasonRemoved: string | null;
   updatedAt: Date | null;
+}
+
+export interface ReferralAmisSourceRecord {
+  applicationId: string;
+  rawPayload: Record<string, unknown> | null;
+  receivedAt: Date;
 }
 
 export interface ReferralApplicationMetricInput {
@@ -104,6 +111,46 @@ export function buildReferralSourceMetrics(
   };
 }
 
+export function buildCurrentAmisStageMap(
+  sources: ReferralAmisSourceRecord[],
+): Map<string, ReferralCurrentAmisStage> {
+  const currentStages = new Map<string, ReferralCurrentAmisStage>();
+
+  for (const source of sources) {
+    const rawPayload = source.rawPayload;
+    if (!rawPayload || rawPayload.sourceSystem !== 'AMIS') continue;
+
+    const recruitmentRoundId = optionalText(rawPayload.recruitmentRoundId);
+    if (!recruitmentRoundId) continue;
+
+    const stageUpdatedAt = parseOptionalDate(rawPayload.stageUpdatedAt)
+      ?? parseOptionalDate(rawPayload.lastSyncedAt)
+      ?? source.receivedAt;
+    const previous = currentStages.get(source.applicationId);
+    if (previous && getDateTime(previous.updatedAt) >= getDateTime(stageUpdatedAt)) continue;
+
+    currentStages.set(source.applicationId, {
+      recruitmentRoundId,
+      recruitmentRoundName: optionalText(rawPayload.recruitmentRoundName),
+      attractivePersonnelName: optionalText(
+        rawPayload.attractivePersonnelName
+          ?? rawPayload.AttractivePersonnel
+          ?? rawPayload.AttractivePersonnelName,
+      ),
+      amisStatus: toNullableNumber(rawPayload.status),
+      reasonRemoved: optionalText(
+        rawPayload.reasonRemoved
+          ?? rawPayload.ReasonRemoved
+          ?? rawPayload.reasonRemovedName
+          ?? rawPayload.ReasonRemovedName,
+      ),
+      updatedAt: stageUpdatedAt,
+    });
+  }
+
+  return currentStages;
+}
+
 export function mapReferralApplicationRow(
   input: ReferralApplicationRowInput,
 ): ReferralApplicationRow {
@@ -169,4 +216,28 @@ function normalizeRoundName(value: string | null | undefined) {
     .replaceAll('đ', 'd')
     .toUpperCase()
     .trim();
+}
+
+function optionalText(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function parseOptionalDate(value: unknown) {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getDateTime(value: Date | null) {
+  return value?.getTime() ?? 0;
+}
+
+function toNullableNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }

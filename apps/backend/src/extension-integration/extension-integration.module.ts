@@ -10,6 +10,7 @@ import {
   RecruitmentExternalReferenceEntity,
   AmisHrMappingEntity,
   AmisApplicationStageReminderEntity,
+  AmisRecruitmentRoundEntity,
 } from './entities';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -33,6 +34,7 @@ import { InternalsModule } from '../internals/internals.module';
 import { VcsPortalClientService } from './vcs-portal-client.service';
 import { VcsPortalJdMapper } from './vcs-portal-jd.mapper';
 import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
+import { AmisRecruitmentRoundsService } from './amis-recruitment-rounds.service';
 import { NotificationModule } from '../notification/notification.module';
 
 @Module({
@@ -47,6 +49,7 @@ import { NotificationModule } from '../notification/notification.module';
       ExtensionTaskEventEntity,
       AmisHrMappingEntity,
       AmisApplicationStageReminderEntity,
+      AmisRecruitmentRoundEntity,
       AuditLogEntity,
       UserEntity,
       JobDescriptionEntity,
@@ -74,7 +77,8 @@ import { NotificationModule } from '../notification/notification.module';
     ExtensionTasksService,
     VcsPortalClientService,
     VcsPortalJdMapper,
-      VcsPortalJdSyncService,
+    VcsPortalJdSyncService,
+    AmisRecruitmentRoundsService,
   ],
   exports: [
     ExtensionIntegrationService,
