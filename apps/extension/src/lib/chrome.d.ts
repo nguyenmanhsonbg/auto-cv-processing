@@ -79,6 +79,7 @@ interface ChromeTab {
   openerTabId?: number;
   url?: string;
   status?: string;
+  active?: boolean;
 }
 
 interface ChromeTabs {

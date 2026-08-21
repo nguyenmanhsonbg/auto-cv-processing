@@ -6,8 +6,11 @@ import {
   matchesFacebookUiLabel,
   matchesFacebookSubmitLabel,
   matchesFacebookGroupPickerLabel,
+  matchesFacebookGroupPickerTriggerLabel,
+  isFacebookPageUrl,
   parseFacebookCrosspostNotifications,
   parseFacebookCrosspostSearchGroups,
+  getFacebookBackgroundTabInteractionCommands,
 } from './facebook-publish-batch-utils.ts';
 
 const submittedAtMs = 1_787_223_933_614;
@@ -212,6 +215,35 @@ test('recognizes both Facebook group-picker trigger labels', () => {
   assert.equal(matchesFacebookGroupPickerLabel('2 nhóm'), false);
   assert.equal(matchesFacebookGroupPickerLabel('+ 2 nhóm'), false);
   assert.equal(matchesFacebookGroupPickerLabel('Nhóm công khai'), false);
+});
+
+test('recognizes the selected-count label as the same Facebook group-picker trigger', () => {
+  assert.equal(matchesFacebookGroupPickerTriggerLabel('Thêm nhóm'), true);
+  assert.equal(matchesFacebookGroupPickerTriggerLabel('+ 2 nhóm'), true);
+  assert.equal(matchesFacebookGroupPickerTriggerLabel('+5 nhóm'), true);
+  assert.equal(matchesFacebookGroupPickerTriggerLabel('2 nhóm'), true);
+  assert.equal(matchesFacebookGroupPickerTriggerLabel('Nhóm công khai'), false);
+});
+
+test('distinguishes a Facebook execution document from the extension or AMIS document', () => {
+  assert.equal(isFacebookPageUrl('https://www.facebook.com/groups/123456789'), true);
+  assert.equal(isFacebookPageUrl('https://m.facebook.com/groups/123456789'), true);
+  assert.equal(isFacebookPageUrl('https://amisapp.misa.vn/recruitment/123456789'), false);
+  assert.equal(isFacebookPageUrl('chrome-extension://extension-id/side-panel.html'), false);
+  assert.equal(isFacebookPageUrl(null), false);
+});
+
+test('keeps a background Facebook tab interactive without bringing it to the front', () => {
+  assert.deepEqual(getFacebookBackgroundTabInteractionCommands(), [
+    {
+      method: 'Emulation.setFocusEmulationEnabled',
+      params: { enabled: true },
+    },
+    {
+      method: 'Page.setWebLifecycleState',
+      params: { state: 'active' },
+    },
+  ]);
 });
 
 test('skips a selected chip and keeps looking for the selectable group row', () => {

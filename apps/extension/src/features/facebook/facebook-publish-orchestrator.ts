@@ -18,11 +18,17 @@ import {
 } from '@/features/facebook/facebook-post-url';
 import {
   createFacebookBatchSelection,
+  getFacebookBackgroundTabInteractionCommands,
   parseFacebookCrosspostNotifications,
   parseFacebookCrosspostSearchGroups,
+  isFacebookPageUrl,
   type FacebookCrosspostSearchGroup,
   type FacebookCrosspostNotificationResult,
 } from './facebook-publish-batch-utils';
+import {
+  selectFacebookComposerSubmitCandidate,
+  type FacebookComposerSubmitCandidate,
+} from './facebook-submit-utils';
 import type {
   FacebookImageAttachFailureContext,
   FacebookImageAttachFailureDecision,
@@ -259,6 +265,7 @@ interface FacebookBatchGroupSelectionResult {
 interface FacebookSubmitButtonPointProbe {
   found: boolean;
   submitButton?: FacebookSubmitButtonPoint;
+  candidate?: FacebookComposerSubmitCandidate | null;
 }
 
 interface FacebookSubmitPreflightResult {
@@ -266,10 +273,27 @@ interface FacebookSubmitPreflightResult {
   message: string;
 }
 
+interface FacebookPublishTabContext {
+  tabId: number;
+  actualTabId: number | null;
+  url: string | null;
+  active: boolean | null;
+  status: string | null;
+  documentTargetIsFacebook: boolean;
+  expectedGroupIds: string[];
+  actualGroupId: string | null;
+}
+
 interface FacebookSubmitActivationResult {
   activated: boolean;
   message: string;
   submitButton?: FacebookSubmitButtonPoint | null;
+}
+
+function isFacebookSubmitButtonProbeValid(probe: FacebookSubmitButtonPointProbe | null | undefined) {
+  if (!probe?.found || !probe.submitButton) return false;
+  if (!probe.candidate) return true;
+  return Boolean(selectFacebookComposerSubmitCandidate([probe.candidate]));
 }
 
 interface FacebookSubmitDiagnosticInput {
@@ -1182,6 +1206,7 @@ async function runFreshTabPublishAttempt({
   batchCrosspostTargets,
 }: FreshTabPublishAttemptOptions): Promise<FreshTabAttemptResult> {
   await waitForTabComplete(tabId, execution);
+  await assertFacebookPublishTabContext(tabId, targetUrl, targetExternalId, batchCrosspostTargets);
   await execution.wait(randomDelay(attempt === 0 ? 2_500 : 4_000, attempt === 0 ? 6_000 : 8_000));
   const expectedBatchGroupIds = [
     targetExternalId,
@@ -1263,20 +1288,22 @@ async function runFreshTabPublishAttempt({
       // from the current DOM before entering the existing submit flow.
       let refreshedSubmitButton: FacebookSubmitButtonPointProbe | null = null;
       for (let probeAttempt = 0; probeAttempt < 8; probeAttempt += 1) {
-        refreshedSubmitButton = await runScript<[], FacebookSubmitButtonPointProbe>(
+        refreshedSubmitButton = await runScript<[number], FacebookSubmitButtonPointProbe>(
           tabId,
           resolveFacebookSubmitButtonPointInPage,
-          [],
+          [8_000],
         ).catch(() => null);
-        if (refreshedSubmitButton?.found && refreshedSubmitButton.submitButton) break;
+        if (isFacebookSubmitButtonProbeValid(refreshedSubmitButton)) break;
         await execution.wait(350);
       }
       console.warn('[FB_BATCH_SUBMIT_BUTTON_REPROBE]', {
         tabId,
-        found: refreshedSubmitButton?.found ?? false,
+        found: isFacebookSubmitButtonProbeValid(refreshedSubmitButton),
+        rawFound: refreshedSubmitButton?.found ?? false,
+        candidate: refreshedSubmitButton?.candidate ?? null,
         submitButton: refreshedSubmitButton?.submitButton ?? null,
       });
-      if (!refreshedSubmitButton?.found || !refreshedSubmitButton.submitButton) {
+      if (!isFacebookSubmitButtonProbeValid(refreshedSubmitButton) || !refreshedSubmitButton?.submitButton) {
         return {
           kind: 'PUBLISHED',
           result: {
@@ -1286,6 +1313,7 @@ async function runFreshTabPublishAttempt({
           },
         };
       }
+      await assertFacebookPublishTabContext(tabId, targetUrl, targetExternalId, batchCrosspostTargets);
       submitButtonForSubmission = refreshedSubmitButton.submitButton;
     }
     const result = await submitPreparedPost(
@@ -2061,6 +2089,72 @@ async function waitForTabComplete(tabId: number, execution?: FacebookTargetExecu
   }
 }
 
+async function readFacebookPublishTabContext(
+  tabId: number,
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
+  batchCrosspostTargets: FacebookPublishTarget[] = [],
+): Promise<FacebookPublishTabContext> {
+  const tab = await chrome.tabs?.get(tabId).catch(() => null);
+  const expectedGroupIds = uniqueNonEmptyStrings([
+    ...getExpectedFacebookGroupIds(targetUrl, targetExternalId),
+    ...batchCrosspostTargets.flatMap((target) => getExpectedFacebookGroupIds(
+      target.targetUrl,
+      target.targetExternalId,
+    )),
+  ]);
+  const url = tab?.url ?? null;
+  let parsedUrl: URL | null = null;
+  try {
+    parsedUrl = url ? new URL(url) : null;
+  } catch {
+    parsedUrl = null;
+  }
+  const documentTargetIsFacebook = Boolean(
+    parsedUrl
+      && (parsedUrl.hostname === 'facebook.com' || parsedUrl.hostname.endsWith('.facebook.com')),
+  );
+  const actualGroupId = getFacebookGroupIdFromUrl(url);
+  const context: FacebookPublishTabContext = {
+    tabId,
+    actualTabId: tab?.id ?? null,
+    url,
+    active: tab?.active ?? null,
+    status: tab?.status ?? null,
+    documentTargetIsFacebook,
+    expectedGroupIds,
+    actualGroupId,
+  };
+  console.warn('[FB_TAB_CONTEXT]', context);
+  return context;
+}
+
+async function assertFacebookPublishTabContext(
+  tabId: number,
+  targetUrl: string | null | undefined,
+  targetExternalId: string | null | undefined,
+  batchCrosspostTargets: FacebookPublishTarget[] = [],
+) {
+  const context = await readFacebookPublishTabContext(
+    tabId,
+    targetUrl,
+    targetExternalId,
+    batchCrosspostTargets,
+  );
+  const groupMatches = context.expectedGroupIds.length === 0
+    || Boolean(context.actualGroupId && context.expectedGroupIds.includes(context.actualGroupId));
+  if (context.actualTabId !== tabId) {
+    throw new Error(`Facebook publish tab changed before submit (expected ${tabId}, actual ${context.actualTabId ?? 'missing'}).`);
+  }
+  if (!context.documentTargetIsFacebook) {
+    throw new Error(`Facebook publish tab ${tabId} is not on Facebook (${context.url ?? 'unknown URL'}).`);
+  }
+  if (!groupMatches) {
+    throw new Error(`Facebook publish tab ${tabId} is on an unexpected group (${context.actualGroupId ?? 'unknown'}).`);
+  }
+  return context;
+}
+
 async function waitForTabNavigationComplete(tabId: number, previousUrl: string) {
   const deadline = Date.now() + 30_000;
   let navigationStarted = false;
@@ -2292,7 +2386,7 @@ async function clickAndWaitForSubmission(
     message: toAutomationErrorMessage(error),
   }));
   if (batchCrosspostTargets.length > 0) {
-    for (let preflightAttempt = 0; !preflight.ready && preflightAttempt < 8; preflightAttempt += 1) {
+    for (let preflightAttempt = 0; !preflight.ready && preflightAttempt < 24; preflightAttempt += 1) {
       if (!/post editor is not open|content is not present|post button is not ready/i.test(preflight.message)) break;
       await execution.wait(350);
       preflight = await runScript<[string], FacebookSubmitPreflightResult>(
@@ -2381,31 +2475,34 @@ async function clickAndWaitForSubmission(
     );
     const initialGraphqlResult = await graphqlCapture?.waitForResult(1_500) ?? null;
     if (!initialGraphqlResult) {
-      const fallbackPointProbe = await runScript<[], FacebookSubmitButtonPointProbe>(
+      const fallbackPointProbe = await runScript<[number], FacebookSubmitButtonPointProbe>(
         tabId,
         resolveFacebookSubmitButtonPointInPage,
-        [],
+        [3_000],
       ).catch(() => null);
       console.warn('[FB06B_NATIVE_FALLBACK_PROBE]', {
         tabId,
         graphqlObserved: false,
-        submitButtonStillEnabled: fallbackPointProbe?.found ?? false,
+        submitButtonStillEnabled: isFacebookSubmitButtonProbeValid(fallbackPointProbe),
+        rawFound: fallbackPointProbe?.found ?? false,
+        candidate: fallbackPointProbe?.candidate ?? null,
         fallbackPoint: fallbackPointProbe?.submitButton ?? null,
       });
-      if (fallbackPointProbe?.found && fallbackPointProbe.submitButton) {
+      if (isFacebookSubmitButtonProbeValid(fallbackPointProbe) && fallbackPointProbe?.submitButton) {
+        const fallbackPoint = fallbackPointProbe.submitButton;
         try {
           if (graphqlCapture) {
             await clickTabCoordinatePointOnAttachedDebugger(
               tabId,
-              fallbackPointProbe.submitButton,
+              fallbackPoint,
               execution,
             );
           } else {
-            await clickTabCoordinatePoint(tabId, fallbackPointProbe.submitButton, execution);
+            await clickTabCoordinatePoint(tabId, fallbackPoint, execution);
           }
           console.warn('[FB06B_COORDINATE_FALLBACK_DISPATCHED]', {
             tabId,
-            point: fallbackPointProbe.submitButton,
+            point: fallbackPoint,
           });
         } catch (error) {
           console.warn('[FB06B_COORDINATE_FALLBACK_FAILED]', {
@@ -2449,10 +2546,10 @@ async function clickAndWaitForSubmission(
         dialogCount: document.querySelectorAll('[role="dialog"]').length,
       };
     }, []);
-    const afterClickPointProbe = await runScript<[], FacebookSubmitButtonPointProbe>(
+    const afterClickPointProbe = await runScript<[number], FacebookSubmitButtonPointProbe>(
       tabId,
       resolveFacebookSubmitButtonPointInPage,
-      [],
+      [1_500],
     ).catch(() => null);
     console.warn('[FB07_AFTER_500MS]', {
       tabId,
@@ -3179,6 +3276,22 @@ type FacebookPageProbeGlobal = typeof globalThis & {
   __vcsFacebookPageProbeUtilities?: FacebookPageProbeUtilities;
 };
 
+interface FacebookScriptExecutionContext {
+  url: string;
+  visibilityState: string;
+  hidden: boolean;
+  isTopFrame: boolean;
+}
+
+function readFacebookScriptExecutionContextInPage(): FacebookScriptExecutionContext {
+  return {
+    url: window.location.href,
+    visibilityState: document.visibilityState,
+    hidden: document.hidden,
+    isTopFrame: window.top === window,
+  };
+}
+
 function ensureFacebookPageProbeUtilitiesInPage() {
   const page = globalThis as FacebookPageProbeGlobal;
   if (page.__vcsFacebookPageProbeUtilities) return;
@@ -3463,16 +3576,36 @@ async function runScript<Args extends unknown[], Result>(
     throw new Error('Chrome scripting API is unavailable.');
   }
 
+  const targetTab = await chrome.tabs?.get(tabId).catch(() => null);
+  if (!targetTab || targetTab.id !== tabId) {
+    throw new Error(`Facebook automation target tab ${tabId} is unavailable.`);
+  }
+
+  const contextResults = await chrome.scripting.executeScript<[], FacebookScriptExecutionContext>({
+    target: { tabId },
+    func: readFacebookScriptExecutionContextInPage,
+    args: [],
+  });
+  const contextResult = contextResults.find((frameResult) => frameResult.frameId === 0)
+    ?? contextResults[0];
+  const context = contextResult?.result;
+  if (!context || !context.isTopFrame || !isFacebookPageUrl(context.url)) {
+    throw new Error(
+      `Facebook automation executed in an unexpected document (tabId=${tabId}, url=${context?.url ?? 'unknown'}).`,
+    );
+  }
+
   await chrome.scripting.executeScript({
     target: { tabId },
     func: ensureFacebookPageProbeUtilitiesInPage,
     args: [],
   });
-  const [result] = await chrome.scripting.executeScript<Args, Result>({
+  const results = await chrome.scripting.executeScript<Args, Result>({
     target: { tabId },
     func,
     args,
   });
+  const result = results.find((frameResult) => frameResult.frameId === 0) ?? results[0];
 
   if (!result) {
     throw new Error(chrome.runtime?.lastError?.message ?? 'Could not execute browser automation script.');
@@ -3504,6 +3637,7 @@ async function startFacebookPublishGraphqlCapture(
   });
   let attached = false;
   let stopped = false;
+  let focusEmulationEnabled = false;
 
   const onDebuggerEvent = (
     source: ChromeDebuggee,
@@ -3591,6 +3725,26 @@ async function startFacebookPublishGraphqlCapture(
   chrome.debugger.onEvent.addListener(onDebuggerEvent);
   try {
     await sendChromeDebuggerCommand(target, 'Network.enable', {});
+    for (const command of getFacebookBackgroundTabInteractionCommands()) {
+      try {
+        await sendChromeDebuggerCommand(target, command.method, command.params);
+        if (command.method === 'Emulation.setFocusEmulationEnabled') {
+          focusEmulationEnabled = true;
+        }
+      } catch (error) {
+        console.warn('[FB_BACKGROUND_TAB_INTERACTION_UNAVAILABLE]', {
+          tabId,
+          command: command.method,
+          message: toAutomationErrorMessage(error),
+        });
+      }
+    }
+    console.warn('[FB_BACKGROUND_TAB_INTERACTION_READY]', {
+      tabId,
+      focusEmulationEnabled,
+      lifecycleState: 'active',
+      tabBroughtToFront: false,
+    });
   } catch (error) {
     stopped = true;
     chrome.debugger.onEvent.removeListener(onDebuggerEvent);
@@ -3640,6 +3794,11 @@ async function startFacebookPublishGraphqlCapture(
       requests.clear();
       chrome.debugger?.onEvent.removeListener(onDebuggerEvent);
       await sendChromeDebuggerCommand(target, 'Network.disable', {}).catch(() => undefined);
+      if (focusEmulationEnabled) {
+        await sendChromeDebuggerCommand(target, 'Emulation.setFocusEmulationEnabled', { enabled: false })
+          .catch(() => undefined);
+        focusEmulationEnabled = false;
+      }
       if (attached) {
         attached = false;
       await detachChromeDebugger(target).catch(() => undefined);
@@ -3808,7 +3967,6 @@ async function clickTabCoordinatePoint(
   const target = { tabId };
   await attachChromeDebugger(target, '1.3');
   try {
-    await sendChromeDebuggerCommand(target, 'Page.bringToFront', {}).catch(() => undefined);
     if (execution) await execution.wait(randomDelay(120, 240));
     else await sleep(randomDelay(120, 240));
     await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
@@ -3847,7 +4005,6 @@ async function clickTabCoordinatePointOnAttachedDebugger(
   execution?: FacebookTargetExecution,
 ) {
   const target = { tabId };
-  await sendChromeDebuggerCommand(target, 'Page.bringToFront', {}).catch(() => undefined);
   if (execution) await execution.wait(randomDelay(120, 240));
   else await sleep(randomDelay(120, 240));
   await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
@@ -4408,7 +4565,10 @@ function selectFacebookCrosspostGroupsInPage(
     .trim()
     .toLowerCase();
 
-  const visible = (element: Element | null) => {
+  // Facebook can keep aria-hidden on a modal wrapper while the visible modal
+  // is being moved between React layers. Geometry is the reliable signal for
+  // the active picker; aria-hidden is used only as a secondary preference.
+  const rendered = (element: Element | null) => {
     if (!(element instanceof HTMLElement)) return false;
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();
@@ -4416,7 +4576,6 @@ function selectFacebookCrosspostGroupsInPage(
       && style.visibility !== 'hidden'
       && rect.width > 0
       && rect.height > 0
-      && !element.closest('[aria-hidden="true"]')
       && rect.right > 0
       && rect.bottom > 0
       && rect.left < window.innerWidth
@@ -4451,15 +4610,35 @@ function selectFacebookCrosspostGroupsInPage(
 
   const isNotAriaHidden = (element: Element) => element.getAttribute('aria-hidden') !== 'true'
     && !element.closest('[aria-hidden="true"]');
+  const groupPickerSearchSelector = [
+    'input[aria-label*="Tìm kiếm nhóm" i]',
+    'input[placeholder*="Tìm kiếm nhóm" i]',
+    '[role="combobox"][aria-label*="Tìm kiếm nhóm" i]',
+    '[role="combobox"][placeholder*="Tìm kiếm nhóm" i]',
+    'input[aria-label*="search group" i]',
+    'input[placeholder*="search group" i]',
+    '[role="combobox"][aria-label*="search group" i]',
+    '[role="combobox"][placeholder*="search group" i]',
+  ].join(', ');
+  const findGroupPickerSearchInput = (dialog: HTMLElement) => (
+    dialog.querySelector<HTMLInputElement | HTMLElement>(groupPickerSearchSelector)
+  );
   const isGroupPickerDialog = (dialog: HTMLElement) => {
-    const hasSearch = Boolean(dialog.querySelector('input[aria-label*="Tìm kiếm nhóm"]'));
-    const hasTitle = normalize(dialog.textContent ?? '').includes('them nhom');
+    const hasSearch = Boolean(findGroupPickerSearchInput(dialog));
+    const dialogLabel = normalize([
+      dialog.getAttribute('aria-label'),
+      dialog.getAttribute('title'),
+      dialog.textContent,
+    ].filter(Boolean).join(' '));
+    const hasTitle = dialogLabel.includes('them nhom') || dialogLabel.includes('chon nhom');
     return hasSearch && hasTitle;
   };
   const findDialog = () => {
     const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
-    return dialogs.find((dialog) => isNotAriaHidden(dialog) && isGroupPickerDialog(dialog))
-      ?? dialogs.find(isGroupPickerDialog)
+    const pickerDialogs = dialogs.filter(isGroupPickerDialog);
+    return pickerDialogs.find((dialog) => rendered(dialog))
+      ?? pickerDialogs.find(isNotAriaHidden)
+      ?? pickerDialogs[0]
       ?? null;
   };
 
@@ -4486,9 +4665,9 @@ function selectFacebookCrosspostGroupsInPage(
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex="0"], a') ?? element
   );
-  const matchesGroupPickerLabel = (value: string) => {
+  const matchesGroupPickerTriggerLabel = (value: string) => {
     const normalized = normalize(value);
-    return normalized.includes('them nhom');
+    return normalized.includes('them nhom') || /^\+?\s*\d+\s*nhom$/.test(normalized);
   };
   const composerRoots: Array<Document | Element> = [composerRoot];
   const canClickComposerElement = (element: Element) => {
@@ -4515,7 +4694,7 @@ function selectFacebookCrosspostGroupsInPage(
         clickable.getAttribute('aria-label'),
         clickable.textContent,
       ].filter(Boolean);
-      return labels.some((value) => matchesGroupPickerLabel(value ?? ''));
+      return labels.some((value) => matchesGroupPickerTriggerLabel(value ?? ''));
     })?.clickable ?? null;
     if (candidate) {
       composerAddGroupButton = candidate;
@@ -4540,9 +4719,7 @@ function selectFacebookCrosspostGroupsInPage(
       };
     }
 
-    let searchInput = dialog.querySelector<HTMLInputElement>(
-      'input[aria-label*="Tìm kiếm nhóm"]',
-    );
+    let searchInput = findGroupPickerSearchInput(dialog);
     if (!searchInput) {
       return {
         ok: false,
@@ -4553,9 +4730,7 @@ function selectFacebookCrosspostGroupsInPage(
 
     const getActiveDialog = () => findDialog() ?? dialog;
     const getActiveSearchInput = () => {
-      const currentInput = getActiveDialog().querySelector<HTMLInputElement>(
-        'input[aria-label*="Tìm kiếm nhóm"]',
-      );
+      const currentInput = findGroupPickerSearchInput(getActiveDialog());
       if (currentInput) searchInput = currentInput;
       return searchInput;
     };
@@ -4570,13 +4745,27 @@ function selectFacebookCrosspostGroupsInPage(
       if (knownSearchGroup && knownSearchGroup.groupId !== target.targetExternalId) return null;
       const activeDialog = getActiveDialog();
       const textCandidates = Array.from(activeDialog.querySelectorAll<HTMLElement>('*'))
-        .filter((element) => visible(element)
+        .filter((element) => rendered(element)
           && !element.closest('[aria-label^="Gỡ "]')
           && normalize(element.textContent ?? '').includes(expectedName))
         .sort((left, right) => (left.textContent?.length ?? 0) - (right.textContent?.length ?? 0));
       for (const nameElement of textCandidates) {
+        const pickerRow = nameElement.closest<HTMLElement>('[role="button"][tabindex="0"]');
+        if (pickerRow && !pickerRow.closest('[aria-label^="Gỡ "]')) {
+          const checkbox = pickerRow.matches('[role="checkbox"], input[type="checkbox"], [aria-checked]')
+            ? pickerRow
+            : pickerRow.querySelector<HTMLElement>('[role="checkbox"], input[type="checkbox"], [aria-checked]');
+          const groupLink = pickerRow.querySelector<HTMLAnchorElement>('a[href*="/groups/"]');
+          const idMatch = groupLink?.href.match(/\/groups\/(\d+)/)
+            ?? pickerRow.getAttribute('data-group-id')?.match(/(\d+)/)
+            ?? pickerRow.getAttribute('data-id')?.match(/(\d+)/);
+          if (!idMatch?.[1] || idMatch[1] === target.targetExternalId) {
+            return { row: pickerRow, checkbox };
+          }
+        }
+
         let current: HTMLElement | null = nameElement;
-        for (let depth = 0; current && depth < 8; depth += 1) {
+        while (current && current !== activeDialog) {
           const checkbox = current.matches('[role="checkbox"], input[type="checkbox"], [aria-checked]')
             ? current
             : current.querySelector<HTMLElement>('[role="checkbox"], input[type="checkbox"], [aria-checked]');
@@ -4588,7 +4777,7 @@ function selectFacebookCrosspostGroupsInPage(
             current = current.parentElement;
             continue;
           }
-          if (checkbox || idMatch?.[1]) return { row: current, checkbox };
+          if (checkbox) return { row: current, checkbox };
           current = current.parentElement;
         }
       }
@@ -4598,14 +4787,33 @@ function selectFacebookCrosspostGroupsInPage(
     const setSearchValue = (value: string) => {
       const activeSearchInput = getActiveSearchInput();
       if (!activeSearchInput) return false;
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      setter?.call(activeSearchInput, value);
+      activeSearchInput.focus?.();
+      if (activeSearchInput instanceof HTMLInputElement || activeSearchInput instanceof HTMLTextAreaElement) {
+        activeSearchInput.select?.();
+      }
+      if (activeSearchInput instanceof HTMLInputElement || activeSearchInput instanceof HTMLTextAreaElement) {
+        const prototype = activeSearchInput instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+        setter?.call(activeSearchInput, value);
+      } else if (activeSearchInput instanceof HTMLElement && activeSearchInput.isContentEditable) {
+        activeSearchInput.textContent = value;
+      } else {
+        return false;
+      }
+      const inputType = value ? 'insertText' : 'deleteContentBackward';
       activeSearchInput.dispatchEvent(new InputEvent('input', {
         bubbles: true,
-        inputType: 'insertText',
+        inputType,
         data: value,
       }));
       activeSearchInput.dispatchEvent(new Event('change', { bubbles: true }));
+      activeSearchInput.dispatchEvent(new KeyboardEvent('keyup', {
+        key: value ? 'Unidentified' : 'Backspace',
+        code: value ? 'Unidentified' : 'Backspace',
+        bubbles: true,
+      }));
       return true;
     };
 
@@ -4617,18 +4825,27 @@ function selectFacebookCrosspostGroupsInPage(
     };
 
     for (const target of targets) {
-      if (!setSearchValue(target.targetName)) {
-        return {
-          ok: false,
-          message: 'Không tìm thấy ô tìm kiếm nhóm Facebook sau khi popup được cập nhật.',
-          selectedGroupIds: [],
-        };
+      const searchApplied = setSearchValue(target.targetName);
+      let group = await waitFor(() => findGroupRow(target), searchApplied ? 8_000 : 1_500);
+      if (!group && searchApplied) {
+        // Facebook sometimes keeps the previous search value in a controlled
+        // input while it is replacing the picker list. Clear it and retry the
+        // currently mounted rows before reporting a selection failure.
+        setSearchValue('');
+        group = await waitFor(() => findGroupRow(target), 2_000);
       }
-      const group = await waitFor(() => findGroupRow(target), 8_000);
+      console.warn('[FB_BATCH_PICKER_TARGET]', {
+        targetName: target.targetName,
+        targetExternalId: target.targetExternalId,
+        searchApplied,
+        rowFound: Boolean(group),
+      });
       if (!group) {
         return {
           ok: false,
-          message: `Không tìm thấy group Facebook “${target.targetName}” trong popup Thêm nhóm.`,
+          message: searchApplied
+            ? `Không tìm thấy group Facebook “${target.targetName}” trong popup Thêm nhóm.`
+            : 'Không tìm thấy ô tìm kiếm nhóm Facebook trong popup Thêm nhóm.',
           selectedGroupIds: [],
         };
       }
@@ -4653,7 +4870,7 @@ function selectFacebookCrosspostGroupsInPage(
     const activeDialog = getActiveDialog();
     const doneButton = Array.from(activeDialog.querySelectorAll<HTMLElement>(
       '[role="button"], button',
-    )).find((element) => visible(element) && matchesUiLabel(element, 'xong'));
+    )).find((element) => rendered(element) && matchesUiLabel(element, 'xong'));
     if (!clickElement(doneButton ?? null)) {
       return {
         ok: false,
@@ -5535,7 +5752,10 @@ async function prepareFacebookPostInPage(
   };
 }
 
-function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProbe {
+async function resolveFacebookSubmitButtonPointInPage(
+  waitTimeoutMs = 0,
+): Promise<FacebookSubmitButtonPointProbe> {
+  const probe = (): FacebookSubmitButtonPointProbe => {
   const normalize = (value: string) => {
     const normalized = value.normalize('NFD');
     const withoutMarks = normalized.replace(/[\u0300-\u036f]/g, '');
@@ -5723,7 +5943,18 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
 
   const dialogs = queryAll(document, '[role="dialog"]')
     .filter((element) => isVisible(element));
-  const roots = [...dialogs, document];
+  const composerDialogs = dialogs.filter((dialog) => {
+    const label = elementLabel(dialog);
+    const hasEditor = queryAll(dialog, '[contenteditable="true"][role="textbox"], [contenteditable="true"]')
+      .some((element) => isVisible(element));
+    const hasComposerTitle = /tao bai viet|create a public post|create post|start a post/.test(label);
+    return hasEditor && hasComposerTitle && !isInsideCommentSurface(dialog);
+  });
+  const roots: Array<Document | Element> = composerDialogs.length > 0
+    ? composerDialogs
+    : dialogs.length === 0
+      ? [document]
+      : [];
   for (const root of roots) {
     const button = findExactAriaSubmitButton(root) ?? findSubmitButton(root);
 
@@ -5743,11 +5974,34 @@ function resolveFacebookSubmitButtonPointInPage(): FacebookSubmitButtonPointProb
             height: Math.round(rect.height),
           },
         },
+        candidate: root instanceof Element
+          ? {
+            id: 'facebook-composer-submit',
+            dialogVisible: true,
+            dialogLabel: elementLabel(root),
+            hasEditor: queryAll(root, '[contenteditable="true"][role="textbox"], [contenteditable="true"]')
+              .some((element) => isVisible(element)),
+            buttonText: button.textContent ?? '',
+            ariaLabel: button.getAttribute('aria-label'),
+            buttonVisible: isVisible(button),
+            buttonDisabled: isDisabled(button),
+            insideCommentSurface: isInsideCommentSurface(button),
+          }
+          : null,
       };
     }
   }
 
   return { found: false };
+  };
+
+  let result = probe();
+  const deadline = Date.now() + Math.max(0, waitTimeoutMs);
+  while (!result.found && Date.now() < deadline) {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
+    result = probe();
+  }
+  return result;
 }
 
 function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActivationResult {

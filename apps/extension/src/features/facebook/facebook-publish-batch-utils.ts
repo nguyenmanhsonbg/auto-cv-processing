@@ -13,6 +13,29 @@ export interface FacebookCrosspostSearchGroup {
   name: string;
 }
 
+export function getFacebookBackgroundTabInteractionCommands() {
+  return [
+    {
+      method: 'Emulation.setFocusEmulationEnabled',
+      params: { enabled: true },
+    },
+    {
+      method: 'Page.setWebLifecycleState',
+      params: { state: 'active' },
+    },
+  ];
+}
+
+export function isFacebookPageUrl(value: string | null | undefined) {
+  if (!value?.trim()) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === 'facebook.com' || hostname.endsWith('.facebook.com');
+  } catch {
+    return false;
+  }
+}
+
 export function matchesFacebookUiLabel(value: string, expected: string) {
   const normalize = (text: string) => text
     .normalize('NFD')
@@ -59,6 +82,18 @@ export function matchesFacebookGroupPickerLabel(value: string) {
     .trim()
     .toLowerCase();
   return normalized.includes('them nhom');
+}
+
+export function matchesFacebookGroupPickerTriggerLabel(value: string) {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0111\u0110]/g, 'd')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  return normalized.includes('them nhom') || /^\+?\s*\d+\s*nhom$/.test(normalized);
 }
 
 export function findFirstFacebookSelectableCandidate<T>(
