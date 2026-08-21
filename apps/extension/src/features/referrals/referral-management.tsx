@@ -20,19 +20,15 @@ import type {
 } from '@/types/types';
 import { buildFreelancerIdentifierCopyText } from '@/features/referrals/referral-management-utils';
 import { formatDate, toErrorMessage } from '@/lib/utils';
-import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
 import { DateRangeFilter, type DateRangeValue, FilterDropdown, MultiSelectFilter } from '@/components/filters';
 import { InputField } from '@/components/form/InputField';
 import {
-  UnlockIcon,
-  ActionLockIcon as LockIcon,
   ReferralWarningIcon as WarningIcon,
-  CopyIcon,
   SearchClearIcon,
-  DetailChevronIcon,
   PlusIcon,
 } from '@/components/svg';
 import { ReferralFilters } from './components/ReferralFilters';
+import { ReferralPersonCard } from './components/ReferralPersonCard';
 
 type CvStatusFilter = string;
 type JdFilter = string[];
@@ -722,94 +718,20 @@ export function ReferralManagementPanel({
 
       {!loading && !error && visiblePeople.length > 0 ? (
         <div className="referral-people-list">
-          {visiblePeople.map(({ person, applications }) => {
-            const isExpanded = Boolean(expandedIds[person.sourceId]);
-            const metrics = isClientFilterMode ? {
-              total: applications.length,
-              processing: applications.filter((app) => app.statusCategory === 'PROCESSING').length,
-              passed: applications.filter((app) => app.statusCategory === 'PASSED').length,
-              failed: applications.filter((app) => app.statusCategory === 'REJECTED').length,
-              passRate: applications.length > 0 ? Math.round((applications.filter((app) => app.statusCategory === 'PASSED').length / applications.length) * 100) : 0,
-            } : person.metrics;
-            return (
-              <article className={`referral-person-card${person.isActive ? '' : ' is-inactive'}`} key={person.sourceId}>
-                <div className="referral-person-heading">
-                  <div className="referral-person-identity">
-                    <div className="referral-person-name-row">
-                      <h3>{person.name || null}</h3>
-                      {!person.isActive ? <span className="referral-active-badge is-inactive">Đã khóa</span> : null}
-                    </div>
-                    {person.identifier ? (
-                      <div className="referral-person-identifier-row">
-                        <span className="referral-identifier">
-                          <span>{person.identifier}</span>
-                          <button
-                            type="button"
-                            className={`referral-copy-button${copiedIdentifier === person.identifier ? ' is-copied' : ''}`}
-                            onClick={() => void copyIdentifier(person.identifier as string)}
-                            title="Sao chép mã Freelancer"
-                            aria-label="Sao chép mã Freelancer"
-                          >
-                            {copiedIdentifier === person.identifier ? 'Đã copy' : <CopyIcon />}
-                          </button>
-                        </span>
-                      </div>
-                    ) : null}
-                    <div className="referral-person-meta">
-                      {(() => {
-                        const fullText = [person.email, person.phone].filter(Boolean).join(' • ');
-                        return (
-                          <span title={fullText.length > 50 ? fullText : undefined}>
-                            {fullText}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  {source === 'FREELANCER' ? (
-                    <div className="referral-person-actions">
-                      <button
-                        type="button"
-                        className="referral-status-icon-button"
-                        onClick={() => requestStatusChange(person)}
-                        title={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
-                        aria-label={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
-                      >
-                        {person.isActive ? <UnlockIcon /> : <LockIcon />}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-
-                <StatsMetricGrid
-                  ariaLabel="Thống kê CV"
-                  className="referral-metrics-grid"
-                  items={[
-                    { label: 'TỔNG CV GỬI', value: metrics.total },
-                    { label: 'ĐANG XỬ LÝ', value: metrics.processing },
-                    { label: 'ĐÃ ĐẬU', value: metrics.passed, accent: true },
-                    { label: 'TỈ LỆ ĐẬU', value: `${metrics.passRate}%`, accent: true },
-                  ]}
-                />
-
-                <button
-                  type="button"
-                  className="referral-detail-toggle"
-                  onClick={() => setExpandedIds((current) => ({ ...current, [person.sourceId]: !isExpanded }))}
-                  aria-expanded={isExpanded}
-                >
-                  <span>Chi tiết</span>
-                  <DetailChevronIcon isOpen={isExpanded} />
-                </button>
-
-                {isExpanded ? (
-                  <div className="referral-expanded-overlay">
-                    <ApplicationTable applications={applications} source={source} />
-                  </div>
-                ) : null}
-              </article>
-            );
-          })}
+          {visiblePeople.map(({ person, applications }) => (
+            <ReferralPersonCard
+              key={person.sourceId}
+              person={person}
+              source={source}
+              applications={applications}
+              isExpanded={Boolean(expandedIds[person.sourceId])}
+              copiedIdentifier={copiedIdentifier}
+              isClientFilterMode={isClientFilterMode}
+              onToggleExpand={(sourceId) => setExpandedIds((current) => ({ ...current, [sourceId]: !current[sourceId] }))}
+              onCopyIdentifier={(identifier) => void copyIdentifier(identifier)}
+              onRequestStatusChange={requestStatusChange}
+            />
+          ))}
         </div>
       ) : null}
 
@@ -865,7 +787,11 @@ export function ReferralManagementPanel({
           <section className="referral-modal" role="dialog" aria-modal="true" aria-labelledby="referral-create-title">
             <div className="referral-modal-header">
               <h2 id="referral-create-title">Thêm {title} mới</h2>
-              <button type="button" onClick={closeModal} aria-label="Đóng">×</button>
+              <button type="button" className="referral-modal-close-btn" onClick={closeModal} aria-label="Đóng">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.67" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 1L9 9M9 1L1 9" />
+                </svg>
+              </button>
             </div>
             <form onSubmit={submitCreate} noValidate>
               {source === 'FREELANCER' ? (
@@ -879,7 +805,7 @@ export function ReferralManagementPanel({
                       setName(event.target.value);
                       setNameFieldError(null);
                     }}
-                    placeholder="Nhập tên Freelancer mới..."
+                    placeholder="Nhập tên Freelancer mới"
                     error={nameFieldError ?? undefined}
                     trailing={
                       name ? (
@@ -908,7 +834,7 @@ export function ReferralManagementPanel({
                       setEmail(event.target.value);
                       setEmailFieldError(null);
                     }}
-                    placeholder="freelancer@gmail.com"
+                    placeholder="Nhập email Freelancer"
                     error={emailFieldError ?? undefined}
                     trailing={
                       email ? (
@@ -936,7 +862,7 @@ export function ReferralManagementPanel({
                       setPhone(digitsOnly);
                       setPhoneFieldError(null);
                     }}
-                    placeholder="0988098797"
+                    placeholder="Nhập SĐT Freelancer"
                     error={phoneFieldError ?? undefined}
                     trailing={
                       phone ? (
@@ -955,10 +881,12 @@ export function ReferralManagementPanel({
                     }
                   />
                   <div className="referral-identifier-preview">
-                    <div className="referral-identifier-preview-text">MÃ ĐỊNH DANH SẼ ĐƯỢC CẤP</div>
-                    <div className="referral-identifier-preview-text">{nextFreelancerIdentifier}</div>
-                    <div className="referral-identifier-preview-text">Gửi mã định danh này cho Freelancer để họ dùng khi nộp CV và đăng nhập theo dõi.</div>
-                    <div className="referral-identifier-preview-text">Mật khẩu sẽ được gửi đến email được nhập.</div>
+                    <div className="referral-identifier-preview-header">MÃ ĐỊNH DANH SẼ ĐƯỢC CẤP</div>
+                    <div className="referral-identifier-preview-code">{nextFreelancerIdentifier}</div>
+                    <div className="referral-identifier-preview-notes">
+                      <span>Gửi mã định danh này cho Freelancer để họ dùng khi nộp CV và đăng nhập theo dõi.</span>
+                      <span>Mật khẩu sẽ được gửi đến email được nhập.</span>
+                    </div>
                   </div>
                 </>
               ) : (
@@ -1051,13 +979,13 @@ export function ReferralManagementPanel({
               )}
               {formError ? <p className="referral-form-error">{formError}</p> : null}
               <div className="referral-modal-actions">
-                <button type="button" className="referral-secondary-button" onClick={closeModal}>Hủy</button>
+                <button type="button" className="referral-modal-cancel-btn" onClick={closeModal}>HỦY</button>
                 <button
                   type="submit"
-                  className="referral-primary-button"
+                  className="referral-modal-submit-btn"
                   disabled={saving || !email.trim() || !name.trim() || !phone.trim()}
                 >
-                  {saving ? 'Đang lưu...' : 'Thêm mới'}
+                  {saving ? 'ĐANG LƯU...' : 'THÊM MỚI'}
                 </button>
               </div>
             </form>
@@ -1070,13 +998,17 @@ export function ReferralManagementPanel({
           <section className="referral-modal" role="dialog" aria-modal="true" aria-labelledby="referral-credentials-title">
             <div className="referral-modal-header">
               <h2 id="referral-credentials-title">Đã thêm Freelancer</h2>
-              <button type="button" onClick={closeModal} aria-label="Đóng">×</button>
+              <button type="button" className="referral-modal-close-btn" onClick={closeModal} aria-label="Đóng">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.67" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 1L9 9M9 1L1 9" />
+                </svg>
+              </button>
             </div>
             <div className="referral-credentials-body">
               <p>Gửi thông tin dưới đây cho Freelancer để đăng nhập và theo dõi CV.</p>
               <div><span>Mã định danh</span><strong>{createdFreelancer.identifier}</strong></div>
               <div><span>Mật khẩu khởi tạo</span><strong>{createdFreelancer.initialPassword}</strong></div>
-              <button type="button" className="referral-primary-button" onClick={() => void copyCredentials(createdFreelancer)}>
+              <button type="button" className="referral-modal-submit-btn" onClick={() => void copyCredentials(createdFreelancer)}>
                 Sao chép thông tin
               </button>
             </div>
@@ -1091,7 +1023,11 @@ export function ReferralManagementPanel({
               <h2 id="referral-status-title">
                 {selectedPerson.isActive ? 'Xác nhận khoá tài khoản Freelancer' : 'Xác nhận mở khoá tài khoản Freelancer'}
               </h2>
-              <button type="button" onClick={closeModal} aria-label="Đóng">×</button>
+              <button type="button" className="referral-modal-close-btn" onClick={closeModal} aria-label="Đóng">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.67" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 1L9 9M9 1L1 9" />
+                </svg>
+              </button>
             </div>
             <div className="referral-confirm-body">
               <WarningIcon />
@@ -1108,188 +1044,14 @@ export function ReferralManagementPanel({
             </div>
             {formError ? <p className="referral-form-error">{formError}</p> : null}
             <div className="referral-modal-actions">
-              <button type="button" className="referral-secondary-button" onClick={closeModal}>Hủy</button>
-              <button type="button" className="referral-primary-button" disabled={saving} onClick={() => void confirmStatusChange()}>{saving ? 'Đang lưu...' : 'Xác nhận'}</button>
+              <button type="button" className="referral-modal-cancel-btn" onClick={closeModal}>HỦY</button>
+              <button type="button" className="referral-modal-submit-btn" disabled={saving} onClick={() => void confirmStatusChange()}>{saving ? 'ĐANG LƯU...' : 'XÁC NHẬN'}</button>
             </div>
           </section>
         </div>
       ) : null}
     </div>
   );
-}
-
-function ApplicationTable({ applications, source }: { applications: ReferralManagementApplication[]; source: ReferralManagementSource }) {
-  const tableWrapRef = useRef<HTMLDivElement | null>(null);
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const [scrollState, setScrollState] = useState({ scrollLeft: 0, maxScroll: 0, ratio: 0, canScroll: false, thumbWidthPercent: 40 });
-  const isDraggingTableRef = useRef(false);
-  const isDraggingThumbRef = useRef(false);
-  const startXRef = useRef(0);
-  const startScrollLeftRef = useRef(0);
-
-  const updateScrollState = useCallback(() => {
-    const el = tableWrapRef.current;
-    if (!el) return;
-    const canScroll = el.scrollWidth > el.clientWidth + 2;
-    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
-    const ratio = maxScroll > 0 ? el.scrollLeft / maxScroll : 0;
-    const thumbWidthPercent = el.scrollWidth > 0 ? Math.max(20, Math.min(100, (el.clientWidth / el.scrollWidth) * 100)) : 100;
-    setScrollState({
-      scrollLeft: el.scrollLeft,
-      maxScroll,
-      ratio,
-      canScroll,
-      thumbWidthPercent,
-    });
-  }, []);
-
-  useEffect(() => {
-    updateScrollState();
-    const el = tableWrapRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => updateScrollState());
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [applications, updateScrollState]);
-
-  if (applications.length === 0) return <div className="referral-empty-detail">Chưa tải lên CV nào</div>;
-
-  function handleScroll() {
-    updateScrollState();
-  }
-
-  function handleWheel(e: React.WheelEvent<HTMLDivElement>) {
-    if (!tableWrapRef.current) return;
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && scrollState.canScroll) {
-      tableWrapRef.current.scrollLeft += e.deltaY;
-    }
-  }
-
-  function handleTableMouseDown(e: React.MouseEvent<HTMLDivElement>) {
-    if (!tableWrapRef.current) return;
-    isDraggingTableRef.current = true;
-    startXRef.current = e.pageX;
-    startScrollLeftRef.current = tableWrapRef.current.scrollLeft;
-  }
-
-  function handleTableMouseMove(e: React.MouseEvent<HTMLDivElement>) {
-    if (!isDraggingTableRef.current || !tableWrapRef.current) return;
-    e.preventDefault();
-    const deltaX = e.pageX - startXRef.current;
-    tableWrapRef.current.scrollLeft = startScrollLeftRef.current - deltaX;
-  }
-
-  function handleTableMouseUpOrLeave() {
-    isDraggingTableRef.current = false;
-  }
-
-  function handleTrackMouseDown(e: React.MouseEvent<HTMLDivElement>) {
-    if (!trackRef.current || !tableWrapRef.current) return;
-    const rect = trackRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickRatio = Math.max(0, Math.min(1, clickX / rect.width));
-    tableWrapRef.current.scrollLeft = clickRatio * scrollState.maxScroll;
-  }
-
-  function handleThumbMouseDown(e: React.MouseEvent<HTMLDivElement>) {
-    e.stopPropagation();
-    isDraggingThumbRef.current = true;
-    startXRef.current = e.clientX;
-    startScrollLeftRef.current = tableWrapRef.current?.scrollLeft ?? 0;
-
-    function handleMouseMove(moveEvent: MouseEvent) {
-      if (!isDraggingThumbRef.current || !trackRef.current || !tableWrapRef.current) return;
-      const trackWidth = trackRef.current.clientWidth;
-      const thumbWidth = (scrollState.thumbWidthPercent / 100) * trackWidth;
-      const maxThumbTravel = trackWidth - thumbWidth;
-      if (maxThumbTravel <= 0) return;
-
-      const deltaX = moveEvent.clientX - startXRef.current;
-      const scrollDelta = (deltaX / maxThumbTravel) * scrollState.maxScroll;
-      tableWrapRef.current.scrollLeft = startScrollLeftRef.current + scrollDelta;
-    }
-
-    function handleMouseUp() {
-      isDraggingThumbRef.current = false;
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    }
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-  }
-
-  const thumbLeftPercent = scrollState.ratio * (100 - scrollState.thumbWidthPercent);
-
-  return (
-    <div className="referral-application-table-container">
-      <div
-        ref={tableWrapRef}
-        className="referral-table-wrap"
-        onScroll={handleScroll}
-        onWheel={handleWheel}
-        onMouseDown={handleTableMouseDown}
-        onMouseMove={handleTableMouseMove}
-        onMouseUp={handleTableMouseUpOrLeave}
-        onMouseLeave={handleTableMouseUpOrLeave}
-      >
-        <table className="referral-application-table">
-          <thead>
-            <tr>
-              <th>STT</th>
-              <th>CV</th>
-              <th>JD</th>
-              <th>Tình trạng xử lý</th>
-              <th>Thời gian nộp CV</th>
-              <th>TA quản lý</th>
-              <th>{source === 'INTERNAL' ? 'Ghi chú của Nhân sự nội bộ' : 'Ghi chú của Freelancer'}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {applications.map((application, index) => (
-              <tr key={application.applicationId}>
-                <td>{String(index + 1).padStart(2, '0')}</td>
-                <td>{application.candidate.fullName}</td>
-                <td>{application.jobPosting.title}</td>
-                <td><StatusPill application={application} /></td>
-                <td>{formatDate(application.appliedAt)}</td>
-                <td>{application.assignees.map((assignee) => assignee.name).join(', ') || '—'}</td>
-                <td>{application.evaluation || '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {scrollState.canScroll ? (
-        <div className="referral-table-scrollbar-row">
-          <div
-            ref={trackRef}
-            className="referral-custom-scrollbar-track"
-            onMouseDown={handleTrackMouseDown}
-            role="scrollbar"
-            aria-valuenow={Math.round(scrollState.ratio * 100)}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          >
-            <div
-              className="referral-custom-scrollbar-thumb"
-              style={{
-                width: `${scrollState.thumbWidthPercent}%`,
-                left: `${thumbLeftPercent}%`,
-              }}
-              onMouseDown={handleThumbMouseDown}
-            />
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function StatusPill({ application }: { application: ReferralManagementApplication }) {
-  const { label, className } = getApplicationStatus(application);
-  return <span className={`referral-status-pill ${className}`}><i />{label}</span>;
 }
 
 function buildReferralRoundOptions(
@@ -1324,9 +1086,9 @@ function buildReferralRoundOptions(
 
   if (groupedRounds.size === 0 && includeLegacyStageOptions) {
     [
-      { name: '\u1ee8ng tuy\u1ec3n', normalizedName: 'UNG TUYEN' },
-      { name: 'Thi tuy\u1ec3n', normalizedName: 'THI TUYEN' },
-      { name: 'Ph\u1ecfng v\u1ea5n', normalizedName: 'PHONG VAN' },
+      { name: 'Ứng tuyển', normalizedName: 'UNG TUYEN' },
+      { name: 'Thi tuyển', normalizedName: 'THI TUYEN' },
+      { name: 'Phỏng vấn', normalizedName: 'PHONG VAN' },
       { name: 'Offer', normalizedName: 'OFFER' },
     ].forEach((entry, index) => {
       groupedRounds.set(entry.normalizedName, {
@@ -1343,7 +1105,7 @@ function buildReferralRoundOptions(
   if (!groupedRounds.has('DA TUYEN')) {
     groupedRounds.set('DA TUYEN', {
       value: 'STATUS:HIRED',
-      label: '\u0110\u00e3 tuy\u1ec3n',
+      label: 'Đã tuyển',
       kind: 'HIRED',
       roundIds: [],
       normalizedName: 'DA TUYEN',
@@ -1353,7 +1115,7 @@ function buildReferralRoundOptions(
   if (!groupedRounds.has('LOAI')) {
     groupedRounds.set('LOAI', {
       value: 'STATUS:REJECTED',
-      label: 'Lo\u1ea1i',
+      label: 'Loại',
       kind: 'REJECTED',
       roundIds: [],
       normalizedName: 'LOAI',
@@ -1405,7 +1167,6 @@ function buildReferralPaginationPages(currentPage: number, totalPages: number): 
   return [1, 2, 'ellipsis', safeCurrent - 1, safeCurrent, safeCurrent + 1, 'ellipsis', safeTotal - 1, safeTotal];
 }
 
-
 function getErrorMessage(error: unknown): string {
   return toErrorMessage(error);
 }
@@ -1413,42 +1174,11 @@ function getErrorMessage(error: unknown): string {
 function normalizeAmisStageName(value?: string | null) {
   return (value ?? '')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd')
     .replace(/Đ/g, 'D')
     .toUpperCase()
     .trim();
-}
-
-function getApplicationStatus(application: ReferralManagementApplication) {
-  const currentStageName = application.currentAmisStage?.recruitmentRoundName?.trim();
-  const normalizedStageName = normalizeAmisStageName(currentStageName);
-
-  if (application.statusCategory === 'REJECTED' || application.currentAmisStage?.amisStatus === 0) {
-    return { label: 'Loại', className: 'is-rejected' };
-  }
-  if (application.statusCategory === 'PASSED' || normalizedStageName.includes('DA TUYEN')) {
-    return { label: 'Đã tuyển', className: 'is-passed' };
-  }
-  if (currentStageName) {
-    return { label: currentStageName, className: 'is-processing' };
-  }
-  if (application.hrReceptionStatus === 'REJECT' || application.processStatus === 'HR_REJECTED') {
-    return { label: 'Loại', className: 'is-rejected' };
-  }
-  if (
-    application.hrReceptionStatus === 'APPROVE' ||
-    application.hrReceptionStatus === 'TALENT_POOL' ||
-    application.processStatus === 'HR_APPROVED' ||
-    application.processStatus === 'TALENT_POOL'
-  ) {
-    return { label: 'Đã tuyển', className: 'is-passed' };
-  }
-  if (application.processStatus === 'WAITING_HR_REVIEW') return { label: 'Chờ', className: 'is-waiting' };
-  if (application.processStatus?.includes('FORM') || application.processStatus?.includes('SCREENING')) {
-    return { label: 'Trao đổi', className: 'is-processing' };
-  }
-  return { label: 'Chờ', className: 'is-waiting' };
 }
 
 async function copyCredentials(result: CreatedFreelancerResult) {
