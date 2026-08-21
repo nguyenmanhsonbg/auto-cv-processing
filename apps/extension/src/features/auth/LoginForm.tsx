@@ -52,14 +52,75 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
     };
   }, []);
 
-  const hasLoginError = errorField === 'login' || (Boolean(error) && !errorField);
-  const hasPasswordError = errorField === 'password' || (Boolean(error) && !errorField);
+  useEffect(() => {
+    if (forgotPasswordMode) return;
+
+    const focusField = () => {
+      if (internalMode) {
+        if (!internalMessage) {
+          internalFullNameRef.current?.focus();
+        }
+      } else {
+        loginInputRef.current?.focus();
+      }
+    };
+
+    focusField();
+    const frameId = requestAnimationFrame(focusField);
+    const timer = setTimeout(focusField, 60);
+    return () => {
+      cancelAnimationFrame(frameId);
+      clearTimeout(timer);
+    };
+  }, [forgotPasswordMode, internalMode, internalMessage]);
+
+  const [lockoutSeconds, setLockoutSeconds] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!error) {
+      setLockoutSeconds(null);
+      return;
+    }
+    const match = error.match(/(?:00:)?(\d{2}):(\d{2})/);
+    if (match && error.toLowerCase().includes('tạm khóa')) {
+      const minutes = parseInt(match[1], 10);
+      const seconds = parseInt(match[2], 10);
+      const totalSec = minutes * 60 + seconds;
+      if (totalSec > 0) {
+        setLockoutSeconds(totalSec);
+      }
+    }
+  }, [error]);
+
+  useEffect(() => {
+    if (lockoutSeconds === null || lockoutSeconds <= 0) return;
+
+    const timer = setInterval(() => {
+      setLockoutSeconds((prev) => {
+        if (prev === null || prev <= 1) {
+          setError(null);
+          return null;
+        }
+        const nextSec = prev - 1;
+        const mStr = Math.floor(nextSec / 60).toString().padStart(2, '0');
+        const sStr = (nextSec % 60).toString().padStart(2, '0');
+        setError(`Tài khoản của bạn đã bị tạm khóa. Vui lòng thử lại sau 00:${mStr}:${sStr}.`);
+        return nextSec;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [lockoutSeconds]);
+
+  const isLockedOut = lockoutSeconds !== null && lockoutSeconds > 0;
+  const hasLoginError = errorField === 'login' || isLockedOut;
+  const hasPasswordError = errorField === 'password' || isLockedOut;
 
   const hasInternalFullNameError = internalErrorField === 'fullName';
-  const hasInternalEmailError = internalErrorField === 'email' || (Boolean(error) && !internalErrorField);
+  const hasInternalEmailError = internalErrorField === 'email';
 
   const handleLoginChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (localError || errorField || error) {
+    if (!isLockedOut && (localError || errorField || error)) {
       setLocalError(null);
       setErrorField(null);
       setError(null);
@@ -68,7 +129,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handlePasswordChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (localError || errorField || error) {
+    if (!isLockedOut && (localError || errorField || error)) {
       setLocalError(null);
       setErrorField(null);
       setError(null);
@@ -77,37 +138,38 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handleLoginBlur = () => {
-    if (!login.trim()) {
-      setLocalError('Tên đăng nhập là bắt buộc');
-      setErrorField('login');
-    }
+    // Required validation is handled on submit to avoid premature errors when clicking action buttons/checkboxes
   };
 
   const handlePasswordBlur = () => {
-    if (!password) {
-      setLocalError('Mật khẩu là bắt buộc');
-      setErrorField('password');
-    }
+    // Required validation is handled on submit to avoid premature errors when clicking action buttons/checkboxes
   };
 
   const handleLoginClear = () => {
     setLogin('');
-    setLocalError(null);
-    setErrorField(null);
-    setError(null);
+    if (!isLockedOut) {
+      setLocalError(null);
+      setErrorField(null);
+      setError(null);
+    }
     loginInputRef.current?.focus();
   };
 
   const handlePasswordClear = () => {
     setPassword('');
-    setLocalError(null);
-    setErrorField(null);
-    setError(null);
+    if (!isLockedOut) {
+      setLocalError(null);
+      setErrorField(null);
+      setError(null);
+    }
     passwordInputRef.current?.focus();
   };
 
   const handleLoginSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();
+    if (isLockedOut) {
+      return;
+    }
     setError(null);
     const trimmedEmail = login.trim();
     if (!trimmedEmail) {
@@ -154,10 +216,11 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
 
       await onLoginSuccess(auth.user, auth.accessToken, Boolean(auth.mustChangePassword));
     } catch (err) {
-      const msg = err instanceof ApiClientError && (err.status === 401 || err.code === 'HTTP_401')
-        ? 'Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại.'
-        : toErrorMessage(err);
-      onError ? onError(msg) : setError(msg);
+      const msg = toErrorMessage(err);
+      setError(msg);
+      if (onError && !msg.toLowerCase().includes('tạm khóa')) {
+        onError(msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -181,15 +244,12 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handleInternalFullNameBlur = () => {
-    if (!internalFullName.trim()) {
-      setInternalLocalError('Họ tên nhân sự là bắt buộc');
-      setInternalErrorField('fullName');
-    }
+    // Required validation is handled on submit
   };
 
   const handleInternalEmailBlur = () => {
-    if (!internalEmail.trim()) {
-      setInternalLocalError('Gmail nội bộ nhân sự là bắt buộc');
+    if (internalEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(internalEmail.trim())) {
+      setInternalLocalError('Email không đúng định dạng vui lòng nhập lại.');
       setInternalErrorField('email');
     }
   };
@@ -221,13 +281,13 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
     }
     const normalizedEmail = internalEmail.trim().toLowerCase();
     if (!normalizedEmail) {
-      setInternalLocalError('Gmail nội bộ nhân sự là bắt buộc');
+      setInternalLocalError('Email nhân sự là bắt buộc');
       setInternalErrorField('email');
       internalEmailRef.current?.focus();
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(normalizedEmail)) {
-      setInternalLocalError('Gmail nội bộ không chính xác. Vui lòng kiểm tra và thử lại.');
+      setInternalLocalError('Email nhân sự không chính xác. Vui lòng kiểm tra và thử lại.');
       setInternalErrorField('email');
       internalEmailRef.current?.focus();
       return;
@@ -267,7 +327,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
             <div className="extension-internal-success-body">
               <InternalPasswordSentIcon />
               <div className="extension-internal-success-texts">
-                <strong>Mật khẩu đã được gửi đến gmail {internalEmail}</strong>
+                <strong>Mật khẩu đã được gửi đến email {internalEmail}</strong>
                 <p>Vui lòng kiểm tra để lấy mật khẩu đăng nhập và đổi lại mật khẩu mới sau khi đăng nhập lần đầu.</p>
               </div>
             </div>
@@ -303,13 +363,14 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
               onBlur={handleInternalFullNameBlur}
               onClear={handleInternalFullNameClear}
               placeholder="Nhập tên nhân sự"
+              autoFocus
               hasError={hasInternalFullNameError}
               errorMessage={internalErrorField === 'fullName' ? internalLocalError : null}
               maxLength={255}
             />
             <AuthInput
               ref={internalEmailRef}
-              label="Gmail nội bộ nhân sự"
+              label="Email nhân sự"
               required
               icon={<UserIcon />}
               value={internalEmail}
@@ -318,8 +379,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
               onClear={handleInternalEmailClear}
               type="email"
               autoComplete="email"
-              placeholder="Nhập gmail nội bộ nhân sự"
-              autoFocus
+              placeholder="Nhập email nhân sự"
               hasError={hasInternalEmailError}
               errorMessage={internalErrorField === 'email' ? internalLocalError : null}
               maxLength={255}
@@ -332,12 +392,17 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
               onClick={() => {
                 setInternalMode(false);
                 setError(null);
+                setLocalError(null);
+                setErrorField(null);
                 setInternalLocalError(null);
+                setInternalErrorField(null);
+                setInternalFullName('');
+                setInternalEmail('');
               }}
             >
               Hủy
             </button>
-            <button type="submit" className="confirm-button" disabled={internalSubmitting}>
+            <button type="submit" className="confirm-button" disabled={internalSubmitting || !internalFullName.trim() || !internalEmail.trim()}>
               {internalSubmitting ? 'Đang gửi...' : 'Xác nhận'}
             </button>
           </div>
@@ -365,6 +430,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
             onClear={handleLoginClear}
             autoComplete="username"
             placeholder="Nhập tên đăng nhập"
+            autoFocus
             hasError={hasLoginError}
             errorMessage={errorField === 'login' ? localError : null}
             maxLength={64}
@@ -383,7 +449,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
             autoComplete="current-password"
             placeholder="Nhập mật khẩu"
             hasError={hasPasswordError}
-            errorMessage={errorField === 'password' ? localError : null}
+            errorMessage={errorField === 'password' ? localError : (error?.toLowerCase().includes('tạm khóa') ? error : null)}
             maxLength={64}
             trailing={
               <button
@@ -416,6 +482,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
                 setForgotPasswordMode(true);
                 setError(null);
                 setLocalError(null);
+                setErrorField(null);
               }}
             >
               Quên mật khẩu
@@ -426,11 +493,16 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
               onClick={() => {
                 setInternalMode(true);
                 setInternalMessage(null);
+                setInternalFullName('');
+                setInternalEmail('');
                 setError(null);
                 setLocalError(null);
+                setErrorField(null);
+                setInternalLocalError(null);
+                setInternalErrorField(null);
               }}
             >
-              Nhân sự nội bộ đăng nhập lần đầu
+              Là nhân sự nội bộ
             </button>
           </div>
         </div>
@@ -438,7 +510,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
         <button
           type="submit"
           className="primary-button extension-submit-btn"
-          disabled={submitting || !login.trim() || !password}
+          disabled={submitting || isLockedOut || !login.trim() || !password}
         >
           {submitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
         </button>

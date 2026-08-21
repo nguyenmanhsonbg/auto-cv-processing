@@ -440,21 +440,7 @@ function SidePanel() {
     channelsRef.current = channels;
   }, [channels]);
 
-  useEffect(() => {
-    let isMounted = true;
-    if (channels.includes('TOPCV') || activeWorkspaceTab === 'posting') {
-      setIsCheckingTopCvAuth(true);
-      void checkTopCvAuth().then((auth) => {
-        if (isMounted) {
-          setTopCvAuth(auth);
-          setIsCheckingTopCvAuth(false);
-        }
-      });
-    }
-    return () => {
-      isMounted = false;
-    };
-  }, [channels, activeWorkspaceTab]);
+
 
 
 
@@ -801,7 +787,8 @@ function SidePanel() {
     setIsChangingInitialPassword(true);
     setInitialPasswordError(null);
     try {
-      await changePassword(token, input);
+      const response = await changePassword(token, input);
+      showExtensionToast('SUCCESS', 'Đổi mật khẩu', response?.message || 'Đổi mật khẩu thành công.');
       setUser((current) => current ? { ...current, mustChangePassword: false } : current);
       if (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') {
         setActiveWorkspaceTab('cv');
@@ -2098,10 +2085,13 @@ function SidePanel() {
     void fetchTopCvFromBackend();
 
     try {
+      setIsCheckingTopCvAuth(true);
       const auth = await checkTopCvAuth();
       setTopCvAuth(auth);
     } catch {
       // Ignore background check
+    } finally {
+      setIsCheckingTopCvAuth(false);
     }
 
   }
@@ -2522,7 +2512,7 @@ function SidePanel() {
             <div className="extension-header-logo">Tuyển dụng VCS</div>
           </div>
           <div className="extension-header-actions">
-            {user ? (
+            {user && state === 'READY' ? (
               <>
                 {(user.role === 'FREELANCER' || user.role === 'INTERNAL') && isFreelancerPasswordFormOpen ? (
                   <button

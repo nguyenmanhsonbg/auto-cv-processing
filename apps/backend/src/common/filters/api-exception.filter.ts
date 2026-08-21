@@ -286,11 +286,26 @@ export class ApiExceptionFilter implements ExceptionFilter {
       );
     }
 
+    if (status === HttpStatus.TOO_MANY_REQUESTS) {
+      const messageToUse = rawMessage && !this.isSensitiveText(rawMessage)
+        ? rawMessage
+        : 'Tài khoản của bạn đã bị tạm khóa. Vui lòng thử lại sau.';
+      return this.buildError(
+        status,
+        'RATE_LIMIT_EXCEEDED',
+        messageToUse,
+        details,
+      );
+    }
+
     if (status === HttpStatus.BAD_REQUEST) {
+      const messageToUse = rawMessage && !this.isSensitiveText(rawMessage)
+        ? rawMessage
+        : 'Request payload is invalid.';
       return this.buildError(
         status,
         'VALIDATION_ERROR',
-        'Request payload is invalid.',
+        messageToUse,
         details,
       );
     }

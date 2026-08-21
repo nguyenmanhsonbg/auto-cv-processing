@@ -11,7 +11,7 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
 
   async validate(login: string, password: string) {
     if (typeof login !== 'string' || typeof password !== 'string') {
-      throw new BadRequestException('Request payload is invalid.');
+      throw new BadRequestException('Login payload is invalid');
     }
 
     const user = await this.authService.validateUser(login, password);

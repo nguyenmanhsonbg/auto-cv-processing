@@ -19,8 +19,19 @@ import type {
   AmisRecruitmentRound,
 } from '@/types/types';
 import { buildFreelancerIdentifierCopyText } from '@/features/referrals/referral-management-utils';
+import { formatDate, toErrorMessage } from '@/lib/utils';
 import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
 import { DateRangeFilter, type DateRangeValue, FilterDropdown, MultiSelectFilter } from '@/components/filters';
+import { InputField } from '@/components/form/InputField';
+import {
+  UnlockIcon,
+  ActionLockIcon as LockIcon,
+  ReferralWarningIcon as WarningIcon,
+  CopyIcon,
+  SearchClearIcon,
+  DetailChevronIcon,
+  PlusIcon,
+} from '@/components/svg';
 import { ReferralFilters } from './components/ReferralFilters';
 
 type CvStatusFilter = string;
@@ -140,6 +151,7 @@ export function ReferralManagementPanel({
   const [formError, setFormError] = useState<string | null>(null);
   const [nameFieldError, setNameFieldError] = useState<string | null>(null);
   const [emailFieldError, setEmailFieldError] = useState<string | null>(null);
+  const [phoneFieldError, setPhoneFieldError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [createdFreelancer, setCreatedFreelancer] = useState<CreatedFreelancerResult | null>(null);
   const [copiedIdentifier, setCopiedIdentifier] = useState<string | null>(null);
@@ -418,29 +430,29 @@ export function ReferralManagementPanel({
     const normalizedSearch = search.trim().toLocaleLowerCase();
 
     return sourcePeople
-    .filter((person) => (
-      !isClientFilterMode
-      || accountStatusFilter === 'ALL'
-      || (accountStatusFilter === 'ACTIVE' ? person.isActive : !person.isActive)
-    ))
-    .filter((person) => (
-      !normalizedSearch
-      || [person.name, person.email, person.identifier]
-        .filter(Boolean)
-        .some((value) => value?.toLocaleLowerCase().includes(normalizedSearch))
-    ))
-    .map((person) => ({
-      person,
-      applications: person.applications.filter((application) => (
-        (isAllJdSelected || jdFilter.includes(application.jobPosting.jobPostingId))
-        && matchesCvStatus(application, cvStatusFilter, cvRoundOptions)
-        && matchesDateRange(application.appliedAt, dateRange)
-      )),
-    }))
-    .filter(({ person, applications }) => (
-      applications.length > 0
-      || (cvStatusFilter === 'ALL' && isAllJdSelected && !dateRange.from && !dateRange.to && person.applications.length === 0)
-    ));
+      .filter((person) => (
+        !isClientFilterMode
+        || accountStatusFilter === 'ALL'
+        || (accountStatusFilter === 'ACTIVE' ? person.isActive : !person.isActive)
+      ))
+      .filter((person) => (
+        !normalizedSearch
+        || [person.name, person.email, person.identifier]
+          .filter(Boolean)
+          .some((value) => value?.toLocaleLowerCase().includes(normalizedSearch))
+      ))
+      .map((person) => ({
+        person,
+        applications: person.applications.filter((application) => (
+          (isAllJdSelected || jdFilter.includes(application.jobPosting.jobPostingId))
+          && matchesCvStatus(application, cvStatusFilter, cvRoundOptions)
+          && matchesDateRange(application.appliedAt, dateRange)
+        )),
+      }))
+      .filter(({ person, applications }) => (
+        applications.length > 0
+        || (cvStatusFilter === 'ALL' && isAllJdSelected && !dateRange.from && !dateRange.to && person.applications.length === 0)
+      ));
   }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, dateRange, isAllJdSelected, isClientFilterMode, jdFilter, people, search]);
   const visiblePeople = isClientFilterMode
     ? filteredPeople.slice((page - 1) * REFERRAL_PAGE_SIZE, page * REFERRAL_PAGE_SIZE)
@@ -450,6 +462,20 @@ export function ReferralManagementPanel({
     ? Math.max(1, Math.ceil(filteredPeople.length / REFERRAL_PAGE_SIZE))
     : pagination.totalPages;
 
+  const nextFreelancerIdentifier = useMemo(() => {
+    let maxSeq = 0;
+    [...people, ...allPeopleForJd].forEach(({ identifier }) => {
+      if (identifier && /^FL-?\d+$/i.test(identifier)) {
+        const num = parseInt(identifier.replace(/^FL-?/i, ''), 10);
+        if (!Number.isNaN(num) && num > maxSeq) {
+          maxSeq = num;
+        }
+      }
+    });
+    const nextSeq = Math.max(maxSeq + 1, (pagination.total ?? 0) + 1);
+    return `FL${String(nextSeq).padStart(6, '0')}`;
+  }, [people, allPeopleForJd, pagination.total]);
+
   function openCreateModal() {
     setName('');
     setEmail('');
@@ -457,6 +483,7 @@ export function ReferralManagementPanel({
     setFormError(null);
     setNameFieldError(null);
     setEmailFieldError(null);
+    setPhoneFieldError(null);
     setCreatedFreelancer(null);
     setModal('CREATE');
   }
@@ -468,6 +495,7 @@ export function ReferralManagementPanel({
     setFormError(null);
     setNameFieldError(null);
     setEmailFieldError(null);
+    setPhoneFieldError(null);
     setCreatedFreelancer(null);
   }
 
@@ -476,6 +504,7 @@ export function ReferralManagementPanel({
     setFormError(null);
     setNameFieldError(null);
     setEmailFieldError(null);
+    setPhoneFieldError(null);
     const normalizedEmail = email.trim().toLowerCase();
 
     if (source === 'FREELANCER') {
@@ -492,7 +521,7 @@ export function ReferralManagementPanel({
         return;
       }
       if (!phone.trim()) {
-        setFormError('Vui lòng nhập số điện thoại Freelancer.');
+        setPhoneFieldError('Vui lòng nhập số điện thoại Freelancer.');
         return;
       }
     } else {
@@ -509,7 +538,7 @@ export function ReferralManagementPanel({
         return;
       }
       if (!phone.trim()) {
-        setFormError('Vui lòng nhập số điện thoại nhân sự nội bộ.');
+        setPhoneFieldError('Vui lòng nhập số điện thoại nhân sự nội bộ.');
         return;
       }
     }
@@ -635,52 +664,52 @@ export function ReferralManagementPanel({
           </button>
         ) : null}
       >
+        <ReferralFilterDropdown
+          label="Tình trạng CV"
+          value={cvStatusFilter}
+          disabled={source === 'FREELANCER' && roundsLoading}
+          options={cvRoundOptions.map((option) => ({ value: option.value, label: option.label }))}
+          onChange={(value) => {
+            setCvStatusFilter(value as CvStatusFilter);
+            setPage(1);
+          }}
+        />
+        <MultiSelectFilter
+          label="Lọc theo JD"
+          allLabel="Tất cả JD"
+          values={jdFilter}
+          options={availableJds.map(([value, jd]) => ({ value, label: jd.title, meta: jd.createdAt ? (formatDate(jd.createdAt) ?? undefined) : undefined }))}
+          isOpen={isJdFilterOpen}
+          onToggle={() => setIsJdFilterOpen((current) => !current)}
+          onClose={() => setIsJdFilterOpen(false)}
+          onChange={(values) => {
+            setJdFilter(values);
+            setPage(1);
+          }}
+        />
+        {source === 'FREELANCER' ? (
           <ReferralFilterDropdown
-            label="Tình trạng CV"
-            value={cvStatusFilter}
-            disabled={source === 'FREELANCER' && roundsLoading}
-            options={cvRoundOptions.map((option) => ({ value: option.value, label: option.label }))}
+            label="Tình trạng tài khoản"
+            value={accountStatusFilter}
+            options={[
+              { value: 'ALL', label: 'Tất cả' },
+              { value: 'ACTIVE', label: 'Hoạt động' },
+              { value: 'INACTIVE', label: 'Đã khóa' },
+            ]}
             onChange={(value) => {
-              setCvStatusFilter(value as CvStatusFilter);
+              setAccountStatusFilter(value as AccountStatusFilter);
               setPage(1);
             }}
           />
-          <MultiSelectFilter
-            label="Lọc theo JD"
-            allLabel="Tất cả JD"
-            values={jdFilter}
-            options={availableJds.map(([value, jd]) => ({ value, label: jd.title, meta: jd.createdAt ? formatDate(jd.createdAt) : undefined }))}
-            isOpen={isJdFilterOpen}
-            onToggle={() => setIsJdFilterOpen((current) => !current)}
-            onClose={() => setIsJdFilterOpen(false)}
-            onChange={(values) => {
-              setJdFilter(values);
-              setPage(1);
-            }}
-          />
-          {source === 'FREELANCER' ? (
-            <ReferralFilterDropdown
-              label="Tình trạng tài khoản"
-              value={accountStatusFilter}
-              options={[
-                { value: 'ALL', label: 'Tất cả' },
-                { value: 'ACTIVE', label: 'Hoạt động' },
-                { value: 'INACTIVE', label: 'Đã khóa' },
-              ]}
-              onChange={(value) => {
-                setAccountStatusFilter(value as AccountStatusFilter);
-                setPage(1);
-              }}
-            />
-          ) : null}
-          <DateRangeFilter
-            label="Thời gian"
-            value={dateRange}
-            onChange={(range) => {
-              setDateRange(range);
-              setPage(1);
-            }}
-          />
+        ) : null}
+        <DateRangeFilter
+          label="Thời gian"
+          value={dateRange}
+          onChange={(range) => {
+            setDateRange(range);
+            setPage(1);
+          }}
+        />
       </ReferralFilters>
 
       {loading ? <div className="referral-state">Đang tải danh sách...</div> : null}
@@ -841,61 +870,183 @@ export function ReferralManagementPanel({
             <form onSubmit={submitCreate} noValidate>
               {source === 'FREELANCER' ? (
                 <>
-                  <label>
-                    <span>HỌ VÀ TÊN <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={name} maxLength={255} onChange={(event) => { setName(event.target.value); setNameFieldError(null); }} placeholder="Nhập tên Freelancer mới..." />
-                      {name ? <button type="button" className="referral-input-clear-button" onClick={() => { setName(''); setNameFieldError(null); }} aria-label="Xóa họ và tên"><SearchClearIcon /></button> : null}
-                    </div>
-                    {nameFieldError ? <div className="referral-field-error">{nameFieldError}</div> : null}
-                  </label>
-                  <label>
-                    <span>EMAIL <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={email} maxLength={255} onChange={(event) => { setEmail(event.target.value); setEmailFieldError(null); }} type="email" placeholder="freelancer@gmail.com" />
-                      {email ? <button type="button" className="referral-input-clear-button" onClick={() => { setEmail(''); setEmailFieldError(null); }} aria-label="Xóa email"><SearchClearIcon /></button> : null}
-                    </div>
-                    {emailFieldError ? <div className="referral-field-error">{emailFieldError}</div> : null}
-                  </label>
-                  <label>
-                    <span>SỐ ĐIỆN THOẠI <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={phone} maxLength={50} onChange={(event) => setPhone(event.target.value)} placeholder="0988098797" />
-                      {phone ? <button type="button" className="referral-input-clear-button" onClick={() => setPhone('')} aria-label="Xóa số điện thoại"><SearchClearIcon /></button> : null}
-                    </div>
-                  </label>
+                  <InputField
+                    label="HỌ VÀ TÊN"
+                    required
+                    value={name}
+                    maxLength={255}
+                    onChange={(event) => {
+                      setName(event.target.value);
+                      setNameFieldError(null);
+                    }}
+                    placeholder="Nhập tên Freelancer mới..."
+                    error={nameFieldError ?? undefined}
+                    trailing={
+                      name ? (
+                        <button
+                          type="button"
+                          className="referral-input-clear-button"
+                          onClick={() => {
+                            setName('');
+                            setNameFieldError(null);
+                          }}
+                          aria-label="Xóa họ và tên"
+                        >
+                          <SearchClearIcon />
+                        </button>
+                      ) : null
+                    }
+                  />
+                  <InputField
+                    label="EMAIL"
+                    required
+                    type="email"
+                    stripWhitespace
+                    value={email}
+                    maxLength={255}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+                      setEmailFieldError(null);
+                    }}
+                    placeholder="freelancer@gmail.com"
+                    error={emailFieldError ?? undefined}
+                    trailing={
+                      email ? (
+                        <button
+                          type="button"
+                          className="referral-input-clear-button"
+                          onClick={() => {
+                            setEmail('');
+                            setEmailFieldError(null);
+                          }}
+                          aria-label="Xóa email"
+                        >
+                          <SearchClearIcon />
+                        </button>
+                      ) : null
+                    }
+                  />
+                  <InputField
+                    label="SỐ ĐIỆN THOẠI"
+                    required
+                    value={phone}
+                    maxLength={50}
+                    onChange={(event) => {
+                      const digitsOnly = event.target.value.replace(/\D/g, '');
+                      setPhone(digitsOnly);
+                      setPhoneFieldError(null);
+                    }}
+                    placeholder="0988098797"
+                    error={phoneFieldError ?? undefined}
+                    trailing={
+                      phone ? (
+                        <button
+                          type="button"
+                          className="referral-input-clear-button"
+                          onClick={() => {
+                            setPhone('');
+                            setPhoneFieldError(null);
+                          }}
+                          aria-label="Xóa số điện thoại"
+                        >
+                          <SearchClearIcon />
+                        </button>
+                      ) : null
+                    }
+                  />
                   <div className="referral-identifier-preview">
                     <div className="referral-identifier-preview-text">MÃ ĐỊNH DANH SẼ ĐƯỢC CẤP</div>
-                    <div className="referral-identifier-preview-text">FL-2026-004</div>
+                    <div className="referral-identifier-preview-text">{nextFreelancerIdentifier}</div>
                     <div className="referral-identifier-preview-text">Gửi mã định danh này cho Freelancer để họ dùng khi nộp CV và đăng nhập theo dõi.</div>
                     <div className="referral-identifier-preview-text">Mật khẩu sẽ được gửi đến email được nhập.</div>
                   </div>
                 </>
               ) : (
                 <>
-                  <label>
-                    <span>HỌ VÀ TÊN <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={name} maxLength={255} onChange={(event) => { setName(event.target.value); setNameFieldError(null); }} placeholder="Nhập họ và tên nhân sự..." />
-                      {name ? <button type="button" className="referral-input-clear-button" onClick={() => { setName(''); setNameFieldError(null); }} aria-label="Xóa họ và tên nội bộ"><SearchClearIcon /></button> : null}
-                    </div>
-                    {nameFieldError ? <div className="referral-field-error">{nameFieldError}</div> : null}
-                  </label>
-                  <label>
-                    <span>EMAIL NỘI BỘ <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={email} maxLength={255} onChange={(event) => { setEmail(event.target.value); setEmailFieldError(null); }} type="email" placeholder="ten.nguoi@viettel.com.vn" />
-                      {email ? <button type="button" className="referral-input-clear-button" onClick={() => { setEmail(''); setEmailFieldError(null); }} aria-label="Xóa email Nội bộ"><SearchClearIcon /></button> : null}
-                    </div>
-                    {emailFieldError ? <div className="referral-field-error">{emailFieldError}</div> : null}
-                  </label>
-                  <label>
-                    <span>SỐ ĐIỆN THOẠI <em>*</em></span>
-                    <div className="referral-input-with-clear">
-                      <input value={phone} maxLength={50} onChange={(event) => setPhone(event.target.value)} placeholder="0988123456" />
-                      {phone ? <button type="button" className="referral-input-clear-button" onClick={() => setPhone('')} aria-label="Xóa số điện thoại nội bộ"><SearchClearIcon /></button> : null}
-                    </div>
-                  </label>
+                  <InputField
+                    label="HỌ VÀ TÊN"
+                    required
+                    value={name}
+                    maxLength={255}
+                    onChange={(event) => {
+                      setName(event.target.value);
+                      setNameFieldError(null);
+                    }}
+                    placeholder="Nhập họ và tên nhân sự..."
+                    error={nameFieldError ?? undefined}
+                    trailing={
+                      name ? (
+                        <button
+                          type="button"
+                          className="referral-input-clear-button"
+                          onClick={() => {
+                            setName('');
+                            setNameFieldError(null);
+                          }}
+                          aria-label="Xóa họ và tên nội bộ"
+                        >
+                          <SearchClearIcon />
+                        </button>
+                      ) : null
+                    }
+                  />
+                  <InputField
+                    label="EMAIL NỘI BỘ"
+                    required
+                    type="email"
+                    stripWhitespace
+                    value={email}
+                    maxLength={255}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+                      setEmailFieldError(null);
+                    }}
+                    placeholder="ten.nguoi@viettel.com.vn"
+                    error={emailFieldError ?? undefined}
+                    trailing={
+                      email ? (
+                        <button
+                          type="button"
+                          className="referral-input-clear-button"
+                          onClick={() => {
+                            setEmail('');
+                            setEmailFieldError(null);
+                          }}
+                          aria-label="Xóa email Nội bộ"
+                        >
+                          <SearchClearIcon />
+                        </button>
+                      ) : null
+                    }
+                  />
+                  <InputField
+                    label="SỐ ĐIỆN THOẠI"
+                    required
+                    value={phone}
+                    maxLength={50}
+                    onChange={(event) => {
+                      const digitsOnly = event.target.value.replace(/\D/g, '');
+                      setPhone(digitsOnly);
+                      setPhoneFieldError(null);
+                    }}
+                    placeholder="0988123456"
+                    error={phoneFieldError ?? undefined}
+                    trailing={
+                      phone ? (
+                        <button
+                          type="button"
+                          className="referral-input-clear-button"
+                          onClick={() => {
+                            setPhone('');
+                            setPhoneFieldError(null);
+                          }}
+                          aria-label="Xóa số điện thoại nội bộ"
+                        >
+                          <SearchClearIcon />
+                        </button>
+                      ) : null
+                    }
+                  />
                 </>
               )}
               {formError ? <p className="referral-form-error">{formError}</p> : null}
@@ -1254,6 +1405,21 @@ function buildReferralPaginationPages(currentPage: number, totalPages: number): 
   return [1, 2, 'ellipsis', safeCurrent - 1, safeCurrent, safeCurrent + 1, 'ellipsis', safeTotal - 1, safeTotal];
 }
 
+
+function getErrorMessage(error: unknown): string {
+  return toErrorMessage(error);
+}
+
+function normalizeAmisStageName(value?: string | null) {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toUpperCase()
+    .trim();
+}
+
 function getApplicationStatus(application: ReferralManagementApplication) {
   const currentStageName = application.currentAmisStage?.recruitmentRoundName?.trim();
   const normalizedStageName = normalizeAmisStageName(currentStageName);
@@ -1270,68 +1436,23 @@ function getApplicationStatus(application: ReferralManagementApplication) {
   if (application.hrReceptionStatus === 'REJECT' || application.processStatus === 'HR_REJECTED') {
     return { label: 'Loại', className: 'is-rejected' };
   }
-  if (application.hrReceptionStatus === 'APPROVE' || application.hrReceptionStatus === 'TALENT_POOL' || application.processStatus === 'HR_APPROVED' || application.processStatus === 'TALENT_POOL') {
+  if (
+    application.hrReceptionStatus === 'APPROVE' ||
+    application.hrReceptionStatus === 'TALENT_POOL' ||
+    application.processStatus === 'HR_APPROVED' ||
+    application.processStatus === 'TALENT_POOL'
+  ) {
     return { label: 'Đã tuyển', className: 'is-passed' };
   }
   if (application.processStatus === 'WAITING_HR_REVIEW') return { label: 'Chờ', className: 'is-waiting' };
-  if (application.processStatus?.includes('FORM') || application.processStatus?.includes('SCREENING')) return { label: 'Trao đổi', className: 'is-discussion' };
-  return { label: 'Chưa cập nhật vòng', className: 'is-processing' };
-}
-
-function normalizeAmisStageName(value?: string | null) {
-  return (value ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/Đ/g, 'D')
-    .replace(/đ/g, 'd')
-    .toUpperCase()
-    .trim();
-}
-
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof ApiClientError) return error.message;
-  if (error instanceof Error) return error.message;
-  return 'Có lỗi xảy ra, vui lòng thử lại.';
+  if (application.processStatus?.includes('FORM') || application.processStatus?.includes('SCREENING')) {
+    return { label: 'Trao đổi', className: 'is-processing' };
+  }
+  return { label: 'Chờ', className: 'is-waiting' };
 }
 
 async function copyCredentials(result: CreatedFreelancerResult) {
   await navigator.clipboard?.writeText(`Mã định danh: ${result.identifier}\nMật khẩu: ${result.initialPassword}`);
 }
 
-function UnlockIcon() {
-  return <svg className="referral-action-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="16" r="1" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M8 11V6C8 3.79086 9.79086 2 12 2C14.20914 2 16 3.79086 16 6" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
-}
 
-function LockIcon() {
-  return <svg className="referral-action-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="16" r="1" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M8 11V7C8 4.79086 9.79086 3 12 3C14.20914 3 16 4.79086 16 7V11" stroke="#2F2B3D" strokeOpacity="0.9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
-}
-
-function WarningIcon() {
-  return <svg className="referral-warning-icon" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="m16 4 13 23H3L16 4Z" fill="currentColor" /><path d="M16 11v8M16 23h.01" stroke="white" strokeWidth="2.5" strokeLinecap="round" /></svg>;
-}
-
-function CopyIcon() {
-  return <svg className="referral-copy-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><rect x="5.2" y="4.4" width="7.2" height="8.2" rx="1.1" stroke="currentColor" strokeWidth="1.2" /><path d="M3.6 10.2H3a1 1 0 0 1-1-1V3.6a1 1 0 0 1 1-1h5.6a1 1 0 0 1 1 1v.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>;
-}
-
-function SearchClearIcon() {
-  return <svg className="referral-search-clear-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="m4.5 4.5 7 7m0-7-7 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>;
-}
-
-function DetailChevronIcon({ isOpen }: { isOpen: boolean }) {
-  return <svg className={`referral-detail-chevron${isOpen ? ' is-open' : ''}`} width="6" height="11" viewBox="0 0 6 11" fill="none" aria-hidden="true"><path d="M0.859375 10.8594L5.85938 5.85937C5.90104 5.80729 5.9349 5.7526 5.96094 5.69531C5.98698 5.63802 6 5.57292 6 5.5C6 5.42708 5.98698 5.36198 5.96094 5.30469C5.9349 5.2474 5.90104 5.19271 5.85938 5.14062L0.859375 0.140625C0.807292 0.0989583 0.752604 0.0651042 0.695312 0.0390625C0.638021 0.0130208 0.572917 0 0.5 0C0.364583 0 0.247396 0.0494792 0.148438 0.148437C0.0494792 0.247396 0 0.364583 0 0.5C0 0.572917 0.0130208 0.638021 0.0390625 0.695312C0.0651042 0.752604 0.0989583 0.807292 0.140625 0.859375L4.79688 5.5L0.140625 10.1406C0.0989583 10.1927 0.0651042 10.2474 0.0390625 10.3047C0.0130208 10.362 0 10.4271 0 10.5C0 10.6354 0.0494792 10.7526 0.148438 10.8516C0.247396 10.9505 0.364583 11 0.5 11C0.572917 11 0.638021 10.987 0.695313 10.9609C0.752604 10.9349 0.807292 10.901 0.859375 10.8594Z" fill="white" /></svg>;
-}
-
-function PlusIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-      <path d="M6 2.5V9.5M2.5 6H9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}

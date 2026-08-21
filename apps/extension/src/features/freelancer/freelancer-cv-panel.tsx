@@ -129,8 +129,8 @@ export function FreelancerCvPanel({
     setIsChangingPassword(true);
     setChangePasswordError(null);
     try {
-      await changePassword(accessToken, input);
-      onNotify?.('SUCCESS', 'Thành công', 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.');
+      const response = await changePassword(accessToken, input);
+      onNotify?.('SUCCESS', 'Đổi mật khẩu', response?.message || 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.');
       onCloseChangePassword?.();
       onPasswordChanged?.();
     } catch (err) {

@@ -23,7 +23,8 @@ export interface TopCvAuthData {
   taJr?: string;
 }
 
-export async function checkTopCvAuth(): Promise<TopCvAuthState> {
+export async function checkTopCvAuth(options?: { allowProbeTab?: boolean }): Promise<TopCvAuthState> {
+  const allowProbeTab = options?.allowProbeTab ?? false;
   // 1. Kiểm tra session đã lưu trong extension storage
   if (chrome.storage?.local) {
     try {
@@ -119,27 +120,28 @@ export async function checkTopCvAuth(): Promise<TopCvAuthState> {
       console.warn('Failed to extract from open TopCV tab:', err);
     }
 
-    // 3. Tự probe tab mới để lấy token (mở /app/dashboard)
-    try {
-      const authFromBgProbe = await probeTopCvDashboard();
-      if (authFromBgProbe.ok && authFromBgProbe.accessToken) {
-        await saveTopCvAuthToStorage({
-          accessToken: authFromBgProbe.accessToken,
-          refreshToken: authFromBgProbe.refreshToken,
-          userEmail: authFromBgProbe.userEmail,
-          taFp: authFromBgProbe.taFp,
-          taId: authFromBgProbe.taId,
-          taJr: authFromBgProbe.taJr,
-        });
-        return {
-          ok: true,
-          reason: 'READY',
-          userEmail: authFromBgProbe.userEmail,
-        };
+    // 3. Tự probe tab mới để lấy token (mở /app/dashboard) nếu người dùng chủ động yêu cầu
+    if (allowProbeTab) {
+      try {
+        const authFromBgProbe = await probeTopCvDashboard();
+        if (authFromBgProbe.ok && authFromBgProbe.accessToken) {
+          await saveTopCvAuthToStorage({
+            accessToken: authFromBgProbe.accessToken,
+            refreshToken: authFromBgProbe.refreshToken,
+            userEmail: authFromBgProbe.userEmail,
+            taFp: authFromBgProbe.taFp,
+            taId: authFromBgProbe.taId,
+            taJr: authFromBgProbe.taJr,
+          });
+          return {
+            ok: true,
+            reason: 'READY',
+            userEmail: authFromBgProbe.userEmail,
+          };
+        }
+      } catch (err) {
+        console.warn('Failed to probe TopCV dashboard:', err);
       }
-      // Nếu probe fail (bị redirect về login) → trả về TOKEN_MISSING để hiện form
-    } catch (err) {
-      console.warn('Failed to probe TopCV dashboard:', err);
     }
   }
 
@@ -259,6 +261,16 @@ async function extractAuthFromTab(tabId: number): Promise<{
   return { ok: false };
 }
 
+let probePromise: Promise<{
+  ok: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  userEmail?: string;
+  taFp?: string;
+  taId?: string;
+  taJr?: string;
+}> | null = null;
+
 async function probeTopCvDashboard(): Promise<{
   ok: boolean;
   accessToken?: string;
@@ -268,39 +280,64 @@ async function probeTopCvDashboard(): Promise<{
   taId?: string;
   taJr?: string;
 }> {
-  if (!chrome.tabs || !chrome.scripting) return { ok: false };
+  if (probePromise) {
+    return probePromise;
+  }
 
-  let tabId: number | undefined;
-  try {
-    const tab = await chrome.tabs.create({
-      url: 'https://tuyendung.topcv.vn/app/dashboard',
-      active: false,
-    });
-    tabId = tab.id;
-    if (!tabId) return { ok: false };
+  probePromise = (async () => {
+    if (!chrome.tabs || !chrome.scripting) return { ok: false };
 
-    // Đợi tab ngầm tải xong (tối đa 3.5 giây)
-    await waitForTabComplete(tabId, 3500);
+    try {
+      const allTabs = await chrome.tabs.query({});
+      const existingTab = allTabs.find(
+        (t) => t.id !== undefined && t.url && (t.url.includes('tuyendung.topcv.vn') || t.url.includes('topcv.vn'))
+      );
 
-    // Kiểm tra xem tab có bị redirect về login không
-    const finalTab = await chrome.tabs.get(tabId);
-    if (finalTab.url?.includes('/app/login')) {
-      // Bị redirect về login → user chưa đăng nhập
-      return { ok: false };
+      if (existingTab?.id) {
+        return await extractAuthFromTab(existingTab.id);
+      }
+    } catch {
+      // Fall through to open tab if query fails
     }
 
-    return await extractAuthFromTab(tabId);
-  } catch (err) {
-    console.warn('probeTopCvDashboard error:', err);
-    return { ok: false };
-  } finally {
-    if (tabId && chrome.tabs) {
-      try {
-        await chrome.tabs.remove(tabId);
-      } catch {
-        // Ignore cleanup
+    let tabId: number | undefined;
+    try {
+      const tab = await chrome.tabs.create({
+        url: 'https://tuyendung.topcv.vn/app/dashboard',
+        active: false,
+      });
+      tabId = tab.id;
+      if (!tabId) return { ok: false };
+
+      // Đợi tab ngầm tải xong (tối đa 3.5 giây)
+      await waitForTabComplete(tabId, 3500);
+
+      // Kiểm tra xem tab có bị redirect về login không
+      const finalTab = await chrome.tabs.get(tabId);
+      if (finalTab.url?.includes('/app/login')) {
+        // Bị redirect về login → user chưa đăng nhập
+        return { ok: false };
+      }
+
+      return await extractAuthFromTab(tabId);
+    } catch (err) {
+      console.warn('probeTopCvDashboard error:', err);
+      return { ok: false };
+    } finally {
+      if (tabId && chrome.tabs) {
+        try {
+          await chrome.tabs.remove(tabId);
+        } catch {
+          // Ignore cleanup
+        }
       }
     }
+  })();
+
+  try {
+    return await probePromise;
+  } finally {
+    probePromise = null;
   }
 }
 

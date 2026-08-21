@@ -20,9 +20,10 @@ export class RateLimiterService {
   private readonly configs = new Map<string, Required<RateLimiterConfig>>();
 
   private getConfig(key: string): Required<RateLimiterConfig> {
-    return this.configs.get(key) ?? {
+    const prefix = key.includes(':') ? key.split(':')[0] : key;
+    return this.configs.get(key) ?? this.configs.get(prefix) ?? {
       ttls: [60_000, 120_000, 180_000],
-      maxAttempts: 3,
+      maxAttempts: 5,
       lockoutMultiplier: 2,
     };
   }
@@ -38,6 +39,12 @@ export class RateLimiterService {
     });
   }
 
+  private getLockoutDuration(count: number, maxAttempts: number): number {
+    if (count < maxAttempts) return 0;
+    const level = Math.min(count - maxAttempts + 1, 2); // 5th attempt -> 1 min (60s), 6th attempt and beyond -> max 2 min (120s)
+    return level * 60_000;
+  }
+
   /**
    * Check if a request is allowed. Returns { allowed: true } if OK, or { allowed: false, waitMs: number } if blocked.
    * @param key Unique identifier (e.g., IP address, user email, or combined key)
@@ -46,22 +53,21 @@ export class RateLimiterService {
     const cfg = this.getConfig(key);
     const record = this.store.get(key);
 
-    if (!record) {
-      return { allowed: true, waitMs: 0, attemptCount: 0 };
+    if (!record || record.count < cfg.maxAttempts) {
+      return { allowed: true, waitMs: 0, attemptCount: record?.count ?? 0 };
     }
 
-    const ttlIndex = Math.min(record.count, cfg.ttls.length - 1);
-    const ttl = cfg.ttls[ttlIndex];
+    const lockoutMs = this.getLockoutDuration(record.count, cfg.maxAttempts);
     const elapsed = Date.now() - record.lastAttempt;
 
-    if (elapsed >= ttl) {
+    if (elapsed >= lockoutMs) {
       this.store.delete(key);
       return { allowed: true, waitMs: 0, attemptCount: 0 };
     }
 
     return {
       allowed: false,
-      waitMs: ttl - elapsed,
+      waitMs: lockoutMs - elapsed,
       attemptCount: record.count,
     };
   }
@@ -69,7 +75,7 @@ export class RateLimiterService {
   /**
    * Record a failed attempt.
    */
-  recordFailed(key: string): { attemptCount: number; isLocked: boolean } {
+  recordFailed(key: string): { attemptCount: number; isLocked: boolean; waitMs: number } {
     const cfg = this.getConfig(key);
     const record = this.store.get(key) ?? { count: 0, lastAttempt: 0 };
 
@@ -77,9 +83,13 @@ export class RateLimiterService {
     record.lastAttempt = Date.now();
     this.store.set(key, record);
 
+    const isLocked = record.count >= cfg.maxAttempts;
+    const waitMs = isLocked ? this.getLockoutDuration(record.count, cfg.maxAttempts) : 0;
+
     return {
       attemptCount: record.count,
-      isLocked: record.count >= cfg.maxAttempts,
+      isLocked,
+      waitMs,
     };
   }
 
@@ -97,18 +107,17 @@ export class RateLimiterService {
     const cfg = this.getConfig(key);
     const record = this.store.get(key);
 
-    if (!record) {
-      return { attemptCount: 0, isLocked: false, waitMs: 0 };
+    if (!record || record.count < cfg.maxAttempts) {
+      return { attemptCount: record?.count ?? 0, isLocked: false, waitMs: 0 };
     }
 
-    const ttlIndex = Math.min(record.count, cfg.ttls.length - 1);
-    const ttl = cfg.ttls[ttlIndex];
+    const lockoutMs = this.getLockoutDuration(record.count, cfg.maxAttempts);
     const elapsed = Date.now() - record.lastAttempt;
-    const waitMs = elapsed >= ttl ? 0 : ttl - elapsed;
+    const waitMs = elapsed >= lockoutMs ? 0 : lockoutMs - elapsed;
 
     return {
       attemptCount: record.count,
-      isLocked: record.count >= cfg.maxAttempts,
+      isLocked: waitMs > 0,
       waitMs,
     };
   }

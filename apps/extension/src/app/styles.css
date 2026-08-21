@@ -786,7 +786,11 @@ a {
 }
 
 .extension-password-condition.is-valid {
-  color: #262626;
+  color: #15803d;
+}
+
+.extension-password-condition.is-invalid {
+  color: #dc2626;
 }
 
 .extension-condition-tick {
@@ -10598,8 +10602,8 @@ dd {
   align-items: stretch;
   justify-content: stretch;
   width: 100%;
-  height: 32px;
-  min-height: 32px;
+  height: 40px;
+  min-height: 40px;
   padding: 0;
   border-bottom: 1px solid #E5E7EB;
   background: #ffffff;
@@ -10613,12 +10617,12 @@ dd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
+  height: 40px;
   padding: 8.5px 0 9px;
   gap: 8px;
   color: #737373;
   font-family: Inter, sans-serif;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   font-style: normal;
   line-height: 16px;
