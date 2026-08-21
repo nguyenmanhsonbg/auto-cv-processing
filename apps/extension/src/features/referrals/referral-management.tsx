@@ -164,7 +164,7 @@ export function ReferralManagementPanel({
       const result = await getReferralManagementSources(accessToken, source, {
         page,
         limit: REFERRAL_PAGE_SIZE,
-        search,
+        search: search.trim() || undefined,
         status: accountStatusFilter === 'ALL' ? undefined : accountStatusFilter,
       });
       setPeople(result.data);
@@ -634,7 +634,7 @@ export function ReferralManagementPanel({
         source={source}
         search={search}
         onSearchChange={(value) => {
-          setSearch(value.trim().slice(0, 64));
+          setSearch(value.slice(0, 64));
           setPage(1);
         }}
         placeholder={source === 'FREELANCER' ? 'Tìm kiếm theo tên, mã Freelancer' : 'Tìm kiếm theo tên, email, số điện thoại'}
