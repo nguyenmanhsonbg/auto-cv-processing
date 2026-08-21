@@ -29,6 +29,7 @@ export function FreelancerCvFilters({ value, statusOptions, jdOptions, onChange 
         onChange={(search) => onChange({ ...value, search })}
         placeholder="Tìm kiếm CV theo tên ứng viên, vị trí ứng tuyển"
         ariaLabel="Tìm kiếm CV theo tên ứng viên, vị trí ứng tuyển"
+        maxLength={255}
       />
       <SelectFilter label="Tình trạng CV" value={value.status} options={statusOptions} onChange={(status) => onChange({ ...value, status: status as FreelancerCvFilterValues['status'] })} />
       <MultiSelectFilter

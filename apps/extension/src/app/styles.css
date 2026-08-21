@@ -1026,7 +1026,7 @@ h2 {
 
 .primary-button {
   color: #ffffff;
-  background: #0f766e;
+  background: #16A34A;
 }
 
 .sync-button {
@@ -5311,10 +5311,15 @@ dd {
   margin: 0 auto;
   container-type: inline-size;
   overflow: visible;
-  border: 1px solid #d8dee9;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+  border: 0;
+  background: #fff;
+}
+
+.extension-window {
+  grid-template-rows: auto auto 1fr;
+  align-content: start;
+  width: min(100%, 800px);
+  min-height: 100vh;
 }
 
 .extension-header {
@@ -7706,10 +7711,10 @@ dd {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid #a9dcc5;
-  border-radius: 9px;
-  padding: 12px 14px;
-  background: #f1faf6;
+  border: 1px solid #16a34a;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f0fdf4;
 }
 
 .freelancer-cv-identity h2,
@@ -7719,24 +7724,25 @@ dd {
 }
 
 .freelancer-cv-identity h2 {
-  font-size: 25px;
-  font-weight: 400;
-  margin-bottom: 6px;
+  font-size: 24px;
+  font-weight: 700;
+  color: #000000;
+  margin: 2px 0 4px;
 }
 
 .freelancer-cv-identity em {
-  color: #738093;
-  font-size: 13px;
+  color: #525252;
+  font-size: 12px;
   font-style: italic;
-  font-weight: 300;
+  font-weight: 400;
 }
 
 .freelancer-cv-eyebrow {
   display: block;
-  color: #718096;
+  color: #262626;
   font-style: normal;
-  font-weight: 400;
-  font-size: 14px;
+  font-weight: 500;
+  font-size: 12px;
   text-transform: none;
 }
 
@@ -8166,12 +8172,14 @@ dd {
   min-width: 0;
 }
 
-.shared-filter-multi-select-label {
-  color: #536074;
-  font-size: 14px;
+.shared-filter-field>span,
+.shared-filter-multi-select-label,
+.shared-filter-date-range>span {
+  color: #262626;
+  font-size: 12px;
   font-style: normal;
-  font-weight: 400;
-  line-height: 1.2;
+  font-weight: 500;
+  line-height: 16px;
 }
 
 .freelancer-cv-toolbar {
@@ -8347,12 +8355,14 @@ dd {
 }
 
 .freelancer-cv-empty {
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  padding: 10px 14px;
-  color: #677489;
+  border: 1px solid #bdc9c2;
+  border-radius: 16px;
+  padding: 16px;
+  color: #64696e;
+  background: #ffffff;
   font-size: 16px;
   font-weight: 700;
+  text-align: left;
 }
 
 .freelancer-cv-empty.freelancer-cv-error {
@@ -8847,11 +8857,17 @@ dd {
 
 .referral-jd-select-trigger svg,
 .referral-filter-trigger svg {
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
-  color: #000000;
-  opacity: 0.5;
+  color: #374151;
+  opacity: 1;
+  transition: transform 0.15s ease;
+}
+
+.referral-jd-select-trigger svg.is-open,
+.referral-filter-dropdown.is-open .referral-filter-trigger svg {
+  transform: rotate(180deg);
 }
 
 .referral-custom-filter {
@@ -10668,16 +10684,6 @@ dd {
   padding: 0;
   background: #ffffff;
   zoom: var(--extension-ui-zoom, 1);
-}
-
-.extension-window {
-  grid-template-rows: auto auto 1fr;
-  align-content: start;
-  width: min(100%, 600px);
-  min-height: 100vh;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
 }
 
 .extension-header {

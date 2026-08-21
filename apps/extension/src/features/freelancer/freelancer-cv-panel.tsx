@@ -197,7 +197,7 @@ export function FreelancerCvPanel({
         </div>
       ) : null}
       {!loading && !error && visibleApplications.length === 0 ? (
-        <div className="freelancer-cv-empty"><span>Chưa có CV phù hợp</span></div>
+        <div className="freelancer-cv-empty"><span>{applications.length === 0 ? 'Chưa tải lên CV nào' : 'Chưa có CV phù hợp'}</span></div>
       ) : null}
 
       <div className="freelancer-cv-list">
@@ -229,7 +229,7 @@ export function FreelancerCvPanel({
                   onFocus={() => setEditingNoteReferralId(application.referralId)}
                   onChange={(event) => setDraftNotes((current) => ({ ...current, [application.referralId]: event.target.value }))}
                   placeholder="Nhập ghi chú của bạn tại đây"
-                  maxLength={2000}
+                  maxLength={255}
                 />
               </div>
               {isEditingNote ? (
