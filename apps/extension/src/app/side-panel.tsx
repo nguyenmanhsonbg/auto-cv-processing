@@ -983,6 +983,44 @@ function SidePanel() {
     }
   }
 
+  async function ensureJobDescriptionVisible(
+    jobDescriptionId: string,
+    accessToken = tokenRef.current,
+    selectionSeq?: number,
+  ) {
+    if (!accessToken || !jobDescriptionId) return;
+    if (jobDescriptions.some((jobDescription) => jobDescription.id === jobDescriptionId)) return;
+
+    const lookupLimit = 100;
+    const visiblePageSize = jobDescriptionPagination?.limit ?? 5;
+    let lookupPage = 1;
+    let visibleItemOffset = 0;
+    let totalLookupPages = 1;
+
+    while (lookupPage <= totalLookupPages) {
+      const response = await listJobDescriptions(accessToken, {
+        page: lookupPage,
+        limit: lookupLimit,
+      });
+
+      if (selectionSeq !== undefined && selectionSeq !== amisJobSelectionSeqRef.current) return;
+
+      const matchedIndex = response.data.findIndex((jobDescription) => jobDescription.id === jobDescriptionId);
+      if (matchedIndex >= 0) {
+        const targetPage = Math.floor((visibleItemOffset + matchedIndex) / visiblePageSize) + 1;
+        if (jobDescriptionPagination?.page !== targetPage) {
+          await loadJobDescriptions(accessToken, targetPage);
+        }
+        return;
+      }
+
+      if (response.data.length === 0) return;
+      visibleItemOffset += response.data.length;
+      totalLookupPages = response.pagination?.totalPages ?? lookupPage;
+      lookupPage += 1;
+    }
+  }
+
   async function syncPortalJobDescriptions() {
     if (!token || vcsPortalSyncState === 'SYNCING') return;
 
@@ -1814,6 +1852,7 @@ function SidePanel() {
         setJobDescriptionStatus('READY');
         setSelectedJobDescription(sourceJobDescription);
         setLockedAmisJobDescriptionId(sourceJobDescription.id);
+        await ensureJobDescriptionVisible(sourceJobDescription.id, accessToken, selectionSeq);
         activeSnapshotRecruitmentIdRef.current = recruitmentId;
         const nextSnapshot = capture?.snapshot
           ?? buildAmisJobSnapshotFromJobDescription(sourceJobDescription);
