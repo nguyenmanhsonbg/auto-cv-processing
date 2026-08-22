@@ -27,6 +27,13 @@ export function isValueWithinDateRange(value: string | null | undefined, range: 
   return localDate >= range.from && localDate <= range.to;
 }
 
+export function filterReferralApplicationsByDateRange<T extends { appliedAt?: string | null }>(
+  applications: T[],
+  range: ReferralDateRangeValue,
+) {
+  return applications.filter((application) => isValueWithinDateRange(application.appliedAt, range));
+}
+
 function parseDateOnly(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
 

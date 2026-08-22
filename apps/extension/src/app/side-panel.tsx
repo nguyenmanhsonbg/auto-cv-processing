@@ -737,6 +737,7 @@ function SidePanel() {
       }
 
       if (isFacebookPublishProgressUpdateMessage(message)) {
+        facebook.setFacebookPublishResultsVisible(true);
         facebook.setFacebookProgress(message.payload);
         facebook.setFacebookRunning(
           message.payload.status === 'LOGIN_REQUIRED'
@@ -2646,7 +2647,13 @@ function SidePanel() {
           />
         ) : null}
         {tab === 'internal' && token ? (
-          <ReferralManagementPanel source="INTERNAL" accessToken={token} refreshVersion={referralRefreshVersion} onNotify={showExtensionToast} />
+          <ReferralManagementPanel
+            source="INTERNAL"
+            accessToken={token}
+            refreshVersion={referralRefreshVersion}
+            onNotify={showExtensionToast}
+            loadRecruitmentRounds={loadReferralRecruitmentRounds}
+          />
         ) : null}
       </section>
     );
@@ -2704,6 +2711,11 @@ function SidePanel() {
   }
 
   function renderExtensionWorkspace() {
+    const showAuthenticatedWorkspace = Boolean(user && token)
+      && state !== 'AUTH_LOADING'
+      && state !== 'AUTH_REQUIRED'
+      && state !== 'PASSWORD_CHANGE_REQUIRED';
+
     return (
       <>
 {state === 'AUTH_LOADING' ? <p className="muted-text extension-loading">Checking session...</p> : null}
@@ -2726,7 +2738,7 @@ function SidePanel() {
           </section>
         ) : null}
 
-        {state === 'READY' && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
+        {showAuthenticatedWorkspace && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
           <section className="freelancer-extension-shell">
             {!isFreelancerPasswordFormOpen ? (
               <nav className="extension-tabs freelancer-extension-tabs" aria-label="Freelancer sections">
@@ -2745,7 +2757,7 @@ function SidePanel() {
               onPasswordChanged={logout}
             />
           </section>
-        ) : state === 'READY' && user ? (
+        ) : showAuthenticatedWorkspace && user ? (
           <>
             <nav className="extension-tabs" aria-label="VCS Recruitment sections">
               {WORKSPACE_TABS.map((tab) => {

@@ -7254,6 +7254,7 @@ dd {
 
 .facebook-publish-results-heading h2 {
   color: #1e293b;
+  font-family: Inter, sans-serif;
   font-size: 20px;
   font-weight: 700;
   line-height: 28px;
@@ -7270,23 +7271,9 @@ dd {
   padding-bottom: 8px;
 }
 
-.facebook-publish-result-channel-section {
-  align-self: stretch;
-}
-
-.facebook-publish-result-channel-detail {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-height: 32px;
-  border-bottom: 1px solid #edf1f7;
-  padding: 8px 4px 0;
-  color: #64748b;
-  font-size: 11px;
-}
-
 .facebook-publish-results-channel-name {
   color: #0b1c30;
+  font-family: Inter, sans-serif;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.2px;
@@ -7342,78 +7329,6 @@ dd {
   height: 16px;
 }
 
-.publish-result-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  width: 100%;
-}
-
-.publish-result-metric-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 12px 8px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  box-shadow: 0px 1px 2px 0px rgba(0, 0, 0, 0.05);
-}
-
-.publish-result-metric-card .metric-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  margin-bottom: 4px;
-  line-height: 1.2;
-}
-
-.publish-result-metric-card .metric-value {
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.publish-result-metric-card.is-total {
-  background: #dbeafe;
-  border-color: #93c5fd;
-}
-
-.publish-result-metric-card.is-total .metric-label,
-.publish-result-metric-card.is-total .metric-value {
-  color: #1e3a8a;
-}
-
-.publish-result-metric-card.is-posted {
-  background: #ecfdf5;
-  border-color: #86efac;
-}
-
-.publish-result-metric-card.is-posted .metric-label,
-.publish-result-metric-card.is-posted .metric-value {
-  color: #065f46;
-}
-
-.publish-result-metric-card.is-pending {
-  background: #ffedd5;
-  border-color: #fed7aa;
-}
-
-.publish-result-metric-card.is-pending .metric-label,
-.publish-result-metric-card.is-pending .metric-value {
-  color: #c2410c;
-}
-
-.publish-result-metric-card.is-rejected {
-  background: #fee2e2;
-  border-color: #fecaca;
-}
-
-.publish-result-metric-card.is-rejected .metric-label,
-.publish-result-metric-card.is-rejected .metric-value {
-  color: #991b1b;
-}
-
 .facebook-publish-results-list {
   display: grid;
   max-height: 148px;
@@ -7433,7 +7348,10 @@ dd {
   border-bottom: 1px solid #edf1f7;
   padding: 0 4px 8px 8px;
   color: #334155;
+  font-family: Inter, sans-serif;
   font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
 }
 
 .facebook-publish-result-row:last-child {
@@ -7444,7 +7362,7 @@ dd {
 .facebook-publish-result-name {
   min-width: 0;
   overflow: hidden;
-  font-weight: 650;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -7454,8 +7372,9 @@ dd {
   border-radius: 4px;
   padding: 5px 8px;
   font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
+  font-family: Inter, sans-serif;
+  font-weight: 700;
+  line-height: 15px;
   white-space: nowrap;
 }
 
@@ -7463,8 +7382,9 @@ dd {
   flex: none;
   padding: 5px 8px;
   font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
+  font-family: Inter, sans-serif;
+  font-weight: 700;
+  line-height: 15px;
   white-space: nowrap;
 }
 
@@ -7474,12 +7394,12 @@ dd {
 
 .facebook-publish-results-state.is-processing,
 .facebook-publish-result-state.is-posting {
-  color: #92400e;
+  color: #fb923c;
   background: #ffedd5;
 }
 
 .facebook-publish-results-state.is-posted {
-  color: #047857;
+  color: #065f46;
   background: #d1fae5;
 }
 
@@ -7494,7 +7414,7 @@ dd {
 }
 
 .facebook-publish-result-state.is-posted {
-  color: #047857;
+  color: #065f46;
   background: #d1fae5;
 }
 

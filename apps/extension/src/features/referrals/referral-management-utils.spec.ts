@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildFreelancerIdentifierCopyText,
+  filterReferralApplicationsByDateRange,
   isDateRangeComplete,
   isValueWithinDateRange,
   usesDynamicReferralRounds,
@@ -19,7 +20,7 @@ test('uses dynamic recruitment rounds for Freelancer and Internal tabs', () => {
   assert.equal(usesDynamicReferralRounds('INTERNAL'), true);
 });
 
-test('date range includes JD timestamps on both boundary dates', () => {
+test('date range includes application timestamps on both boundary dates', () => {
   const range = { from: '2026-07-23', to: '2026-08-22' };
 
   assert.equal(isDateRangeComplete(range), true);
@@ -27,6 +28,27 @@ test('date range includes JD timestamps on both boundary dates', () => {
   assert.equal(isValueWithinDateRange('2026-08-22T12:00:00.000Z', range), true);
   assert.equal(isValueWithinDateRange('2026-07-22T12:00:00.000Z', range), false);
   assert.equal(isValueWithinDateRange('2026-08-23T12:00:00.000Z', range), false);
+});
+
+test('filters referrals by application appliedAt instead of JD createdAt', () => {
+  const range = { from: '2026-08-01', to: '2026-08-31' };
+  const applications = [
+    {
+      id: 'submitted-in-range',
+      appliedAt: '2026-08-12T10:00:00.000Z',
+      jobPostingCreatedAt: '2026-01-10T10:00:00.000Z',
+    },
+    {
+      id: 'submitted-outside-range',
+      appliedAt: '2026-07-31T10:00:00.000Z',
+      jobPostingCreatedAt: '2026-08-10T10:00:00.000Z',
+    },
+  ];
+
+  assert.deepEqual(
+    filterReferralApplicationsByDateRange(applications, range).map((application) => application.id),
+    ['submitted-in-range'],
+  );
 });
 
 test('date range does not match invalid or incomplete values', () => {

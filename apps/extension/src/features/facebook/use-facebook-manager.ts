@@ -86,6 +86,7 @@ import {
   waitForTabComplete,
   type FacebookGroupsScanRunResult,
 } from './facebook-group-dom-scanner';
+import { FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST } from './facebook-history-refresh-message';
 import { FACEBOOK_MAX_IMAGE_ATTACHMENTS } from '@/lib/config';
 import { isString, sleep, toErrorMessage, uniqueStrings } from '@/lib/utils';
 import { buildAmisJobSnapshotFromJobDescription, getActiveTab } from '@/integrations/amis/amis-helpers';
@@ -1320,18 +1321,14 @@ export function useFacebookManager({
     try {
       const itemsToRefresh = await loadRefreshableFacebookHistoryItems(accessToken, group);
       if (itemsToRefresh.length === 0) {
-        const unresolvedCount = (facebookHistoryData?.summary.pendingReview ?? 0) + (facebookHistoryData?.summary.unknown ?? 0);
-        setFacebookHistoryMessage(unresolvedCount > 0
-          ? 'Có bài chờ duyệt/chưa rõ trạng thái nhưng thiếu cả URL bài viết và URL group hợp lệ để kiểm tra lại.'
-          : 'Không có bài chờ duyệt/chưa rõ trạng thái cần kiểm tra lại.');
+        setFacebookHistoryMessage(null);
+        showToast(
+          FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.kind,
+          FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.title,
+          FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.message,
+        );
         return;
       }
-      let postedCount = 0;
-      let rejectedCount = 0;
-      let deletedCount = 0;
-      let unresolvedCount = 0;
-      let issueCount = 0;
-
       for (let index = 0; index < itemsToRefresh.length; index += 1) {
         const item = itemsToRefresh[index];
         setFacebookHistoryMessage(`Đang kiểm tra ${index + 1}/${itemsToRefresh.length}: ${item.title}`);
@@ -1339,10 +1336,6 @@ export function useFacebookManager({
           const statusCheck = await refreshFacebookPostReviewStatus(item);
           await updateFacebookPublishHistoryStatusCheck(accessToken, item.id, statusCheck);
           await syncFacebookImageStatusFromHistoryItem(item, statusCheck.facebookReviewStatus);
-          if (statusCheck.facebookReviewStatus === 'POSTED') postedCount += 1;
-          else if (statusCheck.facebookReviewStatus === 'REJECTED') rejectedCount += 1;
-          else if (statusCheck.facebookReviewStatus === 'DELETED') deletedCount += 1;
-          else unresolvedCount += 1;
         } catch (err) {
           if (err instanceof ApiClientError && err.status === 401) {
             await clearAccessToken();
@@ -1350,19 +1343,21 @@ export function useFacebookManager({
             setFacebookHistoryMessage('Authentication expired. Sign in again before refreshing Facebook history.');
             return;
           }
-          issueCount += 1;
         }
       }
       await loadFacebookPostHistory(group, facebookHistoryFilter, facebookHistoryPage);
-      setFacebookHistoryMessage(
-        `Đã kiểm tra ${itemsToRefresh.length} bài. ${postedCount} đã đăng, ${rejectedCount} bị từ chối, ${deletedCount} đã xóa, ${unresolvedCount} chưa xác định/chờ duyệt${issueCount ? `, ${issueCount} lỗi` : ''}.`,
+      setFacebookHistoryMessage(null);
+      showToast(
+        FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.kind,
+        FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.title,
+        FACEBOOK_HISTORY_REFRESH_SUCCESS_TOAST.message,
       );
     } catch (err) {
       setFacebookHistoryMessage(toErrorMessage(err));
     } finally {
       setIsRefreshingFacebookHistoryGroup(false);
     }
-  }, [facebookHistoryData?.summary.pendingReview, facebookHistoryData?.summary.unknown, facebookHistoryFilter, facebookHistoryPage, loadFacebookPostHistory, loadRefreshableFacebookHistoryItems, onAuthRequired, selectedFacebookHistoryGroup, syncFacebookImageStatusFromHistoryItem]);
+  }, [facebookHistoryFilter, facebookHistoryPage, loadFacebookPostHistory, loadRefreshableFacebookHistoryItems, onAuthRequired, selectedFacebookHistoryGroup, showToast, syncFacebookImageStatusFromHistoryItem]);
 
   const refreshFacebookPostHistoryItem = useCallback(async (item: FacebookPublishHistoryListItem) => {
     const accessToken = tokenRef.current;
@@ -1434,6 +1429,7 @@ export function useFacebookManager({
     planForPublish: FacebookPublishPlan,
   ) => {
     if (!token) throw new Error('Missing token');
+    setFacebookPublishResultsVisible(true);
     const planKey = getFacebookPlanKey(planForPublish);
     if (startedFacebookPlanKeys.current.has(planKey)) return null;
 

@@ -20,8 +20,8 @@ import type {
 } from '@/types/types';
 import {
   buildFreelancerIdentifierCopyText,
+  filterReferralApplicationsByDateRange,
   isDateRangeComplete,
-  isValueWithinDateRange,
   usesDynamicReferralRounds,
 } from '@/features/referrals/referral-management-utils';
 import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
@@ -597,10 +597,6 @@ export function ReferralManagementPanel({
       return rightTime - leftTime || left[1].title.localeCompare(right[1].title, 'vi');
     });
   }, [allPeopleForJd, jobDescriptions, jobPostings, people]);
-  const jobPostingCreatedAtById = useMemo(
-    () => new Map(jobPostings.map((posting) => [posting.jobPostingId, posting.createdAt])),
-    [jobPostings],
-  );
   const isDateFilterActive = (source === 'FREELANCER' || source === 'INTERNAL')
     && isDateRangeComplete(dateRangeFilter);
   useEffect(() => {
@@ -688,22 +684,27 @@ export function ReferralManagementPanel({
         .filter(Boolean)
         .some((value) => value?.toLocaleLowerCase().includes(normalizedSearch))
     ))
-    .map((person) => ({
-      person,
-      applications: person.applications.filter((application) => (
+    .map((person) => {
+      const dateFilteredApplications = isDateFilterActive
+        ? filterReferralApplicationsByDateRange(person.applications, dateRangeFilter)
+        : person.applications;
+      const applications = dateFilteredApplications.filter((application) => (
         (isAllJdSelected || jdFilter.includes(application.jobPosting.jobPostingId))
-        && (!isDateFilterActive || isValueWithinDateRange(
-          jobPostingCreatedAtById.get(application.jobPosting.jobPostingId),
-          dateRangeFilter,
-        ))
         && matchesCvStatus(application, cvStatusFilter, cvRoundOptions)
-      )),
-    }))
+      ));
+
+      return {
+        person: isClientFilterMode
+          ? { ...person, metrics: buildReferralMetrics(applications) }
+          : person,
+        applications,
+      };
+    })
     .filter(({ person, applications }) => (
       applications.length > 0
       || (cvStatusFilter === 'ALL' && isAllJdSelected && !isDateFilterActive && person.applications.length === 0)
     ));
-  }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, dateRangeFilter, isAllJdSelected, isClientFilterMode, isDateFilterActive, jdFilter, jobPostingCreatedAtById, people, search]);
+  }, [accountStatusFilter, allPeopleForJd, cvRoundOptions, cvStatusFilter, dateRangeFilter, isAllJdSelected, isClientFilterMode, isDateFilterActive, jdFilter, people, search]);
   const visiblePeople = isClientFilterMode
     ? filteredPeople.slice((page - 1) * REFERRAL_PAGE_SIZE, page * REFERRAL_PAGE_SIZE)
     : filteredPeople;
@@ -942,146 +943,6 @@ export function ReferralManagementPanel({
         onNextPage={() => setPage((current) => Math.min(visibleTotalPages, current + 1))}
         onPageChange={setPage}
       />
-
-      {!loading && !error && visiblePeople.length > 0 ? (
-        <div className="referral-people-list">
-          {visiblePeople.map(({ person, applications }) => {
-            const isExpanded = Boolean(expandedIds[person.sourceId]);
-            const metrics = isClientFilterMode ? {
-              total: applications.length,
-              processing: applications.filter((app) => app.statusCategory === 'PROCESSING').length,
-              passed: applications.filter((app) => app.statusCategory === 'PASSED').length,
-              failed: applications.filter((app) => app.statusCategory === 'REJECTED').length,
-              passRate: applications.length > 0 ? Math.round((applications.filter((app) => app.statusCategory === 'PASSED').length / applications.length) * 100) : 0,
-            } : person.metrics;
-            return (
-              <article className={`referral-person-card${person.isActive ? '' : ' is-inactive'}`} key={person.sourceId}>
-                <div className="referral-person-heading">
-                  <div className="referral-person-identity">
-                    <div className="referral-person-name-row">
-                      <h3>{person.name || null}</h3>
-                      {!person.isActive ? <span className="referral-active-badge is-inactive">Đã khóa</span> : null}
-                    </div>
-                    {person.identifier ? (
-                      <div className="referral-person-identifier-row">
-                        <span className="referral-identifier">
-                          <span>{person.identifier}</span>
-                          <button
-                            type="button"
-                            className={`referral-copy-button${copiedIdentifier === person.identifier ? ' is-copied' : ''}`}
-                            onClick={() => void copyIdentifier(person.identifier as string)}
-                            title="Sao chép mã Freelancer"
-                            aria-label="Sao chép mã Freelancer"
-                          >
-                            {copiedIdentifier === person.identifier ? 'Đã copy' : <CopyIcon />}
-                          </button>
-                        </span>
-                      </div>
-                    ) : null}
-                    <div className="referral-person-meta">
-                      {(() => {
-                        const fullText = [person.email, person.phone].filter(Boolean).join(' • ');
-                        return (
-                          <span title={fullText.length > 50 ? fullText : undefined}>
-                            {fullText}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  {source === 'FREELANCER' ? (
-                    <div className="referral-person-actions">
-                      <button
-                        type="button"
-                        className="referral-status-icon-button"
-                        onClick={() => requestStatusChange(person)}
-                        title={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
-                        aria-label={person.isActive ? 'Vô hiệu hóa, giữ lịch sử' : 'Kích hoạt lại'}
-                      >
-                        {person.isActive ? <UnlockIcon /> : <LockIcon />}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-
-                <StatsMetricGrid
-                  ariaLabel="Thống kê CV"
-                  className="referral-metrics-grid"
-                  items={[
-                    { label: 'TỔNG CV GỬI', value: metrics.total },
-                    { label: 'ĐANG XỬ LÝ', value: metrics.processing },
-                    { label: 'ĐÃ ĐẬU', value: metrics.passed, accent: true },
-                    { label: 'TỈ LỆ ĐẬU', value: `${metrics.passRate}%`, accent: true },
-                  ]}
-                />
-
-                <button
-                  type="button"
-                  className="referral-detail-toggle"
-                  onClick={() => setExpandedIds((current) => ({ ...current, [person.sourceId]: !isExpanded }))}
-                  aria-expanded={isExpanded}
-                >
-                  <span>Chi tiết</span>
-                  <DetailChevronIcon isOpen={isExpanded} />
-                </button>
-
-                {isExpanded ? (
-                  <div className="referral-expanded-overlay">
-                    <ApplicationTable applications={applications} source={source} />
-                  </div>
-                ) : null}
-              </article>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {visibleTotalPages > 1 ? (
-        <div className="referral-pagination">
-          <span>
-            Hiển thị {visiblePeople.length ? (page - 1) * REFERRAL_PAGE_SIZE + 1 : 0}
-            {' - '}
-            {visiblePeople.length ? (page - 1) * REFERRAL_PAGE_SIZE + visiblePeople.length : 0}
-            {' của '}
-            {visibleTotal} kết quả
-          </span>
-          <div>
-            <button
-              type="button"
-              className="referral-page-btn"
-              aria-label="Trang trước"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg>
-            </button>
-            {buildReferralPaginationPages(page, visibleTotalPages).map((paginationPage, index) => (
-              paginationPage === 'ellipsis' ? (
-                <span key={`ellipsis-${index}`} className="referral-pagination-ellipsis" aria-hidden="true">…</span>
-              ) : (
-                <button
-                  key={paginationPage}
-                  type="button"
-                  className={`referral-page-btn${paginationPage === page ? ' is-active' : ''}`}
-                  aria-current={paginationPage === page ? 'page' : undefined}
-                  onClick={() => setPage(paginationPage)}
-                >
-                  {paginationPage}
-                </button>
-              )
-            ))}
-            <button
-              type="button"
-              className="referral-page-btn"
-              aria-label="Trang sau"
-              disabled={page >= visibleTotalPages}
-              onClick={() => setPage((current) => Math.min(visibleTotalPages, current + 1))}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
-            </button>
-          </div>
-        </div>
-      ) : null}
 
       {modal === 'CREATE' ? (
         <div className="referral-modal-backdrop" role="presentation">
@@ -1494,6 +1355,17 @@ function buildReferralRoundOptions(
       left.sortOrder - right.sortOrder || left.label.localeCompare(right.label, 'vi')
     )),
   ];
+}
+
+function buildReferralMetrics(applications: ReferralManagementApplication[]) {
+  const passed = applications.filter((application) => application.statusCategory === 'PASSED').length;
+
+  return {
+    total: applications.length,
+    processing: applications.filter((application) => application.statusCategory === 'PROCESSING').length,
+    passed,
+    passRate: applications.length > 0 ? Math.round((passed / applications.length) * 100) : 0,
+  };
 }
 
 function matchesCvStatus(

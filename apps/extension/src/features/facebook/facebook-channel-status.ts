@@ -16,14 +16,34 @@ export interface FacebookPublishSummary {
   manualActionRequired: boolean;
 }
 
+/**
+ * Facebook can accept a submission and keep it in the group's moderation
+ * queue. That result is still a successful submission even when the browser
+ * automation could not complete the final URL/status confirmation.
+ */
+export function isFacebookResultPendingReview(
+  result: FacebookPublishResultPayload,
+) {
+  return result.facebookReviewStatus === 'PENDING_REVIEW'
+    || /(?:^|\/)pending_posts(?:\/|[?#]|$)/i.test(result.externalPostUrl ?? '');
+}
+
+export function isFacebookResultAccepted(
+  result: FacebookPublishResultPayload,
+) {
+  return result.status === 'SUCCESS' || isFacebookResultPendingReview(result);
+}
+
 export function summarizeFacebookPublishResults(
   facebookResults: FacebookPublishResultPayload[],
 ): FacebookPublishSummary {
   const total = facebookResults.length;
-  const successCount = facebookResults.filter((item) => item.status === 'SUCCESS').length;
-  const failedCount = facebookResults.filter((item) => item.status === 'FAILED').length;
+  const successCount = facebookResults.filter(isFacebookResultAccepted).length;
+  const failedCount = facebookResults.filter((item) => (
+    item.status === 'FAILED' && !isFacebookResultAccepted(item)
+  )).length;
   const skippedCount = facebookResults.filter((item) => item.status === 'SKIPPED').length;
-  const pendingReviewCount = facebookResults.filter((item) => item.facebookReviewStatus === 'PENDING_REVIEW').length;
+  const pendingReviewCount = facebookResults.filter(isFacebookResultPendingReview).length;
   const successVerb = pendingReviewCount > 0 ? 'submitted' : 'published';
   const allSucceeded = successCount === total && total > 0;
   const partiallySucceeded = successCount > 0 && successCount < total;

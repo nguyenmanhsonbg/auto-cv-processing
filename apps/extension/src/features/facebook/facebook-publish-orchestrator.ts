@@ -318,46 +318,6 @@ export async function publishFacebookPlan(
     return results;
   }
 
-  callbacks.onProgress?.({
-    status: 'LOGIN_REQUIRED',
-    currentIndex: 0,
-    total,
-    message: 'Đang kiểm tra đăng nhập Facebook ở trình duyệt này.',
-    results,
-  });
-  try {
-    const session = await ensureFacebookSession({
-      onStatus: (event) => {
-        if (event.status !== 'WAITING_LOGIN') return;
-        callbacks.onProgress?.({
-          status: 'WAITING_LOGIN',
-          currentIndex: 0,
-          total,
-          message: event.message,
-          results,
-        });
-      },
-    });
-    const expectedAccountIds = [...new Set(plan.targets
-      .map((target) => target.facebookAccountExternalId)
-      .filter((value): value is string => Boolean(value)))];
-    if (expectedAccountIds.length > 0
-      && (!session.account || !expectedAccountIds.includes(session.account.facebookExternalId))) {
-      throw new Error('The active Facebook browser account does not match the selected Facebook groups.');
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Facebook login could not be completed.';
-    await reportAllTargetsFailed(accessToken, plan, message, results);
-    callbacks.onProgress?.({
-      status: 'ERROR',
-      currentIndex: 0,
-      total,
-      message,
-      results,
-    });
-    return results;
-  }
-
   for (let index = 0; index < plan.targets.length; index += 1) {
     const target = plan.targets[index];
     const imageAttachments = getFacebookPublishImageAttachments(plan);
@@ -550,15 +510,19 @@ function buildFacebookPublishResultPayload(
   result: FacebookPagePublishResult,
 ): FacebookPublishResultPayload {
   const externalPost = parseFacebookGroupPostUrl(result.externalPostUrl);
+  const facebookReviewStatus = result.facebookReviewStatus ?? getPublishResultReviewStatus(result);
+  const acceptedByFacebook = result.status === 'SUCCESS'
+    || facebookReviewStatus === 'PENDING_REVIEW'
+    || externalPost?.pathType === 'pending_posts';
 
   return {
     ...buildFacebookPublishTargetPayloadBase(plan, target, true),
-    status: result.status,
-    facebookReviewStatus: result.facebookReviewStatus ?? getPublishResultReviewStatus(result),
+    status: acceptedByFacebook ? 'SUCCESS' : result.status,
+    facebookReviewStatus,
     message: result.message,
     externalPostId: externalPost?.postId ?? result.externalPostId ?? null,
     externalPostUrl: externalPost?.url ?? null,
-    submittedAt: result.status === 'SUCCESS' ? new Date().toISOString() : null,
+    submittedAt: acceptedByFacebook ? new Date().toISOString() : null,
   };
 }
 
@@ -629,6 +593,28 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
       message: 'Đang kiểm tra đăng nhập Facebook ở trình duyệt này.',
   });
 
+  const cookieExternalId = await readFacebookSessionExternalId();
+  if (cookieExternalId) {
+    const fastStatus: FacebookLoginCheckResult = {
+      ready: true,
+      url: 'https://www.facebook.com/',
+      message: 'Facebook login detected from browser session.',
+      // c_user is the browser session identity. Leave optional profile fields
+      // absent so resolving an existing backend account does not overwrite its
+      // verified name/avatar with null values.
+      account: {
+        facebookExternalId: cookieExternalId,
+      },
+    };
+    callbacks.onStatus?.({
+      status: 'READY',
+      message: fastStatus.message,
+      url: fastStatus.url,
+      account: fastStatus.account,
+    });
+    return fastStatus;
+  }
+
   const tab = await openTab('https://www.facebook.com/', false);
   let status: FacebookLoginCheckResult | null = null;
   // Keep the probe tab until Facebook explicitly reports an authenticated session.
@@ -664,14 +650,76 @@ export async function ensureFacebookSession(callbacks: FacebookSessionCallbacks 
 
     await chrome.tabs?.update(tab.id, { url: 'https://www.facebook.com/login', active: true });
     await focusFacebookLoginTab(tab.id);
+
+    // The login redirect can set c_user before Facebook finishes loading all
+    // homepage resources. Treat the cookie as the authoritative session signal
+    // so we do not wait for the HAR-sized page bootstrap or profile navigation.
+    const cookieSession = await waitForFacebookSessionCookie(tab.id);
+    if (cookieSession) {
+      closeAfterCheck = true;
+      status = {
+        ready: true,
+        url: cookieSession.url,
+        message: 'Facebook login detected from browser session.',
+        account: {
+          facebookExternalId: cookieSession.externalId,
+        },
+      };
+      callbacks.onStatus?.({
+        status: 'READY',
+        message: status.message,
+        url: status.url,
+        account: status.account,
+      });
+      return status;
+    }
+
     const deadline = Date.now() + 10 * 60_000;
     while (Date.now() < deadline) {
+      const sessionFromCookie = await readFacebookSessionCookieForTab(tab.id);
+      if (sessionFromCookie) {
+        closeAfterCheck = true;
+        status = {
+          ready: true,
+          url: sessionFromCookie.url,
+          message: 'Facebook login detected from browser session.',
+          account: {
+            facebookExternalId: sessionFromCookie.externalId,
+          },
+        };
+        callbacks.onStatus?.({
+          status: 'READY',
+          message: status.message,
+          url: status.url,
+          account: status.account,
+        });
+        return status;
+      }
+
       await sleep(2_000);
       await waitForTabComplete(tab.id);
-      status = await enrichFacebookAccountIdentity(
-        await runFacebookLoginProbe(tab.id),
-        tab.id,
-      );
+      const probeStatus = await runFacebookLoginProbe(tab.id);
+      const sessionAfterProbe = await readFacebookSessionCookieForTab(tab.id);
+      if (sessionAfterProbe) {
+        closeAfterCheck = true;
+        status = {
+          ready: true,
+          url: sessionAfterProbe.url,
+          message: 'Facebook login detected from browser session.',
+          account: {
+            facebookExternalId: sessionAfterProbe.externalId,
+          },
+        };
+        callbacks.onStatus?.({
+          status: 'READY',
+          message: status.message,
+          url: status.url,
+          account: status.account,
+        });
+        return status;
+      }
+
+      status = await enrichFacebookAccountIdentity(probeStatus, tab.id);
       if (status.ready) {
         closeAfterCheck = true;
         callbacks.onStatus?.({
@@ -706,6 +754,20 @@ export async function ensureFacebookLoginInTab(
   tabId: number,
   callbacks: Pick<FacebookSessionCallbacks, 'onStatus'> = {},
 ): Promise<FacebookAccountIdentity | null> {
+  const cookieSession = await readFacebookSessionCookieForTab(tabId);
+  if (cookieSession) {
+    const account = {
+      facebookExternalId: cookieSession.externalId,
+    };
+    callbacks.onStatus?.({
+      status: 'READY',
+      message: 'Facebook login detected from browser session.',
+      url: cookieSession.url,
+      account,
+    });
+    return account;
+  }
+
   let status = await enrichFacebookAccountIdentity(
     await runFacebookLoginProbe(tabId),
   );
@@ -729,13 +791,54 @@ export async function ensureFacebookLoginInTab(
   await chrome.tabs?.update(tabId, { url: 'https://www.facebook.com/login', active: true });
   await focusFacebookLoginTab(tabId);
 
+  const cookieSessionAfterLogin = await waitForFacebookSessionCookie(tabId);
+  if (cookieSessionAfterLogin) {
+    const account = {
+      facebookExternalId: cookieSessionAfterLogin.externalId,
+    };
+    callbacks.onStatus?.({
+      status: 'READY',
+      message: 'Facebook login detected from browser session.',
+      url: cookieSessionAfterLogin.url,
+      account,
+    });
+    return account;
+  }
+
   const deadline = Date.now() + 10 * 60_000;
   while (Date.now() < deadline) {
+    const sessionFromCookie = await readFacebookSessionCookieForTab(tabId);
+    if (sessionFromCookie) {
+      const account = {
+        facebookExternalId: sessionFromCookie.externalId,
+      };
+      callbacks.onStatus?.({
+        status: 'READY',
+        message: 'Facebook login detected from browser session.',
+        url: sessionFromCookie.url,
+        account,
+      });
+      return account;
+    }
+
     await sleep(2_000);
     await waitForTabComplete(tabId);
-    status = await enrichFacebookAccountIdentity(
-      await runFacebookLoginProbe(tabId),
-    );
+    const probeStatus = await runFacebookLoginProbe(tabId);
+    const sessionAfterProbe = await readFacebookSessionCookieForTab(tabId);
+    if (sessionAfterProbe) {
+      const account = {
+        facebookExternalId: sessionAfterProbe.externalId,
+      };
+      callbacks.onStatus?.({
+        status: 'READY',
+        message: 'Facebook login detected from browser session.',
+        url: sessionAfterProbe.url,
+        account,
+      });
+      return account;
+    }
+
+    status = await enrichFacebookAccountIdentity(probeStatus);
     if (status.ready) {
       callbacks.onStatus?.({
         status: 'READY',
@@ -1049,9 +1152,39 @@ async function publishTargetInFreshTab(
   execution: FacebookTargetExecution,
 ): Promise<FacebookPagePublishResult> {
   execution.throwIfCancelled();
-  const tab = await openTab(targetUrl, false);
+  let tab = await openTab(targetUrl, false);
   execution.registerTab(tab.id);
   try {
+    let loginWasRequired = false;
+    const account = await ensureFacebookLoginInTab(tab.id, {
+      onStatus: (event) => {
+        if (event.status === 'WAITING_LOGIN') loginWasRequired = true;
+      },
+    });
+    if (!account) {
+      return {
+        status: 'FAILED',
+        message: FACEBOOK_LOGIN_REQUIRED_MESSAGE,
+      };
+    }
+
+    if (
+      target.facebookAccountExternalId
+      && account.facebookExternalId !== target.facebookAccountExternalId
+    ) {
+      return {
+        status: 'FAILED',
+        message: 'The active Facebook browser account does not match the selected Facebook group.',
+      };
+    }
+
+    if (loginWasRequired) {
+      await closeFacebookPublishTabSafely(tab.id);
+      execution.unregisterTab(tab.id);
+      tab = await openTab(targetUrl, false);
+      execution.registerTab(tab.id);
+    }
+
     let latestFailure: FacebookPreparedPostResult | null = null;
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -1089,28 +1222,6 @@ async function publishTargetInFreshTab(
   } finally {
     execution.unregisterTab(tab.id);
     await closeFacebookPublishTabSafely(tab.id);
-  }
-}
-
-async function reportAllTargetsFailed(
-  accessToken: string,
-  plan: FacebookPublishPlan,
-  message: string,
-  results: FacebookPublishResultPayload[],
-) {
-  for (const target of plan.targets) {
-    const payload: FacebookPublishResultPayload = {
-      ...buildFacebookPublishTargetPayloadBase(plan, target, false),
-      status: 'FAILED',
-      facebookReviewStatus: 'UNKNOWN',
-      message,
-      externalPostId: null,
-      externalPostUrl: null,
-      submittedAt: null,
-    };
-
-    const reportErrorMessage = await reportFacebookPublishResultSafely(accessToken, payload);
-    results.push(withReportMessage(payload, reportErrorMessage));
   }
 }
 
@@ -1153,7 +1264,7 @@ function getPublishResultReviewStatus(result: FacebookPagePublishResult): Facebo
   if (result.facebookReviewStatus) return result.facebookReviewStatus;
   const message = normalizeFacebookAutomationText(result.message);
   if (
-    result.status === 'SUCCESS'
+    (result.status === 'SUCCESS' || result.submitClickDispatched || result.postClickEvidence)
     && /pending|waiting for approval|cho duyet|cho phe duyet|dang cho|quan tri vien phe duyet/.test(message)
   ) {
     return 'PENDING_REVIEW';
@@ -1503,21 +1614,48 @@ async function openTab(url: string, active: boolean) {
   return { id: tab.id };
 }
 
-async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, sourceTabId?: number) {
-  let cookieExternalId: string | null = null;
-
+async function readFacebookSessionExternalId() {
   try {
     const cookie = await chrome.cookies?.get({
       url: 'https://www.facebook.com/',
       name: 'c_user',
     });
-    const normalizedCookieId = cookie?.value?.trim() ?? '';
-    if (/^\d+$/.test(normalizedCookieId)) {
-      cookieExternalId = normalizedCookieId;
-    }
+    const externalId = cookie?.value?.trim() ?? '';
+    return /^\d+$/.test(externalId) ? externalId : null;
   } catch {
-    // DOM identity remains a valid fallback when cookie access is unavailable.
+    return null;
   }
+}
+
+async function readFacebookSessionCookieForTab(tabId: number) {
+  const externalId = await readFacebookSessionExternalId();
+  if (!externalId) return null;
+
+  const tab = await chrome.tabs?.get(tabId).catch(() => null);
+  const url = tab?.url ?? '';
+  if (isFacebookLoginLikeUrl(url)) return null;
+
+  return {
+    externalId,
+    url: url || 'https://www.facebook.com/',
+  };
+}
+
+async function waitForFacebookSessionCookie(tabId: number, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const session = await readFacebookSessionCookieForTab(tabId);
+    if (session) return session;
+
+    const remainingMs = Math.max(0, deadline - Date.now());
+    await sleep(Math.min(250, remainingMs));
+  }
+
+  return null;
+}
+
+async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, sourceTabId?: number) {
+  const cookieExternalId = await readFacebookSessionExternalId();
 
   // A logged-out Facebook homepage can be fully loaded without containing a
   // login form. Do not treat that public page as an authenticated session.
@@ -2213,6 +2351,25 @@ async function enrichFacebookPublishResultWithPostUrl(
     currentPageRecovery.probe?.message,
   ].filter(Boolean).join(' ')
     || 'No matching verified post URL was found.';
+
+  const pendingReviewRecovery = [
+    currentPageRecovery,
+    pendingManagerRecovery,
+    fallbackPendingRecovery,
+    groupFeedRecovery,
+  ].find((recovery) => recovery.probe?.facebookReviewStatus === 'PENDING_REVIEW');
+
+  if (pendingReviewRecovery && result.submitClickDispatched) {
+    return {
+      ...result,
+      status: 'SUCCESS',
+      facebookReviewStatus: 'PENDING_REVIEW',
+      message: `${result.message} Facebook confirmed the post is waiting for group approval. ${pendingReviewRecovery.probe?.message ?? recoveryMessage}`,
+      externalPostId: pendingReviewRecovery.probe?.externalPostId ?? null,
+      externalPostUrl: pendingReviewRecovery.probe?.externalPostUrl ?? null,
+      postClickEvidence: true,
+    };
+  }
 
   if (result.submitClickDispatched && result.postClickEvidence && isPostClickConfirmationFailure(result.message)) {
     return {
