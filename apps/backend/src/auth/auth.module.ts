@@ -16,6 +16,8 @@ import { NotificationModule } from '../notification/notification.module';
 import { PasswordResetRequestEntity } from './entities/password-reset-request.entity';
 import { CommonModule } from '../common/common.module';
 
+import { LocalAuthGuard } from './guards/local-auth.guard';
+
 @Module({
   imports: [
     CommonModule,
@@ -34,7 +36,7 @@ import { CommonModule } from '../common/common.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, LocalStrategy, GoogleStrategy],
+  providers: [AuthService, JwtStrategy, LocalStrategy, GoogleStrategy, LocalAuthGuard],
   exports: [AuthService],
 })
 export class AuthModule {}

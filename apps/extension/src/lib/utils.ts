@@ -1,3 +1,5 @@
+import { toVietnameseErrorMessage } from './error-messages';
+
 export function uniqueStrings(value: string[]): string[] {
   return [...new Set(value.map((item) => item.trim()).filter(Boolean))];
 }
@@ -71,21 +73,5 @@ export function normalizeStatus(value?: string | null): string {
 }
 
 export function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) return translateKnownError(error.message);
-  if (typeof error === 'string') return translateKnownError(error);
-  if (
-    error
-    && typeof error === 'object'
-    && 'message' in error
-    && typeof (error as { message: unknown }).message === 'string'
-  ) {
-    return translateKnownError((error as { message: string }).message);
-  }
-  return String(error ?? 'Đã xảy ra lỗi không xác định.');
-}
-
-function translateKnownError(message: string) {
-  return /request payload is invalid/i.test(message)
-    ? 'Dữ liệu yêu cầu không hợp lệ.'
-    : message;
+  return toVietnameseErrorMessage(error);
 }

@@ -416,7 +416,7 @@ export function JobPostingPanel({
               onClick={() => void onSyncVcsPortalJobDescriptions()}
               disabled={jobDescriptionStatus === 'LOADING'}
             >
-              Đồng bộ portal
+              Đồng bộ VCS Portal
             </button>
             <SelectFilter
               className="jd-status-filter"

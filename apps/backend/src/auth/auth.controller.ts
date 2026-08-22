@@ -43,41 +43,8 @@ export class AuthController {
   @Post('login')
   @UseGuards(LocalAuthGuard)
   @ApiOperation({ summary: 'Login with email or freelancer identifier and password' })
-  async login(@Request() req: any, @Body() dto: LoginDto) {
-    const key = `login:${dto.login}`;
-    const check = this.rateLimiter.check(key);
-
-    if (!check.allowed) {
-      const seconds = Math.ceil(check.waitMs / 1000);
-      req.res?.status(429).json({
-        statusCode: 429,
-        code: 'RATE_LIMIT_EXCEEDED',
-        message: `Đăng nhập thất bại quá nhiều. Vui lòng thử lại sau ${seconds} giây.`,
-        waitMs: check.waitMs,
-        attemptCount: check.attemptCount,
-      });
-      return;
-    }
-
-    try {
-      const result = await this.authService.login(req.user);
-      this.rateLimiter.recordSuccess(key);
-      return result;
-    } catch (error) {
-      const failResult = this.rateLimiter.recordFailed(key);
-      if (failResult.isLocked) {
-        const status = this.rateLimiter.getStatus(key);
-        const seconds = Math.ceil(status.waitMs / 1000);
-        throw {
-          statusCode: 429,
-          code: 'RATE_LIMIT_EXCEEDED',
-          message: `Tài khoản bị tạm khóa. Vui lòng thử lại sau ${seconds} giây.`,
-          waitMs: status.waitMs,
-          attemptCount: status.attemptCount,
-        };
-      }
-      throw error;
-    }
+  async login(@Request() req: any) {
+    return this.authService.login(req.user);
   }
 
   @Post('internal/request-password')

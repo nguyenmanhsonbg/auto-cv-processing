@@ -11,3 +11,4 @@ export * from './ClearIcon';
 export * from './EyeIcon';
 export * from './InternalPasswordSentIcon';
 export * from './ToastIcons';
+export * from './ReferralIcons';

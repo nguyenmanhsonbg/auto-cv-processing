@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { ChevronDownIcon } from '@/components/icons';
 
 export type MultiSelectFilterOption = { value: string; label: string; meta?: string };
 
@@ -37,7 +38,7 @@ export function MultiSelectFilter({ label, values, options, allLabel = 'Táº¥t cá
       <span className="shared-filter-multi-select-label">{label}</span>
       <button type="button" className="referral-jd-select-trigger" aria-haspopup="listbox" aria-expanded={isOpen} onClick={onToggle}>
         <span>{selectedLabel}</span>
-        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="m3.5 6 4.5 4.5L12.5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <ChevronDownIcon className={isOpen ? 'is-open' : ''} />
       </button>
       {isOpen ? (
         <div className="referral-jd-options" role="listbox" aria-label={label}>

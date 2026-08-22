@@ -786,7 +786,11 @@ a {
 }
 
 .extension-password-condition.is-valid {
-  color: #262626;
+  color: #15803d;
+}
+
+.extension-password-condition.is-invalid {
+  color: #dc2626;
 }
 
 .extension-condition-tick {
@@ -1022,7 +1026,7 @@ h2 {
 
 .primary-button {
   color: #ffffff;
-  background: #0f766e;
+  background: #16A34A;
 }
 
 .sync-button {
@@ -5308,15 +5312,13 @@ dd {
   display: grid;
   grid-template-rows: auto auto 1fr;
   align-content: start;
-  width: min(100%, 600px);
+  width: min(100%, 800px);
   min-height: 100vh;
   margin: 0 auto;
   container-type: inline-size;
   overflow: visible;
-  border: 1px solid #d8dee9;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: none;
+  border: 0;
+  background: #fff;
 }
 
 .extension-header {
@@ -5950,9 +5952,14 @@ dd {
   margin: 0;
 }
 
+.jd-panel.post-card-section {
+  gap: 8px;
+  padding: 8px;
+}
+
 .jd-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 190px 156px;
   align-items: flex-end;
   gap: 8px;
 }
@@ -5981,19 +5988,25 @@ dd {
 }
 
 .jd-status-controls {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
+  display: contents;
   min-width: 0;
 }
 
 .jd-status-controls .jd-status-filter {
-  flex: 1;
+  grid-column: 2;
+  grid-row: 1;
+  width: 190px;
+  height: 60px;
+  align-content: center;
 }
 
 .jd-status-controls .portal-sync-button {
-  align-self: flex-end;
+  grid-column: 3;
+  grid-row: 1;
+  width: 156px;
+  min-height: 35px;
+  height: 35px;
+  padding: 8px 14px;
 }
 
 .jd-status-filter>span {
@@ -6064,9 +6077,10 @@ dd {
 }
 
 .portal-sync-button {
-  min-height: 44px;
+  min-height: 35px;
+  height: 35px;
   border-radius: 8px;
-  padding: 0 18px;
+  padding: 8px 14px;
   background: #15803d;
   color: #fff;
   font-size: 14px;
@@ -7626,10 +7640,10 @@ dd {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid #a9dcc5;
-  border-radius: 9px;
-  padding: 12px 14px;
-  background: #f1faf6;
+  border: 1px solid #16a34a;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f0fdf4;
 }
 
 .freelancer-cv-identity h2,
@@ -7639,24 +7653,25 @@ dd {
 }
 
 .freelancer-cv-identity h2 {
-  font-size: 25px;
-  font-weight: 400;
-  margin-bottom: 6px;
+  font-size: 24px;
+  font-weight: 700;
+  color: #000000;
+  margin: 2px 0 4px;
 }
 
 .freelancer-cv-identity em {
-  color: #738093;
-  font-size: 13px;
+  color: #525252;
+  font-size: 12px;
   font-style: italic;
-  font-weight: 300;
+  font-weight: 400;
 }
 
 .freelancer-cv-eyebrow {
   display: block;
-  color: #718096;
+  color: #262626;
   font-style: normal;
-  font-weight: 400;
-  font-size: 14px;
+  font-weight: 500;
+  font-size: 12px;
   text-transform: none;
 }
 
@@ -8098,17 +8113,23 @@ dd {
   min-width: 0;
 }
 
+.shared-filter-field>span,
+.shared-filter-multi-select-label,
+.shared-filter-date-range>span {
+  color: #262626;
+  font-size: 12px;
+}
+
 .shared-filter-multi-select-label {
   border: 0;
   padding: 0;
-  color: #536074;
+  color: #262626;
   background: transparent;
   font-family: Inter, sans-serif;
-
-  font-size: 14px;
+  font-size: 12px;
   font-style: normal;
-  font-weight: 400;
-  line-height: 1.2;
+  font-weight: 500;
+  line-height: 16px;
 }
 
 .freelancer-cv-toolbar {
@@ -8284,12 +8305,14 @@ dd {
 }
 
 .freelancer-cv-empty {
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  padding: 10px 14px;
-  color: #677489;
+  border: 1px solid #bdc9c2;
+  border-radius: 16px;
+  padding: 16px;
+  color: #64696e;
+  background: #ffffff;
   font-size: 16px;
   font-weight: 700;
+  text-align: left;
 }
 
 .freelancer-cv-empty.freelancer-cv-error {
@@ -8479,7 +8502,24 @@ dd {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .jd-status-controls {
+    display: contents;
+  }
+
+  .jd-status-controls .jd-status-filter {
+    grid-column: 1;
+    grid-row: auto;
+    width: 100%;
+    height: auto;
+  }
+
   .portal-sync-button {
+    width: 100%;
+  }
+
+  .jd-status-controls .portal-sync-button {
+    grid-column: 1;
+    grid-row: auto;
     width: 100%;
   }
 
@@ -8784,11 +8824,17 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .referral-jd-select-trigger svg,
 .referral-filter-trigger svg {
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
-  color: #000000;
-  opacity: 0.5;
+  color: #374151;
+  opacity: 1;
+  transition: transform 0.15s ease;
+}
+
+.referral-jd-select-trigger svg.is-open,
+.referral-filter-dropdown.is-open .referral-filter-trigger svg {
+  transform: rotate(180deg);
 }
 
 .referral-custom-filter {
@@ -9272,13 +9318,14 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-detail-chevron {
-  width: 6px;
-  height: 11px;
-  transition: transform 0.15s ease;
+  width: 10px;
+  height: 6px;
+  color: currentColor;
+  transition: transform 0.2s ease;
 }
 
 .referral-detail-chevron.is-open {
-  transform: rotate(90deg);
+  transform: rotate(180deg);
 }
 
 .referral-expanded-overlay {
@@ -9591,81 +9638,131 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-modal {
-  width: min(430px, 100%);
-  margin: 0;
+  width: min(448px, 100%);
   overflow: hidden;
-  border: 1px solid #dbe3eb;
-  border-radius: 9px;
-  padding: 0;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
   background: #ffffff;
-  color: inherit;
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
 }
 
-.referral-modal * {}
+.referral-modal * {
+  box-sizing: border-box;
+}
 
 .referral-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid #edf1f5;
-  padding: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e5e5;
+  min-height: 45px;
 }
 
 .referral-modal-header h2 {
   margin: 0;
-  color: #263449;
+  padding: 0;
+  color: #262626;
+  font-family: Inter, sans-serif;
   font-size: 14px;
   font-weight: 700;
-  line-height: 24px;
-  padding: 0 6px;
-}
-
-.referral-modal-header button {
-  border: 0;
-  color: #9aa4b2;
-  background: transparent;
-  font-size: 25px;
-  line-height: 1;
-}
-
-.referral-modal form {
-  display: grid;
-  gap: 16px;
-  padding: 18px 16px 16px;
-}
-
-.referral-modal form label {
-  display: grid;
-  gap: 7px;
-  color: #536074;
-  font-size: 12px;
-  font-weight: 500;
   line-height: 20px;
 }
 
-.referral-modal form label>span {
-  color: #344258;
+.referral-modal-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a3a3a3;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 150ms ease, background-color 150ms ease;
 }
 
-.referral-modal form label em {
-  color: #ef4444;
-  font-style: normal;
+.referral-modal-close-btn:hover {
+  color: #525252;
+  background-color: #f5f5f5;
 }
 
-.referral-modal input {
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 0 16px;
-  color: #344258;
+.referral-modal-close-btn svg {
+  width: 10px;
+  height: 10px;
+  color: currentColor;
+}
+
+.referral-modal form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.referral-modal .input-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.referral-modal .input-field-label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: #262626;
+  font-family: Inter, sans-serif;
   font-size: 12px;
-  font-weight: 400;
-  line-height: 24px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: uppercase;
 }
 
-.referral-modal input::placeholder {
-  color: #94a3b8;
+.referral-modal .input-field-required {
+  color: #ef4444;
+  font-weight: 700;
+}
+
+.referral-modal .input-field-control {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #262626;
+  background: #ffffff;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.referral-modal .input-field-control::placeholder {
+  color: #a3a3a3;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.referral-modal .input-field-control:focus {
+  border-color: #15803d;
+  box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.1);
+}
+
+.referral-modal .input-field-control.has-error {
+  border-color: #ef4444;
+  box-shadow: none;
+}
+
+.referral-modal .input-field-error {
+  margin: 0;
+  color: #ef4444;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .referral-input-with-clear {
@@ -9713,51 +9810,116 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-identifier-preview {
-  display: grid;
-  gap: 8px;
-  border: 1px solid #a7dec4;
-  border-radius: 9px;
-  padding: 11px 13px;
-  background: #f1faf5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid #16a34a;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f0fdf4;
 }
 
-.referral-identifier-preview-text {
-  font-style: normal;
-}
-
-.referral-identifier-preview-text:first-child {
+.referral-identifier-preview-header {
   color: #15803d;
+  font-family: Inter, sans-serif;
   font-size: 12px;
   font-weight: 700;
-  line-height: 20px;
+  line-height: 16px;
+  text-transform: uppercase;
 }
 
-.referral-identifier-preview-text:nth-child(2) {
+.referral-identifier-preview-code {
   color: #000000;
+  font-family: Inter, sans-serif;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 400;
   line-height: 20px;
 }
 
-.referral-identifier-preview-text:nth-child(n + 3) {
-  color: #6b7280;
+.referral-identifier-preview-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.referral-identifier-preview-notes span {
+  color: #a3a3a3;
+  font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: italic;
   font-weight: 400;
-  line-height: 18px;
+  line-height: 16px;
 }
 
 .referral-modal-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  gap: 9px;
-  border-top: 1px solid #edf1f5;
-  padding: 12px 12px;
+  gap: 12px;
+  border-top: 1px solid #e5e5e5;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.referral-modal-cancel-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 10px 24px;
+  border: 1px solid #737373;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #737373;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.referral-modal-cancel-btn:hover {
+  background-color: #f5f5f5;
+  border-color: #525252;
+  color: #525252;
+}
+
+.referral-modal-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 10px 24px;
+  border: 0;
+  border-radius: 8px;
+  background: #15803d;
+  color: #ffffff;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 150ms ease, opacity 150ms ease;
+}
+
+.referral-modal-submit-btn:hover:not(:disabled) {
+  background-color: #166534;
+}
+
+.referral-modal-submit-btn:disabled {
+  background-color: #a7d9b8;
+  color: #ffffff;
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 .referral-form-error {
   margin: 0;
-  font-size: 11px;
+  color: #ef4444;
+  font-size: 12px;
 }
 
 .referral-credentials-body,
@@ -10543,16 +10705,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   zoom: var(--extension-ui-zoom, 1);
 }
 
-.extension-window {
-  grid-template-rows: auto auto 1fr;
-  align-content: start;
-  width: min(100%, 600px);
-  min-height: 100vh;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-
 .extension-header {
   display: flex;
   align-items: center;
@@ -10594,8 +10746,8 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   align-items: stretch;
   justify-content: stretch;
   width: 100%;
-  height: 32px;
-  min-height: 32px;
+  height: 40px;
+  min-height: 40px;
   padding: 0;
   border-bottom: 1px solid #E5E7EB;
   background: #ffffff;
@@ -10609,12 +10761,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
+  height: 40px;
   padding: 8.5px 0 9px;
   gap: 8px;
   color: #737373;
   font-family: Inter, sans-serif;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   font-style: normal;
   line-height: 16px;

@@ -24,6 +24,7 @@ type ApiErrorCode =
   | 'UNAUTHORIZED'
   | 'UNSUPPORTED_FILE_TYPE'
   | 'UPLOAD_RATE_LIMIT_EXCEEDED'
+  | 'RATE_LIMIT_EXCEEDED'
   | 'VALIDATION_ERROR'
   | string;
 
@@ -197,13 +198,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const exceptionCode = this.extractExceptionCode(exception);
 
     return this.fromFileSizeError(exceptionCode, message)
-      ?? this.fromAuthenticationStatus(status)
+      ?? this.fromAuthenticationStatus(status, rawMessage)
       ?? this.fromNotFoundError(status, message)
       ?? this.fromFileTypeError(message)
       ?? this.fromSecurityFileError(status, message)
       ?? this.fromParsingFileError(status, message)
       ?? this.fromApplicationStateError(message)
-      ?? this.fromFallbackStatus(status, details);
+      ?? this.fromFallbackStatus(status, details, rawMessage);
   }
 
   private fromFileSizeError(exceptionCode: string | null, message: string): NormalizedApiError | null {
@@ -217,7 +218,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     return null;
   }
 
-  private fromAuthenticationStatus(status: number): NormalizedApiError | null {
+  private fromAuthenticationStatus(status: number, rawMessage = ''): NormalizedApiError | null {
     if (status === HttpStatus.UNAUTHORIZED) {
       return this.buildError(status, 'UNAUTHORIZED', 'Authentication is required.');
     }
@@ -225,10 +226,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
       return this.buildError(status, 'FORBIDDEN', 'You do not have permission to perform this action.');
     }
     if (status === HttpStatus.TOO_MANY_REQUESTS) {
+      const isLockoutMessage = rawMessage.toLowerCase().includes('tạm khóa');
       return this.buildError(
         status,
-        'UPLOAD_RATE_LIMIT_EXCEEDED',
-        'Too many requests. Please retry later.',
+        isLockoutMessage ? 'RATE_LIMIT_EXCEEDED' : 'UPLOAD_RATE_LIMIT_EXCEEDED',
+        isLockoutMessage && rawMessage && !this.isSensitiveText(rawMessage)
+          ? rawMessage
+          : 'Too many requests. Please retry later.',
       );
     }
     return null;
@@ -308,12 +312,27 @@ export class ApiExceptionFilter implements ExceptionFilter {
     return null;
   }
 
-  private fromFallbackStatus(status: number, details: unknown[]): NormalizedApiError {
+  private fromFallbackStatus(status: number, details: unknown[], rawMessage: string): NormalizedApiError {
+    if (status === HttpStatus.TOO_MANY_REQUESTS) {
+      const messageToUse = rawMessage && !this.isSensitiveText(rawMessage)
+        ? rawMessage
+        : 'Tài khoản của bạn đã bị tạm khóa. Vui lòng thử lại sau.';
+      return this.buildError(
+        status,
+        'RATE_LIMIT_EXCEEDED',
+        messageToUse,
+        details,
+      );
+    }
+
     if (status === HttpStatus.BAD_REQUEST) {
+      const messageToUse = rawMessage && !this.isSensitiveText(rawMessage)
+        ? rawMessage
+        : 'Request payload is invalid.';
       return this.buildError(
         status,
         'VALIDATION_ERROR',
-        'Request payload is invalid.',
+        messageToUse,
         details,
       );
     }

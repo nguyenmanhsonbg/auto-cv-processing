@@ -48,7 +48,7 @@ export function InputField({
   const displayedError = error || internalError;
 
   const handleChange: ChangeEventHandler<HTMLInputElement> = (event) => {
-    let next = event.target.value.trim();
+    let next = event.target.value;
     if (stripWhitespace) next = next.replace(/\s+/g, '');
     event.target.value = next;
     onChange(event);

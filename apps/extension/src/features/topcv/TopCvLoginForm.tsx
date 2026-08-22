@@ -19,7 +19,7 @@ export function TopCvLoginForm({ initialEmail = '', onSuccess }: TopCvLoginFormP
     setError(null);
     setIsSyncing(true);
     try {
-      const auth = await checkTopCvAuth();
+      const auth = await checkTopCvAuth({ allowProbeTab: true });
       if (auth.ok) {
         onSuccess({ ok: true, userEmail: auth.userEmail });
       } else {

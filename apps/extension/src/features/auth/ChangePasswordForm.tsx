@@ -223,13 +223,13 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
       </div>
 
       <div className="extension-password-conditions" aria-live="polite">
-        <PasswordCondition isValid={passwordRules.hasCaseAndNumber && Boolean(newPassword)}>
+        <PasswordCondition isValid={passwordRules.hasCaseAndNumber} hasInput={Boolean(newPassword)}>
           Có ít nhất 1 chữ hoa, 1 chữ thường và 1 chữ số.
         </PasswordCondition>
-        <PasswordCondition isValid={passwordRules.hasSpecial && Boolean(newPassword)}>
+        <PasswordCondition isValid={passwordRules.hasSpecial} hasInput={Boolean(newPassword)}>
           Có ít nhất 1 ký tự đặc biệt.
         </PasswordCondition>
-        <PasswordCondition isValid={passwordRules.hasValidLength && Boolean(newPassword)}>
+        <PasswordCondition isValid={passwordRules.hasValidLength} hasInput={Boolean(newPassword)}>
           Có từ 8 - 16 ký tự.
         </PasswordCondition>
       </div>
@@ -246,19 +246,33 @@ export function ChangePasswordForm({ error, isSaving = false, onCancel, onSubmit
   );
 }
 
-function PasswordCondition({ isValid, children }: { isValid: boolean; children: string }) {
+function PasswordCondition({ isValid, hasInput, children }: { isValid: boolean; hasInput: boolean; children: string }) {
+  let status: 'neutral' | 'valid' | 'invalid' = 'neutral';
+  if (hasInput) {
+    status = isValid ? 'valid' : 'invalid';
+  }
+
   return (
-    <div className={`extension-password-condition${isValid ? ' is-valid' : ''}`}>
+    <div className={`extension-password-condition${status === 'valid' ? ' is-valid' : ''}${status === 'invalid' ? ' is-invalid' : ''}`}>
       <span className="extension-condition-tick" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path
-            d="M2.75 8.75L6.25 12.25L13.25 4.75"
-            stroke={isValid ? '#15803d' : '#737373'}
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        {status === 'invalid' ? (
+          <svg width="16" height="16" viewBox="-1.5 -1.5 11.76667 11.76667" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M4.38333 5.31667L1.11667 8.58333C0.994444 8.70555 0.838889 8.76667 0.65 8.76667C0.461111 8.76667 0.305555 8.70555 0.183333 8.58333C0.0611109 8.46111 0 8.30556 0 8.11667C0 7.92778 0.0611109 7.77222 0.183333 7.65L3.45 4.38333L0.183333 1.11667C0.0611109 0.994444 0 0.838889 0 0.65C0 0.461111 0.0611109 0.305555 0.183333 0.183333C0.305555 0.0611109 0.461111 0 0.65 0C0.838889 0 0.994444 0.0611109 1.11667 0.183333L4.38333 3.45L7.65 0.183333C7.77222 0.0611109 7.92778 0 8.11667 0C8.30556 0 8.46111 0.0611109 8.58333 0.183333C8.70555 0.305555 8.76667 0.461111 8.76667 0.65C8.76667 0.838889 8.70555 0.994444 8.58333 1.11667L5.31667 4.38333L8.58333 7.65C8.70555 7.77222 8.76667 7.92778 8.76667 8.11667C8.76667 8.30556 8.70555 8.46111 8.58333 8.58333C8.46111 8.70555 8.30556 8.76667 8.11667 8.76667C7.92778 8.76667 7.77222 8.70555 7.65 8.58333L4.38333 5.31667Z"
+              fill="#DC2626"
+            />
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M2.75 8.75L6.25 12.25L13.25 4.75"
+              stroke={status === 'valid' ? '#15803d' : '#737373'}
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
       </span>
       <span className="extension-condition-text">{children}</span>
     </div>

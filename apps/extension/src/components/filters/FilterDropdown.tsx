@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { ChevronDownIcon } from '@/components/icons';
 
 export type FilterDropdownOption<Value extends string> = {
   value: Value;
@@ -53,7 +54,7 @@ export function FilterDropdown<Value extends string>({
       <span className={labelClassName}>{label}</span>
       <button type="button" className={triggerClassName} aria-expanded={isOpen} disabled={disabled} onClick={onToggle}>
         <span>{selectedLabel}</span>
-        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="m3.5 6 4.5 4.5L12.5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <ChevronDownIcon className={isOpen ? 'is-open' : ''} />
       </button>
       {isOpen ? (
         <select

@@ -39,6 +39,8 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 const MESSAGE_PATTERNS: Array<[RegExp, string]> = [
+  [/Invalid credentials/i, 'Sai mật khẩu hoặc không tồn tại tài khoản.'],
+  [/login payload is invalid/i, 'Thông tin đăng nhập không hợp lệ.'],
   [/request payload is invalid/i, 'Nội dung nhập không hợp lệ.'],
   [/daily publish limit|quota.*(reached|exceeded)|đạt tối đa .* bài/i, 'Nhóm Facebook đã đạt giới hạn đăng bài trong ngày.'],
   [/facebook.*(login|logged in)|login.*facebook|facebook session.*(expired|required)/i, 'Vui lòng đăng nhập Facebook trước khi thực hiện thao tác này.'],
@@ -65,10 +67,14 @@ export function toVietnameseErrorMessage(error: unknown, fallback = 'Không th�
     return rawMessage;
   }
 
-  if (code && ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
+  if (code === 'RATE_LIMIT_EXCEEDED' && containsVietnamese(rawMessage)) {
+    return rawMessage;
+  }
 
   const matchedPattern = MESSAGE_PATTERNS.find(([pattern]) => pattern.test(rawMessage));
   if (matchedPattern) return matchedPattern[1];
+
+  if (code && ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
 
   if (containsVietnamese(rawMessage)) return rawMessage;
   return fallback;
