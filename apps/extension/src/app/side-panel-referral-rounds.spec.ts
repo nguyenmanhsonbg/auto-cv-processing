@@ -13,3 +13,13 @@ test('passes the recruitment-round loader to the Internal referral panel', () =>
   assert.match(internalPanelBlock, /source="INTERNAL"/);
   assert.match(internalPanelBlock, /loadRecruitmentRounds=\{loadReferralRecruitmentRounds\}/);
 });
+
+test('uses the self-service recruitment-round catalog for Freelancer and Internal accounts', () => {
+  assert.match(sidePanelSource, /getFreelancerRecruitmentRounds/);
+  assert.match(sidePanelSource, /user\?\.role === 'FREELANCER' \|\| user\?\.role === 'INTERNAL'/);
+});
+
+test('uses an existing AMIS tab for self-service catalog hydration without requiring it to be active', () => {
+  assert.match(sidePanelSource, /getAnyAmisTab/);
+  assert.match(sidePanelSource, /isSelfServiceRoundsRole/);
+});

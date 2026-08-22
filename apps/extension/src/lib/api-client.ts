@@ -152,6 +152,19 @@ export async function getFreelancerSummary(accessToken: string) {
   });
 }
 
+export async function getFreelancerRecruitmentRounds(
+  accessToken: string,
+  amisRecruitmentId: string,
+) {
+  return request<AmisRecruitmentRound[]>(
+    `/freelancers/me/recruitment-rounds/${encodeURIComponent(amisRecruitmentId)}`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  );
+}
+
 export async function listFreelancerApplications(
   accessToken: string,
   params: { page?: number; limit?: number; search?: string; processStatus?: string; hrReceptionStatus?: string; sortOrder?: 'ASC' | 'DESC' } = {},

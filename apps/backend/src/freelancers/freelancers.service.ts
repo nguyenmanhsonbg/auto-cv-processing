@@ -18,6 +18,7 @@ import { ApplicationReferralEntity } from './entities/application-referral.entit
 import { FreelancerIdentifierCounterEntity } from './entities/freelancer-identifier-counter.entity';
 import { FreelancerEntity } from './entities/freelancer.entity';
 import { RecruitmentExternalReferenceEntity } from '../extension-integration/entities/recruitment-external-reference.entity';
+import { AmisRecruitmentRoundEntity } from '../extension-integration/entities/amis-recruitment-round.entity';
 import {
   ExtensionExternalEntityType,
   ExtensionInternalEntityType,
@@ -121,6 +122,15 @@ export interface FreelancerApplicationSummary {
   updatedAt: Date;
 }
 
+export interface FreelancerRecruitmentRoundSummary {
+  id: string;
+  name: string;
+  sortOrder: number;
+  roundType: number | null;
+  roundTypeId: string | null;
+  color: string | null;
+}
+
 @Injectable()
 export class FreelancersService {
   private static readonly IDENTIFIER_COUNTER_ID = 1;
@@ -141,6 +151,8 @@ export class FreelancersService {
     private readonly usersRepo: Repository<UserEntity>,
     @InjectRepository(InternalEntity)
     private readonly internalsRepo: Repository<InternalEntity>,
+    @InjectRepository(AmisRecruitmentRoundEntity)
+    private readonly amisRecruitmentRoundsRepo: Repository<AmisRecruitmentRoundEntity>,
   ) {}
 
   async create(input: CreateFreelancerInput): Promise<FreelancerCreateResult> {
@@ -373,6 +385,60 @@ export class FreelancersService {
 
     const freelancer = await this.resolveActiveByUserIdOrThrow(userId);
     return this.findApplicationsByFreelancerId(freelancer.id, params, true);
+  }
+
+  async listMyRecruitmentRounds(
+    userId: string,
+    amisRecruitmentIdInput: string,
+    role: UserRole = UserRole.FREELANCER,
+  ): Promise<FreelancerRecruitmentRoundSummary[]> {
+    const amisRecruitmentId = this.requireText(amisRecruitmentIdInput, 'AMIS recruitment id');
+    const sourceType = role === UserRole.INTERNAL
+      ? ApplicationReferralSourceType.INTERNAL
+      : ApplicationReferralSourceType.FREELANCER;
+    const ownerColumn = role === UserRole.INTERNAL ? 'internalId' : 'freelancerId';
+    const owner = role === UserRole.INTERNAL
+      ? await this.internalsRepo.findOne({
+        where: { userId: this.requireText(userId, 'User id'), isActive: true },
+      })
+      : await this.resolveActiveByUserIdOrThrow(userId);
+
+    if (!owner) return [];
+
+    const matchingReferral = await this.referralsRepo
+      .createQueryBuilder('referral')
+      .innerJoin('referral.application', 'application')
+      .innerJoin('application.jobPosting', 'jobPosting')
+      .innerJoin('jobPosting.jobDescription', 'jobDescription')
+      .where(`referral.${ownerColumn} = :ownerId`, { ownerId: owner.id })
+      .andWhere('referral.sourceType = :sourceType', { sourceType })
+      .andWhere('jobDescription.sourceSystem = :sourceSystem', { sourceSystem: ExtensionSourceSystem.AMIS })
+      .andWhere('jobDescription.sourceJobId = :amisRecruitmentId', { amisRecruitmentId })
+      .getOne();
+
+    // Do not expose the catalog for a recruitment that is not linked to this account.
+    if (!matchingReferral) return [];
+
+    const rounds = await this.amisRecruitmentRoundsRepo.find({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        amisRecruitmentId,
+        isActive: true,
+      },
+      order: {
+        sortOrder: 'ASC',
+        roundName: 'ASC',
+      },
+    });
+
+    return rounds.map((round) => ({
+      id: round.amisRoundId,
+      name: round.roundName,
+      sortOrder: round.sortOrder,
+      roundType: round.roundType,
+      roundTypeId: round.roundTypeId,
+      color: round.color,
+    }));
   }
 
   async updateMyApplicationEvaluation(

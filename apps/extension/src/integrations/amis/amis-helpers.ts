@@ -45,6 +45,25 @@ export async function getActiveTab() {
   };
 }
 
+/**
+ * Find an already open AMIS tab without changing the user's active tab.
+ * This is used by background catalog hydration for self-service panels.
+ */
+export async function getAnyAmisTab() {
+  const tabs = (await chrome.tabs?.query({}) ?? [])
+    .filter((tab) => tab.id !== undefined && tab.url?.startsWith('https://amisapp.misa.vn/'));
+  const amisTab = tabs.find((tab) => (tab as typeof tab & { active?: boolean }).active) ?? tabs[0];
+
+  if (!amisTab?.id) {
+    throw new Error('No AMIS tab found. Open an AMIS recruitment tab and retry.');
+  }
+
+  return {
+    id: amisTab.id,
+    url: amisTab.url,
+  };
+}
+
 export async function sendMessageToAmisTab(tabId: number, message: unknown, frameId?: number) {
   if (!chrome.tabs?.sendMessage) {
     throw new Error('Chrome tabs messaging is unavailable.');

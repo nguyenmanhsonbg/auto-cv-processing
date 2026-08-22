@@ -46,6 +46,32 @@ type FreelancerCvPanelProps = {
 
 type StatusCategory = 'PROCESSING' | 'PASSED' | 'REJECTED';
 
+async function loadAllFreelancerApplicationsForCatalog(
+  accessToken: string,
+  query: string,
+): Promise<FreelancerSelfApplication[]> {
+  const firstPage = await listFreelancerApplications(accessToken, {
+    page: 1,
+    limit: 100,
+    search: query,
+    sortOrder: 'DESC',
+  });
+
+  const totalPages = firstPage.pagination?.totalPages ?? 1;
+  if (totalPages <= 1) return firstPage.data;
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => listFreelancerApplications(accessToken, {
+      page: index + 2,
+      limit: 100,
+      search: query,
+      sortOrder: 'DESC',
+    })),
+  );
+
+  return [firstPage, ...remainingPages].flatMap((page) => page.data);
+}
+
 export function FreelancerCvPanel({
   accessToken,
   onNotify,
@@ -56,6 +82,7 @@ export function FreelancerCvPanel({
 }: FreelancerCvPanelProps) {
   const [summary, setSummary] = useState<FreelancerSelfSummary | null>(null);
   const [applications, setApplications] = useState<FreelancerSelfApplication[]>([]);
+  const [catalogApplications, setCatalogApplications] = useState<FreelancerSelfApplication[]>([]);
   const [roundsByJobPostingId, setRoundsByJobPostingId] = useState<Record<string, AmisRecruitmentRound[]>>({});
   const [roundsLoading, setRoundsLoading] = useState(false);
   const [pagination, setPagination] = useState<ApiPagination | null>(null);
@@ -78,6 +105,16 @@ export function FreelancerCvPanel({
       ]);
       setSummary(nextSummary);
       setApplications(nextApplications.data);
+      if ((nextApplications.pagination?.total ?? nextApplications.data.length) > nextApplications.data.length) {
+        try {
+          setCatalogApplications(await loadAllFreelancerApplicationsForCatalog(accessToken, query));
+        } catch {
+          // The paginated list remains usable if the optional catalog request fails.
+          setCatalogApplications(nextApplications.data);
+        }
+      } else {
+        setCatalogApplications(nextApplications.data);
+      }
       setPagination(nextApplications.pagination);
       setDraftNotes((current) => ({
         ...Object.fromEntries(nextApplications.data.map((application) => [application.referralId, application.evaluation ?? ''])),
@@ -103,16 +140,16 @@ export function FreelancerCvPanel({
 
   const jdOptions = useMemo(() => {
     const values = new Map<string, string>();
-    applications.forEach((application) => values.set(application.jobPosting.jobPostingId, application.jobPosting.title));
+    catalogApplications.forEach((application) => values.set(application.jobPosting.jobPostingId, application.jobPosting.title));
     return Array.from(values.entries());
-  }, [applications]);
+  }, [catalogApplications]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadRounds() {
       const targets = Array.from(new Map(
-        applications
+        catalogApplications
           .filter((application) => (
             Boolean((application.jobPosting.amisRecruitmentId ?? application.jobPosting.sourceJobId)?.trim())
             && (filters.jd === 'ALL' || application.jobPosting.jobPostingId === filters.jd)
@@ -145,13 +182,13 @@ export function FreelancerCvPanel({
     return () => {
       cancelled = true;
     };
-  }, [applications, filters.jd, loadRecruitmentRounds]);
+  }, [catalogApplications, filters.jd, loadRecruitmentRounds]);
 
   const scopedApplications = useMemo(
     () => filters.jd === 'ALL'
-      ? applications
-      : applications.filter((application) => application.jobPosting.jobPostingId === filters.jd),
-    [applications, filters.jd],
+      ? catalogApplications
+      : catalogApplications.filter((application) => application.jobPosting.jobPostingId === filters.jd),
+    [catalogApplications, filters.jd],
   );
   const statusOptions = useMemo(() => {
     const configuredRounds = scopedApplications.flatMap((application) => (

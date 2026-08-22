@@ -106,6 +106,25 @@ export class FreelancersController {
     return this.paginatedApplicationsResponse(result);
   }
 
+  @Get('me/recruitment-rounds/:amisRecruitmentId')
+  @Roles(UserRole.FREELANCER, UserRole.INTERNAL)
+  @ApiOperation({ summary: 'List persisted AMIS rounds for a recruitment linked to the current account' })
+  async meRecruitmentRounds(
+    @Request() req: any,
+    @Param('amisRecruitmentId') amisRecruitmentId: string,
+  ) {
+    const data = await this.freelancersService.listMyRecruitmentRounds(
+      req?.user?.id,
+      amisRecruitmentId,
+      req?.user?.role,
+    );
+    return {
+      success: true,
+      data,
+      meta: this.meta(),
+    };
+  }
+
   @Patch('me/applications/:referralId/evaluation')
   @Roles(UserRole.FREELANCER, UserRole.INTERNAL)
   @ApiOperation({ summary: 'Create or update the current freelancer evaluation note for a referral' })

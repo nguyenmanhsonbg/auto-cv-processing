@@ -9,6 +9,7 @@ import { FreelancersService } from './freelancers.service';
 import { ApplicationReferralEntity } from './entities/application-referral.entity';
 import { FreelancerIdentifierCounterEntity } from './entities/freelancer-identifier-counter.entity';
 import { FreelancerEntity } from './entities/freelancer.entity';
+import { AmisRecruitmentRoundEntity } from '../extension-integration/entities/amis-recruitment-round.entity';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { FreelancerEntity } from './entities/freelancer.entity';
       FreelancerIdentifierCounterEntity,
       UserEntity,
       InternalEntity,
+      AmisRecruitmentRoundEntity,
     ]),
   ],
   controllers: [FreelancersController],

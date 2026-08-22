@@ -21,6 +21,7 @@ import {
   getAmisApplicationsForRecruitment,
   getAmisRecruitmentJobDescription,
   getAmisRecruitmentRounds,
+  getFreelancerRecruitmentRounds,
   getCurrentUser,
   getJobDescriptionQuestionSet,
   listJobDescriptions,
@@ -94,6 +95,7 @@ import {
   canUploadApplicationCv,
   formatAmisCandidateSourceSelectionFailure,
   getActiveTab,
+  getAnyAmisTab,
   getAmisSourceName,
   getAutoSyncStateRecruitmentId,
   isAmisApplicationsFetchResponse,
@@ -282,6 +284,7 @@ function SidePanel() {
     targets: Array<{ jobPostingId: string; amisRecruitmentId: string }>,
   ) => {
     if (targets.length === 0) return [];
+    const isSelfServiceRoundsRole = user?.role === 'FREELANCER' || user?.role === 'INTERNAL';
 
     const loadRoundsFromAmis = async (
       activeTab: Awaited<ReturnType<typeof getActiveTab>>,
@@ -318,7 +321,9 @@ function SidePanel() {
     const persistedResults = await Promise.all(targets.map(async (target) => {
       if (!token) return null;
       try {
-        const rounds = await getAmisRecruitmentRounds(token, target.amisRecruitmentId);
+        const rounds = user?.role === 'FREELANCER' || user?.role === 'INTERNAL'
+          ? await getFreelancerRecruitmentRounds(token, target.amisRecruitmentId)
+          : await getAmisRecruitmentRounds(token, target.amisRecruitmentId);
         if (rounds.length > 0) return { ...target, rounds };
       } catch {
         // An unavailable catalog falls through to the AMIS-tab loader below.
@@ -337,7 +342,7 @@ function SidePanel() {
 
     let activeTab: Awaited<ReturnType<typeof getActiveTab>>;
     try {
-      activeTab = await getActiveTab();
+      activeTab = await (isSelfServiceRoundsRole ? getAnyAmisTab() : getActiveTab());
     } catch {
       return targets.map((target) => persistedByRecruitmentId.get(target.amisRecruitmentId) ?? {
         ...target,
@@ -359,7 +364,7 @@ function SidePanel() {
       ?? fetchedByRecruitmentId.get(target.amisRecruitmentId)
       ?? { ...target, rounds: [] as AmisRecruitmentRound[] }
     ));
-  }, [token]);
+  }, [token, user?.role]);
   const [snapshot, setSnapshot] = useState<AmisJobSnapshot | null>(null);
   const [amisRecruitmentId, setAmisRecruitmentId] = useState<string | null>(null);
   const [amisRecruitmentRoundId, setAmisRecruitmentRoundId] = useState<string | null>(null);
