@@ -1,0 +1,152 @@
+import { BackIcon, EditIcon } from '@/components/icons';
+import { formatTopCvSalary, type TopCvFormData } from './topcv-form.types';
+
+interface TopCvPreviewModalProps {
+  formData: TopCvFormData;
+  onEdit: () => void;
+  onClose: () => void;
+}
+
+export function TopCvPreviewModal({
+  formData,
+  onEdit,
+  onClose,
+}: TopCvPreviewModalProps) {
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return 'Chưa xác định';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    return dateStr;
+  };
+
+  return (
+    <div className="topcv-screen-container">
+      <header className="topcv-screen-header">
+        <button type="button" className="icon-button" onClick={onClose} title="Quay lại" aria-label="Quay lại">
+          <BackIcon />
+        </button>
+        <div className="topcv-screen-title-wrap">
+          <span className="topcv-badge">TopCV</span>
+          <h2 id="topcv-preview-title">Xem trước bài đăng TopCV</h2>
+        </div>
+      </header>
+
+      <div className="topcv-screen-body">
+        {/* HERO CARD */}
+        <div className="topcv-hero-card">
+          <div className="topcv-hero-header">
+            <h3 className="topcv-hero-title">{formData.title || 'Chưa có tiêu đề bài đăng'}</h3>
+            <div className="topcv-hero-salary">{formatTopCvSalary(formData)}</div>
+          </div>
+          <div className="topcv-hero-meta-grid">
+            <div className="topcv-meta-box">
+              <span className="topcv-meta-label">ĐỊA ĐIỂM</span>
+              <strong className="topcv-meta-val">{formData.locations[0]?.province_name || 'Chưa cập nhật'}</strong>
+            </div>
+            <div className="topcv-meta-box">
+              <span className="topcv-meta-label">KINH NGHIỆM</span>
+              <strong className="topcv-meta-val">{formData.experience || 'Chưa cập nhật'}</strong>
+            </div>
+            <div className="topcv-meta-box">
+              <span className="topcv-meta-label">HẠN ỨNG TUYỂN</span>
+              <strong className="topcv-meta-val">{formatDate(formData.deadline)}</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* OVERVIEW SECTION */}
+        <div className="topcv-preview-section">
+          <h4 className="topcv-preview-section-title">Tổng quan</h4>
+          <div className="topcv-overview-grid">
+            <div className="topcv-overview-row">
+              <span className="topcv-overview-label">Yêu cầu:</span>
+              <div className="topcv-overview-chips">
+                <span className="topcv-tag">{formData.experience}</span>
+                <span className="topcv-tag">{formData.education}</span>
+                {formData.languages.map((l, i) => (
+                  <span key={i} className="topcv-tag">{l.language} {l.certificate}</span>
+                ))}
+              </div>
+            </div>
+            <div className="topcv-overview-row">
+              <span className="topcv-overview-label">Chuyên môn:</span>
+              <div className="topcv-overview-chips">
+                {formData.requiredSkills.map((s, i) => (
+                  <span key={i} className="topcv-tag is-primary">{s}</span>
+                ))}
+                {formData.preferredSkills.map((s, i) => (
+                  <span key={i} className="topcv-tag">{s}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* JOB DESCRIPTION */}
+        <div className="topcv-preview-section">
+          <h4 className="topcv-preview-section-title">Mô tả công việc</h4>
+          <div className="topcv-preview-text">
+            {formData.jobDescription || 'Chưa có nội dung mô tả công việc.'}
+          </div>
+        </div>
+
+        {/* JOB REQUIREMENTS */}
+        <div className="topcv-preview-section">
+          <h4 className="topcv-preview-section-title">Yêu cầu ứng viên</h4>
+          <div className="topcv-preview-text">
+            {formData.jobRequirement || 'Chưa có nội dung yêu cầu ứng viên.'}
+          </div>
+        </div>
+
+        {/* BENEFITS */}
+        <div className="topcv-preview-section">
+          <h4 className="topcv-preview-section-title">Quyền lợi ứng viên</h4>
+          <div className="topcv-preview-text">
+            {formData.jobBenefit || 'Chưa có nội dung quyền lợi ứng viên.'}
+          </div>
+        </div>
+
+        {/* LOCATION & TIME */}
+        <div className="topcv-preview-section">
+          <h4 className="topcv-preview-section-title">Địa điểm và thời gian</h4>
+          <div className="topcv-preview-text">
+            <p><strong>Địa điểm làm việc:</strong></p>
+            {formData.locations.length > 0 ? (
+              formData.locations.map((loc, idx) => (
+                <div key={idx} style={{ marginBottom: 8 }}>
+                  <p><strong>{loc.province_name}</strong></p>
+                  {loc.addresses.map((addr, aIdx) => (
+                    <p key={aIdx} style={{ paddingLeft: 12 }}>
+                      • {addr.district_name}
+                      {addr.working_address && <span> - {addr.working_address}</span>}
+                    </p>
+                  ))}
+                </div>
+              ))
+            ) : (
+              <p>Chưa cập nhật</p>
+            )}
+            <p style={{ marginTop: 8 }}><strong>Thời gian làm việc:</strong></p>
+            <p>
+              {formData.workingHours.fromDay && formData.workingHours.toDay
+                ? `${formData.workingHours.fromDay} - ${formData.workingHours.toDay} (${formData.workingHours.fromTime || ''} đến ${formData.workingHours.toTime || ''})`
+                : 'Chưa cập nhật'}
+            </p>
+            {formData.workingHours.lunchBreak && <p>{formData.workingHours.lunchBreak}</p>}
+          </div>
+        </div>
+      </div>
+
+      <footer className="topcv-screen-footer">
+        <button type="button" className="secondary-button" onClick={onClose}>
+          Đóng
+        </button>
+        <div className="topcv-modal-footer-actions">
+          <button type="button" className="primary-button" onClick={onEdit}>
+            <EditIcon /> Chỉnh sửa
+          </button>
+        </div>
+      </footer>
+    </div>
+  );
+}

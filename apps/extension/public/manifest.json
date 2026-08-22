@@ -24,6 +24,8 @@
     "http://localhost:4001/*",
     "https://quarry-judo-entail.ngrok-free.dev/*",
     "https://amisapp.misa.vn/*",
+    "https://tuyendung.topcv.vn/*",
+    "https://tuyendung-api.topcv.vn/*",
     "https://www.facebook.com/*",
     "https://facebook.com/*"
   ],

@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
-const sidePanelSource = await readFile(new URL('../src/app/side-panel.tsx', import.meta.url), 'utf8');
-const iconsSource = await readFile(new URL('../src/components/icons/side-panel-icons.tsx', import.meta.url), 'utf8');
+const sidePanelSource = await readFile(new URL('../src/features/posting/JobPostingPanel.tsx', import.meta.url), 'utf8');
+const iconsSource = await readFile(new URL('../src/components/svg/side-panel-icons.tsx', import.meta.url), 'utf8');
 const stylesSource = await readFile(new URL('../src/app/styles.css', import.meta.url), 'utf8');
 
 test('result toggle icons use the same 16px SVG coordinate system', () => {
-  const downIcon = iconsSource.match(/function ChevronDownIcon\(\)[\s\S]*?\r?\n}\r?\n/);
-  const upIcon = iconsSource.match(/function ChevronUpIcon\(\)[\s\S]*?\r?\n}\r?\n/);
+  const downIcon = iconsSource.match(/(?:export\s+)?function ChevronDownIcon\([\s\S]*?\r?\n}\r?\n/);
+  const upIcon = iconsSource.match(/(?:export\s+)?function ChevronUpIcon\([\s\S]*?\r?\n}\r?\n/);
 
   assert.ok(downIcon, 'ChevronDownIcon should exist');
   assert.ok(upIcon, 'ChevronUpIcon should exist');

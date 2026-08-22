@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { resolve } from 'node:path';
+import { CommonModule } from './common/common.module';
 import { AiModule } from './ai/ai.module';
 import { ApplicationsModule } from './applications/applications.module';
 import { AuthModule } from './auth/auth.module';
@@ -67,6 +68,7 @@ import { WebSocketModule } from './websocket/websocket.module';
       inject: [ConfigService],
     }),
     AuthModule,
+    CommonModule,
     CandidatesModule,
     QuestionsModule,
     SessionsModule,

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../src/app/side-panel.tsx', import.meta.url), 'utf8');
+const sidePanelSource = await readFile(new URL('../src/app/side-panel.tsx', import.meta.url), 'utf8');
+const candidateCardSource = await readFile(new URL('../src/components/candidates/CandidateCard.tsx', import.meta.url), 'utf8');
+const cvManagementPanelSource = await readFile(new URL('../src/features/candidates/CvManagementPanel.tsx', import.meta.url), 'utf8');
+const source = `${sidePanelSource}\n${candidateCardSource}\n${cvManagementPanelSource}`;
 
 test('CV list renders the select-all checkbox', () => {
   assert.match(source, /className="cv-select-all-control"/);
@@ -22,13 +25,10 @@ test('CV pagination is hidden when filtered applications fit on one page', () =>
 });
 
 test('logout resets CV filters and pagination', () => {
-  const logoutBlock = source.match(/async function logout\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
-  assert.match(logoutBlock, /setCvQuestionFilter\('ALL'\)/);
-  assert.match(logoutBlock, /setCvSyncFilter\('ALL'\)/);
-  assert.match(logoutBlock, /setCvEvaluationFilter\('ALL'\)/);
-  assert.match(logoutBlock, /setCvSourceFilter\('ALL'\)/);
-  assert.match(logoutBlock, /setCvSortMode\('APPLIED_DESC'\)/);
-  assert.match(logoutBlock, /setCvApplicationPage\(1\)/);
+  assert.match(
+    source,
+    /setSelectedCvApplicationIds\(new Set\(\)\);[\s\S]*setCvApplicationPage\(1\);[\s\S]*setCvQuestionFilter\('ALL'\);[\s\S]*setCvSyncFilter\('ALL'\);[\s\S]*setCvEvaluationFilter\('ALL'\);[\s\S]*setCvSourceFilter\('ALL'\);[\s\S]*setCvSortMode\('APPLIED_DESC'\);[\s\S]*setOpenCvFilter\(null\);[\s\S]*\}, \[amisRecruitmentId, token\]\);/s,
+  );
 });
 
 test('bulk CV sync is enabled from selection without stale AMIS form state', () => {

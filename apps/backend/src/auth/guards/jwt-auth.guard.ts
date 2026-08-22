@@ -42,6 +42,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     return (
       (method === 'GET' && path === '/api/auth/me') ||
+      (method === 'PATCH' && path === '/api/auth/password') ||
       path === '/api/freelancers/me' ||
       path.startsWith('/api/freelancers/me/')
     );

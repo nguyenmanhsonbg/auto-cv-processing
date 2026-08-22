@@ -1,66 +1,304 @@
-import { useState, type ChangeEvent, type FormEventHandler } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEventHandler, type RefObject } from 'react';
+import { ApiClientError, login as loginApi, requestInternalPassword } from '@/lib/api-client';
+import { clearSavedCredentials, getSavedCredentials, saveCredentials, setAuthTokens } from './auth-store';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
+import { AuthInput } from './AuthInput';
+import { UserIcon, LockIcon, EyeIcon, InternalPasswordSentIcon } from '@/components/svg';
+import { toErrorMessage } from '@/lib/utils';
+import type { ExtensionUser } from '@/types/types';
 
-type LoginFormProps = {
-  login: string;
-  password: string;
-  rememberMe: boolean;
-  error: string | null;
-  internalMode: boolean;
-  forgotPasswordMode: boolean;
-  internalEmail: string;
-  internalMessage: string | null;
-  internalSubmitting: boolean;
-  onLoginChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onPasswordChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onInternalEmailChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onRememberMeChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onForgotPassword: () => void;
-  onForgotPasswordCancel: () => void;
-  onInternalModeChange: () => void;
-  onInternalCancel: () => void;
-  onInternalSubmit: FormEventHandler<HTMLFormElement>;
-  onSubmit: FormEventHandler<HTMLFormElement>;
+export type LoginFormProps = {
+  onLoginSuccess: (user: ExtensionUser, accessToken: string, mustChangePassword: boolean) => Promise<void> | void;
+  onError?: (message: string) => void;
 };
 
-export function LoginForm({
-  login,
-  password,
-  rememberMe,
-  error,
-  internalMode,
-  forgotPasswordMode,
-  internalEmail,
-  internalMessage,
-  internalSubmitting,
-  onLoginChange,
-  onPasswordChange,
-  onInternalEmailChange,
-  onRememberMeChange,
-  onForgotPassword,
-  onForgotPasswordCancel,
-  onInternalModeChange,
-  onInternalCancel,
-  onInternalSubmit,
-  onSubmit,
-}: LoginFormProps) {
+export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [internalMode, setInternalMode] = useState(false);
+  const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
+  const [internalEmail, setInternalEmail] = useState('');
+  const [internalFullName, setInternalFullName] = useState('');
+  const [internalMessage, setInternalMessage] = useState<string | null>(null);
+  const [internalSubmitting, setInternalSubmitting] = useState(false);
+
   const [showPassword, setShowPassword] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<'login' | 'password' | null>(null);
+
+  const [internalLocalError, setInternalLocalError] = useState<string | null>(null);
+  const [internalErrorField, setInternalErrorField] = useState<'fullName' | 'email' | null>(null);
+
+  const loginInputRef = useRef<HTMLInputElement | null>(null);
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
+  const internalFullNameRef = useRef<HTMLInputElement | null>(null);
+  const internalEmailRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getSavedCredentials().then((saved) => {
+      if (active && saved) {
+        setLogin(saved.login);
+        setPassword(saved.password);
+        setRememberMe(true);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const hasLoginError = errorField === 'login' || (Boolean(error) && !errorField);
+  const hasPasswordError = errorField === 'password' || (Boolean(error) && !errorField);
+
+  const hasInternalFullNameError = internalErrorField === 'fullName';
+  const hasInternalEmailError = internalErrorField === 'email' || (Boolean(error) && !internalErrorField);
+
+  const handleLoginChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (localError || errorField || error) {
+      setLocalError(null);
+      setErrorField(null);
+      setError(null);
+    }
+    setLogin(e.target.value);
+  };
+
+  const handlePasswordChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (localError || errorField || error) {
+      setLocalError(null);
+      setErrorField(null);
+      setError(null);
+    }
+    setPassword(e.target.value);
+  };
+
+  const handleLoginBlur = () => {
+    if (!login.trim()) {
+      setLocalError('Tên đăng nhập là bắt buộc');
+      setErrorField('login');
+    }
+  };
+
+  const handlePasswordBlur = () => {
+    if (!password) {
+      setLocalError('Mật khẩu là bắt buộc');
+      setErrorField('password');
+    }
+  };
+
+  const handleLoginClear = () => {
+    setLogin('');
+    setLocalError(null);
+    setErrorField(null);
+    setError(null);
+    loginInputRef.current?.focus();
+  };
+
+  const handlePasswordClear = () => {
+    setPassword('');
+    setLocalError(null);
+    setErrorField(null);
+    setError(null);
+    passwordInputRef.current?.focus();
+  };
+
+  const handleLoginSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
+    e.preventDefault();
+    setError(null);
+    const trimmedEmail = login.trim();
+    if (!trimmedEmail) {
+      setLocalError('Tên đăng nhập là bắt buộc');
+      setErrorField('login');
+      loginInputRef.current?.focus();
+      return;
+    }
+    if (!password) {
+      setLocalError('Mật khẩu là bắt buộc');
+      setErrorField('password');
+      passwordInputRef.current?.focus();
+      return;
+    }
+
+    setLocalError(null);
+    setErrorField(null);
+    setSubmitting(true);
+
+    try {
+      const auth = await loginApi(trimmedEmail, password);
+      if (rememberMe) {
+        await saveCredentials({ login: trimmedEmail, password });
+      } else {
+        await clearSavedCredentials();
+      }
+
+      if (
+        auth.user.role !== 'ADMIN'
+        && auth.user.role !== 'HR'
+        && auth.user.role !== 'FREELANCER'
+        && auth.user.role !== 'INTERNAL'
+      ) {
+        throw new ApiClientError('FORBIDDEN', 'Bạn không có quyền truy cập extension.', 403);
+      }
+
+      await setAuthTokens(
+        {
+          accessToken: auth.accessToken,
+          refreshToken: auth.refreshToken,
+        },
+        { rememberMe },
+      );
+
+      await onLoginSuccess(auth.user, auth.accessToken, Boolean(auth.mustChangePassword));
+    } catch (err) {
+      const msg = err instanceof ApiClientError && (err.status === 401 || err.code === 'HTTP_401')
+        ? 'Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại.'
+        : toErrorMessage(err);
+      onError ? onError(msg) : setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleInternalFullNameChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (internalLocalError || internalErrorField === 'fullName') {
+      setInternalLocalError(null);
+      setInternalErrorField(null);
+    }
+    setInternalFullName(e.target.value);
+  };
+
+  const handleInternalEmailChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (internalLocalError || internalErrorField === 'email') {
+      setInternalLocalError(null);
+      setInternalErrorField(null);
+    }
+    const val = e.target.value.length > 255 ? e.target.value.slice(0, 255) : e.target.value;
+    setInternalEmail(val);
+  };
+
+  const handleInternalFullNameBlur = () => {
+    if (!internalFullName.trim()) {
+      setInternalLocalError('Họ tên nhân sự là bắt buộc');
+      setInternalErrorField('fullName');
+    }
+  };
+
+  const handleInternalEmailBlur = () => {
+    if (!internalEmail.trim()) {
+      setInternalLocalError('Gmail nội bộ nhân sự là bắt buộc');
+      setInternalErrorField('email');
+    }
+  };
+
+  const handleInternalFullNameClear = () => {
+    setInternalFullName('');
+    setInternalLocalError(null);
+    setInternalErrorField(null);
+    internalFullNameRef.current?.focus();
+  };
+
+  const handleInternalEmailClear = () => {
+    setInternalEmail('');
+    setInternalLocalError(null);
+    setInternalErrorField(null);
+    internalEmailRef.current?.focus();
+  };
+
+  const handleInternalSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setInternalMessage(null);
+
+    if (!internalFullName.trim()) {
+      setInternalLocalError('Họ tên nhân sự là bắt buộc');
+      setInternalErrorField('fullName');
+      internalFullNameRef.current?.focus();
+      return;
+    }
+    const normalizedEmail = internalEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setInternalLocalError('Gmail nội bộ nhân sự là bắt buộc');
+      setInternalErrorField('email');
+      internalEmailRef.current?.focus();
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(normalizedEmail)) {
+      setInternalLocalError('Gmail nội bộ không chính xác. Vui lòng kiểm tra và thử lại.');
+      setInternalErrorField('email');
+      internalEmailRef.current?.focus();
+      return;
+    }
+
+    setInternalLocalError(null);
+    setInternalErrorField(null);
+    setInternalSubmitting(true);
+    try {
+      const response = await requestInternalPassword(normalizedEmail);
+      setInternalMessage(response.message);
+      setInternalEmail(normalizedEmail);
+    } catch (err) {
+      const msg = toErrorMessage(err);
+      onError ? onError(msg) : setError(msg);
+    } finally {
+      setInternalSubmitting(false);
+    }
+  };
+
+  const handleInternalCancel = () => {
+    setInternalMode(false);
+    setInternalMessage(null);
+    setInternalLocalError(null);
+    setInternalErrorField(null);
+  };
+
+  const handleForgotPassword = () => {
+    setForgotPasswordMode(true);
+    setError(null);
+    setLocalError(null);
+  };
+
+  const handleInternalModeChange = () => {
+    setInternalMode(true);
+    setInternalMessage(null);
+    setError(null);
+    setLocalError(null);
+  };
 
   if (forgotPasswordMode) {
-    return <section className="extension-login-shell"><ForgotPasswordForm onCancel={onForgotPasswordCancel} /></section>;
+    return (
+      <section className="extension-login-shell">
+        <ForgotPasswordForm onCancel={() => setForgotPasswordMode(false)} />
+      </section>
+    );
   }
 
   if (internalMode) {
     return internalMessage
-      ? <InternalPasswordSentView email={internalEmail} onCancel={onInternalCancel} />
+      ? <InternalPasswordSentView email={internalEmail} onCancel={handleInternalCancel} />
       : <InternalPasswordRequestView
         email={internalEmail}
+        fullName={internalFullName}
         error={error}
         message={internalMessage}
         submitting={internalSubmitting}
-        onEmailChange={onInternalEmailChange}
-        onCancel={onInternalCancel}
-        onSubmit={onInternalSubmit}
+        fullNameRef={internalFullNameRef}
+        emailRef={internalEmailRef}
+        onFullNameChange={handleInternalFullNameChange}
+        onFullNameBlur={handleInternalFullNameBlur}
+        onFullNameClear={handleInternalFullNameClear}
+        onEmailChange={handleInternalEmailChange}
+        onEmailBlur={handleInternalEmailBlur}
+        onEmailClear={handleInternalEmailClear}
+        hasFullNameError={hasInternalFullNameError}
+        hasEmailError={hasInternalEmailError}
+        localError={internalLocalError}
+        errorField={internalErrorField}
+        onCancel={handleInternalCancel}
+        onSubmit={handleInternalSubmit}
       />;
   }
 
@@ -70,13 +308,24 @@ export function LoginForm({
     rememberMe={rememberMe}
     error={error}
     showPassword={showPassword}
-    onLoginChange={onLoginChange}
-    onPasswordChange={onPasswordChange}
-    onRememberMeChange={onRememberMeChange}
-    onForgotPassword={onForgotPassword}
-    onInternalModeChange={onInternalModeChange}
+    loginInputRef={loginInputRef}
+    passwordInputRef={passwordInputRef}
+    onLoginChange={handleLoginChange}
+    onPasswordChange={handlePasswordChange}
+    onLoginBlur={handleLoginBlur}
+    onPasswordBlur={handlePasswordBlur}
+    onLoginClear={handleLoginClear}
+    onPasswordClear={handlePasswordClear}
+    hasLoginError={hasLoginError}
+    hasPasswordError={hasPasswordError}
+    loginErrorMessage={errorField === 'login' ? localError : null}
+    passwordErrorMessage={errorField === 'password' ? localError : null}
+    onRememberMeChange={(event) => setRememberMe(event.target.checked)}
+    onForgotPassword={handleForgotPassword}
+    onInternalModeChange={handleInternalModeChange}
     onPasswordVisibilityChange={() => setShowPassword((visible) => !visible)}
-    onSubmit={onSubmit}
+    submitting={submitting}
+    onSubmit={handleLoginSubmit}
   />;
 }
 
@@ -84,12 +333,22 @@ function InternalPasswordSentView({ email, onCancel }: { email: string; onCancel
   return (
         <section className="extension-login-shell">
           <div className="extension-login-card extension-auth-form extension-internal-success">
-            <h1>Lấy mật khẩu Extension</h1>
-            <InternalPasswordSentIcon />
-            <strong>Mật khẩu đã được gửi đến gmail {email}</strong>
-            <p>Vui lòng kiểm tra để lấy mật khẩu đăng nhập và đổi lại mật khẩu mới sau khi đăng nhập lần đầu.</p>
-            <button type="button" className="primary-button" onClick={onCancel}>
-              QUAY LẠI MÀN HÌNH ĐĂNG NHẬP
+            <div className="extension-auth-heading-group">
+              <h1>Lấy mật khẩu Extension</h1>
+            </div>
+            <div className="extension-internal-success-body">
+              <InternalPasswordSentIcon />
+              <div className="extension-internal-success-texts">
+                <strong>Mật khẩu đã được gửi đến gmail {email}</strong>
+                <p>Vui lòng kiểm tra để lấy mật khẩu đăng nhập và đổi lại mật khẩu mới sau khi đăng nhập lần đầu.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="primary-button extension-auth-btn-back"
+              onClick={onCancel}
+            >
+              Quay lại màn hình đăng nhập
             </button>
           </div>
         </section>
@@ -97,44 +356,87 @@ function InternalPasswordSentView({ email, onCancel }: { email: string; onCancel
 }
 
 function InternalPasswordRequestView({
+  fullName,
   email,
   error,
   message,
   submitting,
+  fullNameRef,
+  emailRef,
+  onFullNameChange,
+  onFullNameBlur,
+  onFullNameClear,
   onEmailChange,
+  onEmailBlur,
+  onEmailClear,
+  hasFullNameError,
+  hasEmailError,
+  localError,
+  errorField,
   onCancel,
   onSubmit,
 }: {
+  fullName: string;
   email: string;
   error: string | null;
   message: string | null;
   submitting: boolean;
+  fullNameRef: RefObject<HTMLInputElement | null>;
+  emailRef: RefObject<HTMLInputElement | null>;
+  onFullNameChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onFullNameBlur: () => void;
+  onFullNameClear: () => void;
   onEmailChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onEmailBlur: () => void;
+  onEmailClear: () => void;
+  hasFullNameError: boolean;
+  hasEmailError: boolean;
+  localError: string | null;
+  errorField: 'fullName' | 'email' | null;
   onCancel: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
 }) {
   return (
       <section className="extension-login-shell">
         <form className="extension-login-card extension-auth-form" onSubmit={onSubmit}>
-          <h1>Lấy mật khẩu Extension</h1>
-          <label>
-            <span className="extension-field-label">Gmail nội bộ nhân sự <span className="required-mark">*</span></span>
-            <span className={`extension-input-shell${error ? ' has-error' : ''}`}>
-              <span className="extension-input-icon" aria-hidden="true"><UserIcon /></span>
-              <input
-                value={email}
-                onChange={onEmailChange}
-                type="email"
-                autoComplete="email"
-                placeholder="Nhập gmail nội bộ nhân sự"
-                autoFocus
-                aria-invalid={Boolean(error)}
-              />
-            </span>
-          </label>
-          {error ? <p className="extension-login-error">{error}</p> : null}
+          <div className="extension-auth-heading-group">
+            <h1>Lấy mật khẩu Extension</h1>
+          </div>
+          <div className="extension-auth-fields">
+            <AuthInput
+              ref={fullNameRef as RefObject<HTMLInputElement>}
+              label="Họ tên nhân sự"
+              required
+              icon={<UserIcon />}
+              value={fullName}
+              onChange={onFullNameChange}
+              onBlur={onFullNameBlur}
+              onClear={onFullNameClear}
+              placeholder="Nhập tên nhân sự"
+              hasError={hasFullNameError}
+              errorMessage={errorField === 'fullName' ? localError : null}
+              maxLength={255}
+            />
+            <AuthInput
+              ref={emailRef as RefObject<HTMLInputElement>}
+              label="Gmail nội bộ nhân sự"
+              required
+              icon={<UserIcon />}
+              value={email}
+              onChange={onEmailChange}
+              onBlur={onEmailBlur}
+              onClear={onEmailClear}
+              type="email"
+              autoComplete="email"
+              placeholder="Nhập gmail nội bộ nhân sự"
+              autoFocus
+              hasError={hasEmailError || Boolean(error)}
+              errorMessage={errorField === 'email' ? localError : error}
+              maxLength={255}
+            />
+          </div>
           {message ? <p className="extension-login-success">{message}</p> : null}
-          <div className="extension-login-actions extension-login-actions-centered">
+          <div className="extension-login-actions">
             <button type="button" className="secondary-button" onClick={onCancel}>Hủy</button>
             <button type="submit" className="confirm-button" disabled={submitting}>
               {submitting ? 'Đang gửi...' : 'Xác nhận'}
@@ -151,12 +453,23 @@ function LoginCredentialsView({
   rememberMe,
   error,
   showPassword,
+  loginInputRef,
+  passwordInputRef,
   onLoginChange,
   onPasswordChange,
+  onLoginBlur,
+  onPasswordBlur,
+  onLoginClear,
+  onPasswordClear,
+  hasLoginError,
+  hasPasswordError,
+  loginErrorMessage,
+  passwordErrorMessage,
   onRememberMeChange,
   onForgotPassword,
   onInternalModeChange,
   onPasswordVisibilityChange,
+  submitting,
   onSubmit,
 }: {
   login: string;
@@ -164,68 +477,111 @@ function LoginCredentialsView({
   rememberMe: boolean;
   error: string | null;
   showPassword: boolean;
+  loginInputRef: RefObject<HTMLInputElement | null>;
+  passwordInputRef: RefObject<HTMLInputElement | null>;
   onLoginChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onPasswordChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onLoginBlur: () => void;
+  onPasswordBlur: () => void;
+  onLoginClear: () => void;
+  onPasswordClear: () => void;
+  hasLoginError: boolean;
+  hasPasswordError: boolean;
+  loginErrorMessage: string | null;
+  passwordErrorMessage: string | null;
   onRememberMeChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onForgotPassword: () => void;
   onInternalModeChange: () => void;
   onPasswordVisibilityChange: () => void;
+  submitting: boolean;
   onSubmit: FormEventHandler<HTMLFormElement>;
 }) {
   return (
     <section className="extension-login-shell">
       <form className="extension-login-card extension-auth-form" onSubmit={onSubmit}>
-        <h1>Đăng nhập Extension</h1>
-        <label>
-          <span className="extension-field-label">Tên đăng nhập <span className="required-mark">*</span></span>
-          <span className={`extension-input-shell${error ? ' has-error' : ''}`}>
-            <span className="extension-input-icon" aria-hidden="true"><UserIcon /></span>
-            <input value={login} onChange={onLoginChange} type="text" autoComplete="username" placeholder="Nhập tên đăng nhập" />
-          </span>
-        </label>
-        <label>
-          <span className="extension-field-label">Mật khẩu <span className="required-mark">*</span></span>
-          <span className={`extension-input-shell${error ? ' has-error' : ''}`}>
-            <span className="extension-input-icon" aria-hidden="true"><LockIcon /></span>
-            <input value={password} onChange={onPasswordChange} type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Nhập mật khẩu" />
-            <button type="button" className="password-toggle" onClick={onPasswordVisibilityChange} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>
-              <EyeIcon hidden={showPassword} />
-            </button>
-          </span>
-        </label>
-        {error ? <p className="extension-login-error">{error}</p> : null}
+        <div className="extension-auth-heading-group">
+          <h1>Đăng nhập Extension</h1>
+        </div>
+
+        <div className="extension-auth-fields">
+          <AuthInput
+            ref={loginInputRef as RefObject<HTMLInputElement>}
+            label="Tên đăng nhập"
+            required
+            icon={<UserIcon />}
+            value={login}
+            onChange={onLoginChange}
+            onBlur={onLoginBlur}
+            onClear={onLoginClear}
+            autoComplete="username"
+            placeholder="Nhập tên đăng nhập"
+            hasError={hasLoginError}
+            errorMessage={loginErrorMessage ?? (hasLoginError ? error : null)}
+            maxLength={64}
+          />
+
+          <AuthInput
+            ref={passwordInputRef as RefObject<HTMLInputElement>}
+            label="Mật khẩu"
+            required
+            icon={<LockIcon />}
+            value={password}
+            onChange={onPasswordChange}
+            onBlur={onPasswordBlur}
+            onClear={onPasswordClear}
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="current-password"
+            placeholder="Nhập mật khẩu"
+            hasError={hasPasswordError}
+            errorMessage={passwordErrorMessage ?? (hasPasswordError ? error : null)}
+            maxLength={64}
+            trailing={
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={onPasswordVisibilityChange}
+                aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                <EyeIcon visible={showPassword} />
+              </button>
+            }
+          />
+        </div>
         <div className="extension-login-options">
           <label className="remember-me-control">
-            <input type="checkbox" checked={rememberMe} onChange={onRememberMeChange} />
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={onRememberMeChange}
+            />
             <span>Ghi nhớ mật khẩu</span>
           </label>
           <div className="extension-login-links">
-            <button type="button" className="text-button" onClick={onForgotPassword}>Quên mật khẩu</button>
-            <button type="button" className="text-button" onClick={onInternalModeChange}>Là nhân sự nội bộ</button>
+            <button
+              type="button"
+              className="text-button"
+              onClick={onForgotPassword}
+            >
+              Quên mật khẩu
+            </button>
+            <button
+              type="button"
+              className="text-button"
+              onClick={onInternalModeChange}
+            >
+              Nhân sự nội bộ đăng nhập lần đầu
+            </button>
           </div>
         </div>
-        <button type="submit" className="primary-button">ĐĂNG NHẬP</button>
+
+        <button
+          type="submit"
+          className="primary-button extension-submit-btn"
+          disabled={submitting || !login.trim() || !password}
+        >
+          {submitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
+        </button>
       </form>
     </section>
-  );
-}
-function UserIcon() {
-  return <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-5.33 0-9 2.67-9 6v2h18v-2c0-3.33-3.67-6-9-6Z" /></svg>;
-}
-
-function LockIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="10" width="14" height="11" rx="1" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>;
-}
-
-function EyeIcon({ hidden }: { hidden: boolean }) {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M2.5 12s3.2-5 9.5-5 9.5 5 9.5 5-3.2 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2.2" />{hidden ? <path d="m4 4 16 16" /> : null}</svg>;
-}
-
-function InternalPasswordSentIcon() {
-  return (
-    <svg className="extension-internal-success-icon" width="50" height="50" viewBox="0 0 50 50" fill="none" aria-hidden="true">
-      <path d="M27.5 37.5H22.5V32.5H27.5V37.5ZM27.5 27.5H22.5V12.5H27.5V27.5Z" fill="currentColor" />
-      <path d="M25 2.5C30.9674 2.5 36.6903 4.87053 40.9099 9.0901C45.1295 13.3097 47.5 19.0326 47.5 25C47.5 30.9674 45.1295 36.6903 40.9099 40.9099C36.6903 45.1295 30.9674 47.5 25 47.5C19.0326 47.5 13.3097 45.1295 9.0901 40.9099C4.87053 36.6903 2.5 30.9674 2.5 25C2.5 19.0326 4.87053 13.3097 9.0901 9.0901C13.3097 4.87053 19.0326 2.5 25 2.5ZM25 7.5C22.7019 7.5 20.4262 7.95265 18.303 8.83211C16.1798 9.71157 14.2507 11.0006 12.6256 12.6256C11.0006 14.2507 9.71157 16.1798 8.83211 18.303C7.95265 20.4262 7.5 22.7019 7.5 25C7.5 27.2981 7.95265 29.5738 8.83211 31.697C9.71157 33.8202 11.0006 35.7493 12.6256 37.3744C14.2507 38.9994 16.1798 40.2884 18.303 41.1679C20.4262 42.0474 22.7019 42.5 25 42.5C29.6413 42.5 34.0925 40.6563 37.3744 37.3744C40.6563 34.0925 42.5 29.6413 42.5 25C42.5 20.3587 40.6563 15.9075 37.3744 12.6256C34.0925 9.34374 29.6413 7.5 25 7.5Z" fill="currentColor" />
-    </svg>
   );
 }

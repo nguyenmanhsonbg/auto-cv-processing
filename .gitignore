@@ -20,3 +20,8 @@ cv-safe/
 .agents/rules/ponytail.md
 .gitignore
 .agents/skills/ponytail-review/SKILL.md
+.agents/plugins/figma/mcp_config.json
+.gitignore
+.agents/skills/figma/SKILL.md
+.agents/plugins/figma/plugin.json
+figma_node.json

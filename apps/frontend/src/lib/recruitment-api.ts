@@ -497,6 +497,23 @@ export function listJobDescriptions(params: ListJobDescriptionsParams) {
     .then((response) => unwrapPaginated<JobDescriptionRecord>(response));
 }
 
+export interface VcsPortalJobDescriptionSyncResult {
+  fetchedCount: number;
+  createdCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  archivedCount: number;
+  failedCount: number;
+  questionCount: number;
+  warnings?: Array<{ code: string; message: string }>;
+}
+
+export function syncVcsPortalJobDescriptions() {
+  return apiClient
+    .post<ApiEnvelope<VcsPortalJobDescriptionSyncResult>>('/extension/vcs-portal/jds/sync')
+    .then(unwrapEnvelope);
+}
+
 function listReferenceData(path: string, params: ListReferenceDataParams = {}) {
   const queryParams: Record<string, string | number | boolean | undefined> = {
     page: params.page,

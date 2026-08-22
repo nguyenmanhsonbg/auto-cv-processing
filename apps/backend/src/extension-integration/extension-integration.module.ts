@@ -36,6 +36,10 @@ import { VcsPortalJdMapper } from './vcs-portal-jd.mapper';
 import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
 import { AmisRecruitmentRoundsService } from './amis-recruitment-rounds.service';
 import { NotificationModule } from '../notification/notification.module';
+import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
+import { ChannelPublishingController } from './channel-publishing/channel-publishing.controller';
+import { ChannelPublishingService } from './channel-publishing/channel-publishing.service';
+import { TopCvMapper } from './channel-publishing/topcv/topcv.mapper';
 
 @Module({
   imports: [
@@ -56,6 +60,7 @@ import { NotificationModule } from '../notification/notification.module';
       JobSourceCategoryEntity,
       QuestionSetEntity,
       QuestionSetItemEntity,
+      JobPostingEntity,
     ]),
     QuestionsModule,
     CategoriesModule,
@@ -69,6 +74,7 @@ import { NotificationModule } from '../notification/notification.module';
     ExtensionFacebookController,
     ExtensionInstancesController,
     ExtensionVcsPortalController,
+    ChannelPublishingController,
   ],
   providers: [
     ExtensionIntegrationService,
@@ -79,6 +85,8 @@ import { NotificationModule } from '../notification/notification.module';
     VcsPortalJdMapper,
     VcsPortalJdSyncService,
     AmisRecruitmentRoundsService,
+    ChannelPublishingService,
+    TopCvMapper,
   ],
   exports: [
     ExtensionIntegrationService,
@@ -86,6 +94,8 @@ import { NotificationModule } from '../notification/notification.module';
     ExtensionInstancesService,
     ExtensionTasksService,
     VcsPortalJdSyncService,
+    ChannelPublishingService,
+    TopCvMapper,
   ],
 })
 export class ExtensionIntegrationModule {}

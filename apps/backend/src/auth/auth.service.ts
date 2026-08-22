@@ -44,8 +44,11 @@ export class AuthService implements OnModuleInit {
     if (!normalizedLogin) return null;
 
     let user = await this.userRepo.findOne({ where: { email: normalizedLogin } });
+    let freelancer = user
+      ? await this.freelancerRepo.findOne({ where: { userId: user.id } })
+      : null;
     if (!user) {
-      const freelancer = await this.freelancerRepo.findOne({
+      freelancer = await this.freelancerRepo.findOne({
         where: { identifier: normalizedLogin.toUpperCase() },
         relations: { user: true },
       });
@@ -53,6 +56,15 @@ export class AuthService implements OnModuleInit {
     }
 
     if (user && (await bcrypt.compare(password, user.password))) {
+      if (
+        user.role === UserRole.FREELANCER
+        && freelancer
+        && password === freelancer.identifier
+        && !user.mustChangePassword
+      ) {
+        user.mustChangePassword = true;
+        await this.userRepo.save(user);
+      }
       await this.assertUserCanAuthenticate(user);
       const { password: _, ...result } = user;
       return result;
@@ -120,13 +132,14 @@ export class AuthService implements OnModuleInit {
     );
   }
 
-  async login(user: { id: string; email: string; role: UserRole; name: string }) {
+  async login(user: { id: string; email: string; role: UserRole; name: string; mustChangePassword?: boolean }) {
     await this.assertUserCanAuthenticate(user);
     const refreshToken = await this.createRefreshToken(user.id);
     return {
       accessToken: this.signAccessToken(user),
       refreshToken,
       user: { id: user.id, email: user.email, role: user.role },
+      mustChangePassword: user.mustChangePassword ?? false,
     };
   }
 
@@ -176,6 +189,7 @@ export class AuthService implements OnModuleInit {
 
       user.password = await bcrypt.hash(generatedPassword, 10);
       user.role = UserRole.INTERNAL;
+      user.mustChangePassword = true;
 
       const sent = await this.mailService.sendMail(
         normalizedEmail,
@@ -205,6 +219,26 @@ export class AuthService implements OnModuleInit {
     });
 
     return { message: 'Mật khẩu đã được gửi tới email nội bộ của bạn.' };
+  }
+
+  async checkPasswordResetLogin(login: string) {
+    const normalizedLogin = login.trim();
+    const user = await this.findUserForPasswordReset(normalizedLogin);
+    if (!user) {
+      const internal = await this.internalRepo.findOne({
+        where: { email: normalizedLogin.toLowerCase(), isActive: true },
+        relations: { user: true },
+      });
+      if (internal) {
+        return { exists: false, hint: 'INTERNAL_PASSWORD_REQUIRED' as const };
+      }
+      return { exists: false, hint: 'INVALID_LOGIN' as const };
+    }
+        // HR and ADMIN roles are not allowed to use password reset.
+    if (user.role === UserRole.HR || user.role === UserRole.ADMIN) {
+      return { exists: false, hint: 'HR_NOT_ALLOWED' as const };
+    }
+    return { exists: true };
   }
 
   async requestPasswordReset(login: string) {
@@ -242,7 +276,7 @@ export class AuthService implements OnModuleInit {
       `Mã xác nhận khôi phục mật khẩu của bạn là: ${otp}. Mã có hiệu lực trong 15 phút.`,
     );
     if (!sent) throw new BadRequestException({ code: 'PASSWORD_RESET_EMAIL_FAILED', message: 'Không thể gửi mã xác nhận. Vui lòng thử lại sau.' });
-    return { challengeId: request.id, email: this.maskEmail(user.email), message: 'Mã xác nhận đã được gửi tới Gmail của bạn.' };
+    return { challengeId: request.id, email: user.email, message: 'Mã xác nhận đã được gửi tới Gmail của bạn.' };
   }
 
   async verifyPasswordReset(challengeId: string, otp: string) {
@@ -272,6 +306,9 @@ export class AuthService implements OnModuleInit {
     }
     const user = await this.userRepo.findOne({ where: { id: request.userId } });
     if (!user) throw new BadRequestException('Không tìm thấy tài khoản.');
+    if (await bcrypt.compare(input.newPassword, user.password)) {
+      throw new BadRequestException('Mật khẩu mới không được trùng với mật khẩu gần nhất.');
+    }
     user.password = await bcrypt.hash(input.newPassword, 10);
     await this.userRepo.save(user);
     await this.refreshTokenRepo.update({ userId: user.id, revokedAt: IsNull() }, { revokedAt: new Date() });
@@ -351,6 +388,7 @@ export class AuthService implements OnModuleInit {
         email: existingToken.user.email,
         role: existingToken.user.role,
       },
+      mustChangePassword: existingToken.user.mustChangePassword ?? false,
     };
   }
 
@@ -435,9 +473,14 @@ export class AuthService implements OnModuleInit {
     if (!(await bcrypt.compare(input.currentPassword, user.password))) {
       throw new BadRequestException('Mật khẩu hiện tại không đúng.');
     }
+    if (input.newPassword === input.currentPassword || await bcrypt.compare(input.newPassword, user.password)) {
+      throw new BadRequestException('Mật khẩu mới không được trùng với mật khẩu gần nhất.');
+    }
 
     user.password = await bcrypt.hash(input.newPassword, 10);
+    user.mustChangePassword = false;
     await this.userRepo.save(user);
+    await this.refreshTokenRepo.update({ userId: user.id, revokedAt: IsNull() }, { revokedAt: new Date() });
     return { message: 'Đổi mật khẩu thành công.' };
   }
 
@@ -496,6 +539,7 @@ export class AuthService implements OnModuleInit {
         name: dto.name,
         password,
         role: dto.role ?? UserRole.INTERVIEWER,
+        mustChangePassword: true,
       }),
     );
     const { password: _, ...result } = user;
@@ -557,6 +601,7 @@ export class AuthService implements OnModuleInit {
           name: profile.displayName || email,
           password: await bcrypt.hash(uuidv4(), 10),
           role: UserRole.ADMIN,
+          mustChangePassword: true,
         }),
       );
       return this.login(user);

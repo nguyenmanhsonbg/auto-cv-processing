@@ -41,11 +41,19 @@ type FreelancerCvPanelProps = {
   ) => Promise<RecruitmentRoundLoadResult[]>;
   isChangePasswordFormOpen?: boolean;
   onCloseChangePassword?: () => void;
+  onPasswordChanged?: () => void;
 };
 
 type StatusCategory = 'PROCESSING' | 'PASSED' | 'REJECTED';
 
-export function FreelancerCvPanel({ accessToken, onNotify, loadRecruitmentRounds, isChangePasswordFormOpen = false, onCloseChangePassword }: FreelancerCvPanelProps) {
+export function FreelancerCvPanel({
+  accessToken,
+  onNotify,
+  loadRecruitmentRounds,
+  isChangePasswordFormOpen = false,
+  onCloseChangePassword,
+  onPasswordChanged,
+}: FreelancerCvPanelProps) {
   const [summary, setSummary] = useState<FreelancerSelfSummary | null>(null);
   const [applications, setApplications] = useState<FreelancerSelfApplication[]>([]);
   const [roundsByJobPostingId, setRoundsByJobPostingId] = useState<Record<string, AmisRecruitmentRound[]>>({});
@@ -211,8 +219,9 @@ export function FreelancerCvPanel({ accessToken, onNotify, loadRecruitmentRounds
     setChangePasswordError(null);
     try {
       await changePassword(accessToken, input);
-      onNotify?.('SUCCESS', 'Thành công', 'Đã đổi mật khẩu.');
+      onNotify?.('SUCCESS', 'Thành công', 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.');
       onCloseChangePassword?.();
+      onPasswordChanged?.();
     } catch (err) {
       setChangePasswordError(err instanceof ApiClientError ? err.message : 'Không thể đổi mật khẩu.');
     } finally {
@@ -275,7 +284,7 @@ export function FreelancerCvPanel({ accessToken, onNotify, loadRecruitmentRounds
         </div>
       ) : null}
       {!loading && !error && visibleApplications.length === 0 ? (
-        <div className="freelancer-cv-empty"><strong>Chưa có CV phù hợp</strong><span>Danh sách CV bạn giới thiệu sẽ hiển thị tại đây.</span></div>
+        <div className="freelancer-cv-empty"><span>Chưa có CV phù hợp</span></div>
       ) : null}
 
       <div className="freelancer-cv-list">

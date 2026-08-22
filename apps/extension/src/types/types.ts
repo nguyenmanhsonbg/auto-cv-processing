@@ -5,6 +5,7 @@ export interface ExtensionUser {
   email: string;
   name?: string;
   role: UserRole;
+  mustChangePassword?: boolean;
 }
 
 export type ReferralManagementSource = 'FREELANCER' | 'INTERNAL';
@@ -218,6 +219,24 @@ export interface JobPostingSummary {
   updatedAt?: string;
 }
 
+export interface ChannelPrepareResult {
+  channel: ExtensionChannel;
+  jobPostingId: string;
+  snapshotHash: string;
+  executionMode: 'DIRECT_API' | 'EXTENSION';
+  form: Record<string, unknown>;
+  missingRequiredFields: string[];
+  warnings: Array<{ code: string; field?: string; message: string }>;
+  auth?: {
+    required: boolean;
+    host: string;
+    tokenKey: string;
+    expirationKey: string;
+    publishRequiresBearer: boolean;
+    exchangeTokenUrl: string;
+  };
+}
+
 export interface AmisCareerCatalogItem {
   id: string;
   amisCareerId: string;
@@ -331,14 +350,16 @@ export type ExtensionCapability =
   | 'AMIS_SYNC'
   | 'FACEBOOK_PUBLISH'
   | 'FACEBOOK_VERIFY'
-  | 'CV_UPLOAD_TO_AMIS';
+  | 'CV_UPLOAD_TO_AMIS'
+  | 'CHANNEL_PUBLISH';
 
 export type ExtensionInstanceStatus = 'ONLINE' | 'OFFLINE' | 'DISABLED';
 export type ExtensionTaskType =
   | 'AMIS_SYNC'
   | 'FACEBOOK_PUBLISH'
   | 'FACEBOOK_VERIFY'
-  | 'CV_UPLOAD_TO_AMIS';
+  | 'CV_UPLOAD_TO_AMIS'
+  | 'CHANNEL_PUBLISH';
 export type ExtensionTaskStatus =
   | 'PENDING'
   | 'CLAIMED'
@@ -1042,5 +1063,54 @@ export interface ApiEnvelope<T> {
     requestId?: string;
     idempotencyKey?: string | null;
     extensionVersion?: string | null;
+  };
+}
+
+export interface DiscoveredFacebookGroupItem {
+  targetName: string;
+  targetUrl: string;
+  targetExternalId: string;
+}
+
+export interface FacebookGroupSyncDetailItem {
+  name: string;
+  url?: string | null;
+  externalId?: string | null;
+  targetId?: string | null;
+  reason?: string | null;
+}
+
+export interface FacebookGroupSyncDetails {
+  accepted: FacebookGroupSyncDetailItem[];
+  removed: FacebookGroupSyncDetailItem[];
+  reactivated: FacebookGroupSyncDetailItem[];
+  filtered: FacebookGroupSyncDetailItem[];
+  skipped: FacebookGroupSyncDetailItem[];
+  errors: string[];
+}
+
+export interface FacebookImageAttachDecisionPrompt {
+  target: FacebookPublishTarget;
+  attachment: FacebookPublishImageAttachment;
+  message: string;
+}
+
+export interface AmisCandidateSourceSelectionResponse {
+  ok: boolean;
+  sourceName?: string;
+  error?: string;
+  code?: string;
+  diagnostics?: {
+    fieldFound?: boolean;
+    controlFound?: boolean;
+    popupFound?: boolean;
+    searchInputFound?: boolean;
+    searchInputLocation?: string;
+    searchQuery?: string;
+    optionScrollPasses?: number;
+    sourceOptionFound?: boolean;
+    sourceOptionClicked?: boolean;
+    confirmedFieldValue?: string;
+    visibleOptionLabels: string[];
   };
 }

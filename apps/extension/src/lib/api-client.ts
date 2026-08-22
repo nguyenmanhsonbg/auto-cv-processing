@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { BE_API_BASE_URL, EXTENSION_CAPABILITIES, EXTENSION_VERSION } from '@/lib/config';
 import { clearAccessToken, getRefreshToken, setAuthTokens } from '@/features/auth/auth-store';
 import {
@@ -45,6 +46,7 @@ import type {
   JobDescriptionQuestionSetContext,
   JobDescriptionSummary,
   JobPostingSummary,
+  ChannelPrepareResult,
   SyncAmisApplicationsRequest,
   SyncAmisApplicationsResponse,
   SyncAmisCareersRequest,
@@ -74,7 +76,12 @@ export class ApiClientError extends Error {
 const SHOULD_BYPASS_NGROK_WARNING = getApiHost().includes('ngrok');
 
 export async function login(loginIdentifier: string, password: string) {
-  return request<{ accessToken: string; refreshToken: string; user: ExtensionUser }>('/auth/login', {
+  return request<{
+    accessToken: string;
+    refreshToken: string;
+    user: ExtensionUser;
+    mustChangePassword?: boolean;
+  }>('/auth/login', {
     method: 'POST',
     body: { login: loginIdentifier, password },
   });
@@ -90,6 +97,14 @@ export async function requestInternalPassword(email: string) {
 
 export async function requestPasswordReset(login: string) {
   return request<{ challengeId: string; email: string; message: string }>('/auth/password-reset/request', {
+    method: 'POST',
+    body: { login },
+    skipExtensionInstanceHeader: true,
+  });
+}
+
+export async function checkPasswordResetLogin(login: string) {
+  return request<{ exists: boolean; hint?: 'INVALID_LOGIN' | 'INTERNAL_PASSWORD_REQUIRED' | 'HR_NOT_ALLOWED' }>('/auth/password-reset/check-login', {
     method: 'POST',
     body: { login },
     skipExtensionInstanceHeader: true,
@@ -175,29 +190,52 @@ export async function getFreelancerApplicationCv(
   referralId: string,
   disposition: 'inline' | 'attachment' = 'inline',
 ) {
-  let response = await fetch(
-    `${BE_API_BASE_URL}/freelancers/me/applications/${encodeURIComponent(referralId)}/cv?disposition=${disposition}`,
-    {
+  const path = `/freelancers/me/applications/${encodeURIComponent(referralId)}/cv?disposition=${disposition}`;
+  let headers = await buildHeaders(accessToken, { 'X-Extension-Version': EXTENSION_VERSION });
+
+  let response;
+  try {
+    response = await axiosClient.request<Blob>({
+      url: path,
       method: 'GET',
-      headers: await buildJsonHeaders(accessToken, { 'X-Extension-Version': EXTENSION_VERSION }),
-    },
-  );
+      headers,
+      responseType: 'blob',
+      validateStatus: () => true,
+    });
+  } catch (error) {
+    if (error instanceof ApiClientError) throw error;
+    throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+  }
 
   if (response.status === 401) {
     const refreshedAccessToken = await refreshAccessToken();
     if (refreshedAccessToken) {
-      response = await fetch(
-        `${BE_API_BASE_URL}/freelancers/me/applications/${encodeURIComponent(referralId)}/cv?disposition=${disposition}`,
-        {
+      headers = await buildHeaders(refreshedAccessToken, { 'X-Extension-Version': EXTENSION_VERSION });
+      try {
+        response = await axiosClient.request<Blob>({
+          url: path,
           method: 'GET',
-          headers: await buildJsonHeaders(refreshedAccessToken, { 'X-Extension-Version': EXTENSION_VERSION }),
-        },
-      );
+          headers,
+          responseType: 'blob',
+          validateStatus: () => true,
+        });
+      } catch (error) {
+        if (error instanceof ApiClientError) throw error;
+        throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+      }
     }
   }
 
-  if (!response.ok) {
-    const json = await readJson(response);
+  if (response.status < 200 || response.status >= 300) {
+    let json: unknown = null;
+    if (response.data instanceof Blob) {
+      try {
+        const text = await response.data.text();
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+    }
     const envelope = isApiEnvelope(json) ? json : null;
     throw new ApiClientError(
       envelope?.error?.code ?? `HTTP_${response.status}`,
@@ -207,10 +245,13 @@ export async function getFreelancerApplicationCv(
     );
   }
 
+  const contentDispositionHeader = getHeader(response.headers, 'content-disposition');
+  const contentTypeHeader = getHeader(response.headers, 'content-type');
+
   return {
-    blob: await response.blob(),
-    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'cv.pdf',
-    mimeType: response.headers.get('Content-Type') ?? 'application/pdf',
+    blob: response.data,
+    fileName: readContentDispositionFileName(contentDispositionHeader) ?? 'cv.pdf',
+    mimeType: contentTypeHeader ?? 'application/pdf',
   };
 }
 
@@ -367,6 +408,21 @@ export async function listJobPostings(
     {
       method: 'GET',
       accessToken,
+    },
+  );
+}
+
+export async function prepareChannelForm(
+  accessToken: string,
+  jobPostingId: string,
+  channel: string,
+) {
+  return request<ChannelPrepareResult>(
+    `/extension/job-postings/${encodeURIComponent(jobPostingId)}/channels/${encodeURIComponent(channel)}/prepare`,
+    {
+      method: 'POST',
+      accessToken,
+      headers: { 'X-Extension-Version': EXTENSION_VERSION },
     },
   );
 }
@@ -683,16 +739,34 @@ export async function downloadCleanCvFile(
   applicationId: string,
   cvDocumentId: string,
 ) {
-  const response = await fetch(
-    `${BE_API_BASE_URL}/applications/${encodeURIComponent(applicationId)}/cv/${encodeURIComponent(cvDocumentId)}/clean-file?disposition=attachment`,
-    {
-      method: 'GET',
-      headers: await buildJsonHeaders(accessToken, { 'X-Extension-Version': EXTENSION_VERSION }),
-    },
-  );
+  const path = `/applications/${encodeURIComponent(applicationId)}/cv/${encodeURIComponent(cvDocumentId)}/clean-file?disposition=attachment`;
+  const headers = await buildHeaders(accessToken, { 'X-Extension-Version': EXTENSION_VERSION });
 
-  if (!response.ok) {
-    const json = await readJson(response);
+  let response;
+  try {
+    response = await axiosClient.request<ArrayBuffer>({
+      url: path,
+      method: 'GET',
+      headers,
+      responseType: 'arraybuffer',
+      validateStatus: () => true,
+    });
+  } catch (error) {
+    if (error instanceof ApiClientError) throw error;
+    throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    let json: unknown = null;
+    if (response.data instanceof ArrayBuffer) {
+      try {
+        const decoder = new TextDecoder('utf-8');
+        const text = decoder.decode(response.data);
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+    }
     const envelope = isApiEnvelope(json) ? json : null;
     throw new ApiClientError(
       envelope?.error?.code ?? `HTTP_${response.status}`,
@@ -702,10 +776,13 @@ export async function downloadCleanCvFile(
     );
   }
 
+  const contentDispositionHeader = getHeader(response.headers, 'content-disposition');
+  const contentTypeHeader = getHeader(response.headers, 'content-type');
+
   return {
-    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'clean-cv.pdf',
-    mimeType: response.headers.get('Content-Type') ?? 'application/pdf',
-    data: await response.arrayBuffer(),
+    fileName: readContentDispositionFileName(contentDispositionHeader) ?? 'clean-cv.pdf',
+    mimeType: contentTypeHeader ?? 'application/pdf',
+    data: response.data,
   };
 }
 
@@ -962,6 +1039,10 @@ export async function deleteFacebookGroup(
   });
 }
 
+export const axiosClient = axios.create({
+  baseURL: BE_API_BASE_URL,
+});
+
 async function request<T>(
   path: string,
   options: {
@@ -972,27 +1053,43 @@ async function request<T>(
     skipExtensionInstanceHeader?: boolean;
   },
 ): Promise<T> {
-  const body = options.body === undefined ? undefined : JSON.stringify(options.body);
-  let response = await fetch(`${BE_API_BASE_URL}${path}`, {
-    method: options.method,
-    headers: await buildJsonHeaders(options.accessToken, options.headers, options.skipExtensionInstanceHeader),
-    body,
-  });
+  const headers = await buildHeaders(options.accessToken, options.headers, options.skipExtensionInstanceHeader);
+  let response;
+  try {
+    response = await axiosClient.request({
+      url: path,
+      method: options.method,
+      data: options.body,
+      headers,
+      validateStatus: () => true,
+    });
+  } catch (error) {
+    if (error instanceof ApiClientError) throw error;
+    throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+  }
 
   if (response.status === 401 && shouldAttemptRefresh(path)) {
     const refreshedAccessToken = await refreshAccessToken();
     if (refreshedAccessToken) {
-      response = await fetch(`${BE_API_BASE_URL}${path}`, {
-        method: options.method,
-        headers: await buildJsonHeaders(refreshedAccessToken, options.headers, options.skipExtensionInstanceHeader),
-        body,
-      });
+      const retryHeaders = await buildHeaders(refreshedAccessToken, options.headers, options.skipExtensionInstanceHeader);
+      try {
+        response = await axiosClient.request({
+          url: path,
+          method: options.method,
+          data: options.body,
+          headers: retryHeaders,
+          validateStatus: () => true,
+        });
+      } catch (error) {
+        if (error instanceof ApiClientError) throw error;
+        throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+      }
     }
   }
 
-  const json = await readJson(response);
+  const json = response.data;
 
-  if (!response.ok) {
+  if (response.status < 200 || response.status >= 300) {
     const envelope = isApiEnvelope(json) ? json : null;
     throw new ApiClientError(
       envelope?.error?.code ?? `HTTP_${response.status}`,
@@ -1018,24 +1115,41 @@ async function requestWithPagination<T>(
     skipExtensionInstanceHeader?: boolean;
   },
 ): Promise<{ data: T[]; pagination: ApiPagination | null }> {
-  let response = await fetch(`${BE_API_BASE_URL}${path}`, {
-    method: options.method,
-    headers: await buildJsonHeaders(options.accessToken, options.headers, options.skipExtensionInstanceHeader),
-  });
+  const headers = await buildHeaders(options.accessToken, options.headers, options.skipExtensionInstanceHeader);
+  let response;
+  try {
+    response = await axiosClient.request({
+      url: path,
+      method: options.method,
+      headers,
+      validateStatus: () => true,
+    });
+  } catch (error) {
+    if (error instanceof ApiClientError) throw error;
+    throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+  }
 
   if (response.status === 401 && shouldAttemptRefresh(path)) {
     const refreshedAccessToken = await refreshAccessToken();
     if (refreshedAccessToken) {
-      response = await fetch(`${BE_API_BASE_URL}${path}`, {
-        method: options.method,
-        headers: await buildJsonHeaders(refreshedAccessToken, options.headers, options.skipExtensionInstanceHeader),
-      });
+      const retryHeaders = await buildHeaders(refreshedAccessToken, options.headers, options.skipExtensionInstanceHeader);
+      try {
+        response = await axiosClient.request({
+          url: path,
+          method: options.method,
+          headers: retryHeaders,
+          validateStatus: () => true,
+        });
+      } catch (error) {
+        if (error instanceof ApiClientError) throw error;
+        throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+      }
     }
   }
 
-  const json = await readJson(response);
+  const json = response.data;
 
-  if (!response.ok) {
+  if (response.status < 200 || response.status >= 300) {
     const envelope = isApiEnvelope(json) ? json : null;
     throw new ApiClientError(
       envelope?.error?.code ?? `HTTP_${response.status}`,
@@ -1053,12 +1167,12 @@ async function requestWithPagination<T>(
   }
 
   return {
-    data: Array.isArray(json) ? json as T[] : [],
+    data: Array.isArray(json) ? (json as T[]) : [],
     pagination: null,
   };
 }
 
-async function buildJsonHeaders(
+async function buildHeaders(
   accessToken?: string,
   headers?: Record<string, string>,
   skipExtensionInstanceHeader = false,
@@ -1071,6 +1185,13 @@ async function buildJsonHeaders(
     ...(extensionInstanceId ? { 'X-Extension-Instance-Id': extensionInstanceId } : {}),
     ...headers,
   };
+}
+
+function getHeader(headers: unknown, name: string): string | null {
+  if (!headers || typeof headers !== 'object') return null;
+  const h = headers as Record<string, unknown>;
+  const val = h[name.toLowerCase()] ?? h[name] ?? h[name.toUpperCase()];
+  return typeof val === 'string' ? val : null;
 }
 
 function getApiHost() {
@@ -1091,39 +1212,35 @@ export async function refreshAccessToken() {
   const refreshToken = await getRefreshToken();
   if (!refreshToken) return null;
 
-  const response = await fetch(`${BE_API_BASE_URL}/auth/refresh`, {
-    method: 'POST',
-    headers: await buildJsonHeaders(undefined, { 'X-Extension-Version': EXTENSION_VERSION }),
-    body: JSON.stringify({ refreshToken }),
-  });
-  const json = await readJson(response);
-
-  if (!response.ok) {
-    await clearAccessToken();
-    return null;
-  }
-
-  const auth = isExtensionAuthResponse(json) ? json : null;
-  if (!auth) {
-    await clearAccessToken();
-    return null;
-  }
-
-  await setAuthTokens({
-    accessToken: auth.accessToken,
-    refreshToken: auth.refreshToken,
-  });
-  return auth.accessToken;
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  const text = await response.text();
-  if (!text) return null;
-
   try {
-    return JSON.parse(text) as unknown;
+    const headers = await buildHeaders(undefined, { 'X-Extension-Version': EXTENSION_VERSION });
+    const response = await axiosClient.request({
+      url: '/auth/refresh',
+      method: 'POST',
+      headers,
+      data: { refreshToken },
+      validateStatus: () => true,
+    });
+
+    if (response.status < 200 || response.status >= 300) {
+      await clearAccessToken();
+      return null;
+    }
+
+    const auth = isExtensionAuthResponse(response.data) ? response.data : null;
+    if (!auth) {
+      await clearAccessToken();
+      return null;
+    }
+
+    await setAuthTokens({
+      accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
+    });
+    return auth.accessToken;
   } catch {
-    throw new ApiClientError('INVALID_JSON_RESPONSE', 'Backend returned invalid JSON.', response.status);
+    await clearAccessToken();
+    return null;
   }
 }
 

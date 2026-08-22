@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarIcon } from '@/components/icons';
+import { BackIcon, CalendarIcon, ChevronRightIcon } from '@/components/icons';
 
 export type DateRangeValue = {
   from: string;
@@ -35,6 +35,7 @@ export function DateRangeFilter({ label = 'Thời gian', value, onChange, classN
 
   const nextMonth = addMonths(visibleMonth, 1);
   const classes = `shared-filter-field shared-filter-date-range ${className}`.trim();
+  const hasValue = Boolean(value.from || value.to);
 
   function selectDate(date: Date) {
     const selected = toInputValue(date);
@@ -55,16 +56,51 @@ export function DateRangeFilter({ label = 'Thời gian', value, onChange, classN
         aria-expanded={isOpen}
         onClick={() => setIsOpen((current) => !current)}
       >
-        <span className="shared-filter-date-range-value">{formatDateRange(value)}</span>
-        <CalendarIcon />
+        <span className={`shared-filter-date-range-value ${!hasValue ? 'is-placeholder' : ''}`}>
+          {formatDateRange(value)}
+        </span>
+        <div className="shared-filter-date-range-icons">
+          {hasValue ? (
+            <span
+              role="button"
+              tabIndex={0}
+              className="shared-filter-date-range-clear-btn"
+              aria-label="Xóa bộ lọc thời gian"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange({ from: '', to: '' });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation();
+                  onChange({ from: '', to: '' });
+                }
+              }}
+            >
+              ×
+            </span>
+          ) : null}
+          <CalendarIcon />
+        </div>
       </button>
       {isOpen ? (
-        <dialog open className="shared-filter-date-range-popup" aria-label="Chọn khoảng thời gian">
-          <button type="button" className="shared-filter-date-range-nav is-previous" aria-label="Tháng trước" onClick={() => setVisibleMonth(addMonths(visibleMonth, -1))}>‹</button>
-          <CalendarMonth month={visibleMonth} value={value} onSelect={selectDate} />
-          <CalendarMonth month={nextMonth} value={value} onSelect={selectDate} />
-          <button type="button" className="shared-filter-date-range-nav is-next" aria-label="Tháng sau" onClick={() => setVisibleMonth(addMonths(visibleMonth, 1))}>›</button>
-        </dialog>
+        <div className="shared-filter-date-range-popup" role="dialog" aria-label="Chọn khoảng thời gian">
+          <div className="shared-filter-date-range-months">
+            <CalendarMonth
+              month={visibleMonth}
+              value={value}
+              onSelect={selectDate}
+              onPreviousMonth={() => setVisibleMonth(addMonths(visibleMonth, -1))}
+              onNextMonth={() => setVisibleMonth(addMonths(visibleMonth, 1))}
+            />
+            <CalendarMonth
+              month={nextMonth}
+              value={value}
+              onSelect={selectDate}
+              onNextMonth={() => setVisibleMonth(addMonths(visibleMonth, 1))}
+            />
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -74,13 +110,37 @@ type CalendarMonthProps = {
   month: Date;
   value: DateRangeValue;
   onSelect: (date: Date) => void;
+  onPreviousMonth?: () => void;
+  onNextMonth?: () => void;
 };
 
-function CalendarMonth({ month, value, onSelect }: CalendarMonthProps) {
+function CalendarMonth({ month, value, onSelect, onPreviousMonth, onNextMonth }: CalendarMonthProps) {
   const days = useMemo(() => getCalendarDays(month), [month]);
   return (
     <section className="shared-filter-calendar-month" aria-label={`${MONTH_NAMES[month.getMonth()]} ${month.getFullYear()}`}>
-      <h3>{MONTH_NAMES[month.getMonth()]} {month.getFullYear()}</h3>
+      <div className="shared-filter-calendar-month-header">
+        {onPreviousMonth ? (
+          <button
+            type="button"
+            className="shared-filter-date-range-nav is-previous"
+            aria-label="Tháng trước"
+            onClick={onPreviousMonth}
+          >
+            <BackIcon />
+          </button>
+        ) : <span className="shared-filter-date-range-nav-placeholder" aria-hidden="true" />}
+        <p>{MONTH_NAMES[month.getMonth()]} năm {month.getFullYear()}</p>
+        {onNextMonth ? (
+          <button
+            type="button"
+            className={`shared-filter-date-range-nav is-next${onPreviousMonth ? ' is-mobile-only' : ''}`}
+            aria-label="Tháng sau"
+            onClick={onNextMonth}
+          >
+            <ChevronRightIcon />
+          </button>
+        ) : <span className="shared-filter-date-range-nav-placeholder" aria-hidden="true" />}
+      </div>
       <div className="shared-filter-calendar-weekdays">
         {WEEKDAYS.map((weekday) => <span key={weekday}>{weekday}</span>)}
       </div>

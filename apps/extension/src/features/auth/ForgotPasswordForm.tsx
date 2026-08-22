@@ -1,6 +1,8 @@
-import { useRef, useState, type ReactNode } from 'react';
-import { ApiClientError, completePasswordReset, requestPasswordReset, verifyPasswordReset } from '@/lib/api-client';
+import { useRef, useState } from 'react';
+import { ApiClientError, checkPasswordResetLogin, completePasswordReset, requestPasswordReset, verifyPasswordReset } from '@/lib/api-client';
 import { ChangePasswordForm } from './ChangePasswordForm';
+import { AuthInput } from './AuthInput';
+import { UserIcon } from '@/components/svg';
 
 type Step = 'IDENTIFIER' | 'METHOD' | 'OTP' | 'RESET';
 
@@ -14,8 +16,48 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
   const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [resendRemaining, setResendRemaining] = useState(3);
+  const [resendRemaining, setResendRemaining] = useState(5);
   const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const loginInputRef = useRef<HTMLInputElement | null>(null);
+
+  async function confirmIdentifier() {
+    const trimmed = login.trim();
+    if (!trimmed) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await checkPasswordResetLogin(trimmed);
+      if (!result.exists) {
+        if (result.hint === 'HR_NOT_ALLOWED' || result.hint === 'INTERNAL_PASSWORD_REQUIRED') {
+          setError('Bạn không có quyền thực hiện chức năng này.');
+        } else {
+          setError('Tên đăng nhập không hợp lệ. Vui lòng kiểm tra lại.');
+        }
+        loginInputRef.current?.focus();
+        return;
+      }
+      // Login hợp lệ → bỏ qua METHOD, gửi OTP và điều hướng thẳng tới màn Kiểm tra xác nhận từ Gmail.
+      await sendOtpAndAdvance();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Không thể kiểm tra tên đăng nhập. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendOtpAndAdvance() {
+    try {
+      const response = await requestPasswordReset(login.trim());
+      setChallengeId(response.challengeId);
+      setTargetEmail(response.email);
+      setMethod('EMAIL');
+      setOtp('');
+      setStep('OTP');
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Không thể gửi mã xác nhận. Vui lòng thử lại.');
+      throw err;
+    }
+  }
 
   async function confirmMethod() {
     if (method === 'PHONE') {
@@ -84,153 +126,107 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
   }
 
   if (step === 'RESET') {
-    return <ChangePasswordForm error={error} isSaving={loading} isResetPassword onCancel={onCancel} onSubmit={completeReset} />;
-  }
-
-  let stepContent: ReactNode;
-  if (step === 'IDENTIFIER') {
-    stepContent = (
-      <ForgotPasswordIdentifierStep
-        login={login}
-        error={error}
-        onLoginChange={(value) => { setLogin(value); setError(null); }}
-        onCancel={onCancel}
-        onContinue={() => { setError(null); setStep('METHOD'); }}
-      />
-    );
-  } else if (step === 'METHOD') {
-    stepContent = (
-      <ForgotPasswordMethodStep
-        method={method}
-        error={error}
-        loading={loading}
-        onMethodChange={(nextMethod) => { setMethod(nextMethod); setError(null); }}
-        onBack={() => setStep('IDENTIFIER')}
-        onConfirm={() => void confirmMethod()}
-      />
-    );
-  } else {
-    stepContent = (
-      <ForgotPasswordOtpStep
-        error={error}
-        loading={loading}
-        otp={otp}
-        targetEmail={targetEmail}
-        resendRemaining={resendRemaining}
-        otpInputRefs={otpInputRefs}
-        onOtpChange={(index, digit) => {
-          setOtp((current) => `${current.slice(0, index)}${digit}${current.slice(index + 1)}`.slice(0, 6));
-          setError(null);
-        }}
-        onPaste={(value) => { setOtp(value); setError(null); }}
-        onBack={() => setStep('METHOD')}
-        onResend={() => void resendOtp()}
-        onConfirm={() => void confirmOtp()}
-      />
-    );
+    return <ChangePasswordForm error={error} isSaving={loading} isResetPassword onCancel={() => setStep('METHOD')} onSubmit={completeReset} />;
   }
 
   return (
-    <section className="extension-forgot-password-card">
-      <h1>{step === 'OTP' ? 'Kiểm tra mã xác nhận từ Gmail' : 'Quên mật khẩu'}</h1>
-      {stepContent}
-    </section>
-  );
-}
+    <div className="extension-login-card extension-forgot-password-card">
+      <div className="extension-auth-heading-group">
+        <h1>{step === 'OTP' ? (method === 'PHONE' ? 'Kiểm tra mã xác nhận từ SĐT' : 'Kiểm tra mã xác nhận từ Gmail') : 'Quên mật khẩu'}</h1>
+        {step === 'OTP' ? (
+          <p className="extension-auth-subtext">
+            {method === 'PHONE' ? 'Kiểm tra mã xác nhận được gửi tới SĐT' : `Kiểm tra mã xác nhận được gửi tới gmail ${targetEmail || 'người dùng'}`}
+          </p>
+        ) : null}
+      </div>
 
-function ForgotPasswordIdentifierStep({
-  login,
-  error,
-  onLoginChange,
-  onCancel,
-  onContinue,
-}: {
-  login: string;
-  error: string | null;
-  onLoginChange: (value: string) => void;
-  onCancel: () => void;
-  onContinue: () => void;
-}) {
-  return (
-        <>
-          <label className="extension-forgot-field">
-            <span>Tên đăng nhập <span className="required-mark">*</span></span>
-            <span className={`extension-input-shell${error ? ' has-error' : ''}`}>
-              <span className="extension-input-icon" aria-hidden="true"><UserIcon /></span>
-              <input value={login} onChange={(event) => onLoginChange(event.target.value)} placeholder="Nhập tên đăng nhập" autoFocus />
-            </span>
-          </label>
-          {error ? <p className="extension-login-error">{error}</p> : null}
-          <div className="extension-forgot-actions">
-            <button type="button" className="secondary-button" onClick={onCancel}>Quay lại</button>
-            <button type="button" className="confirm-button" onClick={onContinue} disabled={!login.trim()}>Xác nhận</button>
+      {step === 'IDENTIFIER' ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!login.trim() || loading) return;
+            void confirmIdentifier();
+          }}
+        >
+          <div className="extension-auth-fields">
+            <AuthInput
+              ref={loginInputRef}
+              label="Tên đăng nhập"
+              required
+              icon={<UserIcon />}
+              value={login}
+              onChange={(event) => { setLogin(event.target.value); setError(null); }}
+              placeholder="Nhập tên đăng nhập"
+              autoFocus
+              hasError={Boolean(error)}
+              maxLength={255}
+            />
           </div>
-        </>
-  );
-}
-
-function ForgotPasswordMethodStep({
-  method,
-  error,
-  loading,
-  onMethodChange,
-  onBack,
-  onConfirm,
-}: {
-  method: 'PHONE' | 'EMAIL';
-  error: string | null;
-  loading: boolean;
-  onMethodChange: (method: 'PHONE' | 'EMAIL') => void;
-  onBack: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-        <>
-          <div className="extension-forgot-method-heading"><h2>Chọn phương thức khôi phục mật khẩu</h2><p>Bạn muốn nhận mã xác nhận bằng phương thức nào?</p></div>
-          <label className="extension-forgot-method" htmlFor="forgot-method-phone"><input id="forgot-method-phone" type="radio" aria-label="Gửi mã xác nhận qua SĐT" checked={method === 'PHONE'} onChange={() => onMethodChange('PHONE')} /><span><strong>Gửi mã xác nhận qua SĐT</strong><small>Mã xác nhận sẽ được gửi qua SĐT người dùng. Vui lòng truy cập và lấy mã xác nhận.</small></span></label>
-          <label className="extension-forgot-method" htmlFor="forgot-method-email"><input id="forgot-method-email" type="radio" aria-label="Gửi mã xác nhận qua Gmail" checked={method === 'EMAIL'} onChange={() => onMethodChange('EMAIL')} /><span><strong>Gửi mã xác nhận qua Gmail</strong><small>Mã xác nhận sẽ được gửi qua Gmail người dùng. Vui lòng truy cập và lấy mã xác nhận.</small></span></label>
           {error ? <p className="extension-login-error">{error}</p> : null}
-          <div className="extension-forgot-actions"><button type="button" className="secondary-button" onClick={onBack}>Quay lại</button><button type="button" className="confirm-button" onClick={onConfirm} disabled={loading}>{loading ? 'Đang gửi...' : 'Xác nhận'}</button></div>
-        </>
-  );
-}
-
-function ForgotPasswordOtpStep({
-  error,
-  loading,
-  otp,
-  targetEmail,
-  resendRemaining,
-  otpInputRefs,
-  onOtpChange,
-  onPaste,
-  onBack,
-  onResend,
-  onConfirm,
-}: {
-  error: string | null;
-  loading: boolean;
-  otp: string;
-  targetEmail: string;
-  resendRemaining: number;
-  otpInputRefs: import('react').MutableRefObject<Array<HTMLInputElement | null>>;
-  onOtpChange: (index: number, digit: string) => void;
-  onPaste: (value: string) => void;
-  onBack: () => void;
-  onResend: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-        <div className="extension-otp-view">
-          <p className="extension-otp-description">Kiểm tra mã xác nhận được gửi tới Gmail<br />{targetEmail}</p>
+          <div className="extension-login-actions">
+            <button type="button" className="secondary-button" onClick={() => { setError(null); onCancel(); }}>Quay lại</button>
+            <button type="submit" className="confirm-button" disabled={!login.trim() || loading}>
+              {loading ? 'Đang kiểm tra...' : 'Xác nhận'}
+            </button>
+          </div>
+        </form>
+      ) : step === 'METHOD' ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (loading) return;
+            void confirmMethod();
+          }}
+        >
+          <div className="extension-forgot-method-heading">
+            <h2>Chọn phương thức khôi phục mật khẩu</h2>
+            <p>Bạn muốn nhận mã xác nhận bằng phương thức nào?</p>
+          </div>
+          <div className="extension-forgot-method-list">
+            <label className={`extension-forgot-method${method === 'PHONE' ? ' is-selected' : ''}`}>
+              <input type="radio" name="reset-method" checked={method === 'PHONE'} onChange={() => { setMethod('PHONE'); setError(null); }} />
+              <span className="extension-forgot-method-content">
+                <strong>Gửi mã xác nhận qua SĐT</strong>
+                <small>Mã xác nhận sẽ được gửi qua SĐT người dùng. Vui lòng truy cập và lấy mã xác nhận.</small>
+              </span>
+            </label>
+            <label className={`extension-forgot-method${method === 'EMAIL' ? ' is-selected' : ''}`}>
+              <input type="radio" name="reset-method" checked={method === 'EMAIL'} onChange={() => { setMethod('EMAIL'); setError(null); }} />
+              <span className="extension-forgot-method-content">
+                <strong>Gửi mã xác nhận qua Gmail</strong>
+                <small>Mã xác nhận sẽ được gửi qua Gmail người dùng. Vui lòng truy cập và lấy mã xác nhận.</small>
+              </span>
+            </label>
+          </div>
+          {error ? <p className="extension-login-error">{error}</p> : null}
+          <div className="extension-login-actions">
+            <button type="button" className="secondary-button" onClick={() => { setError(null); setStep('IDENTIFIER'); }}>Quay lại</button>
+            <button type="submit" className="confirm-button" disabled={loading}>
+              {loading ? 'Đang gửi...' : 'Xác nhận'}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <form
+          className="extension-otp-view"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (loading || otp.length !== 6) return;
+            void confirmOtp();
+          }}
+        >
           <div className="extension-otp-inputs">
             {Array.from({ length: 6 }, (_, index) => (
               <input
                 key={index}
-                className={error ? 'has-error' : undefined}
+                className={`extension-otp-input${error ? ' has-error' : ''}`}
                 ref={(element) => { otpInputRefs.current[index] = element; }}
                 value={otp[index] ?? ''}
-                onChange={(event) => onOtpChange(index, event.target.value.replace(/\D/g, '').slice(-1))}
+                onChange={(event) => {
+                  const digit = event.target.value.replace(/\D/g, '').slice(-1);
+                  setOtp((current) => `${current.slice(0, index)}${digit}${current.slice(index + 1)}`.slice(0, 6));
+                  setError(null);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'Backspace' && !otp[index] && index > 0) otpInputRefs.current[index - 1]?.focus();
                 }}
@@ -238,7 +234,8 @@ function ForgotPasswordOtpStep({
                   const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
                   if (!pasted) return;
                   event.preventDefault();
-                  onPaste(pasted);
+                  setOtp(pasted);
+                  setError(null);
                   otpInputRefs.current[Math.min(pasted.length, 6) - 1]?.focus();
                 }}
                 inputMode="numeric"
@@ -248,12 +245,25 @@ function ForgotPasswordOtpStep({
               />
             ))}
           </div>
-          {error ? <p className="extension-login-error">{error}</p> : null}
-          <button type="button" className="extension-otp-resend" onClick={onResend} disabled={loading || resendRemaining <= 0}><u>Gửi lại</u> <span>(Còn lại {resendRemaining} lần)</span></button>
-          <p className="extension-otp-hint">Mỗi mã OTP khả dụng trong 15'</p>
-          <p className="extension-otp-hint">Bạn có thể gửi lại mã OTP 5 lần / 1 ngày, tại lúc 00:00:00 hằng ngày</p>
-          <div className="extension-forgot-actions"><button type="button" className="secondary-button" onClick={onBack}>Quay lại</button><button type="button" className="confirm-button" onClick={onConfirm} disabled={loading || otp.length !== 6}>{loading ? 'Đang xác nhận...' : 'Xác nhận'}</button></div>
-        </div>
-      );
+          {error ? <p className="extension-login-error extension-otp-error">{error}</p> : null}
+          <div className="extension-otp-resend-row">
+            <button type="button" className="extension-otp-resend-btn" onClick={() => void resendOtp()} disabled={loading || resendRemaining <= 0}>
+              Gửi lại
+            </button>
+            <span className="extension-otp-resend-count">(Còn lại {resendRemaining} lần)</span>
+          </div>
+          <div className="extension-otp-hints">
+            <p className="extension-otp-hint">Mỗi Mã OTP khả dụng trong 15’</p>
+            <p className="extension-otp-hint">Bạn có thể gửi lại mã OTP 5 lần / 1 ngày, cài lại lúc 00:00:00 hàng ngày</p>
+          </div>
+          <div className="extension-login-actions">
+            <button type="button" className="secondary-button" onClick={() => { setError(null); setStep('METHOD'); }}>Quay lại</button>
+            <button type="submit" className="confirm-button" disabled={loading || otp.length !== 6}>
+              {loading ? 'Đang xác nhận...' : 'Xác nhận'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
 }
-function UserIcon() { return <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-5.33 0-9 2.67-9 6v2h18v-2c0-3.33-3.67-6-9-6Z" /></svg>; }

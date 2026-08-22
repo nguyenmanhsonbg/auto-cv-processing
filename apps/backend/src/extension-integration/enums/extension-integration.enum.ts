@@ -3,6 +3,7 @@ import { RecruitmentChannel } from '../../recruitment-common';
 export enum ExtensionSourceSystem {
   AMIS = 'AMIS',
   VCS_PORTAL = 'VCS_PORTAL',
+  TOPCV = 'TOPCV',
 }
 
 export enum ExtensionExternalEntityType {
@@ -40,6 +41,7 @@ export enum ExtensionCapability {
   FACEBOOK_PUBLISH = 'FACEBOOK_PUBLISH',
   FACEBOOK_VERIFY = 'FACEBOOK_VERIFY',
   CV_UPLOAD_TO_AMIS = 'CV_UPLOAD_TO_AMIS',
+  CHANNEL_PUBLISH = 'CHANNEL_PUBLISH',
 }
 
 export enum ExtensionTaskStatus {
@@ -56,6 +58,7 @@ export enum ExtensionTaskType {
   FACEBOOK_PUBLISH = 'FACEBOOK_PUBLISH',
   FACEBOOK_VERIFY = 'FACEBOOK_VERIFY',
   CV_UPLOAD_TO_AMIS = 'CV_UPLOAD_TO_AMIS',
+  CHANNEL_PUBLISH = 'CHANNEL_PUBLISH',
 }
 
 export const EXTENSION_SYNC_CHANNELS = [

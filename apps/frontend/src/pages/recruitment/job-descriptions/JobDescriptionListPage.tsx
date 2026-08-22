@@ -44,6 +44,7 @@ import {
   listLevels,
   listJobDescriptions,
   listPositions,
+  syncVcsPortalJobDescriptions,
   type JobDescriptionPayload,
   type JobDescriptionRecord,
   type RecruitmentReferenceRecord,
@@ -125,6 +126,7 @@ export function JobDescriptionListPage() {
   const [levels, setLevels] = useState<RecruitmentReferenceRecord[]>([]);
   const [referencesLoading, setReferencesLoading] = useState(false);
   const [referencesError, setReferencesError] = useState<string | null>(null);
+  const [syncingPortal, setSyncingPortal] = useState(false);
 
   const loadJobDescriptions = useCallback(async () => {
     setLoading(true);
@@ -197,6 +199,26 @@ export function JobDescriptionListPage() {
     setSearch(searchInput.trim());
   };
 
+  const handleSyncPortal = async () => {
+    setSyncingPortal(true);
+    try {
+      const result = await syncVcsPortalJobDescriptions();
+      toast({
+        title: 'Đồng bộ portal thành công',
+        description: `Đã tạo ${result.createdCount}, cập nhật ${result.updatedCount} JD.`,
+      });
+      await loadJobDescriptions();
+    } catch (err) {
+      toast({
+        title: 'Đồng bộ portal thất bại',
+        description: getInternalSafeErrorMessage(err),
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncingPortal(false);
+    }
+  };
+
   const handleCreate = async (payload: JobDescriptionPayload) => {
     setSubmitting(true);
     try {
@@ -232,7 +254,7 @@ export function JobDescriptionListPage() {
             type="button"
             variant="outline"
             onClick={() => void loadJobDescriptions()}
-            disabled={loading}
+            disabled={loading || syncingPortal}
           >
             <RefreshCw className={cn('mr-2 h-4 w-4', loading && 'animate-spin')} />
             Refresh
@@ -266,24 +288,36 @@ export function JobDescriptionListPage() {
                 Search
               </Button>
             </form>
-            <Select
-              value={status}
-              onValueChange={(value) => {
-                setStatus(value);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex gap-2">
+              <Select
+                value={status}
+                onValueChange={(value) => {
+                  setStatus(value);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleSyncPortal()}
+                disabled={loading || syncingPortal}
+                className="shrink-0"
+              >
+                <RefreshCw className={cn('mr-2 h-4 w-4', syncingPortal && 'animate-spin')} />
+                Đồng bộ portal
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
