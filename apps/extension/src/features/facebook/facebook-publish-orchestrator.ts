@@ -262,6 +262,7 @@ interface FacebookBatchGroupSelectionResult {
   ok: boolean;
   message: string;
   selectedGroupIds: string[];
+  doneButtonPoint?: FacebookSubmitButtonPoint;
 }
 
 interface FacebookSubmitButtonPointProbe {
@@ -1394,6 +1395,7 @@ async function runFreshTabPublishAttempt({
         [
           Array<{ targetName: string; targetExternalId: string }>,
           FacebookCrosspostSearchGroup[],
+          boolean,
         ],
         FacebookBatchGroupSelectionResult
       >(
@@ -1405,6 +1407,7 @@ async function runFreshTabPublishAttempt({
             targetExternalId: batchTarget.targetExternalId ?? '',
           })),
           knownSearchGroups,
+          Boolean(preSubmitGraphqlCapture),
         ],
       );
       console.warn('[FB_BATCH_GROUP_SELECTION_RESULT]', {
@@ -1412,6 +1415,7 @@ async function runFreshTabPublishAttempt({
         ok: selection.ok,
         message: selection.message,
         selectedGroupIds: selection.selectedGroupIds,
+        doneButtonPoint: selection.doneButtonPoint ?? null,
         targetGroupIds: batchCrosspostTargets.map((batchTarget) => batchTarget.targetExternalId),
       });
       if (!selection.ok) {
@@ -1423,6 +1427,25 @@ async function runFreshTabPublishAttempt({
             doNotRetry: true,
           },
         };
+      }
+
+      if (selection.doneButtonPoint && preSubmitGraphqlCapture) {
+        await clickTabCoordinatePointOnAttachedDebugger(
+          tabId,
+          selection.doneButtonPoint,
+          execution,
+        );
+        const pickerClosed = await waitForFacebookGroupPickerClosed(tabId, execution);
+        if (!pickerClosed) {
+          return {
+            kind: 'PUBLISHED',
+            result: {
+              status: 'FAILED',
+              message: 'Không thể đóng popup chọn nhóm Facebook sau khi click nút “Xong”.',
+              doNotRetry: true,
+            },
+          };
+        }
       }
 
       // Facebook replaces the composer subtree after the group picker closes.
@@ -4228,6 +4251,63 @@ async function clickTabCoordinatePointOnAttachedDebugger(
   });
 }
 
+function isFacebookGroupPickerOpenInPage(): boolean {
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  const isRendered = (element: HTMLElement) => {
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none'
+      && style.visibility !== 'hidden'
+      && rect.width > 0
+      && rect.height > 0
+      && rect.right > 0
+      && rect.bottom > 0
+      && rect.left < window.innerWidth
+      && rect.top < window.innerHeight;
+  };
+
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).some((dialog) => {
+    if (!isRendered(dialog)) return false;
+    const label = normalize([
+      dialog.getAttribute('aria-label'),
+      dialog.getAttribute('title'),
+      dialog.textContent,
+    ].filter(Boolean).join(' '));
+    const hasSearchInput = Boolean(dialog.querySelector(
+      'input[aria-label*="Tìm kiếm nhóm" i], input[placeholder*="Tìm kiếm nhóm" i], '
+        + '[role="combobox"][aria-label*="Tìm kiếm nhóm" i], '
+        + '[role="combobox"][placeholder*="Tìm kiếm nhóm" i], '
+        + 'input[aria-label*="search group" i], input[placeholder*="search group" i], '
+        + '[role="combobox"][aria-label*="search group" i], '
+        + '[role="combobox"][placeholder*="search group" i]',
+    ));
+    return hasSearchInput && (label.includes('them nhom') || label.includes('chon nhom'));
+  });
+}
+
+async function waitForFacebookGroupPickerClosed(
+  tabId: number,
+  execution: FacebookTargetExecution,
+) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const pickerOpen = await runScript<[], boolean>(
+      tabId,
+      isFacebookGroupPickerOpenInPage,
+      [],
+    ).catch(() => true);
+    if (!pickerOpen) return true;
+    await execution.wait(150);
+  }
+  return false;
+}
+
 function randomDelay(minMs: number, maxMs: number) {
   const min = Math.max(0, minMs);
   const max = Math.max(min, maxMs);
@@ -4750,6 +4830,7 @@ async function checkFacebookGroupPostingEligibilityInPage(): Promise<FacebookGro
 function selectFacebookCrosspostGroupsInPage(
   targets: Array<{ targetName: string; targetExternalId: string }>,
   knownSearchGroups: Array<{ groupId: string; name: string }> = [],
+  returnDoneButtonPoint = false,
 ): Promise<FacebookBatchGroupSelectionResult> {
   const normalize = (value: string) => value
     .normalize('NFD')
@@ -4842,6 +4923,21 @@ function selectFacebookCrosspostGroupsInPage(
     element.focus?.();
     element.click();
     return true;
+  };
+
+  const resolvePoint = (element: Element): FacebookSubmitButtonPoint => {
+    const rect = element.getBoundingClientRect();
+    return {
+      clientX: Math.round(rect.left + rect.width / 2),
+      clientY: Math.round(rect.top + rect.height / 2),
+      label: readLabel(element),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      },
+    };
   };
 
   const hasComposerEditor = (dialog: HTMLElement) => Boolean(dialog.querySelector(
@@ -5065,6 +5161,16 @@ function selectFacebookCrosspostGroupsInPage(
     const doneButton = Array.from(activeDialog.querySelectorAll<HTMLElement>(
       '[role="button"], button',
     )).find((element) => rendered(element) && matchesUiLabel(element, 'xong'));
+
+    if (returnDoneButtonPoint && doneButton) {
+      return {
+        ok: true,
+        message: `Đã chọn ${targets.length} group Facebook để đăng cùng một bài viết.`,
+        selectedGroupIds: targets.map((target) => target.targetExternalId),
+        doneButtonPoint: resolvePoint(doneButton),
+      };
+    }
+
     if (!clickElement(doneButton ?? null)) {
       return {
         ok: false,
