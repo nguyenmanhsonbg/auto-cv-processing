@@ -28,6 +28,7 @@ import {
   type FacebookCrosspostNotificationResult,
 } from './facebook-publish-batch-utils';
 import {
+  isFacebookSubmitReadyAfterPickerClosed,
   selectFacebookComposerSubmitCandidate,
   type FacebookComposerSubmitCandidate,
 } from './facebook-submit-utils';
@@ -271,6 +272,24 @@ interface FacebookSubmitButtonPointProbe {
   candidate?: FacebookComposerSubmitCandidate | null;
 }
 
+interface FacebookSubmitButtonPointProbeOptions {
+  requirePickerClosed?: boolean;
+  content?: string | null;
+}
+
+interface FacebookSubmitDiagnosticProbe {
+  url: string;
+  visibilityState: string;
+  hidden: boolean;
+  dialogCount: number;
+  dialogs: Array<{
+    label: string;
+    ariaHidden: string | null;
+    hasEditor: boolean;
+    hasSubmitButton: boolean;
+  }>;
+}
+
 interface FacebookSubmitPreflightResult {
   ready: boolean;
   message: string;
@@ -296,7 +315,14 @@ interface FacebookSubmitActivationResult {
 function isFacebookSubmitButtonProbeValid(probe: FacebookSubmitButtonPointProbe | null | undefined) {
   if (!probe?.found || !probe.submitButton) return false;
   if (!probe.candidate) return true;
-  return Boolean(selectFacebookComposerSubmitCandidate([probe.candidate]));
+  return Boolean(selectFacebookComposerSubmitCandidate([probe.candidate]))
+    && isFacebookSubmitReadyAfterPickerClosed({
+      pickerOpen: false,
+      composerVisible: probe.candidate.dialogVisible,
+      hasEditor: probe.candidate.hasEditor,
+      submitButtonVisible: probe.candidate.buttonVisible,
+      submitButtonDisabled: probe.candidate.buttonDisabled,
+    });
 }
 
 interface FacebookSubmitDiagnosticInput {
@@ -1430,38 +1456,42 @@ async function runFreshTabPublishAttempt({
       }
 
       if (selection.doneButtonPoint && preSubmitGraphqlCapture) {
+        console.warn('[FB_BATCH_DONE_CLICK_FALLBACK]', {
+          tabId,
+          point: selection.doneButtonPoint,
+        });
         await clickTabCoordinatePointOnAttachedDebugger(
           tabId,
           selection.doneButtonPoint,
           execution,
         );
-        const pickerClosed = await waitForFacebookGroupPickerClosed(tabId, execution);
-        if (!pickerClosed) {
-          return {
-            kind: 'PUBLISHED',
-            result: {
-              status: 'FAILED',
-              message: 'Không thể đóng popup chọn nhóm Facebook sau khi click nút “Xong”.',
-              doNotRetry: true,
-            },
-          };
-        }
+      }
+      const pickerClosed = await waitForFacebookGroupPickerClosed(tabId, execution);
+      if (!pickerClosed) {
+        return {
+          kind: 'PUBLISHED',
+          result: {
+            status: 'FAILED',
+            message: 'Không thể đóng popup chọn nhóm Facebook sau khi click nút “Xong”.',
+            doNotRetry: true,
+          },
+        };
       }
 
       // Facebook replaces the composer subtree after the group picker closes.
       // The button point captured before opening the picker can therefore be
       // stale even though the current “Đăng” button is visible. Re-resolve it
-      // from the current DOM before entering the existing submit flow.
-      let refreshedSubmitButton: FacebookSubmitButtonPointProbe | null = null;
-      for (let probeAttempt = 0; probeAttempt < 8; probeAttempt += 1) {
-        refreshedSubmitButton = await runScript<[number], FacebookSubmitButtonPointProbe>(
-          tabId,
-          resolveFacebookSubmitButtonPointInPage,
-          [8_000],
-        ).catch(() => null);
-        if (isFacebookSubmitButtonProbeValid(refreshedSubmitButton)) break;
-        await execution.wait(350);
-      }
+      // from the current DOM before entering the existing submit flow. The
+      // page probe waits for the complete post-picker state instead of taking
+      // a snapshot during Facebook's React/Relay transition.
+      const refreshedSubmitButton = await runScript<
+        [number, FacebookSubmitButtonPointProbeOptions],
+        FacebookSubmitButtonPointProbe
+      >(
+        tabId,
+        resolveFacebookSubmitButtonPointInPage,
+        [15_000, { requirePickerClosed: true, content }],
+      ).catch(() => null);
       console.warn('[FB_BATCH_SUBMIT_BUTTON_REPROBE]', {
         tabId,
         found: isFacebookSubmitButtonProbeValid(refreshedSubmitButton),
@@ -1470,6 +1500,15 @@ async function runFreshTabPublishAttempt({
         submitButton: refreshedSubmitButton?.submitButton ?? null,
       });
       if (!isFacebookSubmitButtonProbeValid(refreshedSubmitButton) || !refreshedSubmitButton?.submitButton) {
+        const diagnostic = await runScript<[], FacebookSubmitDiagnosticProbe>(
+          tabId,
+          readFacebookSubmitDiagnosticInPage,
+          [],
+        ).catch(() => null);
+        console.warn('[FB_BATCH_SUBMIT_BUTTON_DIAGNOSTIC]', {
+          tabId,
+          diagnostic,
+        });
         return {
           kind: 'PUBLISHED',
           result: {
@@ -2673,11 +2712,11 @@ async function clickAndWaitForSubmission(
     );
     const initialGraphqlResult = await graphqlCapture?.waitForResult(1_500) ?? null;
     if (!initialGraphqlResult) {
-      const fallbackPointProbe = await runScript<[number], FacebookSubmitButtonPointProbe>(
+      const fallbackPointProbe = await resolveCurrentFacebookSubmitButtonPoint(
         tabId,
-        resolveFacebookSubmitButtonPointInPage,
-        [3_000],
-      ).catch(() => null);
+        content,
+        execution,
+      );
       console.warn('[FB06B_NATIVE_FALLBACK_PROBE]', {
         tabId,
         graphqlObserved: false,
@@ -4216,6 +4255,39 @@ async function clickTabCoordinatePoint(
   }
 }
 
+async function resolveCurrentFacebookSubmitButtonPoint(
+  tabId: number,
+  content: string,
+  execution: FacebookTargetExecution,
+) {
+  // Resolve the point from the live DOM immediately before the coordinate
+  // fallback. DevTools docking/undocking, panel resizing, and Facebook's
+  // responsive composer can all move the button without changing its label.
+  // Never reuse the pre-picker point here.
+  const probe = await runScript<
+    [number, FacebookSubmitButtonPointProbeOptions],
+    FacebookSubmitButtonPointProbe
+  >(
+    tabId,
+    resolveFacebookSubmitButtonPointInPage,
+    [3_000, { requirePickerClosed: true, content }],
+  ).catch((error) => {
+    console.warn('[FB06B_FRESH_COORDINATE_PROBE_FAILED]', {
+      tabId,
+      message: toAutomationErrorMessage(error),
+    });
+    return null;
+  });
+
+  console.warn('[FB06B_FRESH_COORDINATE_PROBE]', {
+    tabId,
+    found: isFacebookSubmitButtonProbeValid(probe),
+    submitButton: probe?.submitButton ?? null,
+  });
+  execution.throwIfCancelled();
+  return probe;
+}
+
 async function clickTabCoordinatePointOnAttachedDebugger(
   tabId: number,
   point: FacebookSubmitButtonPoint,
@@ -4271,9 +4343,14 @@ function isFacebookGroupPickerOpenInPage(): boolean {
       && rect.left < window.innerWidth
       && rect.top < window.innerHeight;
   };
+  const isActiveDialog = (element: HTMLElement) => (
+    isRendered(element)
+    && element.getAttribute('aria-hidden') !== 'true'
+    && !element.closest('[aria-hidden="true"]')
+  );
 
   return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).some((dialog) => {
-    if (!isRendered(dialog)) return false;
+    if (!isActiveDialog(dialog)) return false;
     const label = normalize([
       dialog.getAttribute('aria-label'),
       dialog.getAttribute('title'),
@@ -4295,7 +4372,7 @@ async function waitForFacebookGroupPickerClosed(
   tabId: number,
   execution: FacebookTargetExecution,
 ) {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const pickerOpen = await runScript<[], boolean>(
       tabId,
@@ -4908,12 +4985,12 @@ function selectFacebookCrosspostGroupsInPage(
     const hasTitle = dialogLabel.includes('them nhom') || dialogLabel.includes('chon nhom');
     return hasSearch && hasTitle;
   };
-  const findDialog = () => {
+  const findDialog = (visibleOnly = false) => {
     const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
     const pickerDialogs = dialogs.filter(isGroupPickerDialog);
-    return pickerDialogs.find((dialog) => rendered(dialog))
-      ?? pickerDialogs.find(isNotAriaHidden)
-      ?? pickerDialogs[0]
+    const activePickerDialogs = pickerDialogs.filter(isNotAriaHidden);
+    return activePickerDialogs.find((dialog) => rendered(dialog))
+      ?? (visibleOnly ? null : activePickerDialogs[0])
       ?? null;
   };
 
@@ -5162,34 +5239,46 @@ function selectFacebookCrosspostGroupsInPage(
       '[role="button"], button',
     )).find((element) => rendered(element) && matchesUiLabel(element, 'xong'));
 
-    if (returnDoneButtonPoint && doneButton) {
-      return {
-        ok: true,
-        message: `Đã chọn ${targets.length} group Facebook để đăng cùng một bài viết.`,
-        selectedGroupIds: targets.map((target) => target.targetExternalId),
-        doneButtonPoint: resolvePoint(doneButton),
-      };
-    }
-
-    if (!clickElement(doneButton ?? null)) {
+    const doneButtonPoint = doneButton ? resolvePoint(doneButton) : null;
+    const doneButtonClicked = clickElement(doneButton ?? null);
+    if (!doneButtonClicked) {
       return {
         ok: false,
         message: 'Không tìm thấy nút “Xong” trong popup chọn nhóm Facebook.',
         selectedGroupIds: [],
       };
     }
-    const dialogClosed = await waitFor(() => (findDialog() ? null : true), 5_000);
-    if (!dialogClosed) {
+
+    const dialogClosed = await waitFor(
+      () => (findDialog(true) ? null : true),
+      returnDoneButtonPoint ? 2_000 : 5_000,
+    );
+    console.warn('[FB_BATCH_DONE_CLICK_SEMANTIC]', {
+      clicked: doneButtonClicked,
+      pickerStillOpen: !dialogClosed,
+      fallbackAvailable: Boolean(returnDoneButtonPoint && doneButtonPoint),
+    });
+    if (dialogClosed) {
       return {
-        ok: false,
-        message: 'Không thể đóng popup chọn nhóm Facebook sau khi click nút “Xong”.',
-        selectedGroupIds: [],
+        ok: true,
+        message: `Đã chọn ${targets.length} group Facebook để đăng cùng một bài viết.`,
+        selectedGroupIds: targets.map((target) => target.targetExternalId),
+        doneButtonPoint: undefined,
+      };
+    }
+
+    if (returnDoneButtonPoint && doneButtonPoint) {
+      return {
+        ok: true,
+        message: 'Semantic click nút “Xong” chưa đóng popup; chuyển sang CDP fallback.',
+        selectedGroupIds: targets.map((target) => target.targetExternalId),
+        doneButtonPoint,
       };
     }
     return {
-      ok: true,
-      message: `Đã chọn ${targets.length} group Facebook để đăng cùng một bài viết.`,
-      selectedGroupIds: targets.map((target) => target.targetExternalId),
+      ok: false,
+      message: 'Không thể đóng popup chọn nhóm Facebook sau khi click nút “Xong”.',
+      selectedGroupIds: [],
     };
   })();
 }
@@ -6054,6 +6143,7 @@ async function prepareFacebookPostInPage(
 
 async function resolveFacebookSubmitButtonPointInPage(
   waitTimeoutMs = 0,
+  options: FacebookSubmitButtonPointProbeOptions = {},
 ): Promise<FacebookSubmitButtonPointProbe> {
   const probe = (): FacebookSubmitButtonPointProbe => {
   const normalize = (value: string) => {
@@ -6241,14 +6331,45 @@ async function resolveFacebookSubmitButtonPointInPage(
       }) ?? null
   );
 
+  const groupPickerSearchSelector = [
+    'input[aria-label*="Tìm kiếm nhóm" i]',
+    'input[placeholder*="Tìm kiếm nhóm" i]',
+    '[role="combobox"][aria-label*="Tìm kiếm nhóm" i]',
+    '[role="combobox"][placeholder*="Tìm kiếm nhóm" i]',
+    'input[aria-label*="search group" i]',
+    'input[placeholder*="search group" i]',
+    '[role="combobox"][aria-label*="search group" i]',
+    '[role="combobox"][placeholder*="search group" i]',
+  ].join(', ');
+  const isActiveGroupPickerDialog = (dialog: Element) => {
+    const label = elementLabel(dialog);
+    const hasSearchInput = Boolean(dialog.querySelector(groupPickerSearchSelector));
+    return isVisible(dialog)
+      && hasSearchInput
+      && (label.includes('them nhom') || label.includes('chon nhom'));
+  };
+  const contentSample = normalize(options.content ?? '').slice(0, 24);
+
   const dialogs = queryAll(document, '[role="dialog"]')
     .filter((element) => isVisible(element));
+  if (options.requirePickerClosed && dialogs.some(isActiveGroupPickerDialog)) {
+    return { found: false };
+  }
   const composerDialogs = dialogs.filter((dialog) => {
     const label = elementLabel(dialog);
     const hasEditor = queryAll(dialog, '[contenteditable="true"][role="textbox"], [contenteditable="true"]')
       .some((element) => isVisible(element));
     const hasComposerTitle = /tao bai viet|create a public post|create post|start a post/.test(label);
-    return hasEditor && hasComposerTitle && !isInsideCommentSurface(dialog);
+    const hasExpectedContent = !contentSample || queryAll(
+      dialog,
+      '[contenteditable="true"][role="textbox"], [contenteditable="true"]',
+    ).some((element) => isVisible(element) && normalize(
+      (element as HTMLElement).innerText || element.textContent || '',
+    ).includes(contentSample));
+    return hasEditor
+      && hasComposerTitle
+      && hasExpectedContent
+      && !isInsideCommentSurface(dialog);
   });
   const roots: Array<Document | Element> = composerDialogs.length > 0
     ? composerDialogs
@@ -6292,6 +6413,64 @@ async function resolveFacebookSubmitButtonPointInPage(
     }
   }
 
+  // After the group picker closes, Facebook can remount the composer and
+  // briefly drop its title/editor metadata even though the real enabled
+  // submit control is already present. Prefer the exact, visible, enabled
+  // aria-labelled post button in the active dialog in that transition state.
+  // The existing submit preflight still verifies the editor content before
+  // dispatching the final click, so this fallback only repairs button
+  // discovery and never broadens the click target to comments or page text.
+  if (options.requirePickerClosed) {
+    const exactRemountedButton = queryAll(
+      document,
+      '[role="dialog"] button[aria-label], [role="dialog"] [role="button"][aria-label]',
+    )
+      .map((element) => getClickableElement(element))
+      .find((element) => {
+        const dialog = element.closest('[role="dialog"]');
+        const label = normalize(element.getAttribute('aria-label') ?? '');
+        if (!dialog) return false;
+        return isVisible(dialog)
+          && isVisible(element)
+          && !isDisabled(element)
+          && (label === 'dang' || label === 'post')
+          && !isInsideCommentSurface(element);
+      });
+
+    if (exactRemountedButton) {
+      const dialog = exactRemountedButton.closest('[role="dialog"]');
+      const rect = exactRemountedButton.getBoundingClientRect();
+      return {
+        found: true,
+        submitButton: {
+          clientX: Math.round(rect.left + rect.width / 2),
+          clientY: Math.round(rect.top + rect.height / 2),
+          label: elementLabel(exactRemountedButton),
+          rect: {
+            left: Math.round(rect.left),
+            top: Math.round(rect.top),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          },
+        },
+        candidate: {
+          id: 'facebook-remounted-exact-submit',
+          dialogVisible: true,
+          dialogLabel: dialog ? elementLabel(dialog) : '',
+          hasEditor: dialog
+            ? queryAll(dialog, '[contenteditable="true"][role="textbox"], [contenteditable="true"]')
+              .some((element) => isVisible(element))
+            : false,
+          buttonText: exactRemountedButton.textContent ?? '',
+          ariaLabel: exactRemountedButton.getAttribute('aria-label'),
+          buttonVisible: isVisible(exactRemountedButton),
+          buttonDisabled: isDisabled(exactRemountedButton),
+          insideCommentSurface: isInsideCommentSurface(exactRemountedButton),
+        },
+      };
+    }
+  }
+
   return { found: false };
   };
 
@@ -6302,6 +6481,48 @@ async function resolveFacebookSubmitButtonPointInPage(
     result = probe();
   }
   return result;
+}
+
+function readFacebookSubmitDiagnosticInPage(): FacebookSubmitDiagnosticProbe {
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0111\u0110]/g, 'd')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  const isVisible = (element: HTMLElement) => {
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none'
+      && style.visibility !== 'hidden'
+      && rect.width > 0
+      && rect.height > 0
+      && !element.closest('[aria-hidden="true"]');
+  };
+  const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
+
+  return {
+    url: window.location.href,
+    visibilityState: document.visibilityState,
+    hidden: document.hidden,
+    dialogCount: dialogs.length,
+    dialogs: dialogs.map((dialog) => ({
+      label: normalize([
+        dialog.getAttribute('aria-label') ?? '',
+        dialog.textContent ?? '',
+      ].join(' ')).slice(0, 160),
+      ariaHidden: dialog.getAttribute('aria-hidden'),
+      hasEditor: Boolean(Array.from(dialog.querySelectorAll<HTMLElement>('[contenteditable="true"]'))
+        .some(isVisible)),
+      hasSubmitButton: Boolean(Array.from(dialog.querySelectorAll<HTMLElement>(
+        '[role="button"][aria-label], button[aria-label]',
+      )).some((button) => (
+        isVisible(button) && normalize(button.getAttribute('aria-label') ?? '') === 'dang'
+      ))),
+    })),
+  };
 }
 
 function activateFacebookSubmitButtonInPage(content: string): FacebookSubmitActivationResult {

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { selectFacebookComposerSubmitCandidate } from './facebook-submit-utils.ts';
+import {
+  isFacebookSubmitReadyAfterPickerClosed,
+  selectFacebookComposerSubmitCandidate,
+} from './facebook-submit-utils.ts';
 
 type Candidate = Parameters<typeof selectFacebookComposerSubmitCandidate>[0][number];
 
@@ -53,4 +56,44 @@ test('rejects a mounted composer button that is still disabled', () => {
   ]);
 
   assert.equal(result, null);
+});
+
+test('accepts the exact enabled Đăng aria button after Facebook remounts the composer context', () => {
+  const result = selectFacebookComposerSubmitCandidate([
+    candidate({
+      id: 'remounted-exact-submit',
+      dialogLabel: '',
+      hasEditor: false,
+      buttonText: '',
+      ariaLabel: 'Đăng',
+    }),
+  ]);
+
+  assert.equal(result?.id, 'remounted-exact-submit');
+});
+
+test('waits for the picker to close and the remounted composer to be ready before submitting', () => {
+  assert.equal(isFacebookSubmitReadyAfterPickerClosed({
+    pickerOpen: true,
+    composerVisible: true,
+    hasEditor: true,
+    submitButtonVisible: true,
+    submitButtonDisabled: false,
+  }), false);
+
+  assert.equal(isFacebookSubmitReadyAfterPickerClosed({
+    pickerOpen: false,
+    composerVisible: false,
+    hasEditor: true,
+    submitButtonVisible: true,
+    submitButtonDisabled: false,
+  }), false);
+
+  assert.equal(isFacebookSubmitReadyAfterPickerClosed({
+    pickerOpen: false,
+    composerVisible: true,
+    hasEditor: true,
+    submitButtonVisible: true,
+    submitButtonDisabled: false,
+  }), true);
 });

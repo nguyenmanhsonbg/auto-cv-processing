@@ -13,6 +13,7 @@ import {
   getFacebookBackgroundTabInteractionCommands,
   shouldKeepFacebookPublishTabOpenForDebug,
   isFacebookGroupBatchTargets,
+  isFacebookActivePickerDialogState,
 } from './facebook-publish-batch-utils.ts';
 
 const submittedAtMs = 1_787_223_933_614;
@@ -246,6 +247,33 @@ test('keeps a background Facebook tab interactive without bringing it to the fro
       params: { state: 'active' },
     },
   ]);
+});
+
+test('does not treat an aria-hidden or offscreen picker dialog as active', () => {
+  assert.equal(isFacebookActivePickerDialogState({
+    ariaHidden: true,
+    ancestorAriaHidden: false,
+    rendered: true,
+    offscreen: false,
+  }), false);
+  assert.equal(isFacebookActivePickerDialogState({
+    ariaHidden: false,
+    ancestorAriaHidden: true,
+    rendered: true,
+    offscreen: false,
+  }), false);
+  assert.equal(isFacebookActivePickerDialogState({
+    ariaHidden: false,
+    ancestorAriaHidden: false,
+    rendered: true,
+    offscreen: true,
+  }), false);
+  assert.equal(isFacebookActivePickerDialogState({
+    ariaHidden: false,
+    ancestorAriaHidden: false,
+    rendered: true,
+    offscreen: false,
+  }), true);
 });
 
 test('keeps a failed Facebook publish tab open only while debug mode is enabled', () => {

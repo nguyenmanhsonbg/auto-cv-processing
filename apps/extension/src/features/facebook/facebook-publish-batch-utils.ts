@@ -13,6 +13,20 @@ export interface FacebookCrosspostSearchGroup {
   name: string;
 }
 
+export interface FacebookPickerDialogState {
+  ariaHidden: boolean;
+  ancestorAriaHidden: boolean;
+  rendered: boolean;
+  offscreen: boolean;
+}
+
+export function isFacebookActivePickerDialogState(state: FacebookPickerDialogState) {
+  return !state.ariaHidden
+    && !state.ancestorAriaHidden
+    && state.rendered
+    && !state.offscreen;
+}
+
 export function getFacebookBackgroundTabInteractionCommands() {
   return [
     {

@@ -10,6 +10,24 @@ export interface FacebookComposerSubmitCandidate {
   insideCommentSurface: boolean;
 }
 
+export interface FacebookSubmitReadinessState {
+  pickerOpen: boolean;
+  composerVisible: boolean;
+  hasEditor: boolean;
+  submitButtonVisible: boolean;
+  submitButtonDisabled: boolean;
+}
+
+export function isFacebookSubmitReadyAfterPickerClosed(
+  state: FacebookSubmitReadinessState,
+) {
+  return !state.pickerOpen
+    && state.composerVisible
+    && state.hasEditor
+    && state.submitButtonVisible
+    && !state.submitButtonDisabled;
+}
+
 function normalizeFacebookSubmitText(value: string) {
   return value
     .normalize('NFD')
@@ -36,12 +54,19 @@ export function selectFacebookComposerSubmitCandidate(
     const labels = [candidate.ariaLabel, candidate.buttonText].filter(
       (value): value is string => Boolean(value),
     );
+    const hasExactAriaSubmitLabel = candidate.ariaLabel !== null
+      && (normalizeFacebookSubmitText(candidate.ariaLabel) === 'dang'
+        || normalizeFacebookSubmitText(candidate.ariaLabel) === 'post');
+    const hasComposerContext = normalizeFacebookSubmitText(candidate.dialogLabel).includes('tao bai viet')
+      && candidate.hasEditor;
+
     return candidate.dialogVisible
-      && normalizeFacebookSubmitText(candidate.dialogLabel).includes('tao bai viet')
-      && candidate.hasEditor
       && candidate.buttonVisible
       && !candidate.buttonDisabled
       && !candidate.insideCommentSurface
-      && labels.some(isFacebookPostSubmitLabel);
+      && (
+        (hasComposerContext && labels.some(isFacebookPostSubmitLabel))
+        || hasExactAriaSubmitLabel
+      );
   }) ?? null;
 }
