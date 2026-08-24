@@ -113,18 +113,18 @@ export enum ApplicationStatus {
   AI_SCREENING_DONE = 'AI_SCREENING_DONE',
   AI_SCREENING_FAILED = 'AI_SCREENING_FAILED',
   WAITING_HR_REVIEW = 'WAITING_HR_REVIEW',
-  HR_APPROVED = 'HR_APPROVED',
   HR_REJECTED = 'HR_REJECTED',
   HR_REQUESTED_MORE_INFO = 'HR_REQUESTED_MORE_INFO',
   TALENT_POOL = 'TALENT_POOL',
 }
 
+// NOTE: HR_APPROVED has been removed. Use hiredAt field on ApplicationEntity instead.
+// Terminal statuses now include TALENT_POOL for "passed" applications kept for future.
 export const TERMINAL_APPLICATION_STATUSES = [
   ApplicationStatus.APPLICATION_REJECTED_INVALID,
   ApplicationStatus.APPLICATION_REJECTED_RATE_LIMIT,
   ApplicationStatus.CV_REJECTED_MALWARE,
   ApplicationStatus.MAPPING_REJECTED,
-  ApplicationStatus.HR_APPROVED,
   ApplicationStatus.HR_REJECTED,
   ApplicationStatus.TALENT_POOL,
 ] as const;

@@ -20,6 +20,7 @@ export interface ReferralApplicationMetricInput {
   processStatus: ApplicationStatus | string | null;
   hrReceptionStatus: HrReviewDecisionType | string | null;
   currentAmisStage?: ReferralCurrentAmisStage | null;
+  hiredAt?: Date | null;
 }
 
 export interface ReferralApplicationRowInput extends ReferralApplicationMetricInput {
@@ -133,6 +134,7 @@ export function mapReferralApplicationRow(
 export function getReferralApplicationStatusCategory(
   application: ReferralApplicationMetricInput,
 ): ReferralApplicationStatusCategory {
+  // Check AMIS stage first
   if (application.currentAmisStage) {
     if (application.currentAmisStage.amisStatus === 0 || application.currentAmisStage.reasonRemoved?.trim()) {
       return 'REJECTED';
@@ -145,13 +147,18 @@ export function getReferralApplicationStatusCategory(
     return 'PROCESSING';
   }
 
-  if (application.hrReceptionStatus === HrReviewDecisionType.APPROVE
-    || application.hrReceptionStatus === HrReviewDecisionType.TALENT_POOL
-    || application.processStatus === ApplicationStatus.HR_APPROVED
-    || application.processStatus === ApplicationStatus.TALENT_POOL) {
+  // Check internal hiredAt (this replaces the old HR_APPROVED check)
+  if (application.hiredAt) {
     return 'PASSED';
   }
 
+  // Check hrReceptionStatus
+  if (application.hrReceptionStatus === HrReviewDecisionType.APPROVE
+    || application.hrReceptionStatus === HrReviewDecisionType.TALENT_POOL) {
+    return 'PASSED';
+  }
+
+  // Check processStatus for rejection
   if (application.hrReceptionStatus === HrReviewDecisionType.REJECT
     || REJECTED_PROCESS_STATUSES.has(application.processStatus ?? '')
   ) {
@@ -164,7 +171,7 @@ export function getReferralApplicationStatusCategory(
 function normalizeRoundName(value: string | null | undefined) {
   return (value ?? '')
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .replace(/Đ/g, 'D')
     .replace(/đ/g, 'd')
     .toUpperCase()

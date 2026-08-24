@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { resolve } from 'node:path';
 import { CommonModule } from './common/common.module';
 import { AiModule } from './ai/ai.module';
@@ -29,15 +30,21 @@ import { SubmissionsModule } from './submissions/submissions.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { VcsPortalWebhooksModule } from './vcs-portal-webhooks/vcs-portal-webhooks.module';
 import { WebSocketModule } from './websocket/websocket.module';
+import { InterviewRoundsModule } from './interview-rounds/interview-rounds.module';
+import { TestRoundsModule } from './test-rounds/test-rounds.module';
+import { OffersModule } from './offers/offers.module';
+import { AmisSyncModule } from './amis-sync/amis-sync.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [resolve(__dirname, '../.env')],
     }),
     ThrottlerModule.forRoot([
-      { name: 'default', ttl: 60_000, limit: 5000 },  // 5000 req/min global
+      { name: 'default', ttl: 60_000, limit: 5000 },
     ]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -54,14 +61,12 @@ import { WebSocketModule } from './websocket/websocket.module';
           ssl: false,
           extra: {
             client_encoding: 'UTF8',
-            // Connection pool: keep connections alive and reuse them
             max: 5,
             min: 1,
-            idleTimeoutMillis: 30_000,
-            connectionTimeoutMillis: 5_000,
-            // TCP keepalive prevents stale connections being dropped silently
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 5000,
             keepAlive: true,
-            keepAliveInitialDelayMillis: 10_000,
+            keepAliveInitialDelayMillis: 10000,
           },
         };
       },
@@ -92,6 +97,12 @@ import { WebSocketModule } from './websocket/websocket.module';
     UploadsModule,
     VcsPortalWebhooksModule,
     NotificationModule,
+    // Recruitment Pipeline Modules
+    InterviewRoundsModule,
+    TestRoundsModule,
+    OffersModule,
+    AmisSyncModule,
+    DashboardModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

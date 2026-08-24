@@ -28,7 +28,7 @@ describe('referral-source-summary.util', () => {
         hrReceptionStatus: null,
       },
       {
-        processStatus: ApplicationStatus.HR_APPROVED,
+        processStatus: 'HR_APPROVED',
         hrReceptionStatus: HrReviewDecisionType.APPROVE,
       },
       {
@@ -43,7 +43,7 @@ describe('referral-source-summary.util', () => {
   it('uses the current AMIS round instead of stale core application status', () => {
     const metrics = buildReferralSourceMetrics([
       {
-        processStatus: ApplicationStatus.HR_APPROVED,
+        processStatus: 'HR_APPROVED',
         hrReceptionStatus: HrReviewDecisionType.APPROVE,
         currentAmisStage: {
           recruitmentRoundId: 'offer-round',
@@ -65,7 +65,7 @@ describe('referral-source-summary.util', () => {
         },
       },
       {
-        processStatus: ApplicationStatus.HR_APPROVED,
+        processStatus: 'HR_APPROVED',
         hrReceptionStatus: HrReviewDecisionType.APPROVE,
         currentAmisStage: {
           recruitmentRoundId: 'rejected-round',
@@ -130,7 +130,7 @@ describe('referral-source-summary.util', () => {
       applicationId: 'application-2',
       candidate: { candidateId: 'candidate-2', fullName: 'Tran Thi B' },
       jobPosting: { jobPostingId: 'job-2', title: 'Frontend Developer' },
-      processStatus: ApplicationStatus.HR_APPROVED,
+      processStatus: 'HR_APPROVED',
       hrReceptionStatus: HrReviewDecisionType.APPROVE,
       evaluation: null,
       createdAt: currentAmisStage.updatedAt,
