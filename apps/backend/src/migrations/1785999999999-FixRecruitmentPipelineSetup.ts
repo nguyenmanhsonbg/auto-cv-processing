@@ -217,7 +217,12 @@ export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterf
       onDelete: 'SET NULL',
     }));
 
-    // 8. Mark new migrations as completed
+    // 8. Mark migrations as completed
+    // NOTE: Only mark 1785999999999 and 1785500000000
+    // 1785700000000 (BackfillRecruitmentPipelineStages) is intentionally NOT marked
+    // because FixRecruitmentPipelineSetup already handles the backfill logic below.
+    // If we mark 1785700000000, TypeORM still runs it (lower timestamp) before this migration,
+    // causing "column does not exist" errors.
     await queryRunner.query(
       `INSERT INTO migrations (timestamp, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [1785999999999, 'FixRecruitmentPipelineSetup1785999999999']
@@ -226,10 +231,70 @@ export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterf
       `INSERT INTO migrations (timestamp, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [1785500000000, 'AddRecruitmentPipelineTables1700000000000']
     );
-    await queryRunner.query(
-      `INSERT INTO migrations (timestamp, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [1785700000000, 'BackfillRecruitmentPipelineStages1700000000000']
-    );
+
+    // 9. Backfill current_stage (same logic as BackfillRecruitmentPipelineStages)
+    // Run backfill AFTER columns are created (step 3 above)
+    await queryRunner.query(`
+      UPDATE "applications"
+      SET
+        "current_stage" = 'HIRED',
+        "hired_at" = COALESCE("hired_at", "updated_at")
+      WHERE
+        ("hr_review_status" = 'APPROVE' OR "hired_at" IS NOT NULL)
+        AND "current_stage" IS NULL
+    `);
+
+    await queryRunner.query(`
+      UPDATE "applications"
+      SET "current_stage" = 'TALENT_POOL'
+      WHERE
+        "hr_review_status" = 'TALENT_POOL'
+        AND "current_stage" IS NULL
+    `);
+
+    await queryRunner.query(`
+      UPDATE "applications"
+      SET "current_stage" = 'REJECTED'
+      WHERE
+        ("status" = 'HR_REJECTED' OR "hr_review_status" = 'REJECT')
+        AND "current_stage" IS NULL
+    `);
+
+    await queryRunner.query(`
+      UPDATE "applications"
+      SET "current_stage" = 'SCREEN_CV'
+      WHERE
+        ("status" = 'AI_SCREENING_DONE' OR "status" = 'WAITING_HR_REVIEW' OR "form_status" = 'SUBMITTED')
+        AND "current_stage" IS NULL
+    `);
+
+    await queryRunner.query(`
+      UPDATE "applications" a
+      SET "current_stage" = 'PRE_TEST_1'
+      WHERE
+        "form_status" = 'SENT'
+        AND "current_stage" IS NULL
+        AND EXISTS (
+          SELECT 1 FROM "form_sessions" fs
+          WHERE fs."application_id" = a."id"
+          AND fs."expires_at" > NOW()
+        )
+    `);
+
+    await queryRunner.query(`
+      UPDATE "applications"
+      SET "current_stage" = 'APPLIED'
+      WHERE "current_stage" IS NULL
+    `);
+
+    const summary = await queryRunner.query(`
+      SELECT "current_stage", COUNT(*) as count
+      FROM "applications"
+      WHERE "current_stage" IS NOT NULL
+      GROUP BY "current_stage"
+      ORDER BY count DESC
+    `);
+    console.log('Backfill Summary:', summary);
 
     console.log('✓ Recruitment pipeline setup completed successfully');
   }
