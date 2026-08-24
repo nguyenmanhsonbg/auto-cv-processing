@@ -1,11 +1,9 @@
-import { MigrationInterface, QueryRunner, Table, TableIndex, TableForeignKey } from 'typeorm';
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * Fix migration order issue:
- * - Creates migrations table if not exists
- * - Seeds all existing migrations
- * - Creates recruitment pipeline tables and columns
- * - Marks itself and AddRecruitmentPipelineTables as completed
+ * Fix migration: Uses raw SQL with IF NOT EXISTS for idempotency.
+ * Seeds existing migrations, creates recruitment pipeline tables/columns,
+ * marks itself as completed.
  */
 export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterface {
   name = 'FixRecruitmentPipelineSetup1785999999999';
@@ -20,7 +18,7 @@ export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterf
       )
     `);
 
-    // 2. Seed existing migrations (all except the two new ones)
+    // 2. Seed existing migrations
     const existingMigrations = [
       [1743724800000, '1743724800000-RenameQuestionCategoryToBackend'],
       [1744893600000, '1744893600000-AddSlugToSession'],
@@ -76,153 +74,145 @@ export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterf
       ADD COLUMN IF NOT EXISTS "hired_at" TIMESTAMPTZ NULL,
       ADD COLUMN IF NOT EXISTS "offer_status" VARCHAR NULL
     `);
-
-    // Add indexes
-    await queryRunner.query(`
-      CREATE INDEX IF NOT EXISTS "IDX_applications_current_stage"
-      ON "applications" ("current_stage")
-    `);
-    await queryRunner.query(`
-      CREATE INDEX IF NOT EXISTS "IDX_applications_hired_at"
-      ON "applications" ("hired_at")
-    `);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_applications_current_stage" ON "applications" ("current_stage")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_applications_hired_at" ON "applications" ("hired_at")`);
 
     // 4. Create interview_rounds table
-    await queryRunner.createTable(
-      new Table({
-        name: 'interview_rounds',
-        columns: [
-          { name: 'id', type: 'uuid', isPrimary: true, generationStrategy: 'uuid', default: 'uuid_generate_v4()' },
-          { name: 'application_id', type: 'uuid', isNullable: false },
-          { name: 'round_type', type: 'varchar', isNullable: false },
-          { name: 'interviewer_ids', type: 'uuid', isArray: true, isNullable: true },
-          { name: 'external_interviewer_ids', type: 'jsonb', isNullable: true },
-          { name: 'scheduled_at', type: 'timestamptz', isNullable: true },
-          { name: 'started_at', type: 'timestamptz', isNullable: true },
-          { name: 'completed_at', type: 'timestamptz', isNullable: true },
-          { name: 'result', type: 'varchar', isNullable: true },
-          { name: 'overall_grade', type: 'varchar', isNullable: true },
-          { name: 'scores', type: 'jsonb', isNullable: true },
-          { name: 'summary', type: 'text', isNullable: true },
-          { name: 'external_round_id', type: 'varchar', isNullable: true },
-          { name: 'created_at', type: 'timestamptz', default: 'now()' },
-          { name: 'updated_at', type: 'timestamptz', default: 'now()' },
-        ],
-      }),
-      true,
-    );
-
-    await queryRunner.createIndex('interview_rounds', new TableIndex({ name: 'IDX_interview_rounds_application', columnNames: ['application_id'] }));
-    await queryRunner.createIndex('interview_rounds', new TableIndex({ name: 'IDX_interview_rounds_round_type', columnNames: ['round_type'] }));
-    await queryRunner.createIndex('interview_rounds', new TableIndex({ name: 'IDX_interview_rounds_result', columnNames: ['result'] }));
-    await queryRunner.createForeignKey('interview_rounds', new TableForeignKey({
-      name: 'FK_interview_rounds_application',
-      columnNames: ['application_id'],
-      referencedTableName: 'applications',
-      referencedColumnNames: ['id'],
-      onDelete: 'RESTRICT',
-    }));
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS "interview_rounds" (
+        "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "application_id" uuid NOT NULL,
+        "round_type" varchar NOT NULL,
+        "interviewer_ids" uuid[] NULL,
+        "external_interviewer_ids" jsonb NULL,
+        "scheduled_at" timestamptz NULL,
+        "started_at" timestamptz NULL,
+        "completed_at" timestamptz NULL,
+        "result" varchar NULL,
+        "overall_grade" varchar NULL,
+        "scores" jsonb NULL,
+        "summary" text NULL,
+        "external_round_id" varchar NULL,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )
+    `);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_interview_rounds_application" ON "interview_rounds" ("application_id")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_interview_rounds_round_type" ON "interview_rounds" ("round_type")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_interview_rounds_result" ON "interview_rounds" ("result")`);
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'FK_interview_rounds_application'
+        ) THEN
+          ALTER TABLE "interview_rounds" ADD CONSTRAINT "FK_interview_rounds_application"
+          FOREIGN KEY ("application_id") REFERENCES "applications"("id") ON DELETE RESTRICT;
+        END IF;
+      END$$;
+    `);
 
     // 5. Create test_rounds table
-    await queryRunner.createTable(
-      new Table({
-        name: 'test_rounds',
-        columns: [
-          { name: 'id', type: 'uuid', isPrimary: true, generationStrategy: 'uuid', default: 'uuid_generate_v4()' },
-          { name: 'application_id', type: 'uuid', isNullable: false },
-          { name: 'round_type', type: 'varchar', isNullable: false },
-          { name: 'test_type', type: 'varchar', isNullable: true },
-          { name: 'assigned_at', type: 'timestamptz', isNullable: true },
-          { name: 'deadline_at', type: 'timestamptz', isNullable: true },
-          { name: 'submitted_at', type: 'timestamptz', isNullable: true },
-          { name: 'evaluated_at', type: 'timestamptz', isNullable: true },
-          { name: 'result', type: 'varchar', isNullable: true },
-          { name: 'score', type: 'decimal', precision: 5, scale: 2, isNullable: true },
-          { name: 'passing_score', type: 'decimal', precision: 5, scale: 2, isNullable: true },
-          { name: 'comment', type: 'text', isNullable: true },
-          { name: 'external_test_id', type: 'varchar', isNullable: true },
-          { name: 'created_at', type: 'timestamptz', default: 'now()' },
-          { name: 'updated_at', type: 'timestamptz', default: 'now()' },
-        ],
-      }),
-      true,
-    );
-
-    await queryRunner.createIndex('test_rounds', new TableIndex({ name: 'IDX_test_rounds_application', columnNames: ['application_id'] }));
-    await queryRunner.createIndex('test_rounds', new TableIndex({ name: 'IDX_test_rounds_round_type', columnNames: ['round_type'] }));
-    await queryRunner.createIndex('test_rounds', new TableIndex({ name: 'IDX_test_rounds_result', columnNames: ['result'] }));
-    await queryRunner.createForeignKey('test_rounds', new TableForeignKey({
-      name: 'FK_test_rounds_application',
-      columnNames: ['application_id'],
-      referencedTableName: 'applications',
-      referencedColumnNames: ['id'],
-      onDelete: 'RESTRICT',
-    }));
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS "test_rounds" (
+        "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "application_id" uuid NOT NULL,
+        "round_type" varchar NOT NULL,
+        "test_type" varchar NULL,
+        "assigned_at" timestamptz NULL,
+        "deadline_at" timestamptz NULL,
+        "submitted_at" timestamptz NULL,
+        "evaluated_at" timestamptz NULL,
+        "result" varchar NULL,
+        "score" decimal(5,2) NULL,
+        "passing_score" decimal(5,2) NULL,
+        "comment" text NULL,
+        "external_test_id" varchar NULL,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )
+    `);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_test_rounds_application" ON "test_rounds" ("application_id")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_test_rounds_round_type" ON "test_rounds" ("round_type")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_test_rounds_result" ON "test_rounds" ("result")`);
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'FK_test_rounds_application'
+        ) THEN
+          ALTER TABLE "test_rounds" ADD CONSTRAINT "FK_test_rounds_application"
+          FOREIGN KEY ("application_id") REFERENCES "applications"("id") ON DELETE RESTRICT;
+        END IF;
+      END$$;
+    `);
 
     // 6. Create offers table
-    await queryRunner.createTable(
-      new Table({
-        name: 'offers',
-        columns: [
-          { name: 'id', type: 'uuid', isPrimary: true, generationStrategy: 'uuid', default: 'uuid_generate_v4()' },
-          { name: 'application_id', type: 'uuid', isNullable: false },
-          { name: 'version', type: 'integer', default: 1 },
-          { name: 'previous_offer_id', type: 'uuid', isNullable: true },
-          { name: 'status', type: 'varchar', isNullable: false },
-          { name: 'job_title', type: 'varchar', isNullable: false },
-          { name: 'department', type: 'varchar', isNullable: true },
-          { name: 'level', type: 'varchar', isNullable: true },
-          { name: 'gross_salary', type: 'decimal', precision: 12, scale: 2, isNullable: true },
-          { name: 'start_date', type: 'date', isNullable: true },
-          { name: 'contract_type', type: 'varchar', isNullable: true },
-          { name: 'work_location', type: 'varchar', isNullable: true },
-          { name: 'benefits', type: 'jsonb', isNullable: true },
-          { name: 'notes', type: 'text', isNullable: true },
-          { name: 'sent_at', type: 'timestamptz', isNullable: true },
-          { name: 'responded_at', type: 'timestamptz', isNullable: true },
-          { name: 'expires_at', type: 'timestamptz', isNullable: true },
-          { name: 'hr_created_by_id', type: 'uuid', isNullable: false },
-          { name: 'external_offer_id', type: 'varchar', isNullable: true },
-          { name: 'created_at', type: 'timestamptz', default: 'now()' },
-          { name: 'updated_at', type: 'timestamptz', default: 'now()' },
-        ],
-      }),
-      true,
-    );
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS "offers" (
+        "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "application_id" uuid NOT NULL,
+        "version" integer DEFAULT 1,
+        "previous_offer_id" uuid NULL,
+        "status" varchar NOT NULL,
+        "job_title" varchar NOT NULL,
+        "department" varchar NULL,
+        "level" varchar NULL,
+        "gross_salary" decimal(12,2) NULL,
+        "start_date" date NULL,
+        "contract_type" varchar NULL,
+        "work_location" varchar NULL,
+        "benefits" jsonb NULL,
+        "notes" text NULL,
+        "sent_at" timestamptz NULL,
+        "responded_at" timestamptz NULL,
+        "expires_at" timestamptz NULL,
+        "hr_created_by_id" uuid NOT NULL,
+        "external_offer_id" varchar NULL,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )
+    `);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_offers_application" ON "offers" ("application_id")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_offers_status" ON "offers" ("status")`);
+    await queryRunner.query(`CREATE UNIQUE INDEX IF NOT EXISTS "UQ_offers_application_version" ON "offers" ("application_id", "version")`);
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'FK_offers_application'
+        ) THEN
+          ALTER TABLE "offers" ADD CONSTRAINT "FK_offers_application"
+          FOREIGN KEY ("application_id") REFERENCES "applications"("id") ON DELETE RESTRICT;
+        END IF;
+      END$$;
+    `);
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'FK_offers_previous_offer'
+        ) THEN
+          ALTER TABLE "offers" ADD CONSTRAINT "FK_offers_previous_offer"
+          FOREIGN KEY ("previous_offer_id") REFERENCES "offers"("id") ON DELETE SET NULL;
+        END IF;
+      END$$;
+    `);
 
-    await queryRunner.createIndex('offers', new TableIndex({ name: 'IDX_offers_application', columnNames: ['application_id'] }));
-    await queryRunner.createIndex('offers', new TableIndex({ name: 'IDX_offers_status', columnNames: ['status'] }));
-    await queryRunner.createIndex('offers', new TableIndex({ name: 'UQ_offers_application_version', columnNames: ['application_id', 'version'], isUnique: true }));
-    await queryRunner.createForeignKey('offers', new TableForeignKey({
-      name: 'FK_offers_application',
-      columnNames: ['application_id'],
-      referencedTableName: 'applications',
-      referencedColumnNames: ['id'],
-      onDelete: 'RESTRICT',
-    }));
-    await queryRunner.createForeignKey('offers', new TableForeignKey({
-      name: 'FK_offers_previous_offer',
-      columnNames: ['previous_offer_id'],
-      referencedTableName: 'offers',
-      referencedColumnNames: ['id'],
-      onDelete: 'SET NULL',
-    }));
-
-    // 7. Add foreign key for assigned_recruiter_id
-    await queryRunner.createForeignKey('applications', new TableForeignKey({
-      name: 'FK_applications_assigned_recruiter',
-      columnNames: ['assigned_recruiter_id'],
-      referencedTableName: 'users',
-      referencedColumnNames: ['id'],
-      onDelete: 'SET NULL',
-    }));
+    // 7. Add FK for assigned_recruiter_id
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'FK_applications_assigned_recruiter'
+        ) THEN
+          ALTER TABLE "applications" ADD CONSTRAINT "FK_applications_assigned_recruiter"
+          FOREIGN KEY ("assigned_recruiter_id") REFERENCES "users"("id") ON DELETE SET NULL;
+        END IF;
+      END$$;
+    `);
 
     // 8. Mark migrations as completed
-    // NOTE: Only mark 1785999999999 and 1785500000000
-    // 1785700000000 (BackfillRecruitmentPipelineStages) is intentionally NOT marked
-    // because FixRecruitmentPipelineSetup already handles the backfill logic below.
-    // If we mark 1785700000000, TypeORM still runs it (lower timestamp) before this migration,
-    // causing "column does not exist" errors.
     await queryRunner.query(
       `INSERT INTO migrations (timestamp, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [1785999999999, 'FixRecruitmentPipelineSetup1785999999999']
@@ -232,8 +222,7 @@ export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterf
       [1785500000000, 'AddRecruitmentPipelineTables1700000000000']
     );
 
-    // 9. Backfill current_stage (same logic as BackfillRecruitmentPipelineStages)
-    // Run backfill AFTER columns are created (step 3 above)
+    // 9. Backfill current_stage
     await queryRunner.query(`
       UPDATE "applications"
       SET
@@ -300,15 +289,14 @@ export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterf
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // Drop in reverse order
-    await queryRunner.dropForeignKey('applications', 'FK_applications_assigned_recruiter');
-    await queryRunner.dropForeignKey('offers', 'FK_offers_previous_offer');
-    await queryRunner.dropForeignKey('offers', 'FK_offers_application');
-    await queryRunner.dropForeignKey('test_rounds', 'FK_test_rounds_application');
-    await queryRunner.dropForeignKey('interview_rounds', 'FK_interview_rounds_application');
-    await queryRunner.dropTable('offers');
-    await queryRunner.dropTable('test_rounds');
-    await queryRunner.dropTable('interview_rounds');
+    await queryRunner.query(`ALTER TABLE "offers" DROP CONSTRAINT IF EXISTS "FK_offers_previous_offer"`);
+    await queryRunner.query(`ALTER TABLE "offers" DROP CONSTRAINT IF EXISTS "FK_offers_application"`);
+    await queryRunner.query(`ALTER TABLE "test_rounds" DROP CONSTRAINT IF EXISTS "FK_test_rounds_application"`);
+    await queryRunner.query(`ALTER TABLE "interview_rounds" DROP CONSTRAINT IF EXISTS "FK_interview_rounds_application"`);
+    await queryRunner.query(`ALTER TABLE "applications" DROP CONSTRAINT IF EXISTS "FK_applications_assigned_recruiter"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "offers"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "test_rounds"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "interview_rounds"`);
     await queryRunner.query(`ALTER TABLE "applications" DROP COLUMN IF EXISTS "current_stage", DROP COLUMN IF EXISTS "assigned_recruiter_id", DROP COLUMN IF EXISTS "hired_at", DROP COLUMN IF EXISTS "offer_status"`);
   }
 }
