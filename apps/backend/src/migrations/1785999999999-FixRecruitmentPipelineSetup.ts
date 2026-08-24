@@ -8,7 +8,7 @@ import { MigrationInterface, QueryRunner, Table, TableIndex, TableForeignKey } f
  * - Marks itself and AddRecruitmentPipelineTables as completed
  */
 export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterface {
-  name = 'FixRecruitmentPipelineSetup1700000000000';
+  name = 'FixRecruitmentPipelineSetup1785999999999';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // 1. Create migrations table if not exists
