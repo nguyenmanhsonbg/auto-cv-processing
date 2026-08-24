@@ -1,10 +1,16 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { UserRole } from '@interview-assistant/shared';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { DashboardService } from './services/dashboard.service';
 import { PipelineDashboardDto, PipelineDashboardQueryDto } from './dto/pipeline-dashboard.dto';
 
 @ApiTags('Dashboard')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.HR)
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}

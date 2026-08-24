@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsDateString, IsOptional, IsUUID } from 'class-validator';
 import { ApplicationStage, RecruitmentChannel } from '../../recruitment-common';
 
 export class PipelineFunnelDto {
@@ -69,6 +70,12 @@ export class MonthlyTrendDto {
 
   @ApiProperty({ description: 'Hired count in this month' })
   hired: number;
+
+  @ApiProperty({ description: 'Interviewed applications in this month' })
+  interviewed: number;
+
+  @ApiPropertyOptional({ description: 'Monthly target when a target source exists' })
+  target: number | null;
 }
 
 export class TimeMetricsDto {
@@ -80,6 +87,64 @@ export class TimeMetricsDto {
 
   @ApiProperty({ description: 'Average time from offer to hire (days)' })
   avgTimeOfferToHire: number;
+}
+
+export class PositionDashboardDto {
+  name: string;
+  applications: number;
+  hired: number;
+  target: number | null;
+}
+
+export class RecruiterDashboardDto {
+  name: string;
+  tth: number;
+  hiredRate: number;
+  hiredCount: number;
+}
+
+export class DepartmentDashboardDto {
+  dept: string;
+  rate: number;
+}
+
+export class SourcingDashboardDto {
+  stage: string;
+  pass: number;
+  fail: number;
+}
+
+export class QualityDashboardDto {
+  name: string;
+  value: number;
+}
+
+export class LevelHiredDashboardDto {
+  level: string;
+  count: number;
+}
+
+export class SlaDashboardDto {
+  stage: string;
+  standard: number | null;
+  actual: number;
+}
+
+export class NormRadarDashboardDto {
+  metric: string;
+  norm: number;
+  actual: number;
+}
+
+export class OfferStatusDashboardDto {
+  status: string;
+  count: number;
+}
+
+export class TthDepartmentDashboardDto {
+  dept: string;
+  applyTth: number;
+  finalTth: number;
 }
 
 export class PipelineDashboardDto {
@@ -109,18 +174,37 @@ export class PipelineDashboardDto {
 
   @ApiProperty({ description: 'Data as of timestamp' })
   asOf: Date;
+
+  positions: PositionDashboardDto[];
+  recruiters: RecruiterDashboardDto[];
+  departments: DepartmentDashboardDto[];
+  sourcing: SourcingDashboardDto[];
+  quality: QualityDashboardDto[];
+  levelHired: LevelHiredDashboardDto[];
+  sla: SlaDashboardDto[];
+  normRadar: NormRadarDashboardDto[];
+  offerStatus: OfferStatusDashboardDto[];
+  tthByDepartment: TthDepartmentDashboardDto[];
 }
 
 export class PipelineDashboardQueryDto {
   @ApiPropertyOptional({ description: 'Filter by date range start (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString()
   startDate?: string;
 
   @ApiPropertyOptional({ description: 'Filter by date range end (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString()
   endDate?: string;
 
   @ApiPropertyOptional({ description: 'Filter by HRBP/Recruiter ID' })
+  @IsOptional()
+  @IsUUID()
   recruiterId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by job posting ID' })
+  @IsOptional()
+  @IsUUID()
   jobPostingId?: string;
 }

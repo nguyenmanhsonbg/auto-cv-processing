@@ -35,6 +35,7 @@ import { TestRoundsModule } from './test-rounds/test-rounds.module';
 import { OffersModule } from './offers/offers.module';
 import { AmisSyncModule } from './amis-sync/amis-sync.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { RecruitmentImportModule } from './recruitment-import/recruitment-import.module';
 
 @Module({
   imports: [
@@ -103,6 +104,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     OffersModule,
     AmisSyncModule,
     DashboardModule,
+    RecruitmentImportModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

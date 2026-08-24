@@ -33,6 +33,66 @@ export interface MonthlyTrend {
   month: string;
   newApplications: number;
   hired: number;
+  target?: number | null;
+  interviewed?: number;
+}
+
+export interface PositionDashboard {
+  name: string;
+  applications: number;
+  hired: number;
+  target: number | null;
+}
+
+export interface RecruiterDashboard {
+  name: string;
+  tth: number;
+  hiredRate: number;
+  hiredCount: number;
+}
+
+export interface DepartmentDashboard {
+  dept: string;
+  rate: number;
+}
+
+export interface SourcingDashboard {
+  stage: string;
+  pass: number;
+  fail: number;
+}
+
+export interface QualityDashboard {
+  name: string;
+  value: number;
+}
+
+export interface LevelHiredDashboard {
+  level: string;
+  count: number;
+}
+
+export interface SlaDashboard {
+  stage: string;
+  standard: number | null;
+  actual: number;
+}
+
+export interface NormRadarDashboard {
+  metric: string;
+  norm: number;
+  actual: number;
+}
+
+export interface OfferStatusDashboard {
+  status: string;
+  count: number;
+}
+
+export interface TthDepartmentDashboard {
+  dept: string;
+  applyTth: number;
+  finalTth: number;
 }
 
 export interface TimeMetrics {
@@ -51,6 +111,16 @@ export interface PipelineDashboard {
   totalApplications: number;
   totalHired: number;
   asOf: string;
+  positions: PositionDashboard[];
+  recruiters: RecruiterDashboard[];
+  departments: DepartmentDashboard[];
+  sourcing: SourcingDashboard[];
+  quality: QualityDashboard[];
+  levelHired: LevelHiredDashboard[];
+  sla: SlaDashboard[];
+  normRadar: NormRadarDashboard[];
+  offerStatus: OfferStatusDashboard[];
+  tthByDepartment: TthDepartmentDashboard[];
 }
 
 export interface DashboardFilters {
@@ -72,4 +142,21 @@ export async function getPipelineDashboard(filters?: DashboardFilters): Promise<
   const url = queryString ? `/dashboard/pipeline?${queryString}` : '/dashboard/pipeline';
   
   return apiClient.get<PipelineDashboard>(url);
+}
+
+export interface RecruitmentImportSummary {
+  candidates: number;
+  applications: number;
+  interviewRounds: number;
+  offers: number;
+  created: number;
+  updated: number;
+}
+
+export async function importRecruitmentWorkbook(file: File): Promise<RecruitmentImportSummary> {
+  const response = await apiClient.upload<{ success: boolean; data: RecruitmentImportSummary }>(
+    '/recruitment-import/workbook',
+    file,
+  );
+  return response.data;
 }

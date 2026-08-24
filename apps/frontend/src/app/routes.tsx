@@ -43,7 +43,7 @@ import { InternalListPage } from '@/pages/interviewer/candidates/InternalListPag
 import { FreelancerRouteGuard } from '@/components/recruitment/FreelancerRouteGuard';
 import { Toaster } from '@/components/ui/toaster';
 // NEW: Pipeline Dashboard
-import { PipelineDashboardPage } from '@/pages/dashboard/pipeline-dashboard';
+import { AnalystDashboard } from '@/pages/dashboard';
 
 export function AppRoutes() {
   return (
@@ -87,7 +87,7 @@ export function AppRoutes() {
           <Route path="settings/models" element={<SettingsModelsPage />} />
           <Route path="recruitment" element={<RecruitmentRouteGuard />}>
             <Route index element={<Navigate to="/recruitment/applications" replace />} />
-            <Route path="dashboard" element={<PipelineDashboardPage />} />
+            <Route path="dashboard" element={<AnalystDashboard />} />
             <Route path="job-descriptions" element={<JobDescriptionListPage />} />
             <Route path="job-descriptions/:id" element={<JobDescriptionDetailPage />} />
             <Route path="job-postings" element={<JobPostingListPage />} />

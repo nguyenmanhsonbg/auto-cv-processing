@@ -77,7 +77,7 @@ export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterf
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_applications_current_stage" ON "applications" ("current_stage")`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_applications_hired_at" ON "applications" ("hired_at")`);
 
-    // 4. Create interview_rounds table
+    // 4. Create interview_rounds table (add columns if table exists but missing columns)
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "interview_rounds" (
         "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -97,6 +97,12 @@ export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterf
         "updated_at" timestamptz DEFAULT now()
       )
     `);
+    // Add missing snake_case columns if table was created with camelCase by TypeORM synchronize
+    await queryRunner.query(`ALTER TABLE "interview_rounds" ADD COLUMN IF NOT EXISTS "round_type" varchar NOT NULL DEFAULT 'HR'`);
+    await queryRunner.query(`ALTER TABLE "interview_rounds" ADD COLUMN IF NOT EXISTS "interviewer_ids" uuid[] NULL`);
+    await queryRunner.query(`ALTER TABLE "interview_rounds" ADD COLUMN IF NOT EXISTS "external_interviewer_ids" jsonb NULL`);
+    await queryRunner.query(`ALTER TABLE "interview_rounds" ADD COLUMN IF NOT EXISTS "overall_grade" varchar NULL`);
+    await queryRunner.query(`ALTER TABLE "interview_rounds" ADD COLUMN IF NOT EXISTS "external_round_id" varchar NULL`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_interview_rounds_application" ON "interview_rounds" ("application_id")`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_interview_rounds_round_type" ON "interview_rounds" ("round_type")`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_interview_rounds_result" ON "interview_rounds" ("result")`);
@@ -132,6 +138,8 @@ export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterf
         "updated_at" timestamptz DEFAULT now()
       )
     `);
+    // Add missing snake_case column for test_rounds (table created with camelCase by TypeORM)
+    await queryRunner.query(`ALTER TABLE "test_rounds" ADD COLUMN IF NOT EXISTS "round_type" varchar NOT NULL DEFAULT 'TEST'`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_test_rounds_application" ON "test_rounds" ("application_id")`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_test_rounds_round_type" ON "test_rounds" ("round_type")`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_test_rounds_result" ON "test_rounds" ("result")`);
