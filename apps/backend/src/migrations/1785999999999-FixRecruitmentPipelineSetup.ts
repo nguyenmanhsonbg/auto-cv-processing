@@ -7,7 +7,7 @@ import { MigrationInterface, QueryRunner, Table, TableIndex, TableForeignKey } f
  * - Creates recruitment pipeline tables and columns
  * - Marks itself and AddRecruitmentPipelineTables as completed
  */
-export class FixRecruitmentPipelineSetup1700000000000 implements MigrationInterface {
+export class FixRecruitmentPipelineSetup1785999999999 implements MigrationInterface {
   name = 'FixRecruitmentPipelineSetup1700000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -220,7 +220,7 @@ export class FixRecruitmentPipelineSetup1700000000000 implements MigrationInterf
     // 8. Mark new migrations as completed
     await queryRunner.query(
       `INSERT INTO migrations (timestamp, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [1785499999999, 'FixRecruitmentPipelineSetup1700000000000']
+      [1785999999999, 'FixRecruitmentPipelineSetup1785999999999']
     );
     await queryRunner.query(
       `INSERT INTO migrations (timestamp, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
