@@ -11760,8 +11760,8 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-details {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   width: 100%;
 }
@@ -12036,13 +12036,14 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .cv-candidate-detail {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
   height: 50px;
   min-height: 50px;
   border: 1px solid rgba(189, 201, 194, 0.3);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 8px 12px;
   background: #ffffff;
   box-sizing: border-box;
 }
@@ -12055,7 +12056,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   line-height: 12px;
   text-transform: uppercase;
   color: rgba(62, 73, 67, 0.7);
-  margin-bottom: 2px;
 }
 
 .cv-candidate-detail strong {
@@ -12066,7 +12066,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   line-height: 15px;
   text-transform: uppercase;
   color: #15803D;
-  text-align: left;
+  text-align: right;
 }
 
 .cv-candidate-detail.is-success strong,
@@ -12090,7 +12090,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .cv-candidate-note {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   width: 100%;
 }
 
@@ -12099,7 +12099,32 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-size: 12px;
   font-weight: 500;
   line-height: 16px;
-  color: #45464D;
+  color: #262626;
+}
+
+.cv-candidate-note-box {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  border: 1px solid #E5E5E5;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.cv-candidate-note-text {
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+  color: #262626;
+  overflow-wrap: anywhere;
+}
+
+.cv-candidate-note-text.is-empty {
+  color: rgba(0, 0, 0, 0.5);
 }
 
 .cv-candidate-note>span:not(.cv-candidate-note-label) {
@@ -12109,7 +12134,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-weight: 400;
   line-height: 20px;
   color: #000000;
-  padding: 0 10px;
 }
 
 .cv-candidate-footer {

@@ -378,9 +378,13 @@ export function CandidateCard({
             </button>
             {evaluationError ? <span className="cv-evaluation-error">{evaluationError}</span> : null}
           </div> : null}
-          <div className="cv-candidate-note">
-            <span className="cv-candidate-note-label">Ghi chú của CV</span>
-            <span>{application.cvNote?.trim() || 'CV này không có ghi chú nào.'}</span>
+          <div className="cv-candidate-note" aria-label="Ghi chú của CV">
+            <span className="cv-candidate-note-label">Ghi chú của bạn</span>
+            <div className="cv-candidate-note-box">
+              <span className={application.cvNote?.trim() ? 'cv-candidate-note-text' : 'cv-candidate-note-text is-empty'}>
+                {application.cvNote?.trim() || 'CV này không có ghi chú nào.'}
+              </span>
+            </div>
           </div>
         </div>
         <div className="cv-candidate-footer">
@@ -627,9 +631,9 @@ export function getApplicationAiEvaluationStatus(
   application: ExtensionApplication,
   isEvaluationUploaded: boolean,
 ) {
-  if (isEvaluationUploaded) return { label: 'Đã tải lên file đánh giá AI', tone: 'is-success' };
+  if (isEvaluationUploaded) return { label: 'Đã tải lên file đánh giá', tone: 'is-success' };
   if (normalizeStatus(application.aiScreeningStatus) === 'DONE') {
-    return { label: 'Chưa tải lên file đánh giá AI', tone: 'is-warning' };
+    return { label: 'Chưa tải lên file đánh giá', tone: 'is-warning' };
   }
   return { label: 'Chưa đánh giá bằng AI', tone: 'is-danger' };
 }
