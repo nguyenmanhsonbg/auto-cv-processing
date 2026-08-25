@@ -11343,6 +11343,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   align-items: center;
   gap: 12px;
   width: 100%;
+  min-width: 0;
+}
+
+.cv-candidate-main > div {
+  flex: 1;
+  min-width: 0;
 }
 
 .cv-candidate-select {
@@ -11415,6 +11421,11 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-main strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #0B1C30;
   font-family: Inter, sans-serif;
   font-size: 16px;
@@ -11423,6 +11434,11 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date):not(.cv-candidate-contact) {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #525252;
   font-family: Inter, sans-serif;
   font-size: 11px;
@@ -11431,6 +11447,11 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-main .cv-candidate-contact {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #525252;
   font-family: Inter, sans-serif;
   font-size: 11px;
@@ -11440,6 +11461,11 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-main .cv-candidate-applied-date {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #525252;
   font-family: Inter, sans-serif;
   font-size: 11px;

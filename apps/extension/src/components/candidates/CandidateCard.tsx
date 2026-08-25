@@ -264,6 +264,7 @@ export function CandidateCard({
   const rejectionReason = application.amisReasonRemoved?.trim() || null;
   const recruiterName = application.attractivePersonnelName ?? '-';
   const appliedDate = formatDateTime(application.applyDate ?? application.createdAt ?? undefined) ?? '-';
+  const candidateContact = [application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact';
   const sourceFilterBucket = getCvSourceFilterBucket(application);
   const sourceToneClass = sourceFilterBucket === 'FACEBOOK'
     ? 'is-facebook'
@@ -291,9 +292,9 @@ export function CandidateCard({
             <strong title={application.candidateName}>
               {truncateCandidateName(application.candidateName)}
             </strong>
-             <span className="cv-candidate-contact">
-               {[application.email, application.mobile].filter(Boolean).join(' • ') || 'No contact'}
-             </span>
+            <span className="cv-candidate-contact" title={candidateContact}>
+              {candidateContact}
+            </span>
             <span className="cv-candidate-applied-date">Ngày ứng tuyển: {appliedDate}</span>
           </div>
           {score != null ? (

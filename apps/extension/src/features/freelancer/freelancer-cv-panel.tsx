@@ -46,6 +46,12 @@ type FreelancerCvPanelProps = {
 
 type StatusCategory = 'PROCESSING' | 'PASSED' | 'REJECTED';
 
+const STATUS_LABELS: Record<StatusCategory, string> = {
+  PROCESSING: 'Đang xử lý',
+  PASSED: 'Đã đậu',
+  REJECTED: 'Bị loại',
+};
+
 async function loadAllFreelancerApplicationsForCatalog(
   accessToken: string,
   query: string,
@@ -332,6 +338,7 @@ export function FreelancerCvPanel({
         {visibleApplications.map((application) => {
           const note = draftNotes[application.referralId] ?? application.evaluation ?? '';
           const isEditingNote = editingNoteReferralId === application.referralId;
+          const category = getStatusCategory(application);
           return (
             <article className="freelancer-cv-card" key={application.referralId}>
               <header>
@@ -343,7 +350,7 @@ export function FreelancerCvPanel({
                     <span className="freelancer-cv-applied-at"><AppliedDateIcon />Ngày ứng tuyển: <strong>{formatDateTime(application.appliedAt)}</strong></span>
                   </div>
                 </div>
-                {/* <span className={`freelancer-cv-status is-${category.toLowerCase()}`}>{STATUS_LABELS[category]}</span> */}
+                <span className={`freelancer-cv-status is-${category.toLowerCase()}`}>{STATUS_LABELS[category]}</span>
               </header>
               <div className="freelancer-cv-card-meta">
                 <div><span>TRẠNG THÁI CV HIỆN TẠI</span><strong>{getStatusLabel(application)}</strong></div>
