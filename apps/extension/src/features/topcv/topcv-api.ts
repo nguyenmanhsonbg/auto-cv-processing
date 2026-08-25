@@ -234,6 +234,7 @@ export async function publishTopCvJob(payload: Record<string, unknown>) {
     // If token expired, try refresh → then re-extract from open tab as last resort
     if (isSessionTimeout) {
       let newToken: string | null = null;
+      let newRefreshToken: string | null = null;
       let refreshFailed = false;
 
       // 1. Try refresh token exchange
@@ -241,6 +242,7 @@ export async function publishTopCvJob(payload: Record<string, unknown>) {
         const result = await exchangeTopCvToken(auth.refreshToken);
         if (result.reason === 'success' && result.token) {
           newToken = result.token;
+          newRefreshToken = result.refreshToken;
         } else if (result.reason === 'invalid_token') {
           await clearTopCvAuth();
           throw new Error('TOPCV_LOGIN_REQUIRED');
@@ -259,7 +261,7 @@ export async function publishTopCvJob(payload: Record<string, unknown>) {
       }
 
       if (newToken) {
-        await writeTopCvAccessToken(newToken);
+        await writeTopCvAccessToken(newToken, newRefreshToken || auth.refreshToken);
         response = await sendTopCvRequest('/jobs', newToken, payload);
         lastResponse = response;
         body = await readResponseBody(response) as Record<string, unknown> | null;
@@ -308,6 +310,7 @@ const TOPCV_STORAGE_KEY_AUTH = 'topcv_saved_auth';
 
 export interface ExchangeTokenResult {
   token: string | null;
+  refreshToken: string | null;
   reason: 'success' | 'session_timeout' | 'invalid_token' | 'error';
 }
 
@@ -384,13 +387,6 @@ export async function exchangeTopCvToken(refreshToken: string): Promise<Exchange
     body: JSON.stringify({ refresh_token: refreshToken }),
   });
 
-  // DEBUG: Log exchange request
-  console.log('🔄 Exchange token request:', {
-    url: `${TOPCV_API_BASE_URL}/auth/exchange-token`,
-    headers: { ...headers, Authorization: undefined },
-    body: { refresh_token: refreshToken },
-  });
-
   const body = await readResponseBody(response) as Record<string, unknown> | null;
   const errorName = (body?.error_name ?? '') as string;
   const message = (body?.message ?? '') as string;
@@ -403,7 +399,7 @@ export async function exchangeTopCvToken(refreshToken: string): Promise<Exchange
     errorName.toUpperCase().includes('SESSION_TIMEOUT') ||
     message.toLowerCase().includes('hết hạn')
   ) {
-    return { token: null, reason: 'session_timeout' };
+    return { token: null, refreshToken: null, reason: 'session_timeout' };
   }
 
   if (
@@ -411,17 +407,22 @@ export async function exchangeTopCvToken(refreshToken: string): Promise<Exchange
     errorName.toUpperCase().includes('INVALID_TOKEN') ||
     message.toLowerCase().includes('không hợp lệ')
   ) {
-    return { token: null, reason: 'invalid_token' };
+    return { token: null, refreshToken: null, reason: 'invalid_token' };
   }
 
-  if (!response.ok) return { token: null, reason: 'error' };
+  if (!response.ok) return { token: null, refreshToken: null, reason: 'error' };
 
   const token = body?.access_token ?? body?.accessToken ?? body?.token;
+  const nextRefreshToken = body?.refresh_token ?? body?.refreshToken;
   if (typeof token === 'string' && token) {
-    return { token, reason: 'success' };
+    return {
+      token,
+      refreshToken: typeof nextRefreshToken === 'string' && nextRefreshToken ? nextRefreshToken : null,
+      reason: 'success',
+    };
   }
 
-  return { token: null, reason: 'error' };
+  return { token: null, refreshToken: null, reason: 'error' };
 }
 
 async function readTopCvTokens(): Promise<{ accessToken: string | null; refreshToken: string | null }> {
@@ -465,7 +466,7 @@ async function readTopCvTokens(): Promise<{ accessToken: string | null; refreshT
   }
 }
 
-async function writeTopCvAccessToken(accessToken: string) {
+async function writeTopCvAccessToken(accessToken: string, refreshToken: string | null) {
   // Update in extension local storage
   if (chrome.storage?.local) {
     try {
@@ -475,6 +476,7 @@ async function writeTopCvAccessToken(accessToken: string) {
         [TOPCV_STORAGE_KEY_AUTH]: {
           ...current,
           accessToken,
+          refreshToken: refreshToken || current.refreshToken,
           updatedAt: Date.now(),
         },
       });

@@ -49,6 +49,88 @@ export function getCommonTooltipProps() {
   };
 }
 
+export interface ChartTooltipProps {
+  active?: boolean;
+  payload?: any[];
+  label?: string | number;
+  title?: string;
+  labelFormatter?: (label: any) => string;
+  valueFormatter?: (value: any, name?: string, item?: any) => string;
+  total?: number;
+  unit?: string;
+  hideLabel?: boolean;
+}
+
+/**
+ * Reusable dark-mode tooltip that displays the colored legend box next to each item
+ */
+export const ChartTooltip: React.FC<ChartTooltipProps> = ({
+  active,
+  payload,
+  label,
+  title,
+  labelFormatter,
+  valueFormatter,
+  total,
+  unit = '',
+  hideLabel = false,
+}) => {
+  if (!active || !payload || !payload.length) return null;
+
+  const headerTitle =
+    title !== undefined
+      ? title
+      : hideLabel
+      ? null
+      : labelFormatter
+      ? labelFormatter(label)
+      : label;
+
+  return (
+    <div className="bg-[#111827] border border-[#334155] rounded-lg p-2.5 shadow-2xl text-[11px] min-w-[130px] z-50">
+      {headerTitle ? (
+        <div className="text-white font-bold mb-1.5 pb-1 border-b border-[#334155]">
+          {headerTitle}
+        </div>
+      ) : null}
+      <div className="space-y-1.5">
+        {payload.map((entry: any, index: number) => {
+          const color =
+            entry.color ||
+            entry.payload?.color ||
+            entry.fill ||
+            entry.stroke ||
+            '#38bdf8';
+          const name = entry.name || entry.dataKey || '';
+          let displayVal = entry.value;
+
+          if (valueFormatter) {
+            displayVal = valueFormatter(entry.value, name, entry);
+          } else if (total && typeof entry.value === 'number') {
+            const percent = total > 0 ? ((entry.value / total) * 100).toFixed(1) : '0';
+            displayVal = `${entry.value}${unit ? ` ${unit}` : ''} (${percent}%)`;
+          } else if (unit && entry.value !== undefined && entry.value !== null) {
+            displayVal = `${entry.value} ${unit}`;
+          }
+
+          return (
+            <div key={`tooltip-item-${index}`} className="flex items-center justify-between gap-4">
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="text-slate-300">{name}</span>
+              </span>
+              <span className="text-white font-medium pl-2">{displayVal}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 /**
  * Animated Vertical Bar Shape (scales up ~5-8% on hover with smooth transition)
  */

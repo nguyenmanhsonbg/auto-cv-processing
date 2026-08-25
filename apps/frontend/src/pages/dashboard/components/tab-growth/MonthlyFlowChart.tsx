@@ -11,6 +11,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { GrowthFlowData } from '../../types';
+import { ChartTooltip } from '../common/chart-effects';
 
 export interface MonthlyFlowChartProps {
   data: GrowthFlowData[];
@@ -31,15 +32,12 @@ export const MonthlyFlowChart: React.FC<MonthlyFlowChartProps> = ({ data }) => {
             <YAxis stroke="#64748b" tick={{ fontSize: 10 }} />
             <ReferenceLine y={0} stroke="#334155" />
             <Tooltip
-              contentStyle={{
-                backgroundColor: '#111827',
-                borderColor: '#334155',
-                color: '#f8fafc',
-                fontSize: '11px',
-                borderRadius: '8px',
-                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)',
-              }}
-              formatter={(value: number) => [`${value > 0 ? '+' : ''}${value} người`]}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  valueFormatter={(value) => `${Number(value) > 0 ? '+' : ''}${value} người`}
+                />
+              }
             />
             <Legend
               wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}

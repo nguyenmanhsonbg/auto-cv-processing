@@ -13,7 +13,7 @@ import { LevelHiredData, LEVEL_LABELS } from '../../types';
 import {
   useChartHover,
   createHorizontalBarShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface LevelHiredStructureChartProps {
@@ -72,12 +72,17 @@ export const LevelHiredStructureChart: React.FC<LevelHiredStructureChartProps> =
               width={75}
             />
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number) => [`${value} người`, 'Đã tuyển']}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  labelFormatter={(v) => LEVEL_LABELS[v] || v}
+                  valueFormatter={(value) => `${value} người`}
+                />
+              }
             />
             <Bar
               dataKey="count"
-              name="Số lượng"
+              name="Đã tuyển"
               radius={[0, 3, 3, 0]}
               shape={createHorizontalBarShape(activeIndex, 3)}
             >

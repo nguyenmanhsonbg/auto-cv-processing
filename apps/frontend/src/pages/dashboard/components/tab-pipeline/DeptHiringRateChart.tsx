@@ -12,7 +12,7 @@ import {
 import {
   useChartHover,
   createVerticalBarShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface DeptHiringRateChartProps {
@@ -50,8 +50,12 @@ export const DeptHiringRateChart: React.FC<DeptHiringRateChartProps> = ({ data }
               ticks={[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
             />
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number) => [`${value}%`, 'Tỷ lệ đạt chỉ tiêu']}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  valueFormatter={(value) => `${value}%`}
+                />
+              }
             />
             <Bar
               dataKey="rate"

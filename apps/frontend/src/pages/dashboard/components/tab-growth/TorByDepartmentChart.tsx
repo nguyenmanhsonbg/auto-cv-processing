@@ -13,7 +13,7 @@ import { DepartmentTorData } from '../../types';
 import {
   useChartHover,
   createVerticalBarShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface TorByDepartmentChartProps {
@@ -46,8 +46,12 @@ export const TorByDepartmentChart: React.FC<TorByDepartmentChartProps> = ({ data
               domain={[0, 25]}
             />
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number) => [`${value}%`, 'TOR YTD']}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  valueFormatter={(value) => `${value}%`}
+                />
+              }
             />
             <Bar
               dataKey="tor"

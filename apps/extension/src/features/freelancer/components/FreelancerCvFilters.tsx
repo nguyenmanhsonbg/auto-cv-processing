@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { DateRangeFilter, FilterBar, MultiSelectFilter, SearchField, SelectFilter } from '@/components/filters';
 import type { DateRangeValue, SelectFilterOption } from '@/components/filters';
+import { CloseIcon } from '@/components/icons';
 
 export type FreelancerCvStatusFilter = string;
 
@@ -31,6 +32,18 @@ export function FreelancerCvFilters({ value, statusOptions, jdOptions, statusDis
         placeholder="Tìm kiếm CV theo tên ứng viên, vị trí ứng tuyển"
         ariaLabel="Tìm kiếm CV theo tên ứng viên, vị trí ứng tuyển"
         maxLength={255}
+        clearButton={
+          value.search ? (
+            <button
+              type="button"
+              className="clear-button"
+              aria-label="Xóa tìm kiếm"
+              onClick={() => onChange({ ...value, search: '' })}
+            >
+              <CloseIcon />
+            </button>
+          ) : null
+        }
       />
       <SelectFilter label="Tình trạng CV" value={value.status} options={statusOptions} disabled={statusDisabled} onChange={(status) => onChange({ ...value, status: status as FreelancerCvFilterValues['status'] })} />
       <MultiSelectFilter

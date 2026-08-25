@@ -13,7 +13,7 @@ import { ChannelHiringData, CHANNEL_LABELS } from '../../types';
 import {
   useChartHover,
   createVerticalBarShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface ChannelHiringRateChartProps {
@@ -53,8 +53,13 @@ export const ChannelHiringRateChart: React.FC<ChannelHiringRateChartProps> = ({ 
               tickFormatter={(v) => `${v}%`}
             />
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number) => [`${value}%`, 'Tỷ lệ Hired']}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  labelFormatter={(v) => CHANNEL_LABELS[v] || v}
+                  valueFormatter={(value) => `${value}%`}
+                />
+              }
             />
             <Bar
               dataKey="rate"
