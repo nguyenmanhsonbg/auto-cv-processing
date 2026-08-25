@@ -71,7 +71,7 @@ export const JOB_DESCRIPTION_STATUS_OPTIONS = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'ACTIVE', label: 'Công khai' },
   { value: 'DRAFT', label: 'Nội bộ' },
-  { value: 'ARCHIVED', label: 'Ngừng tuyển' },
+  { value: 'ARCHIVED', label: 'Đóng' },
 ];
 
 export interface JobDescriptionConfig {
@@ -106,6 +106,7 @@ export interface FacebookPostingConfig {
   onOpenFacebookGroupSettings: (event: React.MouseEvent<HTMLButtonElement>) => Promise<void> | void;
   onOpenFacebookIneligibleModal?: () => void;
   onSyncFacebookGroups: () => Promise<void> | void;
+  facebookImageInputRef: React.RefObject<HTMLInputElement | null>;
   facebookImageAttachments: FacebookPublishImageAttachment[];
   isFacebookImageReading: boolean;
   facebookImageAttachmentError: string | null;
@@ -179,7 +180,6 @@ export function JobPostingPanel({
 
   // Local refs
   const facebookGroupSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const facebookImageInputRef = useRef<HTMLInputElement | null>(null);
   const jobDescriptionSearchDebounceRef = useRef<number | null>(null);
 
   const {
@@ -223,6 +223,7 @@ export function JobPostingPanel({
     onOpenFacebookGroupSettings,
     onOpenFacebookIneligibleModal,
     onSyncFacebookGroups,
+    facebookImageInputRef,
     facebookImageAttachments,
     isFacebookImageReading,
     facebookImageAttachmentError,
@@ -532,7 +533,11 @@ export function JobPostingPanel({
                 className="jd-page-button"
                 aria-label="Trang trước"
                 disabled={jobDescriptionStatus === 'LOADING' || jobDescriptionPagination.page <= 1}
-                onClick={() => void onLoadJobDescriptions(token, jobDescriptionPagination.page - 1)}
+                onClick={() => void onLoadJobDescriptions(
+                  token,
+                  jobDescriptionPagination.page - 1,
+                  { status: jobDescriptionStatusFilter },
+                )}
               >
                 <BackIcon />
               </button>
@@ -546,7 +551,11 @@ export function JobPostingPanel({
                     className={`jd-page-button${page === currentPage ? ' is-active' : ''}`}
                     aria-current={page === currentPage ? 'page' : undefined}
                     disabled={jobDescriptionStatus === 'LOADING'}
-                    onClick={() => void onLoadJobDescriptions(token, page)}
+                    onClick={() => void onLoadJobDescriptions(
+                      token,
+                      page,
+                      { status: jobDescriptionStatusFilter },
+                    )}
                   >
                     {page}
                   </button>
@@ -560,7 +569,11 @@ export function JobPostingPanel({
                   jobDescriptionStatus === 'LOADING'
                   || jobDescriptionPagination.page >= jobDescriptionPagination.totalPages
                 }
-                onClick={() => void onLoadJobDescriptions(token, jobDescriptionPagination.page + 1)}
+                onClick={() => void onLoadJobDescriptions(
+                  token,
+                  jobDescriptionPagination.page + 1,
+                  { status: jobDescriptionStatusFilter },
+                )}
               >
                 <ChevronRightIcon />
               </button>
@@ -841,6 +854,7 @@ export function JobPostingPanel({
                           ref={facebookImageInputRef as any}
                           type="file"
                           accept={FACEBOOK_IMAGE_ACCEPT}
+                          multiple
                           className="facebook-image-input"
                           onChange={(event) => void onHandleFacebookImageFileChange(event)}
                         />
@@ -1190,6 +1204,7 @@ export function getJobDescriptionStatusBadge(status: string) {
   const normalized = status.toUpperCase();
   if (normalized === 'ACTIVE') return { label: 'Công khai', className: 'is-active' };
   if (normalized === 'DRAFT') return { label: 'Nội bộ', className: 'is-draft' };
+  if (normalized === 'ARCHIVED') return { label: 'Đóng', className: 'is-archived' };
   return { label: 'Ngừng tuyển', className: 'is-archived' };
 }
 

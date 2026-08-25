@@ -134,7 +134,9 @@ export function FacebookPreviewModal({
               </div>
               <span>{imageCount}/{FACEBOOK_MAX_IMAGE_ATTACHMENTS} ảnh</span>
             </div>
-            <div className="facebook-composer-image-library">
+            <div
+              className={`facebook-composer-image-library${imageCount === FACEBOOK_MAX_IMAGE_ATTACHMENTS ? ' is-full' : ''}`}
+            >
               <div className="facebook-composer-image-grid">
                 {facebookImageAttachments.map((attachment, index) => (
                   <article className="facebook-composer-image-card" key={`${attachment.fileName}-${attachment.size}-${index}`}>
@@ -163,15 +165,16 @@ export function FacebookPreviewModal({
                     </button>
                   </article>
                 ))}
-                <button
-                  type="button"
-                  className="facebook-composer-add-image-tile"
-                  disabled={facebookImageAddDisabled}
-                  onClick={onOpenImageFilePicker}
-                  aria-label="Tải lên ảnh bài đăng"
-                >
-                  <span aria-hidden="true">+</span>
-                </button>
+                {!facebookImageAddDisabled ? (
+                  <button
+                    type="button"
+                    className="facebook-composer-add-image-tile"
+                    onClick={onOpenImageFilePicker}
+                    aria-label="Tải lên ảnh bài đăng"
+                  >
+                    <span aria-hidden="true">+</span>
+                  </button>
+                ) : null}
               </div>
               {isFacebookImageReading ? (
                 <p className="channel-subselection-empty">Đang xử lý ảnh...</p>

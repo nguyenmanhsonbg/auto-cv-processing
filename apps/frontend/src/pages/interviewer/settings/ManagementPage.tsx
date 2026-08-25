@@ -858,11 +858,12 @@ interface UserDialogState {
   role: string;
 }
 
-const ROLE_VALUES = ['ADMIN', 'INTERVIEWER', 'HR'];
+const ROLE_VALUES = ['ADMIN', 'INTERVIEWER', 'COMMITTEE', 'HR'];
 
 function roleBadge(role: string) {
   if (role === 'ADMIN') return <Badge className="bg-red-100 text-red-800">ADMIN</Badge>;
   if (role === 'HR') return <Badge className="bg-green-100 text-green-800">HR</Badge>;
+  if (role === 'COMMITTEE') return <Badge className="bg-purple-100 text-purple-800">HĐCM</Badge>;
   return <Badge className="bg-blue-100 text-blue-800">INTERVIEWER</Badge>;
 }
 
@@ -956,7 +957,12 @@ function UsersTab() {
           <Input placeholder="Search name or email…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 w-full sm:w-56" />
         </div>
         <MultiSelect
-          options={[{ value: 'ADMIN', label: 'Admin' }, { value: 'INTERVIEWER', label: 'Interviewer' }, { value: 'HR', label: 'HR' }]}
+          options={[
+            { value: 'ADMIN', label: 'Admin' },
+            { value: 'INTERVIEWER', label: 'Interviewer' },
+            { value: 'COMMITTEE', label: 'HĐCM' },
+            { value: 'HR', label: 'HR' },
+          ]}
           selected={roleFilter}
           onChange={setRoleFilter}
           placeholder="All Roles"
@@ -1051,7 +1057,9 @@ function UsersTab() {
               <Select value={dialog.role} onValueChange={(v) => setDialog((d) => ({ ...d, role: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ROLE_VALUES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  {ROLE_VALUES.map((r) => (
+                    <SelectItem key={r} value={r}>{r === 'COMMITTEE' ? 'HĐCM – Hội đồng chuyên môn' : r}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

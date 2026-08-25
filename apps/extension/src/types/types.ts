@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'HR' | 'INTERVIEWER' | 'FREELANCER' | 'INTERNAL';
+export type UserRole = 'ADMIN' | 'HR' | 'INTERVIEWER' | 'COMMITTEE' | 'FREELANCER' | 'INTERNAL';
 
 export interface ExtensionUser {
   id: string;
@@ -103,7 +103,7 @@ export interface FreelancerSelfSummary {
     userId: string;
     name: string;
     email: string;
-    role: 'FREELANCER';
+    role: 'FREELANCER' | 'INTERNAL';
   };
   createdAt: string;
   updatedAt: string;
@@ -551,7 +551,6 @@ export interface ManualIncludeFacebookGroupRequest {
 
 export interface UpdateFacebookGroupRequest {
   targetName: string;
-  targetUrl: string;
   facebookAccountId?: string;
 }
 
@@ -881,6 +880,11 @@ export interface AmisApplicationListItem {
   amisRecruitmentRoundName: string | null;
   amisReasonRemoved: string | null;
   amisStatus: number | null;
+  interviewEvaluationStartedAt: string | null;
+  interviewEvaluationRoundId: string | null;
+  interviewEvaluationRoundName: string | null;
+  interviewEvaluationRoundType: number | null;
+  interviewEvaluationRoundSortOrder: number | null;
   attachmentCvId: string | null;
   attachmentCvName: string | null;
   applyDate: string | null;
@@ -899,6 +903,12 @@ export interface AmisCandidateStageChangedPayload {
   pageUrl: string;
   changedAt: string;
   isTransitionEvent?: boolean;
+  amisRecruitmentRoundType?: number | null;
+  amisRecruitmentRoundSortOrder?: number | null;
+  previousAmisRecruitmentRoundId?: string | null;
+  previousAmisRecruitmentRoundName?: string | null;
+  previousAmisRecruitmentRoundType?: number | null;
+  previousAmisRecruitmentRoundSortOrder?: number | null;
 }
 
 export interface AmisRecruitmentRound {
@@ -965,6 +975,112 @@ export interface ApplicationDetailRecord {
   } | null;
   mapping?: ApplicationMappingSummary | null;
   aiScreening?: ApplicationAiScreeningSummary | null;
+}
+
+export type InterviewEvaluationRoundKey = 'ECC' | 'ACC' | 'OFFER';
+export type InterviewEvaluationTemplate = 'BM04.1_KNL' | 'BM04.2_CAREERPATH';
+export type InterviewEvaluationRoundStatus =
+  | 'READY_TO_EVALUATE'
+  | 'DRAFT'
+  | 'WAITING_COMMITTEE'
+  | 'IN_REVIEW'
+  | 'WAITING_AGGREGATION'
+  | 'NEEDS_REVISION'
+  | 'COMPLETED'
+  | 'LOCKED';
+export type InterviewEvaluationReviewerSection = 'HRBP' | 'COMMITTEE';
+export type InterviewEvaluationReviewerStatus = 'PENDING' | 'DRAFT' | 'SUBMITTED';
+
+export interface InterviewEvaluationFormData {
+  overall?: {
+    result?: 'PASS' | 'FAIL' | 'PENDING';
+    strengths?: string;
+    concerns?: string;
+    notes?: string;
+  };
+  hrbp?: {
+    level?: string;
+    placement?: string;
+    salaryExpectation?: string;
+    noticePeriod?: string;
+    motivation?: string;
+    notes?: string;
+  };
+  committee?: {
+    technicalRating?: number;
+    problemSolvingRating?: number;
+    communicationRating?: number;
+    teamworkRating?: number;
+    leadershipRating?: number;
+    notes?: string;
+  };
+  final?: {
+    result?: 'PASS' | 'FAIL' | 'PENDING';
+    proposedLevel?: string;
+    proposedSalary?: string;
+    nextAction?: string;
+    notes?: string;
+  };
+}
+
+export interface InterviewEvaluationRoundSummary {
+  id: string;
+  committeeId?: string | null;
+  key: string;
+  name: string;
+  amisRoundId?: string | null;
+  amisRoundType?: number | null;
+  amisSortOrder?: number | null;
+  status: InterviewEvaluationRoundStatus;
+  version: number;
+  completedAt?: string | null;
+  nextRoundKey?: string;
+}
+
+export interface InterviewEvaluationReviewerRecord {
+  id: string;
+  userId: string;
+  name: string;
+  email?: string | null;
+  section: InterviewEvaluationReviewerSection;
+  status: InterviewEvaluationReviewerStatus;
+  formData?: InterviewEvaluationFormData;
+  submittedAt?: string | null;
+}
+
+export interface InterviewEvaluationSummary {
+  hasCase: boolean;
+  applicationId: string;
+  caseId?: string;
+  candidate: { id: string; name?: string | null; email?: string | null; phone?: string | null };
+  job: { id: string; title?: string | null; jobDescriptionVersionId?: string | null };
+  template: InterviewEvaluationTemplate | null;
+  currentRound: InterviewEvaluationRoundSummary | {
+    key: string;
+    name: string;
+    status: null;
+  };
+  reviewerProgress: { total: number; submitted: number };
+  canManage: boolean;
+  canView: boolean;
+}
+
+export interface InterviewCommitteeMember {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+export interface InterviewCommittee {
+  id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  memberCount: number;
+  members: InterviewCommitteeMember[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ParsedProfileRecord {

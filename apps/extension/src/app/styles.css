@@ -5368,10 +5368,6 @@ dd {
   color: #0033FF !important;
 }
 
-.freelancer-change-password-back-button {
-  color: #0033FF !important;
-}
-
 .extension-close-button,
 .panel-pin-button,
 .posting-more-button {
@@ -6129,7 +6125,7 @@ dd {
   max-width: calc(100% - 100px);
   margin: 0 0 4px;
   color: #334155;
-  font-size: 14px;
+  font-size: 13px;
   font-style: normal;
   font-weight: 700;
   line-height: 19.5px;
@@ -6141,7 +6137,7 @@ dd {
   max-width: 90%;
   margin: 0 0 4px;
   color: #404040;
-  font-size: 12px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 400;
   line-height: 15px;
@@ -6190,10 +6186,15 @@ dd {
   background: #d4d4d4;
 }
 
-.status-badge-danger,
-.jd-status-badge.is-archived {
+.status-badge-danger {
   color: #991b1b;
   background: #fecaca;
+}
+
+.jd-status-badge.is-archived {
+  color: #262626;
+  background: #d4d4d4;
+  font-size: 14px;
 }
 
 .jd-pagination-row {
@@ -7151,6 +7152,10 @@ dd {
   background: #eef5ff;
 }
 
+.facebook-composer-image-library.is-full {
+  width: min(100%, 408px);
+}
+
 .facebook-composer-library-header {
   display: flex;
   align-items: center;
@@ -7191,6 +7196,10 @@ dd {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 24px;
+}
+
+.facebook-composer-image-library.is-full .facebook-composer-image-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .facebook-composer-image-card,
@@ -7673,6 +7682,50 @@ dd {
   font-weight: 500;
   font-size: 12px;
   text-transform: none;
+}
+
+.freelancer-cv-identity.is-internal {
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 5px;
+  border-color: #16a34a;
+  padding: 5px 10px;
+  background: #f0fdf4;
+  font-family: Inter, sans-serif;
+}
+
+.freelancer-cv-identity.is-internal > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  width: 100%;
+}
+
+.freelancer-cv-identity.is-internal .freelancer-cv-eyebrow {
+  color: #000000;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.freelancer-cv-identity.is-internal h2 {
+  margin: 0;
+  color: #000000;
+  font-family: Inter, sans-serif;
+  font-size: 25px;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.freelancer-cv-identity.is-internal em {
+  color: #737373;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 16.5px;
 }
 
 .freelancer-cv-card-meta span,
@@ -10427,7 +10480,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   white-space: nowrap;
 }
 
-.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
+.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date):not(.cv-candidate-contact) {
   display: block;
   min-width: 0;
   margin-top: 2px;
@@ -11082,7 +11135,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-main .cv-candidate-applied-date {
-  color: #404040;
+  color: #525252;
   font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
@@ -11340,10 +11393,19 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   line-height: 20px;
 }
 
-.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date) {
+.cv-candidate-main span:not(.cv-avatar):not(.cv-mini-badge):not(.cv-candidate-applied-date):not(.cv-candidate-contact) {
   color: #525252;
   font-family: Inter, sans-serif;
   font-size: 11px;
+  font-weight: 400;
+  line-height: 16.5px;
+}
+
+.cv-candidate-main .cv-candidate-contact {
+  color: #525252;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-style: normal;
   font-weight: 400;
   line-height: 16.5px;
 }
@@ -11673,6 +11735,274 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   width: 100%;
+}
+
+.cv-candidate-evaluation {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  border: 1px solid #bfe7d4;
+  border-radius: 9px;
+  padding: 10px;
+  background: #f3fff9;
+}
+
+.cv-candidate-evaluation-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cv-candidate-evaluation-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.cv-candidate-evaluation-heading small,
+.interview-evaluation-confirm-header small {
+  color: #15803d;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.cv-candidate-evaluation-heading strong {
+  color: #0b1c30;
+  font-size: 13px;
+}
+
+.cv-evaluation-status {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cv-evaluation-status.is-success {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.cv-evaluation-status.is-warning {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.cv-evaluation-status.is-active {
+  color: #075985;
+  background: #e0f2fe;
+}
+
+.cv-candidate-evaluation-meta,
+.cv-evaluation-error {
+  color: #53645b;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.cv-evaluation-error {
+  color: #b91c1c;
+}
+
+.cv-evaluation-button,
+.interview-evaluation-primary-button,
+.interview-evaluation-secondary-button {
+  min-height: 32px;
+  border-radius: 7px;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cv-evaluation-button,
+.interview-evaluation-primary-button {
+  color: #ffffff;
+  background: #16a34a;
+}
+
+.cv-evaluation-button:hover:not(:disabled),
+.interview-evaluation-primary-button:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.interview-evaluation-confirm-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.interview-evaluation-confirm-modal {
+  display: grid;
+  gap: 18px;
+  width: min(520px, 100%);
+  max-height: min(720px, calc(100vh - 36px));
+  overflow-y: auto;
+  border: 1px solid #d7e2dc;
+  border-radius: 14px;
+  padding: 20px;
+  background: #ffffff;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.2);
+}
+
+.interview-evaluation-confirm-header,
+.interview-evaluation-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.interview-evaluation-confirm-header h2 {
+  margin: 4px 0 0;
+  color: #0b1c30;
+  font-size: 18px;
+}
+
+.interview-evaluation-close-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: #64748b;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.interview-evaluation-close-button:hover {
+  background: #f1f5f9;
+}
+
+.interview-evaluation-confirm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.interview-evaluation-confirm-grid > div,
+.interview-evaluation-confirm-grid label {
+  display: grid;
+  gap: 5px;
+}
+
+.interview-evaluation-confirm-grid span,
+.interview-evaluation-field-label {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.interview-evaluation-confirm-grid strong {
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.interview-evaluation-confirm-grid select {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 6px 8px;
+  color: #0f172a;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.interview-evaluation-committee-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.interview-evaluation-committee-picker p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.interview-evaluation-committee-option {
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.interview-evaluation-committee-option:has(input[type='radio']:checked) {
+  border-color: #159447;
+  box-shadow: 0 0 0 1px rgba(21, 148, 71, 0.12);
+}
+
+.interview-evaluation-committee-option-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 46px;
+  padding: 8px;
+}
+
+.interview-evaluation-committee-choice {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.interview-evaluation-committee-choice > span,
+.interview-evaluation-member-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.interview-evaluation-committee-choice small,
+.interview-evaluation-member-option small {
+  color: #64748b;
+}
+
+.interview-evaluation-expand-button {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  color: #0f8f47;
+  background: #f0fdf4;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.interview-evaluation-expand-button:hover {
+  background: #dcfce7;
+}
+
+.interview-evaluation-committee-members {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid #e2e8f0;
+  padding: 8px 10px 10px 34px;
+  background: #f8fafc;
+}
+
+.interview-evaluation-member-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.interview-evaluation-secondary-button {
+  color: #334155;
+  background: #f1f5f9;
+}
+
+.interview-evaluation-secondary-button:hover {
+  background: #e2e8f0;
 }
 
 .cv-candidate-detail {

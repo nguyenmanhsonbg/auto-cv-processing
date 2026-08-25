@@ -84,8 +84,12 @@ export interface ManualIncludeFacebookGroupInput extends CreateFacebookGroupInpu
   targetExternalId?: string | null;
 }
 
-export interface UpdateFacebookGroupInput extends CreateFacebookGroupInput {
+export interface UpdateFacebookGroupInput {
+  ownerUserId: string;
   targetId: string;
+  targetName: string;
+  ownerExtensionInstanceId?: string | null;
+  facebookAccountId?: string | null;
 }
 
 export interface UpdateFacebookGroupVerificationInput {

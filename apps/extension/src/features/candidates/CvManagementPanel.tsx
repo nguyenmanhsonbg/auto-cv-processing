@@ -470,6 +470,7 @@ export function CvManagementPanel({
               <CandidateCard
                 key={application.applicationId}
                 application={application}
+                token={token}
                 isSelected={selectedCvApplicationIds.has(application.applicationId)}
                 onToggleSelect={onToggleCvCandidateSelection}
                 isAmisUploadPending={pendingAmisUploadApplicationIds.has(application.applicationId)}

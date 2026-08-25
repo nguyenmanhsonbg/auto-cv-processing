@@ -285,11 +285,15 @@ export function FreelancerCvPanel({
   return (
     <section className="freelancer-cv-panel">
       {summary ? (
-        <div className="freelancer-cv-identity">
+        <div className={`freelancer-cv-identity${summary.user.role === 'INTERNAL' ? ' is-internal' : ''}`}>
           <div>
             <span className="freelancer-cv-eyebrow">Nhân sự</span>
             <h2>{summary.user.name}</h2>
-            <em>Mã định danh: {summary.identifier}</em>
+            <em>
+              {summary.user.role === 'INTERNAL'
+                ? `Email nội bộ: ${summary.user.email}`
+                : `Mã định danh: ${summary.identifier}`}
+            </em>
           </div>
         </div>
       ) : null}

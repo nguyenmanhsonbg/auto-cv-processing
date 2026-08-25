@@ -810,32 +810,8 @@ export class FacebookPublishingService {
       input.facebookAccountId,
     );
     const name = this.requireText(input.targetName, 'targetName');
-    const groupUrl = this.normalizeFacebookGroupUrl(input.targetUrl);
-
-    const duplicateTargets = await this.targetsRepo.find({
-      where: {
-        ownerUserId: input.ownerUserId,
-        type: FacebookPublishTargetType.GROUP,
-        externalId: groupUrl.externalId,
-        active: true,
-      },
-    });
-    const duplicateTarget = duplicateTargets.find((candidate) => this.isTargetInAccountScope(
-      candidate.ownerExtensionInstanceId,
-      input.ownerExtensionInstanceId,
-      candidate.facebookAccountId,
-      input.facebookAccountId,
-    ));
-    if (duplicateTarget && duplicateTarget.id !== target.id) {
-      throw new BadRequestException({
-        code: 'FACEBOOK_GROUP_ALREADY_EXISTS',
-        message: 'Facebook group URL is already configured for this account.',
-      });
-    }
 
     target.name = name;
-    target.externalId = groupUrl.externalId;
-    target.url = groupUrl.url;
     target.ownerExtensionInstanceId = input.ownerExtensionInstanceId ?? target.ownerExtensionInstanceId;
     target.facebookAccountId = input.facebookAccountId ?? target.facebookAccountId;
     target.eligibilityStatus = FacebookPublishTargetEligibilityStatus.UNKNOWN;

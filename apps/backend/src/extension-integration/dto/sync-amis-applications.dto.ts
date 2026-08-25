@@ -283,6 +283,21 @@ export class AmisApplicationListItemDto {
   @ApiPropertyOptional()
   amisStatus: number | null;
 
+  @ApiPropertyOptional({ nullable: true })
+  interviewEvaluationStartedAt: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  interviewEvaluationRoundId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  interviewEvaluationRoundName: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  interviewEvaluationRoundType: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  interviewEvaluationRoundSortOrder: number | null;
+
   @ApiPropertyOptional()
   attachmentCvId: string | null;
 

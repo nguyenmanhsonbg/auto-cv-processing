@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+
+const source = await readFile(
+  new URL('../src/features/auth/LoginForm.tsx', import.meta.url),
+  'utf8',
+);
+
+test('internal password form validates empty full name on blur without trapping focus', () => {
+  const handler = source.match(/const handleInternalFullNameBlur = \(\) => \{([\s\S]*?)\n  \};/)?.[1] ?? '';
+
+  assert.match(handler, /!internalFullName\.trim\(\)/);
+  assert.match(handler, /Họ tên nhân sự là bắt buộc/);
+  assert.match(handler, /setInternalErrorField\('fullName'\)/);
+  assert.doesNotMatch(handler, /internalFullNameRef\.current\?\.focus\(\)/);
+});
+
+test('internal password form validates empty Gmail on blur without trapping focus', () => {
+  const handler = source.match(/const handleInternalEmailBlur = \(\) => \{([\s\S]*?)\n  \};/)?.[1] ?? '';
+
+  assert.match(handler, /const normalizedEmail = internalEmail\.trim\(\)/);
+  assert.match(handler, /!normalizedEmail/);
+  assert.match(handler, /Gmail nội bộ nhân sự là bắt buộc/);
+  assert.match(handler, /setInternalErrorField\('email'\)/);
+  assert.doesNotMatch(handler, /internalEmailRef\.current\?\.focus\(\)/);
+});
+
+test('internal password submit still focuses the first invalid field', () => {
+  const handler = source.match(/const handleInternalSubmit:[\s\S]*?\n  \};/)?.[0] ?? '';
+
+  assert.match(handler, /setInternalErrorField\('fullName'\)/);
+  assert.match(handler, /internalFullNameRef\.current\?\.focus\(\)/);
+  assert.match(handler, /setInternalErrorField\('email'\)/);
+  assert.match(handler, /internalEmailRef\.current\?\.focus\(\)/);
+});
+
+test('internal password confirmation remains clickable so submit validation can run', () => {
+  assert.doesNotMatch(
+    source,
+    /disabled=\{submitting \|\| !fullName\.trim\(\) \|\| !email\.trim\(\)\}/,
+  );
+  assert.match(source, /Gmail nội bộ nhân sự là bắt buộc/);
+});

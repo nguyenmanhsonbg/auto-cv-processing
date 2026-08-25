@@ -1,4 +1,4 @@
-import type { FacebookPublishAttachment } from '@/types/types';
+import type { FacebookPublishAttachment, FacebookPublishPlan } from '@/types/types';
 import { formatFileSize } from '@/lib/utils';
 
 export const FACEBOOK_IMAGE_ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -29,6 +29,18 @@ export function deduplicateFacebookImageAttachments(attachments: FacebookPublish
     seen.add(contentKey);
     return true;
   });
+}
+
+export function withFacebookImageAttachments(
+  plan: FacebookPublishPlan,
+  attachments: FacebookPublishAttachment[],
+): FacebookPublishPlan {
+  if (plan.attachments?.length || attachments.length === 0) return plan;
+
+  return {
+    ...plan,
+    attachments,
+  };
 }
 
 export function readFileAsDataUrl(file: File): Promise<string> {

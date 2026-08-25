@@ -461,6 +461,24 @@ export function isAmisCandidateStageChangedMessage(value: unknown): value is {
     && typeof stage.sourceUrl === 'string'
     && typeof stage.pageUrl === 'string'
     && typeof stage.changedAt === 'string'
+    && (stage.amisRecruitmentRoundType === undefined
+      || stage.amisRecruitmentRoundType === null
+      || typeof stage.amisRecruitmentRoundType === 'number')
+    && (stage.amisRecruitmentRoundSortOrder === undefined
+      || stage.amisRecruitmentRoundSortOrder === null
+      || typeof stage.amisRecruitmentRoundSortOrder === 'number')
+    && (stage.previousAmisRecruitmentRoundId === undefined
+      || stage.previousAmisRecruitmentRoundId === null
+      || typeof stage.previousAmisRecruitmentRoundId === 'string')
+    && (stage.previousAmisRecruitmentRoundName === undefined
+      || stage.previousAmisRecruitmentRoundName === null
+      || typeof stage.previousAmisRecruitmentRoundName === 'string')
+    && (stage.previousAmisRecruitmentRoundType === undefined
+      || stage.previousAmisRecruitmentRoundType === null
+      || typeof stage.previousAmisRecruitmentRoundType === 'number')
+    && (stage.previousAmisRecruitmentRoundSortOrder === undefined
+      || stage.previousAmisRecruitmentRoundSortOrder === null
+      || typeof stage.previousAmisRecruitmentRoundSortOrder === 'number')
     && (typeof (value as { sourceTabId?: unknown }).sourceTabId === 'undefined'
       || typeof (value as { sourceTabId?: unknown }).sourceTabId === 'number')
   );

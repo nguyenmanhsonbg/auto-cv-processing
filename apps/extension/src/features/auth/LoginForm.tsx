@@ -29,6 +29,10 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<'login' | 'password' | null>(null);
+  const [blurErrors, setBlurErrors] = useState<{
+    login: string | null;
+    password: string | null;
+  }>({ login: null, password: null });
 
   const [internalLocalError, setInternalLocalError] = useState<string | null>(null);
   const [internalErrorField, setInternalErrorField] = useState<'fullName' | 'email' | null>(null);
@@ -113,13 +117,14 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   }, [lockoutSeconds]);
 
   const isLockedOut = lockoutSeconds !== null && lockoutSeconds > 0;
-  const hasLoginError = errorField === 'login' || isLockedOut;
-  const hasPasswordError = errorField === 'password' || isLockedOut;
+  const hasLoginError = Boolean(blurErrors.login) || errorField === 'login' || isLockedOut;
+  const hasPasswordError = Boolean(blurErrors.password) || errorField === 'password' || isLockedOut;
 
   const hasInternalFullNameError = internalErrorField === 'fullName';
   const hasInternalEmailError = internalErrorField === 'email';
 
   const handleLoginChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setBlurErrors((current) => ({ ...current, login: null }));
     if (!isLockedOut && (localError || errorField || error)) {
       setLocalError(null);
       setErrorField(null);
@@ -129,6 +134,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handlePasswordChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setBlurErrors((current) => ({ ...current, password: null }));
     if (!isLockedOut && (localError || errorField || error)) {
       setLocalError(null);
       setErrorField(null);
@@ -138,15 +144,22 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handleLoginBlur = () => {
-    // Required validation is handled on submit to avoid premature errors when clicking action buttons/checkboxes
+    setBlurErrors((current) => ({
+      ...current,
+      login: login.trim() ? null : 'Tên đăng nhập là bắt buộc',
+    }));
   };
 
   const handlePasswordBlur = () => {
-    // Required validation is handled on submit to avoid premature errors when clicking action buttons/checkboxes
+    setBlurErrors((current) => ({
+      ...current,
+      password: password ? null : 'Mật khẩu là bắt buộc',
+    }));
   };
 
   const handleLoginClear = () => {
     setLogin('');
+    setBlurErrors((current) => ({ ...current, login: null }));
     if (!isLockedOut) {
       setLocalError(null);
       setErrorField(null);
@@ -157,6 +170,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
 
   const handlePasswordClear = () => {
     setPassword('');
+    setBlurErrors((current) => ({ ...current, password: null }));
     if (!isLockedOut) {
       setLocalError(null);
       setErrorField(null);
@@ -187,6 +201,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
 
     setLocalError(null);
     setErrorField(null);
+    setBlurErrors({ login: null, password: null });
     setSubmitting(true);
 
     try {
@@ -200,6 +215,8 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
       if (
         auth.user.role !== 'ADMIN'
         && auth.user.role !== 'HR'
+        && auth.user.role !== 'INTERVIEWER'
+        && auth.user.role !== 'COMMITTEE'
         && auth.user.role !== 'FREELANCER'
         && auth.user.role !== 'INTERNAL'
       ) {
@@ -244,11 +261,20 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handleInternalFullNameBlur = () => {
-    // Required validation is handled on submit
+    if (!internalFullName.trim()) {
+      setInternalLocalError('Họ tên nhân sự là bắt buộc');
+      setInternalErrorField('fullName');
+    }
   };
 
   const handleInternalEmailBlur = () => {
-    if (internalEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(internalEmail.trim())) {
+    const normalizedEmail = internalEmail.trim();
+    if (!normalizedEmail) {
+      setInternalLocalError('Gmail nội bộ nhân sự là bắt buộc');
+      setInternalErrorField('email');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       setInternalLocalError('Email không đúng định dạng vui lòng nhập lại.');
       setInternalErrorField('email');
     }
@@ -281,7 +307,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
     }
     const normalizedEmail = internalEmail.trim().toLowerCase();
     if (!normalizedEmail) {
-      setInternalLocalError('Email nhân sự là bắt buộc');
+      setInternalLocalError('Gmail nội bộ nhân sự là bắt buộc');
       setInternalErrorField('email');
       internalEmailRef.current?.focus();
       return;
@@ -379,8 +405,8 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
     hasLoginError={hasLoginError}
     hasPasswordError={hasPasswordError}
     isLockedOut={isLockedOut}
-    loginErrorMessage={errorField === 'login' ? localError : null}
-    passwordErrorMessage={errorField === 'password' ? localError : null}
+    loginErrorMessage={blurErrors.login ?? (errorField === 'login' ? localError : null)}
+    passwordErrorMessage={blurErrors.password ?? (errorField === 'password' ? localError : null)}
     onRememberMeChange={(event) => setRememberMe(event.target.checked)}
     onForgotPassword={handleForgotPassword}
     onInternalModeChange={handleInternalModeChange}
@@ -498,7 +524,7 @@ function InternalPasswordRequestView({
           {message ? <p className="extension-login-success">{message}</p> : null}
           <div className="extension-login-actions">
             <button type="button" className="secondary-button" onClick={onCancel}>Hủy</button>
-            <button type="submit" className="confirm-button" disabled={submitting || !fullName.trim() || !email.trim()}>
+            <button type="submit" className="confirm-button" disabled={submitting}>
               {submitting ? 'Đang gửi...' : 'Xác nhận'}
             </button>
           </div>

@@ -34,7 +34,7 @@ export type FacebookGroupSettingsModalProps = {
   onOpenCreateModal: () => void;
   onCheckEligibility: (group: FacebookPublishTarget) => Promise<void> | void;
   onEditGroup: (group: FacebookPublishTarget, name: string, url: string) => Promise<void> | void;
-  onDeleteGroup: (group: FacebookPublishTarget) => Promise<void> | void;
+  onDeleteGroup: (group: FacebookPublishTarget) => Promise<boolean> | boolean;
   onCreateGroup: (name: string, url: string) => Promise<void> | void;
   createGroupName: string;
   createGroupUrl: string;
@@ -388,7 +388,11 @@ export function FacebookGroupSettingsModal({
           isDeleting={facebookSettingsState === 'SAVING'}
           message={facebookSettingsMessage}
           messageIsError={facebookSettingsState === 'ERROR'}
-          onConfirm={() => void onDeleteGroup(selectedGroup)}
+          onConfirm={async () => {
+            if (!selectedGroup) return;
+            const deleted = await onDeleteGroup(selectedGroup);
+            if (deleted) closeSubModal();
+          }}
           onCancel={closeSubModal}
           onClose={closeSubModal}
         />

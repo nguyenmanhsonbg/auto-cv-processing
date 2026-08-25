@@ -87,6 +87,7 @@ export function InvitePage() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={UserRole.INTERVIEWER}>Interviewer</SelectItem>
+                  <SelectItem value={UserRole.COMMITTEE}>HĐCM – Hội đồng chuyên môn</SelectItem>
                   <SelectItem value={UserRole.HR}>HR</SelectItem>
                   <SelectItem value={UserRole.ADMIN}>Admin</SelectItem>
                 </SelectContent>

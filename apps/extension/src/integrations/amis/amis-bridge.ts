@@ -2665,7 +2665,25 @@ function isAmisCandidateStageChangedMessage(value: unknown): value is {
     && (candidateStage.reasonRemoved === undefined || candidateStage.reasonRemoved === null || typeof candidateStage.reasonRemoved === 'string')
     && typeof candidateStage.sourceUrl === 'string'
     && typeof candidateStage.pageUrl === 'string'
-    && typeof candidateStage.changedAt === 'string';
+    && typeof candidateStage.changedAt === 'string'
+    && (candidateStage.amisRecruitmentRoundType === undefined
+      || candidateStage.amisRecruitmentRoundType === null
+      || typeof candidateStage.amisRecruitmentRoundType === 'number')
+    && (candidateStage.amisRecruitmentRoundSortOrder === undefined
+      || candidateStage.amisRecruitmentRoundSortOrder === null
+      || typeof candidateStage.amisRecruitmentRoundSortOrder === 'number')
+    && (candidateStage.previousAmisRecruitmentRoundId === undefined
+      || candidateStage.previousAmisRecruitmentRoundId === null
+      || typeof candidateStage.previousAmisRecruitmentRoundId === 'string')
+    && (candidateStage.previousAmisRecruitmentRoundName === undefined
+      || candidateStage.previousAmisRecruitmentRoundName === null
+      || typeof candidateStage.previousAmisRecruitmentRoundName === 'string')
+    && (candidateStage.previousAmisRecruitmentRoundType === undefined
+      || candidateStage.previousAmisRecruitmentRoundType === null
+      || typeof candidateStage.previousAmisRecruitmentRoundType === 'number')
+    && (candidateStage.previousAmisRecruitmentRoundSortOrder === undefined
+      || candidateStage.previousAmisRecruitmentRoundSortOrder === null
+      || typeof candidateStage.previousAmisRecruitmentRoundSortOrder === 'number');
 }
 
 function isAmisRecruitmentRoundsChangedMessage(value: unknown): value is {

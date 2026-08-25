@@ -5,6 +5,14 @@ import {
   unwrapPaginated,
 } from '@/lib/api-response-helpers';
 import type { ApiEnvelope } from '@/lib/api-response-helpers';
+import type {
+  InterviewEvaluationFormData,
+  InterviewEvaluationReviewerSection,
+  InterviewEvaluationReviewerStatus,
+  InterviewEvaluationRoundKey,
+  InterviewEvaluationRoundStatus,
+  InterviewEvaluationTemplate,
+} from '@interview-assistant/shared';
 
 export interface RecruitmentPagination {
   page: number;
@@ -385,6 +393,118 @@ export interface ApplicationDetailRecord extends ApplicationListRecord {
   form?: ApplicationFormSummary | null;
   aiScreening?: ApplicationAiScreeningSummary | null;
   sources?: ApplicationSourceRecord[];
+}
+
+export interface InterviewEvaluationReviewerRecord {
+  id: string;
+  userId: string;
+  name: string;
+  email?: string | null;
+  section: InterviewEvaluationReviewerSection;
+  status: InterviewEvaluationReviewerStatus;
+  formData?: InterviewEvaluationFormData;
+  submittedAt?: string | null;
+}
+
+export interface InterviewEvaluationRoundSummary {
+  id: string;
+  committeeId?: string | null;
+  key: string;
+  name: string;
+  amisRoundId?: string | null;
+  amisRoundType?: number | null;
+  amisSortOrder?: number | null;
+  status: InterviewEvaluationRoundStatus;
+  version: number;
+  completedAt?: string | null;
+  nextRoundKey?: string;
+}
+
+export interface InterviewEvaluationSummary {
+  hasCase: boolean;
+  applicationId: string;
+  caseId?: string;
+  candidate: { id: string; name?: string | null; email?: string | null; phone?: string | null };
+  job: { id: string; title?: string | null; jobDescriptionVersionId?: string | null };
+  template: InterviewEvaluationTemplate | null;
+  currentRound: InterviewEvaluationRoundSummary | {
+    key: string;
+    name: string;
+    status: null;
+  };
+  reviewerProgress: { total: number; submitted: number };
+  canManage: boolean;
+  canView: boolean;
+}
+
+export interface InterviewEvaluationDetail {
+  case: {
+    id: string;
+    applicationId: string;
+    candidate: InterviewEvaluationSummary['candidate'];
+    job: InterviewEvaluationSummary['job'];
+    template: InterviewEvaluationTemplate;
+  };
+  currentRound: InterviewEvaluationRoundSummary & {
+    hrbpData: InterviewEvaluationFormData;
+    committeeData: InterviewEvaluationFormData;
+    aggregateData: InterviewEvaluationFormData;
+  };
+  rounds: InterviewEvaluationRoundSummary[];
+  reviewers: InterviewEvaluationReviewerRecord[];
+  audits: Array<{
+    id: string;
+    action: string;
+    fromStatus?: string | null;
+    toStatus?: string | null;
+    metadata?: Record<string, unknown>;
+    createdAt?: string;
+  }>;
+  permissions: {
+    canManage: boolean;
+    canReview: boolean;
+    canAggregate: boolean;
+    canComplete: boolean;
+  };
+}
+
+export interface AssignedInterviewEvaluation {
+  applicationId: string;
+  caseId: string;
+  candidate: InterviewEvaluationSummary['candidate'];
+  job: InterviewEvaluationSummary['job'];
+  round: InterviewEvaluationRoundSummary;
+  reviewer: {
+    id: string;
+    status: InterviewEvaluationReviewerStatus;
+    submittedAt?: string | null;
+  };
+  reviewerProgress: { total: number; submitted: number };
+}
+
+export interface AssignableRecruitmentUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+export interface InterviewCommitteeMember {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+export interface InterviewCommittee {
+  id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  memberCount: number;
+  members: InterviewCommitteeMember[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ListApplicationsParams {
@@ -809,6 +929,149 @@ export function getApplication(applicationId: string) {
   return apiClient
     .get<ApiEnvelope<ApplicationDetailRecord> | ApplicationDetailRecord>(
       `/applications/${encodeURIComponent(applicationId)}`,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function getInterviewEvaluationSummary(applicationId: string) {
+  return apiClient
+    .get<InterviewEvaluationSummary>(
+      `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/summary`,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function listAssignedInterviewEvaluations() {
+  return apiClient
+    .get<AssignedInterviewEvaluation[]>('/interview-evaluations/assigned')
+    .then(unwrapEnvelope);
+}
+
+export function getInterviewEvaluation(applicationId: string, roundId?: string) {
+  const query = roundId ? `?roundId=${encodeURIComponent(roundId)}` : '';
+  return apiClient
+    .get<InterviewEvaluationDetail>(
+      `/applications/${encodeURIComponent(applicationId)}/interview-evaluations${query}`,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function listAssignableRecruitmentUsers() {
+  return apiClient
+    .get<AssignableRecruitmentUser[]>('/auth/users/assignable')
+    .then(unwrapEnvelope);
+}
+
+export function listInterviewCommittees(activeOnly = false) {
+  return apiClient
+    .get<InterviewCommittee[]>('/interview-committees', { activeOnly })
+    .then(unwrapEnvelope);
+}
+
+export function listInterviewCommitteeUsers() {
+  return apiClient
+    .get<AssignableRecruitmentUser[]>('/interview-committees/available-users')
+    .then(unwrapEnvelope);
+}
+
+export function createInterviewCommittee(payload: { name: string; description?: string }) {
+  return apiClient
+    .post<InterviewCommittee>('/interview-committees', payload)
+    .then(unwrapEnvelope);
+}
+
+export function updateInterviewCommittee(
+  committeeId: string,
+  payload: { name?: string; description?: string | null; isActive?: boolean },
+) {
+  return apiClient
+    .patch<InterviewCommittee>(`/interview-committees/${encodeURIComponent(committeeId)}`, payload)
+    .then(unwrapEnvelope);
+}
+
+export function updateInterviewCommitteeMembers(committeeId: string, userIds: string[]) {
+  return apiClient
+    .put<InterviewCommittee>(
+      `/interview-committees/${encodeURIComponent(committeeId)}/members`,
+      { userIds },
+    )
+    .then(unwrapEnvelope);
+}
+
+export function createInterviewEvaluationCase(
+  applicationId: string,
+  payload: {
+    roundKey?: InterviewEvaluationRoundKey;
+    roundName: string;
+    amisRoundId?: string;
+    amisRoundType?: number;
+    amisSortOrder?: number;
+    template?: InterviewEvaluationTemplate;
+    committeeId?: string;
+    committeeUserIds?: string[];
+  },
+) {
+  return apiClient
+    .post<InterviewEvaluationDetail>(
+      `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds`,
+      payload,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function saveInterviewEvaluationReview(
+  applicationId: string,
+  roundId: string,
+  section: InterviewEvaluationReviewerSection,
+  payload: { formData: InterviewEvaluationFormData; expectedVersion?: number },
+) {
+  return apiClient
+    .patch<InterviewEvaluationDetail>(
+      `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/reviews/${encodeURIComponent(section)}`,
+      payload,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function submitInterviewEvaluationReview(
+  applicationId: string,
+  roundId: string,
+  section: InterviewEvaluationReviewerSection,
+  payload: { formData: InterviewEvaluationFormData; expectedVersion?: number },
+) {
+  return apiClient
+    .post<InterviewEvaluationDetail>(
+      `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/reviews/${encodeURIComponent(section)}/submit`,
+      payload,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function aggregateInterviewEvaluation(
+  applicationId: string,
+  roundId: string,
+  payload: { formData: InterviewEvaluationFormData; expectedVersion?: number },
+) {
+  return apiClient
+    .patch<InterviewEvaluationDetail>(
+      `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/aggregate`,
+      payload,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function completeInterviewEvaluation(applicationId: string, roundId: string) {
+  return apiClient
+    .post<InterviewEvaluationDetail>(
+      `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/complete`,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function createNextInterviewEvaluationRound(applicationId: string, roundId: string) {
+  return apiClient
+    .post<InterviewEvaluationDetail>(
+      `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/next`,
     )
     .then(unwrapEnvelope);
 }

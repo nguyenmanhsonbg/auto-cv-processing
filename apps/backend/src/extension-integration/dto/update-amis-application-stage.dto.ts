@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateAmisApplicationStageDto {
   @ApiProperty({ description: 'The AMIS recruitment round id currently assigned to the candidate.' })
@@ -40,4 +40,38 @@ export class UpdateAmisApplicationStageDto {
   @IsOptional()
   @IsBoolean()
   isTransitionEvent?: boolean;
+
+  @ApiPropertyOptional({ description: 'The numeric AMIS recruitment round type, when known.' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  recruitmentRoundType?: number;
+
+  @ApiPropertyOptional({ description: 'The AMIS recruitment round sort order, when known.' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  recruitmentRoundSortOrder?: number;
+
+  @ApiPropertyOptional({ description: 'The previous AMIS recruitment round id observed before the transition.' })
+  @IsOptional()
+  @IsString()
+  previousRecruitmentRoundId?: string;
+
+  @ApiPropertyOptional({ description: 'The previous AMIS recruitment round name observed before the transition.' })
+  @IsOptional()
+  @IsString()
+  previousRecruitmentRoundName?: string;
+
+  @ApiPropertyOptional({ description: 'The previous AMIS recruitment round type, when known.' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  previousRecruitmentRoundType?: number;
+
+  @ApiPropertyOptional({ description: 'The previous AMIS recruitment round sort order, when known.' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  previousRecruitmentRoundSortOrder?: number;
 }

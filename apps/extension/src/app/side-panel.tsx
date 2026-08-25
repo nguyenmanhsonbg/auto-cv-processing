@@ -26,12 +26,14 @@ import {
   getJobDescriptionQuestionSet,
   listJobDescriptions,
   heartbeatExtensionInstance,
+  logoutAuthSession,
   refreshAccessToken,
   runApplicationAiScreening,
   syncAmisApplications,
   syncAmisRecruitmentRounds,
   syncAndPublishAmisJob,
   syncVcsPortalJobDescriptions,
+  syncInterviewEvaluationContext,
   updateAmisApplicationStage,
   changePassword,
 } from '@/lib/api-client';
@@ -39,6 +41,7 @@ import { createAiMatchPreviewPdfBase64 } from '@/features/recruitment/ai-match-p
 import {
   clearAccessToken,
   getAccessToken,
+  getRefreshToken,
   subscribeAuthTokenChanges,
 } from '@/features/auth/auth-store';
 import { getSelectedChannels, setSelectedChannels } from '@/stores/channel-preferences';
@@ -144,6 +147,72 @@ type ApplicationsState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
 
 const MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS = 3;
+
+function hasAmisRoundTypeMetadata(rounds: AmisRecruitmentRound[]) {
+  return rounds.some((round) => round.roundType !== null);
+}
+
+async function findAmisInterviewRound(
+  accessToken: string,
+  payload: AmisCandidateStageChangedPayload,
+  fallbackRounds: AmisRecruitmentRound[],
+) {
+  try {
+    const rounds = await getAmisRecruitmentRounds(accessToken, payload.amisRecruitmentId);
+    const round = rounds.find((candidateRound) => candidateRound.id === payload.amisRecruitmentRoundId);
+    if (round?.roundType === 3) return round;
+
+    return fallbackRounds.find((candidateRound) => candidateRound.id === payload.amisRecruitmentRoundId
+      && candidateRound.roundType === 3) ?? null;
+  } catch {
+    return fallbackRounds.find((round) => round.id === payload.amisRecruitmentRoundId
+      && round.roundType === 3) ?? null;
+  }
+}
+
+function enrichAmisCandidateStagePayload(
+  payload: AmisCandidateStageChangedPayload,
+  rounds: AmisRecruitmentRound[],
+  previousRound?: AmisRecruitmentRound,
+) {
+  const round = rounds.find((candidateRound) => candidateRound.id === payload.amisRecruitmentRoundId);
+  return {
+    ...payload,
+    amisRecruitmentRoundType: payload.amisRecruitmentRoundType ?? round?.roundType ?? null,
+    amisRecruitmentRoundSortOrder: payload.amisRecruitmentRoundSortOrder ?? round?.sortOrder ?? null,
+    previousAmisRecruitmentRoundId: payload.previousAmisRecruitmentRoundId
+      ?? previousRound?.id
+      ?? null,
+    previousAmisRecruitmentRoundName: payload.previousAmisRecruitmentRoundName
+      ?? previousRound?.name
+      ?? null,
+    previousAmisRecruitmentRoundType: payload.previousAmisRecruitmentRoundType
+      ?? previousRound?.roundType
+      ?? null,
+    previousAmisRecruitmentRoundSortOrder: payload.previousAmisRecruitmentRoundSortOrder
+      ?? previousRound?.sortOrder
+      ?? null,
+  } satisfies AmisCandidateStageChangedPayload;
+}
+
+function mergeAmisRecruitmentRounds(
+  currentRounds: AmisRecruitmentRound[],
+  incomingRounds: AmisRecruitmentRound[],
+) {
+  const currentById = new Map(currentRounds.map((round) => [round.id, round]));
+  return incomingRounds.map((round) => {
+    const currentRound = currentById.get(round.id);
+    if (!currentRound) return round;
+
+    return {
+      ...round,
+      roundType: round.roundType ?? currentRound.roundType,
+      roundTypeId: round.roundTypeId ?? currentRound.roundTypeId,
+      color: round.color ?? currentRound.color,
+    };
+  });
+}
+
 const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'posting', label: 'Đăng bài' },
   { id: 'cv', label: 'CV' },
@@ -324,7 +393,7 @@ function SidePanel() {
         const rounds = user?.role === 'FREELANCER' || user?.role === 'INTERNAL'
           ? await getFreelancerRecruitmentRounds(token, target.amisRecruitmentId)
           : await getAmisRecruitmentRounds(token, target.amisRecruitmentId);
-        if (rounds.length > 0) return { ...target, rounds };
+        if (rounds.length > 0 && hasAmisRoundTypeMetadata(rounds)) return { ...target, rounds };
       } catch {
         // An unavailable catalog falls through to the AMIS-tab loader below.
       }
@@ -365,6 +434,7 @@ function SidePanel() {
       ?? { ...target, rounds: [] as AmisRecruitmentRound[] }
     ));
   }, [token, user?.role]);
+
   const [snapshot, setSnapshot] = useState<AmisJobSnapshot | null>(null);
   const [amisRecruitmentId, setAmisRecruitmentId] = useState<string | null>(null);
   const [amisRecruitmentRoundId, setAmisRecruitmentRoundId] = useState<string | null>(null);
@@ -704,10 +774,7 @@ function SidePanel() {
       }
 
       if (isAmisCandidateStageChangedMessage(message)) {
-        void applyAmisCandidateStageChangedMessage(
-          message.payload,
-          message.sourceTabId ?? sender.tab?.id,
-        );
+        void applyAmisCandidateStageChangedMessage(message.payload);
         return;
       }
 
@@ -718,7 +785,10 @@ function SidePanel() {
         ) {
           return;
         }
-        setAmisRecruitmentRounds(message.payload.rounds);
+        setAmisRecruitmentRounds((currentRounds) => mergeAmisRecruitmentRounds(
+          currentRounds,
+          message.payload.rounds,
+        ));
         void persistAmisRecruitmentRoundsSnapshot(
           message.payload.amisRecruitmentId,
           message.payload.rounds,
@@ -865,7 +935,13 @@ function SidePanel() {
         setState('READY');
         return;
       }
-      if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
+      if (currentUser.role === 'COMMITTEE') {
+        setToken(storedToken);
+        setUser(currentUser);
+        setState('READY');
+        return;
+      }
+      if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR' && currentUser.role !== 'INTERVIEWER') {
         await clearAccessToken();
         setError('Only ADMIN and HR can sync postings.');
         setState('AUTH_REQUIRED');
@@ -907,6 +983,10 @@ function SidePanel() {
       setState('READY');
       return;
     }
+    if (authenticatedUser.role === 'COMMITTEE') {
+      setState('READY');
+      return;
+    }
     await ensureRegisteredExtensionInstance(accessToken);
     setActiveWorkspaceTab('posting');
     setState('READY');
@@ -927,6 +1007,10 @@ function SidePanel() {
         setState('READY');
         return;
       }
+      if (user?.role === 'COMMITTEE') {
+        setState('READY');
+        return;
+      }
       await ensureRegisteredExtensionInstance(token);
       setActiveWorkspaceTab('posting');
       setState('READY');
@@ -940,14 +1024,21 @@ function SidePanel() {
   }
 
   async function logout() {
-    await clearAccessToken();
-    setToken(null);
-    setUser(null);
-    setIsFreelancerPasswordFormOpen(false);
-    setJobDescriptions([]);
-    setJobDescriptionPagination(null);
-    setJobDescriptionStatus('IDLE');
-    setState('AUTH_REQUIRED');
+    try {
+      const refreshToken = await getRefreshToken();
+      await logoutAuthSession(refreshToken);
+    } catch {
+      // Logout remains local even when the API is unavailable.
+    } finally {
+      await clearAccessToken();
+      setToken(null);
+      setUser(null);
+      setIsFreelancerPasswordFormOpen(false);
+      setJobDescriptions([]);
+      setJobDescriptionPagination(null);
+      setJobDescriptionStatus('IDLE');
+      setState('AUTH_REQUIRED');
+    }
   }
 
   async function loadJobDescriptions(
@@ -1103,18 +1194,22 @@ function SidePanel() {
   }
 
   async function applyAmisCandidateStageChangedMessage(
-    payload: AmisCandidateStageChangedPayload,
-    sourceTabId?: number,
+    rawPayload: AmisCandidateStageChangedPayload,
   ) {
-    if (!payload.amisRecruitmentRoundId) return;
-    if (activeAmisRecruitmentIdRef.current !== payload.amisRecruitmentId) return;
+    const recruitmentRoundId = rawPayload.amisRecruitmentRoundId;
+    if (!recruitmentRoundId) return;
+    if (activeAmisRecruitmentIdRef.current !== rawPayload.amisRecruitmentId) return;
 
-    try {
-      const activeTab = await getActiveTab();
-      if (sourceTabId !== undefined && activeTab.id !== sourceTabId) return;
-    } catch {
-      return;
-    }
+    const currentApplication = applicationsContext?.applications.find((application) =>
+      application.amisCandidateId === rawPayload.amisCandidateId,
+    );
+    const previousRound = currentApplication?.amisRecruitmentRoundId
+      ? amisRecruitmentRounds.find((round) => round.id === currentApplication.amisRecruitmentRoundId)
+      : undefined;
+    const payload = {
+      ...enrichAmisCandidateStagePayload(rawPayload, amisRecruitmentRounds, previousRound),
+      amisRecruitmentRoundId: recruitmentRoundId,
+    } satisfies AmisCandidateStageChangedPayload;
 
     const eventKey = `${payload.amisRecruitmentId}:${payload.amisCandidateId}`;
     const reasonRemoved = payload.reasonRemoved ?? null;
@@ -1156,7 +1251,39 @@ function SidePanel() {
     if (!accessToken) return;
 
     try {
-      await updateAmisApplicationStage(accessToken, payload);
+      const stageUpdate = await updateAmisApplicationStage(accessToken, payload);
+      const interviewRound = await findAmisInterviewRound(accessToken, payload, amisRecruitmentRounds);
+      if (interviewRound && stageUpdate.applicationId) {
+        try {
+          await syncInterviewEvaluationContext(accessToken, stageUpdate.applicationId, {
+            amisRoundId: interviewRound.id,
+            amisRoundName: interviewRound.name,
+            amisRoundType: interviewRound.roundType ?? 3,
+            amisSortOrder: interviewRound.sortOrder,
+          });
+        } catch {
+          setApplicationsMessage('Đã cập nhật vòng AMIS nhưng chưa đồng bộ được ngữ cảnh phiếu đánh giá.');
+        }
+      }
+      if (stageUpdate.applicationId && stageUpdate.interviewEvaluationStartedAt) {
+        setApplicationsContext((current) => {
+          if (!current || current.amisRecruitmentId !== payload.amisRecruitmentId) return current;
+
+          return {
+            ...current,
+            applications: current.applications.map((application) => application.applicationId === stageUpdate.applicationId
+              ? {
+                ...application,
+                interviewEvaluationStartedAt: stageUpdate.interviewEvaluationStartedAt ?? null,
+                interviewEvaluationRoundId: stageUpdate.interviewEvaluationRoundId ?? null,
+                interviewEvaluationRoundName: stageUpdate.interviewEvaluationRoundName ?? null,
+                interviewEvaluationRoundType: stageUpdate.interviewEvaluationRoundType ?? null,
+                interviewEvaluationRoundSortOrder: stageUpdate.interviewEvaluationRoundSortOrder ?? null,
+              }
+              : application),
+          };
+        });
+      }
       setReferralRefreshVersion((current) => current + 1);
       await loadAmisApplications(accessToken, payload.amisRecruitmentId, { silent: true });
     } catch (err) {
@@ -1270,7 +1397,10 @@ function SidePanel() {
         && roundsResponse.ok
         && roundsResponse.amisRecruitmentId === context.amisRecruitmentId
       ) {
-        setAmisRecruitmentRounds(roundsResponse.rounds);
+        setAmisRecruitmentRounds((currentRounds) => mergeAmisRecruitmentRounds(
+          currentRounds,
+          roundsResponse.rounds,
+        ));
         await persistAmisRecruitmentRoundsSnapshot(
           roundsResponse.amisRecruitmentId,
           roundsResponse.rounds,
@@ -2007,6 +2137,22 @@ function SidePanel() {
     });
   }
 
+  function openCommitteeEvaluationInbox() {
+    if (!chrome.tabs?.create) {
+      showExtensionToast('ERROR', 'HĐCM', 'Không thể mở inbox đánh giá trên web.');
+      return;
+    }
+
+    void chrome.tabs.create({
+      url: `${FRONTEND_BASE_URL}/interview-evaluations`,
+      active: true,
+    }).then(() => {
+      showExtensionToast('SUCCESS', 'HĐCM', 'Đã mở danh sách phiếu đánh giá được giao.');
+    }).catch(() => {
+      showExtensionToast('ERROR', 'HĐCM', 'Không thể mở inbox đánh giá trên web.');
+    });
+  }
+
   async function selectAllJobQuestions(context: JobDescriptionQuestionSetContext) {
     const questionIds = context.questions.map((question) => question.id);
     setSelectedJobQuestionIds(new Set(questionIds));
@@ -2701,17 +2847,7 @@ function SidePanel() {
   function renderExtensionHeader() {
     const canChangePassword = user?.role === 'FREELANCER' || user?.role === 'INTERNAL';
     let passwordAction: React.ReactNode = null;
-    if (canChangePassword && isFreelancerPasswordFormOpen) {
-      passwordAction = (
-        <button
-          type="button"
-          className="text-button freelancer-change-password-back-button"
-          onClick={() => setIsFreelancerPasswordFormOpen(false)}
-        >
-          Quay lại
-        </button>
-      );
-    } else if (canChangePassword) {
+    if (canChangePassword && !isFreelancerPasswordFormOpen) {
       passwordAction = (
         <button
           type="button"
@@ -2772,7 +2908,22 @@ function SidePanel() {
           </section>
         ) : null}
 
-        {showAuthenticatedWorkspace && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
+        {showAuthenticatedWorkspace && user?.role === 'COMMITTEE' && token ? (
+          <section className="extension-login-shell">
+            <div className="extension-login-card">
+              <p className="extension-login-brand">VCS Recruitment Posting</p>
+              <div className="extension-auth-heading-group">
+                <h1>HĐCM – Hội đồng chuyên môn</h1>
+              </div>
+              <p className="muted-text">
+                Tài khoản HĐCM không sử dụng luồng đăng tin. Hãy mở inbox trên web để xem các phiếu đánh giá được phân công.
+              </p>
+              <button type="button" className="primary-button" onClick={openCommitteeEvaluationInbox}>
+                Mở phiếu đánh giá được giao
+              </button>
+            </div>
+          </section>
+        ) : showAuthenticatedWorkspace && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
           <section className="freelancer-extension-shell">
             {!isFreelancerPasswordFormOpen ? (
               <nav className="extension-tabs freelancer-extension-tabs" aria-label="Freelancer sections">

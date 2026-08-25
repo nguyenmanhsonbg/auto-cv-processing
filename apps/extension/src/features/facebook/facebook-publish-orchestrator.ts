@@ -16,6 +16,12 @@ import {
   parseFacebookGroupPostUrl,
   type FacebookGroupPostPathType,
 } from '@/features/facebook/facebook-post-url';
+import {
+  inferFacebookPostClickEvidence,
+  shouldKeepFacebookPublishTabOpenForInspection,
+  shouldAcceptFacebookSubmissionEvidence,
+  shouldRecoverFacebookSubmittedPostUrl,
+} from './facebook-publish-recovery-utils';
 import type {
   FacebookImageAttachFailureContext,
   FacebookImageAttachFailureDecision,
@@ -32,6 +38,9 @@ import { probeFacebookReviewStatusByNetwork } from './facebook-review-status-net
 
 const FACEBOOK_TARGET_TIMEOUT_MS = 90_000;
 const FACEBOOK_LOGIN_REQUIRED_MESSAGE = 'Vui lòng đăng nhập facebook trước khi thực hiện thao tác này.';
+// Temporary diagnostic switch: keep failed Facebook publish tabs open so their
+// DevTools Network response can be exported as a HAR for investigation.
+const KEEP_FAILED_FACEBOOK_PUBLISH_TABS_OPEN_FOR_DEBUG = false;
 
 function splitTitleBySeparators(value: string) {
   const parts: string[] = [];
@@ -511,15 +520,25 @@ function buildFacebookPublishResultPayload(
 ): FacebookPublishResultPayload {
   const externalPost = parseFacebookGroupPostUrl(result.externalPostUrl);
   const facebookReviewStatus = result.facebookReviewStatus ?? getPublishResultReviewStatus(result);
+  const acceptedBySubmitEvidence = shouldAcceptFacebookSubmissionEvidence(result);
   const acceptedByFacebook = result.status === 'SUCCESS'
     || facebookReviewStatus === 'PENDING_REVIEW'
-    || externalPost?.pathType === 'pending_posts';
+    || facebookReviewStatus === 'POSTED'
+    || externalPost?.pathType === 'pending_posts'
+    || externalPost?.pathType === 'posts'
+    || acceptedBySubmitEvidence;
+  const normalizedReviewStatus = acceptedBySubmitEvidence && facebookReviewStatus === 'UNKNOWN'
+    ? 'PENDING_REVIEW'
+    : facebookReviewStatus;
+  const message = acceptedBySubmitEvidence && result.status !== 'SUCCESS'
+    ? `Facebook accepted the submission after the submit click. ${result.message}`
+    : result.message;
 
   return {
     ...buildFacebookPublishTargetPayloadBase(plan, target, true),
     status: acceptedByFacebook ? 'SUCCESS' : result.status,
-    facebookReviewStatus,
-    message: result.message,
+    facebookReviewStatus: normalizedReviewStatus,
+    message,
     externalPostId: externalPost?.postId ?? result.externalPostId ?? null,
     externalPostUrl: externalPost?.url ?? null,
     submittedAt: acceptedByFacebook ? new Date().toISOString() : null,
@@ -1154,6 +1173,16 @@ async function publishTargetInFreshTab(
   execution.throwIfCancelled();
   let tab = await openTab(targetUrl, false);
   execution.registerTab(tab.id);
+  let keepTabOpenForInspection = false;
+  const preserveFailedTab = (result: FacebookPagePublishResult) => {
+    if (
+      KEEP_FAILED_FACEBOOK_PUBLISH_TABS_OPEN_FOR_DEBUG
+      && shouldKeepFacebookPublishTabOpenForInspection(result)
+    ) {
+      keepTabOpenForInspection = true;
+    }
+    return result;
+  };
   try {
     let loginWasRequired = false;
     const account = await ensureFacebookLoginInTab(tab.id, {
@@ -1162,20 +1191,20 @@ async function publishTargetInFreshTab(
       },
     });
     if (!account) {
-      return {
+      return preserveFailedTab({
         status: 'FAILED',
         message: FACEBOOK_LOGIN_REQUIRED_MESSAGE,
-      };
+      });
     }
 
     if (
       target.facebookAccountExternalId
       && account.facebookExternalId !== target.facebookAccountExternalId
     ) {
-      return {
+      return preserveFailedTab({
         status: 'FAILED',
         message: 'The active Facebook browser account does not match the selected Facebook group.',
-      };
+      });
     }
 
     if (loginWasRequired) {
@@ -1200,7 +1229,7 @@ async function publishTargetInFreshTab(
         callbacks,
         execution,
       });
-      if (attemptResult.kind === 'PUBLISHED') return attemptResult.result;
+      if (attemptResult.kind === 'PUBLISHED') return preserveFailedTab(attemptResult.result);
       latestFailure = attemptResult.preparedPost;
       if (!shouldRetryPrepareFailure(attemptResult.preparedPost.message)) {
         break;
@@ -1215,13 +1244,25 @@ async function publishTargetInFreshTab(
       break;
     }
 
-    return {
+    return preserveFailedTab({
       status: 'FAILED',
       message: latestFailure?.message ?? 'Facebook post could not be prepared.',
-    };
+    });
+  } catch (error) {
+    if (KEEP_FAILED_FACEBOOK_PUBLISH_TABS_OPEN_FOR_DEBUG) {
+      keepTabOpenForInspection = true;
+    }
+    throw error;
   } finally {
     execution.unregisterTab(tab.id);
-    await closeFacebookPublishTabSafely(tab.id);
+    if (!keepTabOpenForInspection) {
+      await closeFacebookPublishTabSafely(tab.id);
+    } else {
+      console.warn('[FB_DEBUG_TAB_PRESERVED]', {
+        tabId: tab.id,
+        targetName: target.targetName,
+      });
+    }
   }
 }
 
@@ -2195,10 +2236,23 @@ async function clickAndWaitForSubmission(
       resolveFacebookSubmitButtonPointInPage,
       [],
     ).catch(() => null);
+    const postClickEvidence = inferFacebookPostClickEvidence(
+      submissionResult,
+      {
+        submitButtonFound: afterClickProbe.buttonFound,
+        ariaDisabled: afterClickProbe.ariaDisabled,
+        clickPointStillSubmit: afterClickPointProbe?.found ?? null,
+      },
+    );
+    submissionResult = {
+      ...submissionResult,
+      postClickEvidence,
+    };
     console.warn('[FB07_AFTER_500MS]', {
       tabId,
       afterClickProbe,
       afterClickPointProbe,
+      postClickEvidence,
     });
     const graphqlResult = await graphqlCapture?.waitForResult(FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS) ?? null;
     console.warn('[FB12_PRE_ENRICH_RESULT]', {
@@ -2277,8 +2331,7 @@ async function enrichFacebookPublishResultWithPostUrl(
   execution: FacebookTargetExecution,
 ): Promise<FacebookPagePublishResult> {
   execution.throwIfCancelled();
-  const shouldRecoverPostUrl = result.status === 'SUCCESS'
-    || (result.submitClickDispatched && isPostClickConfirmationFailure(result.message));
+  const shouldRecoverPostUrl = shouldRecoverFacebookSubmittedPostUrl(result);
   if (!shouldRecoverPostUrl) return result;
 
   const existingPostUrl = parseFacebookGroupPostUrl(result.externalPostUrl);
@@ -3437,7 +3490,8 @@ async function clickTabCoordinatePoint(
   const target = { tabId };
   await attachChromeDebugger(target, '1.3');
   try {
-    await sendChromeDebuggerCommand(target, 'Page.bringToFront', {}).catch(() => undefined);
+    // CDP input can target the renderer without activating the browser tab.
+    // Bringing this temporary tab to front briefly steals the user's tab.
     if (execution) await execution.wait(randomDelay(120, 240));
     else await sleep(randomDelay(120, 240));
     await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
@@ -3476,7 +3530,6 @@ async function clickTabCoordinatePointOnAttachedDebugger(
   execution?: FacebookTargetExecution,
 ) {
   const target = { tabId };
-  await sendChromeDebuggerCommand(target, 'Page.bringToFront', {}).catch(() => undefined);
   if (execution) await execution.wait(randomDelay(120, 240));
   else await sleep(randomDelay(120, 240));
   await sendChromeDebuggerCommand(target, 'Input.dispatchMouseEvent', {
@@ -7551,10 +7604,11 @@ async function waitForFacebookSubmissionInPage(
     let lastPostSurfaceState: ReturnType<typeof readPostSurfaceState> | null = null;
 
     while (Date.now() < deadline) {
+      const submissionMessage = readSubmissionMessage();
       const directResult = resolveDirectSubmissionResult(
         parsePostUrlFromLocation(window.location.href),
-        readSubmissionError(),
-        readSubmissionMessage(),
+        submissionMessage ? null : readSubmissionError(),
+        submissionMessage,
       );
       if (directResult) return { result: directResult, state: { observedPostContentAfterClick, observedSubmitButtonAfterClick, observedPostSurfaceChangeAfterClick, lastPostSurfaceState } };
 

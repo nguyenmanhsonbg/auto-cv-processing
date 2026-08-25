@@ -12,6 +12,7 @@ import { CandidatesModule } from './candidates/candidates.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CvDocumentsModule } from './cv-documents/cv-documents.module';
 import { EvaluationsModule } from './evaluations/evaluations.module';
+import { InterviewEvaluationsModule } from './candidate-evaluations/interview-evaluations.module';
 import { ExtensionIntegrationModule } from './extension-integration/extension-integration.module';
 import { ExportModule } from './export/export.module';
 import { FileParserModule } from './file-parser/file-parser.module';
@@ -74,6 +75,7 @@ import { WebSocketModule } from './websocket/websocket.module';
     SessionsModule,
     FormSessionsModule,
     EvaluationsModule,
+    InterviewEvaluationsModule,
     SubmissionsModule,
     ExportModule,
     FileParserModule,

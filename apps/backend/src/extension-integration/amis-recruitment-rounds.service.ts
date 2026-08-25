@@ -68,9 +68,9 @@ export class AmisRecruitmentRoundsService {
 
         record.roundName = round.name;
         record.sortOrder = round.sortOrder;
-        record.roundType = round.roundType;
-        record.roundTypeId = round.roundTypeId;
-        record.color = round.color;
+        record.roundType = round.roundType ?? record.roundType ?? null;
+        record.roundTypeId = round.roundTypeId ?? record.roundTypeId ?? null;
+        record.color = round.color ?? record.color ?? null;
         record.isActive = true;
         record.sourceUrl = sourceUrl ?? record.sourceUrl ?? null;
         record.lastSyncedAt = now;

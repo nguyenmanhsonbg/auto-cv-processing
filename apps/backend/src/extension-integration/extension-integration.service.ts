@@ -45,7 +45,11 @@ import {
   ExtensionSyncResultCode,
   type ExtensionSyncChannel,
 } from './enums';
-import { AmisCareerEntity, RecruitmentExternalReferenceEntity } from './entities';
+import {
+  AmisCareerEntity,
+  AmisRecruitmentRoundEntity,
+  RecruitmentExternalReferenceEntity,
+} from './entities';
 import {
   ExtensionIdempotencyDecision,
   ExtensionIdempotencyService,
@@ -81,6 +85,15 @@ import { CandidateStageNotificationService } from '../notification/candidate-sta
 import { buildJobDescriptionSnapshot } from '../job-descriptions/job-description-snapshot';
 
 const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
+const AMIS_INTERVIEW_ROUND_TYPE = 3;
+
+interface AmisInterviewEvaluationStart {
+  startedAt: string;
+  roundId: string | null;
+  roundName: string | null;
+  roundType: number | null;
+  sortOrder: number | null;
+}
 
 interface PostingQuestionSnapshotItemInput {
   questionId: string | null;
@@ -1834,6 +1847,16 @@ export class ExtensionIntegrationService {
     const amisRecruitmentId = this.requireSingleRecruitmentId(normalizedItems);
     const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(amisRecruitmentId);
     const lastSyncedAt = new Date();
+    const recruitmentRounds = await this.dataSource.getRepository(AmisRecruitmentRoundEntity).find({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        amisRecruitmentId,
+        isActive: true,
+      },
+    });
+    const recruitmentRoundById = new Map(
+      recruitmentRounds.map((round) => [round.amisRoundId, round]),
+    );
 
     let createdCount = 0;
     let updatedCount = 0;
@@ -1845,6 +1868,13 @@ export class ExtensionIntegrationService {
         jobPostingId,
         item.attachmentCvName,
       );
+      const syncedRawPayload = this.buildAmisApplicationRawPayload(
+        item,
+        dto,
+        context,
+        lastSyncedAt,
+      );
+      const currentRecruitmentRound = recruitmentRoundById.get(item.recruitmentRoundId);
       const result = await this.applicationsService.createFromChannel({
         jobPostingId,
         ...(uploadedApplication ? { candidateId: uploadedApplication.candidateId } : {}),
@@ -1858,7 +1888,7 @@ export class ExtensionIntegrationService {
         sourceChannel,
         externalApplicationId,
         amisCandidateId: item.candidateId,
-        rawPayload: this.buildAmisApplicationRawPayload(item, dto, context, lastSyncedAt),
+        rawPayload: syncedRawPayload,
         createdById: context.actorUserId,
       });
 
@@ -1869,12 +1899,25 @@ export class ExtensionIntegrationService {
       }
 
       if (result.applicationSource) {
+        const existingEvaluationStart = this.readInterviewEvaluationStart(
+          this.isRecord(result.applicationSource.rawPayload)
+            ? result.applicationSource.rawPayload
+            : {},
+        );
+        const evaluationStart = existingEvaluationStart
+          ?? (currentRecruitmentRound?.roundType === AMIS_INTERVIEW_ROUND_TYPE
+            ? {
+              startedAt: lastSyncedAt.toISOString(),
+              roundId: currentRecruitmentRound.amisRoundId,
+              roundName: currentRecruitmentRound.roundName,
+              roundType: currentRecruitmentRound.roundType,
+              sortOrder: currentRecruitmentRound.sortOrder,
+            }
+            : null);
         result.applicationSource.amisCandidateId = item.candidateId;
-        result.applicationSource.rawPayload = this.buildAmisApplicationRawPayload(
-          item,
-          dto,
-          context,
-          lastSyncedAt,
+        result.applicationSource.rawPayload = this.mergeInterviewEvaluationStart(
+          syncedRawPayload,
+          evaluationStart,
         );
         await this.dataSource.getRepository(ApplicationSourceEntity).save(result.applicationSource);
       }
@@ -1924,6 +1967,7 @@ export class ExtensionIntegrationService {
       total: applicationRows.length,
       applications: applicationRows.map(({ application, source }) => {
         const rawPayload = this.isRecord(source?.rawPayload) ? source.rawPayload : {};
+        const interviewEvaluationStart = this.readInterviewEvaluationStart(rawPayload);
         const latestForm = this.latestByCreatedAt(application.formSessions);
         const latestMapping = this.latestByCreatedAt(application.mappingResults);
         const latestAiScreening = this.latestByCreatedAt(application.aiScreeningResults);
@@ -1988,6 +2032,11 @@ export class ExtensionIntegrationService {
               ?? rawPayload.ReasonRemovedName,
           ),
           amisStatus: typeof rawPayload.status === 'number' ? rawPayload.status : null,
+          interviewEvaluationStartedAt: interviewEvaluationStart?.startedAt ?? null,
+          interviewEvaluationRoundId: interviewEvaluationStart?.roundId ?? null,
+          interviewEvaluationRoundName: interviewEvaluationStart?.roundName ?? null,
+          interviewEvaluationRoundType: interviewEvaluationStart?.roundType ?? null,
+          interviewEvaluationRoundSortOrder: interviewEvaluationStart?.sortOrder ?? null,
           attachmentCvId: this.optionalText(rawPayload.attachmentCvId),
           attachmentCvName: this.optionalText(rawPayload.attachmentCvName),
           applyDate: this.optionalText(rawPayload.applyDate),
@@ -2027,6 +2076,41 @@ export class ExtensionIntegrationService {
     const source = applicationRow.source;
     const rawPayload = this.isRecord(source.rawPayload) ? source.rawPayload : {};
     const updatedAt = new Date().toISOString();
+    const recruitmentRound = dto.isTransitionEvent === true
+      ? await this.dataSource.getRepository(AmisRecruitmentRoundEntity).findOne({
+        where: {
+          sourceSystem: ExtensionSourceSystem.AMIS,
+          amisRecruitmentId: normalizedRecruitmentId,
+          amisRoundId: normalizedRoundId,
+          isActive: true,
+        },
+      })
+      : null;
+    const recruitmentRoundType = dto.recruitmentRoundType ?? recruitmentRound?.roundType ?? null;
+    const recruitmentRoundSortOrder = dto.recruitmentRoundSortOrder ?? recruitmentRound?.sortOrder ?? null;
+    const previousRoundType = dto.previousRecruitmentRoundType ?? null;
+    const startsAtCurrentInterviewRound = recruitmentRoundType === AMIS_INTERVIEW_ROUND_TYPE;
+    const startsFromPreviousInterviewRound = previousRoundType === AMIS_INTERVIEW_ROUND_TYPE;
+    const evaluationStartsFromPreviousRound = startsFromPreviousInterviewRound;
+    const existingInterviewEvaluationStart = this.readInterviewEvaluationStart(rawPayload);
+    const shouldStartInterviewEvaluation = dto.isTransitionEvent === true
+      && (startsAtCurrentInterviewRound || startsFromPreviousInterviewRound)
+      && !existingInterviewEvaluationStart;
+    let evaluationStartRoundId: string | null = null;
+    let evaluationStartRoundName: string | null = null;
+    let evaluationStartRoundType: number | null = null;
+    let evaluationStartSortOrder: number | null = null;
+    if (evaluationStartsFromPreviousRound) {
+      evaluationStartRoundId = this.optionalText(dto.previousRecruitmentRoundId);
+      evaluationStartRoundName = this.optionalText(dto.previousRecruitmentRoundName);
+      evaluationStartRoundType = previousRoundType;
+      evaluationStartSortOrder = dto.previousRecruitmentRoundSortOrder ?? null;
+    } else if (startsAtCurrentInterviewRound) {
+      evaluationStartRoundId = normalizedRoundId;
+      evaluationStartRoundName = this.optionalText(dto.recruitmentRoundName);
+      evaluationStartRoundType = recruitmentRoundType;
+      evaluationStartSortOrder = recruitmentRoundSortOrder;
+    }
     source.rawPayload = {
       ...rawPayload,
       recruitmentRoundId: normalizedRoundId,
@@ -2039,6 +2123,13 @@ export class ExtensionIntegrationService {
       ...(this.optionalText(dto.pageUrl) ? { stagePageUrl: this.optionalText(dto.pageUrl) } : {}),
       ...(this.optionalText(dto.changedAt) ? { stageChangedAt: this.optionalText(dto.changedAt) } : {}),
       stageUpdatedAt: updatedAt,
+      ...(shouldStartInterviewEvaluation ? {
+        interviewEvaluationStartedAt: updatedAt,
+        interviewEvaluationRoundId: evaluationStartRoundId,
+        interviewEvaluationRoundName: evaluationStartRoundName,
+        interviewEvaluationRoundType: evaluationStartRoundType,
+        interviewEvaluationRoundSortOrder: evaluationStartSortOrder,
+      } : {}),
     };
     await this.dataSource.getRepository(ApplicationSourceEntity).save(source);
 
@@ -2066,11 +2157,56 @@ export class ExtensionIntegrationService {
 
     return {
       updated: true,
+      applicationId: applicationRow.application.id,
       amisRecruitmentId: normalizedRecruitmentId,
       amisCandidateId: normalizedCandidateId,
       recruitmentRoundId: normalizedRoundId,
       recruitmentRoundName: this.optionalText(dto.recruitmentRoundName),
+      interviewEvaluationStartedAt: shouldStartInterviewEvaluation
+        ? updatedAt
+        : existingInterviewEvaluationStart?.startedAt ?? null,
+      interviewEvaluationRoundId: shouldStartInterviewEvaluation
+        ? evaluationStartRoundId
+        : existingInterviewEvaluationStart?.roundId ?? null,
+      interviewEvaluationRoundName: shouldStartInterviewEvaluation
+        ? evaluationStartRoundName
+        : existingInterviewEvaluationStart?.roundName ?? null,
+      interviewEvaluationRoundType: shouldStartInterviewEvaluation
+        ? evaluationStartRoundType
+        : existingInterviewEvaluationStart?.roundType ?? null,
+      interviewEvaluationRoundSortOrder: shouldStartInterviewEvaluation
+        ? evaluationStartSortOrder
+        : existingInterviewEvaluationStart?.sortOrder ?? null,
       updatedAt,
+    };
+  }
+
+  private readInterviewEvaluationStart(payload: Record<string, unknown>): AmisInterviewEvaluationStart | null {
+    const startedAt = this.optionalText(payload.interviewEvaluationStartedAt);
+    if (!startedAt) return null;
+
+    return {
+      startedAt,
+      roundId: this.optionalText(payload.interviewEvaluationRoundId),
+      roundName: this.optionalText(payload.interviewEvaluationRoundName),
+      roundType: this.toNullableNumber(payload.interviewEvaluationRoundType),
+      sortOrder: this.toNullableNumber(payload.interviewEvaluationRoundSortOrder),
+    };
+  }
+
+  private mergeInterviewEvaluationStart(
+    payload: Record<string, unknown>,
+    evaluationStart: AmisInterviewEvaluationStart | null,
+  ) {
+    if (!evaluationStart) return payload;
+
+    return {
+      ...payload,
+      interviewEvaluationStartedAt: evaluationStart.startedAt,
+      interviewEvaluationRoundId: evaluationStart.roundId,
+      interviewEvaluationRoundName: evaluationStart.roundName,
+      interviewEvaluationRoundType: evaluationStart.roundType,
+      interviewEvaluationRoundSortOrder: evaluationStart.sortOrder,
     };
   }
 
@@ -2133,7 +2269,7 @@ export class ExtensionIntegrationService {
   }
 
   async createExtensionReferralInternal(
-    input: { name: string; email: string; phone: string },
+    input: { name: string; email: string; phone?: string | null },
     createdById: string,
   ): Promise<ExtensionReferralSourceGroup> {
     const internal = await this.internalsService.create({

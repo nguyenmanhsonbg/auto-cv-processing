@@ -60,6 +60,12 @@ import type {
   ReferralManagementPage,
   ReferralManagementPerson,
   ReferralManagementSource,
+  InterviewEvaluationFormData,
+  InterviewEvaluationReviewerSection,
+  InterviewEvaluationSummary,
+  InterviewEvaluationRoundKey,
+  InterviewEvaluationTemplate,
+  InterviewCommittee,
 } from '@/types/types';
 
 export class ApiClientError extends Error {
@@ -84,6 +90,14 @@ export async function login(loginIdentifier: string, password: string) {
   }>('/auth/login', {
     method: 'POST',
     body: { login: loginIdentifier, password },
+  });
+}
+
+export async function logoutAuthSession(refreshToken?: string | null) {
+  return request<{ message: string }>('/auth/logout', {
+    method: 'POST',
+    body: refreshToken ? { refreshToken } : {},
+    skipExtensionInstanceHeader: true,
   });
 }
 
@@ -626,7 +640,15 @@ export async function updateAmisApplicationStage(
   accessToken: string,
   payload: AmisCandidateStageChangedPayload,
 ) {
-  return request<{ updated: boolean }>(
+  return request<{
+    updated: boolean;
+    applicationId?: string;
+    interviewEvaluationStartedAt?: string | null;
+    interviewEvaluationRoundId?: string | null;
+    interviewEvaluationRoundName?: string | null;
+    interviewEvaluationRoundType?: number | null;
+    interviewEvaluationRoundSortOrder?: number | null;
+  }>(
     `/extension/amis/recruitments/${encodeURIComponent(payload.amisRecruitmentId)}/applications/${encodeURIComponent(payload.amisCandidateId)}/stage`,
     {
       method: 'PATCH',
@@ -640,6 +662,12 @@ export async function updateAmisApplicationStage(
         pageUrl: payload.pageUrl,
         changedAt: payload.changedAt,
         isTransitionEvent: payload.isTransitionEvent === true,
+        recruitmentRoundType: payload.amisRecruitmentRoundType ?? undefined,
+        recruitmentRoundSortOrder: payload.amisRecruitmentRoundSortOrder ?? undefined,
+        previousRecruitmentRoundId: payload.previousAmisRecruitmentRoundId ?? undefined,
+        previousRecruitmentRoundName: payload.previousAmisRecruitmentRoundName ?? undefined,
+        previousRecruitmentRoundType: payload.previousAmisRecruitmentRoundType ?? undefined,
+        previousRecruitmentRoundSortOrder: payload.previousAmisRecruitmentRoundSortOrder ?? undefined,
       },
     },
   );
@@ -734,6 +762,94 @@ export async function getApplicationDetail(accessToken: string, applicationId: s
       method: 'GET',
       accessToken,
     },
+  );
+}
+
+export async function getInterviewEvaluationSummary(
+  accessToken: string,
+  applicationId: string,
+) {
+  return request<InterviewEvaluationSummary>(
+    `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/summary`,
+    { method: 'GET', accessToken },
+  );
+}
+
+export async function listAssignableRecruitmentUsers(accessToken: string) {
+  return request<Array<{ id: string; name: string; email: string; role: string }>>(
+    '/auth/users/assignable',
+    { method: 'GET', accessToken },
+  );
+}
+
+export async function listInterviewCommittees(accessToken: string) {
+  return request<InterviewCommittee[]>('/interview-committees?activeOnly=true', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function createInterviewEvaluationCase(
+  accessToken: string,
+  applicationId: string,
+  payload: {
+    roundKey?: InterviewEvaluationRoundKey;
+    roundName: string;
+    amisRoundId?: string;
+    amisRoundType?: number;
+    amisSortOrder?: number;
+    template?: InterviewEvaluationTemplate;
+    committeeId?: string;
+    committeeUserIds?: string[];
+  },
+) {
+  return request<unknown>(
+    `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds`,
+    { method: 'POST', accessToken, body: payload },
+  );
+}
+
+export async function syncInterviewEvaluationContext(
+  accessToken: string,
+  applicationId: string,
+  payload: {
+    amisRoundId: string;
+    amisRoundName: string;
+    amisRoundType: number;
+    amisSortOrder: number;
+  },
+) {
+  return request<unknown>(
+    `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/context`,
+    { method: 'PATCH', accessToken, body: payload },
+  );
+}
+
+export async function saveInterviewEvaluationReview(
+  accessToken: string,
+  applicationId: string,
+  roundId: string,
+  section: InterviewEvaluationReviewerSection,
+  formData: InterviewEvaluationFormData,
+  expectedVersion?: number,
+) {
+  return request<unknown>(
+    `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/reviews/${encodeURIComponent(section)}`,
+    { method: 'PATCH', accessToken, body: { formData, expectedVersion } },
+  );
+}
+
+export async function submitInterviewEvaluationReview(
+  accessToken: string,
+  applicationId: string,
+  roundId: string,
+  section: InterviewEvaluationReviewerSection,
+  formData: InterviewEvaluationFormData,
+  expectedVersion?: number,
+) {
+  return request<unknown>(
+    `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/reviews/${encodeURIComponent(section)}/submit`,
+    { method: 'POST', accessToken, body: { formData, expectedVersion } },
   );
 }
 

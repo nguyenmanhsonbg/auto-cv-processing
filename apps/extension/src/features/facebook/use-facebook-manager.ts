@@ -77,6 +77,7 @@ import {
   getFacebookImageContentKey,
   getFacebookImageFileValidationError,
   readFileAsDataUrl,
+  withFacebookImageAttachments,
 } from './facebook-image-utils';
 import {
   closeTabSafely,
@@ -247,9 +248,9 @@ export function useFacebookManager({
   const facebookSelected = selectedPostingChannels.includes('FACEBOOK');
   const isFacebookImageReading = facebookImageAttachmentState === 'READING';
   const hasFacebookImageAttachmentError = Boolean(facebookImageAttachmentError) || facebookImageAttachmentState === 'ERROR';
-  const facebookImageUploadDisabled = facebookImageAttachments.length >= FACEBOOK_MAX_IMAGE_ATTACHMENTS
+  const facebookImageUploadDisabled = isFacebookImageReading;
+  const facebookImageAddDisabled = facebookImageAttachments.length >= FACEBOOK_MAX_IMAGE_ATTACHMENTS
     || isFacebookImageReading;
-  const facebookImageAddDisabled = facebookImageUploadDisabled;
 
   const validFacebookGroups = useMemo(() => facebookGroups, [facebookGroups]);
   const visibleFacebookGroups = useMemo(() => {
@@ -558,11 +559,12 @@ export function useFacebookManager({
   }, [ensureFacebookDefaultContent]);
 
   const handleFacebookImageFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
+    const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    if (!file) return;
+    if (files.length === 0) return;
 
-    if (facebookImageAttachments.length >= FACEBOOK_MAX_IMAGE_ATTACHMENTS) {
+    const availableSlots = FACEBOOK_MAX_IMAGE_ATTACHMENTS - facebookImageAttachments.length;
+    if (availableSlots <= 0 || files.length > availableSlots) {
       setFacebookImageAttachmentState('ERROR');
       setFacebookImageAttachmentError(`Bài đăng chỉ được tối đa ${FACEBOOK_MAX_IMAGE_ATTACHMENTS} ảnh.`);
       return;
@@ -570,7 +572,9 @@ export function useFacebookManager({
 
     const readSeq = facebookImageReadSeqRef.current + 1;
     facebookImageReadSeqRef.current = readSeq;
-    const validationError = getFacebookImageFileValidationError(file);
+    const validationError = files
+      .map((file) => getFacebookImageFileValidationError(file))
+      .find(Boolean) ?? null;
     if (validationError) {
       setFacebookImageAttachmentState('ERROR');
       setFacebookImageAttachmentError(validationError);
@@ -580,27 +584,35 @@ export function useFacebookManager({
     setFacebookImageAttachmentState('READING');
     setFacebookImageAttachmentError(null);
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrls = await Promise.all(files.map((file) => readFileAsDataUrl(file)));
       if (facebookImageReadSeqRef.current !== readSeq) return;
-      const imageContentKey = getFacebookImageContentKey(dataUrl);
-      const isDuplicate = facebookImageAttachments.some((attachment) => (
-        getFacebookImageContentKey(attachment.dataUrl) === imageContentKey
-      ));
+      const existingContentKeys = new Set(
+        facebookImageAttachments.map((attachment) => getFacebookImageContentKey(attachment.dataUrl)),
+      );
+      const selectedContentKeys = new Set<string>();
+      const isDuplicate = dataUrls.some((dataUrl) => {
+        const imageContentKey = getFacebookImageContentKey(dataUrl);
+        if (!imageContentKey || existingContentKeys.has(imageContentKey) || selectedContentKeys.has(imageContentKey)) {
+          return true;
+        }
+        selectedContentKeys.add(imageContentKey);
+        return false;
+      });
       if (isDuplicate) {
         setFacebookImageAttachmentState('ERROR');
         setFacebookImageAttachmentError('Ảnh này đã được tải lên. Vui lòng chọn ảnh khác.');
         return;
       }
 
-      const attachment: FacebookPublishAttachment = {
+      const newAttachments = files.map((file, index): FacebookPublishAttachment => ({
         type: 'IMAGE',
         source: 'LOCAL_UPLOAD',
         fileName: file.name || 'facebook-image',
         mimeType: file.type,
         size: file.size,
-        dataUrl,
-      };
-      const nextAttachments = [...facebookImageAttachments, attachment];
+        dataUrl: dataUrls[index],
+      }));
+      const nextAttachments = [...facebookImageAttachments, ...newAttachments];
       await saveFacebookImageAttachments(getFacebookImageAttachmentScope(), nextAttachments);
       if (facebookImageReadSeqRef.current !== readSeq) return;
       setFacebookImageAttachments(nextAttachments);
@@ -949,7 +961,7 @@ export function useFacebookManager({
     const targetName = name.trim();
     const targetUrl = url.trim();
     const nameError = targetName ? null : 'Tên nhóm là bắt buộc, không được để trống.';
-    const targetUrlError = getFacebookGroupUrlValidationError(targetUrl, facebookGroups);
+    const targetUrlError = editingGroup ? null : getFacebookGroupUrlValidationError(targetUrl, facebookGroups);
     setFacebookGroupNameError(nameError);
     setFacebookGroupUrlError(targetUrlError);
     if (nameError || targetUrlError) {
@@ -962,16 +974,16 @@ export function useFacebookManager({
 
     try {
       if (editingGroup?.targetId) {
-        const savedGroup = await updateFacebookGroup(token, editingGroup.targetId, {
+        await updateFacebookGroup(token, editingGroup.targetId, {
           targetName,
-          targetUrl,
           facebookAccountId: facebookAccount?.id,
         });
         const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(token, facebookAccount?.id));
         setFacebookGroups(groups);
         const nextSelectedIds = await reconcileSelectedFacebookGroups(groups);
         setFacebookSettingsState('READY');
-        setFacebookSettingsMessage(`Saved "${savedGroup.targetName}". Click Check before using it for publishing.`);
+        setFacebookSettingsMessage(null);
+        showToast('SUCCESS', 'Thành công', 'Đã sửa nhóm thành công.');
         if (selectedPostingChannels.includes('FACEBOOK')) {
           setFacebookGroupLoadState('READY');
           setFacebookGroupMessage(buildFacebookGroupSelectionMessage(nextSelectedIds, groups));
@@ -1016,7 +1028,7 @@ export function useFacebookManager({
   }, [facebookAccount?.id, facebookGroups, onAuthRequired, reconcileSelectedFacebookGroups, selectedPostingChannels, showToast, token]);
 
   const confirmDeleteFacebookGroup = useCallback(async (group: FacebookPublishTarget) => {
-    if (!token || !group.targetId) return;
+    if (!token || !group.targetId) return false;
     setFacebookSettingsState('SAVING');
     setFacebookSettingsMessage(null);
     try {
@@ -1038,14 +1050,16 @@ export function useFacebookManager({
             : 'Đã quét được 0 nhóm',
         );
       }
+      return true;
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) {
         await clearAccessToken();
         onAuthRequired();
-        return;
+        return false;
       }
       setFacebookSettingsState('ERROR');
       setFacebookSettingsMessage(toErrorMessage(err));
+      return false;
     }
   }, [facebookAccount?.id, onAuthRequired, reconcileSelectedFacebookGroups, selectedFacebookGroupIds, selectedPostingChannels, showToast, token]);
 
@@ -1429,23 +1443,27 @@ export function useFacebookManager({
     planForPublish: FacebookPublishPlan,
   ) => {
     if (!token) throw new Error('Missing token');
+    const imageScope = getFacebookImageAttachmentScope();
+    const storedImageAttachments = planForPublish.attachments?.length
+      ? []
+      : await getFacebookImageAttachments(imageScope);
+    const publishPlan = withFacebookImageAttachments(planForPublish, storedImageAttachments);
     setFacebookPublishResultsVisible(true);
-    const planKey = getFacebookPlanKey(planForPublish);
+    const planKey = getFacebookPlanKey(publishPlan);
     if (startedFacebookPlanKeys.current.has(planKey)) return null;
 
-    const imageScope = getFacebookImageAttachmentScope();
-    if (planForPublish.attachments?.length) {
+    if (publishPlan.attachments?.length) {
       await beginFacebookImagePublish(
         imageScope,
-        planForPublish.jobPostingId,
-        planForPublish.targets,
+        publishPlan.jobPostingId,
+        publishPlan.targets,
       );
     }
 
     startedFacebookPlanKeys.current.add(planKey);
     setFacebookRunning(true);
     try {
-      const facebookResults = await publishFacebookPlan(token, planForPublish, {
+      const facebookResults = await publishFacebookPlan(token, publishPlan, {
         onProgress: (progress) => {
           setFacebookProgress(progress);
           void saveLastFacebookPublishProgress(progress);
@@ -1453,16 +1471,16 @@ export function useFacebookManager({
         onImageAttachFailed: requestFacebookImageAttachDecision,
       });
 
-      if (planForPublish.attachments?.length) {
+      if (publishPlan.attachments?.length) {
         try {
           const released = await syncFacebookImagePublishStatuses(facebookResults.map((publishResult) => {
-            const target = planForPublish.targets.find((candidate) => (
+            const target = publishPlan.targets.find((candidate) => (
               candidate.targetId === publishResult.targetId
               || candidate.targetUrl === publishResult.targetUrl
               || candidate.targetName === publishResult.targetName
             ));
             return {
-              jobPostingId: planForPublish.jobPostingId,
+              jobPostingId: publishPlan.jobPostingId,
               targetId: publishResult.targetId,
               targetExternalId: target?.targetExternalId ?? null,
               targetName: publishResult.targetName,
@@ -1509,6 +1527,7 @@ export function useFacebookManager({
     onOpenFacebookGroupSettings: openFacebookGroupSettings,
     onOpenFacebookIneligibleModal: () => setIsFacebookGroupSyncDetailsOpen(true),
     onSyncFacebookGroups: handleSyncFacebookGroups,
+    facebookImageInputRef,
     facebookImageAttachments,
     isFacebookImageReading,
     facebookImageAttachmentError,
@@ -1533,6 +1552,7 @@ export function useFacebookManager({
     facebookGroupMessage,
     facebookImageAttachmentError,
     facebookImageAttachments,
+    facebookImageInputRef,
     facebookImageUploadDisabled,
     facebookPreviewIdentity,
     facebookProgress,
@@ -1643,7 +1663,7 @@ export function useFacebookManager({
         onOpenCreateModal: openFacebookGroupCreateModal,
         onCheckEligibility: (group: FacebookPublishTarget) => void verifyFacebookGroupAction(group),
         onEditGroup: (group: FacebookPublishTarget, name: string, url: string) => void saveFacebookGroupForm(name, url, group),
-        onDeleteGroup: (group: FacebookPublishTarget) => void confirmDeleteFacebookGroup(group),
+        onDeleteGroup: (group: FacebookPublishTarget) => confirmDeleteFacebookGroup(group),
         onCreateGroup: (name: string, url: string) => void saveFacebookGroupForm(name, url),
         createGroupName: facebookGroupName,
         createGroupUrl: facebookGroupUrl,

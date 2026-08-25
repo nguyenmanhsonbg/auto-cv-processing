@@ -25,6 +25,7 @@ import {
 } from '@/pages/interviewer/settings/ManagementPage';
 import { CandidateSessionPage } from '@/pages/candidate/CandidateSessionPage';
 import { RecruitmentRouteGuard } from '@/components/recruitment/RecruitmentRouteGuard';
+import { InterviewEvaluationRouteGuard } from '@/components/recruitment/InterviewEvaluationRouteGuard';
 import { HrRouteGuard } from '@/components/recruitment/HrRouteGuard';
 import { PublicJobDetailPage } from '@/pages/public/PublicJobDetailPage';
 import { PublicJobApplyPage } from '@/pages/public/PublicJobApplyPage';
@@ -36,11 +37,15 @@ import { JobPostingListPage } from '@/pages/recruitment/job-postings/JobPostingL
 import { JobPostingDetailPage } from '@/pages/recruitment/job-postings/JobPostingDetailPage';
 import { ApplicationListPage } from '@/pages/recruitment/applications/ApplicationListPage';
 import { ApplicationDetailPage } from '@/pages/recruitment/applications/ApplicationDetailPage';
+import { InterviewEvaluationPage } from '@/pages/recruitment/applications/InterviewEvaluationPage';
+import { InterviewEvaluationInboxPage } from '@/pages/recruitment/applications/InterviewEvaluationInboxPage';
 import { FreelancerDetailPage } from '@/pages/interviewer/candidates/FreelancerDetailPage';
 import { FreelancerLandingPage } from '@/pages/interviewer/candidates/FreelancerLandingPage';
 import { InternalDetailPage } from '@/pages/interviewer/candidates/InternalDetailPage';
 import { InternalListPage } from '@/pages/interviewer/candidates/InternalListPage';
 import { FreelancerRouteGuard } from '@/components/recruitment/FreelancerRouteGuard';
+import { CommitteeRouteGuard } from '@/components/recruitment/CommitteeRouteGuard';
+import { CommitteesPage } from '@/pages/interviewer/settings/CommitteesPage';
 import { Toaster } from '@/components/ui/toaster';
 
 export function AppRoutes() {
@@ -82,8 +87,13 @@ export function AppRoutes() {
           <Route path="settings/categories" element={<SettingsCategoriesPage />} />
           <Route path="settings/levels" element={<SettingsLevelsPage />} />
           <Route path="settings/users" element={<SettingsUsersPage />} />
+          <Route path="settings/committees" element={<CommitteesPage />} />
           <Route path="settings/prompts" element={<SettingsPromptsPage />} />
           <Route path="settings/models" element={<SettingsModelsPage />} />
+          <Route path="interview-evaluations" element={<InterviewEvaluationRouteGuard />}>
+            <Route index element={<CommitteeRouteGuard><InterviewEvaluationInboxPage /></CommitteeRouteGuard>} />
+            <Route path=":applicationId" element={<InterviewEvaluationPage />} />
+          </Route>
           <Route path="recruitment" element={<RecruitmentRouteGuard />}>
             <Route index element={<Navigate to="/recruitment/applications" replace />} />
             <Route path="job-descriptions" element={<JobDescriptionListPage />} />
