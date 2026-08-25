@@ -35,8 +35,8 @@ export const SourcingEfficiencyChart: React.FC<SourcingEfficiencyChartProps> = (
             <YAxis
               stroke="#64748b"
               tick={{ fontSize: 9, fill: '#94a3b8' }}
-              domain={[0, 4000]}
-              ticks={[0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000]}
+              domain={[0, 200]}
+              ticks={[0, 25, 50, 75, 100, 125, 150, 175, 200]}
               tickFormatter={(v) => v.toLocaleString()}
             />
             <Tooltip
@@ -49,8 +49,28 @@ export const SourcingEfficiencyChart: React.FC<SourcingEfficiencyChartProps> = (
                 borderRadius: '8px',
                 boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)',
               }}
-              itemStyle={{ color: '#93c5fd' }}
-              labelStyle={{ color: '#ffffff', fontWeight: 'bold', marginBottom: '2px' }}
+              content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div className="bg-[#111827] border border-[#334155] rounded-lg p-2.5 shadow-xl text-[11px]">
+                    <div className="text-white font-bold mb-2 pb-1.5 border-b border-[#334155]">{label}</div>
+                    <div className="space-y-1.5">
+                      {[
+                        { color: '#10b981', name: 'Đạt', value: payload.find(p => p.dataKey === 'pass')?.value },
+                        { color: '#f43f5e', name: 'Không đạt', value: payload.find(p => p.dataKey === 'fail')?.value },
+                      ].map(item => (
+                        <div key={item.name} className="flex items-center justify-between gap-6">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: item.color }}></span>
+                            <span className="text-slate-300">{item.name}</span>
+                          </span>
+                          <span className="text-white font-medium">{String(item.value ?? '—')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }}
             />
             <Legend
               wrapperStyle={{ fontSize: '10.5px', paddingBottom: '12px' }}
@@ -59,7 +79,7 @@ export const SourcingEfficiencyChart: React.FC<SourcingEfficiencyChartProps> = (
               align="center"
             />
             <Bar dataKey="pass" name="Đạt" stackId="a" fill="#10b981" />
-            <Bar dataKey="fail" name="Không đạt" stackId="a" fill="#f43f5e" />
+            <Bar dataKey="fail" name="Không đạt" stackId="a" fill="#f43f5e" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

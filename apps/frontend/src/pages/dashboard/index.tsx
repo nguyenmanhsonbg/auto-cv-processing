@@ -7,7 +7,7 @@ import { RecruitmentImportModal } from './components/common/RecruitmentImportMod
 import { GrowthTab } from './components/tab-growth';
 import { PipelineTab } from './components/tab-pipeline';
 import { QuotaTab } from './components/tab-quota';
-import { getPipelineDashboard } from '@/lib/dashboard-api';
+import { DashboardOwnerOption, getDashboardOwnerOptions, getPipelineDashboard } from '@/lib/dashboard-api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,8 @@ export function AnalystDashboard() {
   const [dashboard, setDashboard] = useState<PipelineDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters] = useState<DashboardFilters>({});
+  const [filters, setFilters] = useState<DashboardFilters>({});
+  const [ownerOptions, setOwnerOptions] = useState<DashboardOwnerOption[]>([]);
 
   const loadDashboard = async () => {
     setLoading(true);
@@ -40,6 +41,12 @@ export function AnalystDashboard() {
   useEffect(() => {
     loadDashboard();
   }, [filters]);
+
+  useEffect(() => {
+    getDashboardOwnerOptions().then(setOwnerOptions).catch((err) => {
+      console.error('Failed to load dashboard owner options:', err);
+    });
+  }, []);
 
   const formatDate = (date: string | Date | undefined): string => {
     if (!date) return '11/08/2026';
@@ -104,6 +111,15 @@ export function AnalystDashboard() {
           <PipelineTab
             dashboard={dashboard}
             asOfDate={formatDate(dashboard.asOf)}
+            selectedChannel={filters.channel}
+            onChannelChange={(channel) => setFilters((current) => ({ ...current, channel: channel || undefined }))}
+            ownerOptions={ownerOptions}
+            selectedOwnerId={filters.ownerId}
+            onOwnerChange={(owner) => setFilters((current) => ({
+              ...current,
+              ownerType: owner?.type,
+              ownerId: owner?.id,
+            }))}
           />
         )}
 

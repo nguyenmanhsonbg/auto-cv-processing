@@ -21,6 +21,9 @@ export class DashboardController {
   @ApiQuery({ name: 'endDate', required: false, description: 'Filter end date (YYYY-MM-DD)' })
   @ApiQuery({ name: 'recruiterId', required: false, description: 'Filter by HRBP/Recruiter ID' })
   @ApiQuery({ name: 'jobPostingId', required: false, description: 'Filter by job posting ID' })
+  @ApiQuery({ name: 'channel', required: false, description: 'Filter by recruitment channel' })
+  @ApiQuery({ name: 'ownerType', required: false, enum: ['HR', 'FREELANCER', 'INTERNAL'] })
+  @ApiQuery({ name: 'ownerId', required: false, description: 'Filter by HR, freelancer, or internal owner ID' })
   async getPipelineDashboard(
     @Query() query: PipelineDashboardQueryDto,
   ): Promise<PipelineDashboardDto> {

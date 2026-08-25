@@ -22,7 +22,7 @@ export const STAGE_LABELS: Record<string, string> = {
   INTERVIEW_2: 'Phỏng vấn V2',
   OFFER_PENDING: 'Chờ Offer',
   OFFER_SENT: 'Đã gửi Offer',
-  OFFER_REVISED: 'Offer sửa',
+  OFFER_REVISED: 'Offer',
   HIRED: 'Đã tuyển',
   REJECTED: 'Từ chối',
   TALENT_POOL: 'Talent Pool',

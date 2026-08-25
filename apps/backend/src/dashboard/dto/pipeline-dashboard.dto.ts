@@ -1,6 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsOptional, IsUUID } from 'class-validator';
+import { IsDateString, IsEnum, IsOptional, IsUUID } from 'class-validator';
 import { ApplicationStage, RecruitmentChannel } from '../../recruitment-common';
+
+export enum DashboardOwnerType {
+  HR = 'HR',
+  FREELANCER = 'FREELANCER',
+  INTERNAL = 'INTERNAL',
+}
 
 export class PipelineFunnelDto {
   @ApiProperty({ description: 'Total Final ITV count' })
@@ -207,4 +213,19 @@ export class PipelineDashboardQueryDto {
   @IsOptional()
   @IsUUID()
   jobPostingId?: string;
+
+  @ApiPropertyOptional({ enum: RecruitmentChannel, description: 'Filter by recruitment channel' })
+  @IsOptional()
+  @IsEnum(RecruitmentChannel)
+  channel?: RecruitmentChannel;
+
+  @ApiPropertyOptional({ enum: DashboardOwnerType, description: 'Filter owner type' })
+  @IsOptional()
+  @IsEnum(DashboardOwnerType)
+  ownerType?: DashboardOwnerType;
+
+  @ApiPropertyOptional({ description: 'Filter by HR, freelancer, or internal owner ID' })
+  @IsOptional()
+  @IsUUID()
+  ownerId?: string;
 }

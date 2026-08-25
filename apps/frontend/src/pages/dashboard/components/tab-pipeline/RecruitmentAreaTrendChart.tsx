@@ -23,12 +23,9 @@ export const RecruitmentAreaTrendChart: React.FC<RecruitmentAreaTrendChartProps>
 }) => {
   const chartData = data;
 
-  const totalTarget = chartData.reduce((sum, item) => sum + (item.target || 0), 0);
   const totalApps = chartData.reduce((sum, item) => sum + item.newApplications, 0);
   const totalItv = chartData.reduce((sum, item) => sum + (item.interviewed || 0), 0);
   const totalHired = chartData.reduce((sum, item) => sum + item.hired, 0);
-  // const targetAchievement = totalTarget > 0 ? ((totalHired / totalTarget) * 100).toFixed(1) : '0';
-
   return (
     <div className="bg-[#111827] border border-[#1f293d] rounded-xl p-5 shadow-xl flex flex-col justify-between h-full">
       {/* Header with Title and Summary Stats */}
@@ -36,17 +33,17 @@ export const RecruitmentAreaTrendChart: React.FC<RecruitmentAreaTrendChartProps>
         <div>
           <h3 className="text-xs font-bold uppercase text-white flex items-center gap-1.5">
             <span className="w-2 h-3.5 bg-rose-500 rounded-sm"></span>
-            BIỂU ĐỒ MIỀN XU HƯỚNG TUYỂN DỤNG THEO THÁNG
+            BIỂU ĐỒ LINE XU HƯỚNG TUYỂN DỤNG THEO THÁNG
           </h3>
           <p className="text-[11px] text-slate-400 mt-0.5">{subtitle}</p>
         </div>
 
         {/* Quick summary badges */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="bg-rose-950/40 border border-rose-800/40 rounded-lg px-2.5 py-1 text-center">
+          {/* <div className="bg-rose-950/40 border border-rose-800/40 rounded-lg px-2.5 py-1 text-center">
             <div className="text-[10px] text-rose-300 font-medium">Chỉ tiêu (Target)</div>
             <div className="text-xs font-bold text-rose-400">{totalTarget || '—'}</div>
-          </div>
+          </div> */}
           <div className="bg-blue-950/40 border border-blue-800/40 rounded-lg px-2.5 py-1 text-center">
             <div className="text-[10px] text-blue-300 font-medium">Tổng ứng viên</div>
             <div className="text-xs font-bold text-blue-400">{totalApps}</div>
@@ -104,6 +101,29 @@ export const RecruitmentAreaTrendChart: React.FC<RecruitmentAreaTrendChartProps>
                   }
                 }
                 return `Tháng ${label}`;
+              }}
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div className="bg-[#111827] border border-[#334155] rounded-lg p-2.5 shadow-xl text-[11px]">
+                    <div className="space-y-1.5">
+                      {[
+                        { color: '#3b82f6', name: 'Ứng viên mới', value: payload.find(p => p.dataKey === 'newApplications')?.value },
+                        { color: '#a855f7', name: 'Tham gia phỏng vấn', value: payload.find(p => p.dataKey === 'interviewed')?.value },
+                        { color: '#10b981', name: 'Đã tuyển', value: payload.find(p => p.dataKey === 'hired')?.value },
+                        { color: '#f43f5e', name: 'Chỉ tiêu (Target)', value: payload.find(p => p.dataKey === 'target')?.value },
+                      ].map(item => (
+                        <div key={item.name} className="flex items-center justify-between gap-6">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: item.color }}></span>
+                            <span className="text-slate-300">{item.name}</span>
+                          </span>
+                          <span className="text-white font-medium">{String(item.value ?? '—')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
               }}
             />
             <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} iconSize={10} />

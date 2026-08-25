@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { adaptPipelineDashboard, PipelineDashboard, SubFilterKey } from '../../types';
+import { adaptPipelineDashboard, CHANNEL_LABELS, PipelineDashboard, SubFilterKey } from '../../types';
 import { PIPELINE_FILTER_DATASETS } from '../../data/dashboard-data';
 import { PipelineSubFilterBar } from './PipelineSubFilterBar';
 // import { KPICard } from '../common/KPICard';
@@ -17,13 +17,19 @@ import { NormRadarCompareChart } from './NormRadarCompareChart';
 import { OfferStatusDistributionChart } from './OfferStatusDistributionChart';
 import { TthByDepartmentChart } from './TthByDepartmentChart';
 import { ChannelHiringRateChart } from './ChannelHiringRateChart';
+import type { DashboardOwnerOption } from '@/lib/dashboard-api';
 
 export interface PipelineTabProps {
   dashboard: PipelineDashboard;
   asOfDate?: string;
+  selectedChannel?: string;
+  onChannelChange?: (channel: string) => void;
+  ownerOptions?: DashboardOwnerOption[];
+  selectedOwnerId?: string;
+  onOwnerChange?: (owner?: DashboardOwnerOption) => void;
 }
 
-export const PipelineTab: React.FC<PipelineTabProps> = ({ dashboard, asOfDate }) => {
+export const PipelineTab: React.FC<PipelineTabProps> = ({ dashboard, asOfDate, selectedChannel, onChannelChange, ownerOptions, selectedOwnerId, onOwnerChange }) => {
   const [subFilter, setSubFilter] = useState<SubFilterKey>('hrbp');
   const currentDataset = PIPELINE_FILTER_DATASETS[subFilter] || PIPELINE_FILTER_DATASETS.hrbp;
   const chartData = adaptPipelineDashboard(dashboard);
@@ -35,6 +41,11 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({ dashboard, asOfDate })
         activeFilter={subFilter}
         onFilterChange={setSubFilter}
         asOfDate={asOfDate || '11/08/2026'}
+        selectedChannel={selectedChannel}
+        onChannelChange={onChannelChange}
+        ownerOptions={ownerOptions}
+        selectedOwnerId={selectedOwnerId}
+        onOwnerChange={onOwnerChange}
       />
 
       {/* Top 4 Funnel KPI Cards */}
@@ -91,7 +102,7 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({ dashboard, asOfDate })
         <div className="lg:col-span-7 flex flex-col gap-5 justify-between">
           <RecruitmentAreaTrendChart
             data={dashboard.monthlyTrend}
-            subtitle={currentDataset.subtitle}
+            subtitle={selectedChannel ? `Kênh: ${CHANNEL_LABELS[selectedChannel] || selectedChannel} · ${currentDataset.subtitle}` : currentDataset.subtitle}
           />
           <PositionProgressChart data={chartData.positions} />
         </div>

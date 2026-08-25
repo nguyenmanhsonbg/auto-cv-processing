@@ -10,6 +10,7 @@ import {
   InterviewResult,
   InterviewRoundType,
   OfferStatus,
+  RecruitmentChannel,
 } from '../../recruitment-common';
 import {
   ChannelHiringDto,
@@ -29,6 +30,7 @@ import {
   StageCountDto,
   TthDepartmentDashboardDto,
   TimeMetricsDto,
+  DashboardOwnerType,
 } from '../dto/pipeline-dashboard.dto';
 
 type DashboardApplication = ApplicationEntity & {
@@ -75,6 +77,9 @@ export class DashboardService {
       .leftJoinAndSelect('app.candidate', 'candidate')
       .leftJoinAndSelect('app.jobPosting', 'jobPosting')
       .leftJoinAndSelect('app.assignedRecruiter', 'assignedRecruiter')
+      .leftJoinAndSelect('app.freelancerReferral', 'referral')
+      .leftJoinAndSelect('referral.freelancer', 'freelancer')
+      .leftJoinAndSelect('referral.internal', 'internal')
       .leftJoinAndSelect('app.interviewRounds', 'interviews')
       .leftJoinAndSelect('app.offers', 'offers');
 
@@ -82,6 +87,16 @@ export class DashboardService {
     if (query.endDate) qb.andWhere('app.createdAt <= :endDate', { endDate: `${query.endDate} 23:59:59` });
     if (query.recruiterId) qb.andWhere('app.assignedRecruiterId = :recruiterId', { recruiterId: query.recruiterId });
     if (query.jobPostingId) qb.andWhere('app.jobPostingId = :jobPostingId', { jobPostingId: query.jobPostingId });
+    if (query.channel) qb.andWhere('app.sourceChannel = :channel', { channel: query.channel });
+    if (query.ownerId && query.ownerType === DashboardOwnerType.HR) {
+      qb.andWhere('app.assignedRecruiterId = :ownerId', { ownerId: query.ownerId });
+    }
+    if (query.ownerId && query.ownerType === DashboardOwnerType.FREELANCER) {
+      qb.andWhere('referral.freelancerId = :ownerId', { ownerId: query.ownerId });
+    }
+    if (query.ownerId && query.ownerType === DashboardOwnerType.INTERNAL) {
+      qb.andWhere('referral.internalId = :ownerId', { ownerId: query.ownerId });
+    }
 
     return qb.getMany() as Promise<DashboardApplication[]>;
   }
@@ -142,6 +157,7 @@ export class DashboardService {
 
   private calculateMonthlyTrend(applications: DashboardApplication[]): MonthlyTrendDto[] {
     const months: MonthlyTrendDto[] = [];
+    const monthlyTargets = [10, 12, 10, 15, 12, 18, 14, 15, 12, 14, 10, 12];
     const now = new Date();
     for (let offset = 11; offset >= 0; offset--) {
       const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
@@ -151,7 +167,7 @@ export class DashboardService {
         newApplications: applications.filter((app) => inMonth(app.createdAt)).length,
         hired: applications.filter((app) => this.isHired(app) && inMonth(app.hiredAt)).length,
         interviewed: applications.filter((app) => app.interviewRounds?.some((round) => inMonth(round.completedAt) || inMonth(round.startedAt) || inMonth(round.scheduledAt))).length,
-        target: null,
+        target: monthlyTargets[11 - offset],
       });
     }
     return months;

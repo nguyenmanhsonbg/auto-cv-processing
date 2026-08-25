@@ -21,20 +21,6 @@ export interface RecruitmentFunnelCardProps {
   tth2?: string;
 }
 
-// Canonical pipeline stages in chronological funnel order
-const CANONICAL_STAGE_ORDER: string[] = [
-  'APPLIED',
-  'PRE_TEST_1',
-  'SCREEN_CV',
-  'INTERVIEW_1',
-  'PRE_TEST_2',
-  'INTERVIEW_2',
-  'OFFER_PENDING',
-  'OFFER_SENT',
-  'OFFER_REVISED',
-  'HIRED',
-];
-
 export const RecruitmentFunnelCard: React.FC<RecruitmentFunnelCardProps> = ({
   stageDistribution = [],
   totalApplications = 0,
@@ -47,31 +33,25 @@ export const RecruitmentFunnelCard: React.FC<RecruitmentFunnelCardProps> = ({
   tth1,
   tth2,
 }) => {
+  const funnelStageKeys = Object.keys(STAGE_LABELS).filter(
+    (stageKey) => !['REJECTED', 'TALENT_POOL'].includes(stageKey),
+  );
+
   // Map of backend stage counts
   const stageMap = new Map<string, StageCount>();
   stageDistribution.forEach((s) => stageMap.set(s.stage, s));
 
-  // Determine the stages to render
-  // If backend returns specific stageDistribution items with counts, show active ones or all canonical stages
-  const hasBackendData = stageDistribution.some((s) => s.count > 0);
-
-  const stagesToRender: { stageKey: string; label: string; count: number; percentage: number; color: string }[] =
-    hasBackendData
-      ? stageDistribution
-          .filter((s) => s.stage !== 'REJECTED' && s.stage !== 'TALENT_POOL')
-          .sort((a, b) => {
-            const idxA = CANONICAL_STAGE_ORDER.indexOf(a.stage);
-            const idxB = CANONICAL_STAGE_ORDER.indexOf(b.stage);
-            return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
-          })
-          .map((s) => ({
-            stageKey: s.stage,
-            label: STAGE_LABELS[s.stage] || s.stage,
-            count: s.count,
-            percentage: s.percentage,
-            color: STAGE_COLORS[s.stage] || '#3b82f6',
-          }))
-      : [];
+  // Render every known stage so an empty stage remains visible as 0.
+  const stagesToRender = funnelStageKeys.map((stageKey) => {
+    const stage = stageMap.get(stageKey);
+    return {
+      stageKey,
+      label: STAGE_LABELS[stageKey],
+      count: stage?.count ?? 0,
+      percentage: stage?.percentage ?? 0,
+      color: STAGE_COLORS[stageKey] || '#3b82f6',
+    };
+  });
 
   // Calculate percentage width: decreasing smoothly from 88% down to 45%
   const totalStages = Math.max(stagesToRender.length, 1);
@@ -107,7 +87,6 @@ export const RecruitmentFunnelCard: React.FC<RecruitmentFunnelCardProps> = ({
 
         {/* Dynamic Funnel Blocks mapped according to STAGE_LABELS */}
         <div className="flex flex-col items-center space-y-1.5 py-1">
-          {!stagesToRender.length && <div className="text-xs text-slate-500 py-12">Chưa có dữ liệu stage</div>}
           {stagesToRender.map((stageItem, index) => {
             const isLast = index === stagesToRender.length - 1;
 
