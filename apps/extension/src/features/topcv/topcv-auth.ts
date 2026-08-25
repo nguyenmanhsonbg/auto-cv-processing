@@ -7,15 +7,18 @@ export type TopCvAuthState = {
   reason: 'READY' | 'TOPCV_TAB_NOT_FOUND' | 'TOKEN_MISSING' | 'TOKEN_EXPIRED' | 'CHECK_UNAVAILABLE';
   expiresAt?: number;
   userEmail?: string;
+  companyName?: string;
 };
 
 const TOPCV_STORAGE_KEY_AUTH = 'topcv_saved_auth';
+const ACCESS_TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 
 // Cần lưu tracking headers để refresh token không cần mở tab TopCV
 export interface TopCvAuthData {
   accessToken?: string;
   refreshToken?: string;
   userEmail?: string;
+  companyName?: string;
   updatedAt?: number;
   // Tracking headers cho exchange-token API
   taFp?: string;
@@ -36,11 +39,12 @@ export async function checkTopCvAuth(options?: { allowProbeTab?: boolean }): Pro
       if (auth?.accessToken) {
         // Thử dùng token hiện có
         const isValid = await testTopCvToken(auth.accessToken);
-        if (isValid) {
+        if (isValid && (!auth.refreshToken || !shouldRefreshAccessToken(auth.accessToken))) {
           return {
             ok: true,
             reason: 'READY',
-            userEmail: auth.userEmail || undefined,
+            userEmail: auth.userEmail || auth.companyName || undefined,
+            companyName: auth.companyName || undefined,
           };
         }
         // Token hết hạn → thử refresh
@@ -53,13 +57,15 @@ export async function checkTopCvAuth(options?: { allowProbeTab?: boolean }): Pro
             [TOPCV_STORAGE_KEY_AUTH]: {
               ...auth,
               accessToken: result.token,
+              refreshToken: result.refreshToken || auth.refreshToken,
               updatedAt: Date.now(),
             },
           });
           return {
             ok: true,
             reason: 'READY',
-            userEmail: auth.userEmail || undefined,
+            userEmail: auth.userEmail || auth.companyName || undefined,
+            companyName: auth.companyName || undefined,
           };
         }
         // Refresh fail → xóa token cũ
@@ -94,15 +100,25 @@ export async function checkTopCvAuth(options?: { allowProbeTab?: boolean }): Pro
           if (authFromTab.ok && (authFromTab.accessToken || authFromTab.refreshToken)) {
             // Nếu chỉ có refreshToken, exchange trước
             let finalAccessToken = authFromTab.accessToken;
-            if (!finalAccessToken && authFromTab.refreshToken) {
+            let finalRefreshToken = authFromTab.refreshToken;
+            if (
+              authFromTab.refreshToken
+              && (!finalAccessToken || shouldRefreshAccessToken(finalAccessToken))
+            ) {
               const result = await exchangeTopCvToken(authFromTab.refreshToken);
-              finalAccessToken = result.reason === 'success' ? result.token || undefined : undefined;
+              if (result.reason === 'success' && result.token) {
+                finalAccessToken = result.token;
+                finalRefreshToken = result.refreshToken || finalRefreshToken;
+              } else {
+                finalAccessToken = undefined;
+              }
             }
             if (finalAccessToken) {
               await saveTopCvAuthToStorage({
                 accessToken: finalAccessToken,
-                refreshToken: authFromTab.refreshToken,
+                refreshToken: finalRefreshToken,
                 userEmail: authFromTab.userEmail,
+                companyName: authFromTab.companyName,
                 taFp: authFromTab.taFp,
                 taId: authFromTab.taId,
                 taJr: authFromTab.taJr,
@@ -110,7 +126,8 @@ export async function checkTopCvAuth(options?: { allowProbeTab?: boolean }): Pro
               return {
                 ok: true,
                 reason: 'READY',
-                userEmail: authFromTab.userEmail,
+                userEmail: authFromTab.userEmail || authFromTab.companyName,
+                companyName: authFromTab.companyName,
               };
             }
           }
@@ -129,6 +146,7 @@ export async function checkTopCvAuth(options?: { allowProbeTab?: boolean }): Pro
             accessToken: authFromBgProbe.accessToken,
             refreshToken: authFromBgProbe.refreshToken,
             userEmail: authFromBgProbe.userEmail,
+            companyName: authFromBgProbe.companyName,
             taFp: authFromBgProbe.taFp,
             taId: authFromBgProbe.taId,
             taJr: authFromBgProbe.taJr,
@@ -136,7 +154,8 @@ export async function checkTopCvAuth(options?: { allowProbeTab?: boolean }): Pro
           return {
             ok: true,
             reason: 'READY',
-            userEmail: authFromBgProbe.userEmail,
+            userEmail: authFromBgProbe.userEmail || authFromBgProbe.companyName,
+            companyName: authFromBgProbe.companyName,
           };
         }
       } catch (err) {
@@ -215,6 +234,7 @@ async function extractAuthFromTab(tabId: number): Promise<{
   accessToken?: string;
   refreshToken?: string;
   userEmail?: string;
+  companyName?: string;
   taFp?: string;
   taId?: string;
   taJr?: string;
@@ -231,6 +251,7 @@ async function extractAuthFromTab(tabId: number): Promise<{
           accessToken?: string;
           refreshToken?: string;
           userEmail?: string;
+          companyName?: string;
           taFp?: string;
           taId?: string;
           taJr?: string;
@@ -249,6 +270,7 @@ async function extractAuthFromTab(tabId: number): Promise<{
           accessToken: res.accessToken,
           refreshToken: res.refreshToken,
           userEmail: res.userEmail,
+          companyName: res.companyName,
           taFp: res.taFp,
           taId: res.taId,
           taJr: res.taJr,
@@ -266,6 +288,7 @@ let probePromise: Promise<{
   accessToken?: string;
   refreshToken?: string;
   userEmail?: string;
+  companyName?: string;
   taFp?: string;
   taId?: string;
   taJr?: string;
@@ -276,6 +299,7 @@ async function probeTopCvDashboard(): Promise<{
   accessToken?: string;
   refreshToken?: string;
   userEmail?: string;
+  companyName?: string;
   taFp?: string;
   taId?: string;
   taJr?: string;
@@ -363,6 +387,7 @@ async function saveTopCvAuthToStorage(auth: {
   accessToken: string;
   refreshToken?: string;
   userEmail?: string;
+  companyName?: string;
   taFp?: string;
   taId?: string;
   taJr?: string;
@@ -376,7 +401,8 @@ async function saveTopCvAuthToStorage(auth: {
       [TOPCV_STORAGE_KEY_AUTH]: {
         accessToken: auth.accessToken,
         refreshToken: auth.refreshToken,
-        userEmail: auth.userEmail,
+        userEmail: auth.userEmail || currentAuth?.userEmail,
+        companyName: auth.companyName || currentAuth?.companyName,
         updatedAt: Date.now(),
         // Lưu tracking headers để refresh không cần mở tab TopCV
         taFp: auth.taFp || currentAuth?.taFp,
@@ -392,6 +418,7 @@ function inspectTopCvLocalStorage(): {
   accessToken?: string;
   refreshToken?: string;
   userEmail?: string;
+  companyName?: string;
   taFp?: string;
   taId?: string;
   taJr?: string;
@@ -449,7 +476,42 @@ function inspectTopCvLocalStorage(): {
     return { ok: false };
   }
 
-  // Lấy email / username / tên tài khoản
+  // 2. Trích xuất tên công ty từ DOM của trang TopCV đang mở (như .user-info .user-name a)
+  let companyName: string | undefined;
+  try {
+    const companyEl = document.querySelector<HTMLElement>(
+      '.user-info .user-name a, .user-info .user-name, .sidebar-header .user-name a, .sidebar-header .user-name, .user-name a, .user-name'
+    );
+    if (companyEl && companyEl.textContent) {
+      const text = companyEl.textContent.replace(/\s+/g, ' ').trim();
+      if (text && text.length > 1) {
+        companyName = text;
+      }
+    }
+  } catch {}
+
+  // 3. Nếu chưa có từ DOM, thử đọc từ Nuxt.js State (window.__NUXT__)
+  if (!companyName) {
+    try {
+      const win = window as unknown as {
+        __NUXT__?: {
+          state?: {
+            auth?: {
+              user?: {
+                company_name?: string;
+                company?: { name?: string };
+                name?: string;
+              };
+            };
+          };
+        };
+      };
+      const nuxtUser = win.__NUXT__?.state?.auth?.user;
+      companyName = nuxtUser?.company_name || nuxtUser?.company?.name || nuxtUser?.name;
+    } catch {}
+  }
+
+  // 4. Lấy email / username / tên tài khoản từ JWT payload
   let userEmail: string | undefined;
   if (cleanToken) {
     try {
@@ -481,6 +543,9 @@ function inspectTopCvLocalStorage(): {
       if (val) {
         try {
           const parsed = JSON.parse(val) as { email?: string; name?: string; username?: string; company_name?: string };
+          if (!companyName && parsed.company_name) {
+            companyName = parsed.company_name;
+          }
           userEmail = parsed.email || parsed.name || parsed.company_name || parsed.username;
           if (userEmail) break;
         } catch {}
@@ -497,13 +562,27 @@ function inspectTopCvLocalStorage(): {
     ok: true,
     accessToken: cleanToken,
     refreshToken: cleanRefreshToken,
-    userEmail: userEmail || 'Nhà tuyển dụng TopCV',
+    userEmail: companyName || userEmail || 'Nhà tuyển dụng TopCV',
+    companyName: companyName || undefined,
     taFp,
     taId,
     taJr,
   };
 }
 
+function shouldRefreshAccessToken(accessToken: string): boolean {
+  try {
+    const payload = accessToken.split('.')[1];
+    if (!payload) return false;
+    const normalizedPayload = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const decodedPayload = atob(normalizedPayload.padEnd(Math.ceil(normalizedPayload.length / 4) * 4, '='));
+    const parsedPayload = JSON.parse(decodedPayload) as { exp?: unknown };
+    return typeof parsedPayload.exp === 'number'
+      && parsedPayload.exp * 1000 - Date.now() <= ACCESS_TOKEN_REFRESH_THRESHOLD_MS;
+  } catch {
+    return false;
+  }
+}
 
 
 

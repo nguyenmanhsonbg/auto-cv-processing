@@ -910,9 +910,11 @@ export function JobPostingPanel({
                     isLoadingFromBe={topCvLoadingFromBe}
                     onOpenEdit={() => setTopCvModalMode('EDIT')}
                     onOpenPreview={() => setTopCvModalMode('PREVIEW')}
-                    onLoginSuccess={(authResult) => {
-                      setTopCvAuth({ ok: true, reason: 'READY', userEmail: authResult.userEmail });
-                      onShowExtensionToast('SUCCESS', 'Kênh TopCV', 'Đăng nhập TopCV thành công.');
+                    onSyncAuth={(auth) => {
+                      setTopCvAuth(auth);
+                      if (auth.ok) {
+                        onShowExtensionToast('SUCCESS', 'Kênh TopCV', 'Đã đồng bộ tài khoản TopCV từ tab đang mở.');
+                      }
                     }}
                     onLogout={async () => {
                       await onLogoutTopCv();

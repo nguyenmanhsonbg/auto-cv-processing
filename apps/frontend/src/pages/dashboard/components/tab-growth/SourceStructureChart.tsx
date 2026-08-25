@@ -11,7 +11,7 @@ import { GrowthSourceData } from '../../types';
 import {
   useChartHover,
   renderActiveDonutShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface SourceStructureChartProps {
@@ -50,10 +50,16 @@ export const SourceStructureChart: React.FC<SourceStructureChartProps> = ({ data
               ))}
             </Pie>
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number) => [
-                `${value} người (${((value / total) * 100).toFixed(1)}%)`,
-              ]}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  hideLabel
+                  total={total}
+                  valueFormatter={(value) =>
+                    `${value} người (${total > 0 ? ((Number(value) / total) * 100).toFixed(1) : 0}%)`
+                  }
+                />
+              }
             />
             <Legend
               wrapperStyle={{ fontSize: '10px' }}

@@ -83,7 +83,7 @@ export function AnalystDashboard() {
   }
 
   return (
-    <div className="bg-[#0b0f19] text-[#e2e8f0] min-h-screen -m-6 p-4 md:p-6 antialiased">
+    <div className="bg-[#0b0f19] text-[#e2e8f0] min-h-screen -m-4 sm:-m-6 md:-m-8 p-4 sm:p-6 md:p-8 antialiased">
       <div className="max-w-[1800px] mx-auto space-y-5">
         {/* Top Header */}
         <DashboardHeader

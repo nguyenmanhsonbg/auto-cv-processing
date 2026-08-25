@@ -7834,6 +7834,35 @@ dd {
   flex: 0 0 auto;
 }
 
+.shared-filter-search .clear-button,
+.clear-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: all 0.15s ease;
+}
+
+.shared-filter-search .clear-button:hover,
+.clear-button:hover {
+  color: #1f2937;
+  background: #f1f5f9;
+}
+
+.shared-filter-search .clear-button svg,
+.clear-button svg {
+  width: 14px;
+  height: 14px;
+}
+
 .shared-filter-field {
   display: grid;
   gap: 5px;

@@ -11,7 +11,7 @@ import { FinalQualityData, FINAL_QUALITY_LABELS } from '../../types';
 import {
   useChartHover,
   renderActiveDonutShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface FinalQualityRankChartProps {
@@ -55,11 +55,16 @@ export const FinalQualityRankChart: React.FC<FinalQualityRankChartProps> = ({ da
               ))}
             </Pie>
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number, name: string) => [
-                `${value} ứng viên (${((value / total) * 100).toFixed(1)}%)`,
-                name,
-              ]}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  hideLabel
+                  total={total}
+                  valueFormatter={(value) =>
+                    `${value} ứng viên (${total > 0 ? ((Number(value) / total) * 100).toFixed(1) : 0}%)`
+                  }
+                />
+              }
             />
             <Legend
               wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }}
