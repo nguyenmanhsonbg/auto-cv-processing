@@ -238,7 +238,10 @@ export class AuthService implements OnModuleInit {
     if (user.role === UserRole.HR || user.role === UserRole.ADMIN) {
       return { exists: false, hint: 'HR_NOT_ALLOWED' as const };
     }
-    return { exists: true };
+    return {
+      exists: true,
+      availableMethods: await this.getPasswordResetMethods(user),
+    };
   }
 
   async requestPasswordReset(login: string) {
@@ -326,6 +329,15 @@ export class AuthService implements OnModuleInit {
       relations: { user: true },
     });
     return internal?.user ?? null;
+  }
+
+  private async getPasswordResetMethods(user: UserEntity) {
+    if (user.role !== UserRole.FREELANCER) return ['EMAIL'] as const;
+
+    const freelancer = await this.freelancerRepo.findOne({
+      where: { userId: user.id, isActive: true },
+    });
+    return freelancer?.phone?.trim() ? ['PHONE', 'EMAIL'] as const : ['EMAIL'] as const;
   }
 
   private hashToken(value: string) { return createHash('sha256').update(value).digest('hex'); }

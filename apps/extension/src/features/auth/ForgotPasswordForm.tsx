@@ -10,6 +10,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
   const [step, setStep] = useState<Step>('IDENTIFIER');
   const [login, setLogin] = useState('');
   const [method, setMethod] = useState<'PHONE' | 'EMAIL'>('PHONE');
+  const [availableMethods, setAvailableMethods] = useState<Array<'PHONE' | 'EMAIL'>>(['EMAIL']);
   const [challengeId, setChallengeId] = useState('');
   const [resetToken, setResetToken] = useState('');
   const [targetEmail, setTargetEmail] = useState('');
@@ -36,7 +37,13 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
         loginInputRef.current?.focus();
         return;
       }
-      // Login hợp lệ → bỏ qua METHOD, gửi OTP và điều hướng thẳng tới màn Kiểm tra xác nhận từ Gmail.
+      const recoveryMethods = result.availableMethods ?? ['EMAIL'];
+      setAvailableMethods(recoveryMethods);
+      if (recoveryMethods.length > 1) {
+        setMethod(recoveryMethods.includes('PHONE') ? 'PHONE' : 'EMAIL');
+        setStep('METHOD');
+        return;
+      }
       await sendOtpAndAdvance();
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Không thể kiểm tra tên đăng nhập. Vui lòng thử lại.');
@@ -183,20 +190,24 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
             <p>Bạn muốn nhận mã xác nhận bằng phương thức nào?</p>
           </div>
           <div className="extension-forgot-method-list">
-            <label className={`extension-forgot-method${method === 'PHONE' ? ' is-selected' : ''}`}>
-              <input type="radio" name="reset-method" checked={method === 'PHONE'} onChange={() => { setMethod('PHONE'); setError(null); }} />
-              <span className="extension-forgot-method-content">
-                <strong>Gửi mã xác nhận qua SĐT</strong>
-                <small>Mã xác nhận sẽ được gửi qua SĐT người dùng. Vui lòng truy cập và lấy mã xác nhận.</small>
-              </span>
-            </label>
-            <label className={`extension-forgot-method${method === 'EMAIL' ? ' is-selected' : ''}`}>
-              <input type="radio" name="reset-method" checked={method === 'EMAIL'} onChange={() => { setMethod('EMAIL'); setError(null); }} />
-              <span className="extension-forgot-method-content">
-                <strong>Gửi mã xác nhận qua Gmail</strong>
-                <small>Mã xác nhận sẽ được gửi qua Gmail người dùng. Vui lòng truy cập và lấy mã xác nhận.</small>
-              </span>
-            </label>
+            {availableMethods.includes('PHONE') ? (
+              <label className={`extension-forgot-method${method === 'PHONE' ? ' is-selected' : ''}`}>
+                <input type="radio" name="reset-method" checked={method === 'PHONE'} onChange={() => { setMethod('PHONE'); setError(null); }} />
+                <span className="extension-forgot-method-content">
+                  <strong>Gửi mã xác nhận qua SĐT</strong>
+                  <small>Mã xác nhận sẽ được gửi qua SĐT người dùng. Vui lòng truy cập và lấy mã xác nhận.</small>
+                </span>
+              </label>
+            ) : null}
+            {availableMethods.includes('EMAIL') ? (
+              <label className={`extension-forgot-method${method === 'EMAIL' ? ' is-selected' : ''}`}>
+                <input type="radio" name="reset-method" checked={method === 'EMAIL'} onChange={() => { setMethod('EMAIL'); setError(null); }} />
+                <span className="extension-forgot-method-content">
+                  <strong>Gửi mã xác nhận qua Gmail</strong>
+                  <small>Mã xác nhận sẽ được gửi qua Gmail người dùng. Vui lòng truy cập và lấy mã xác nhận.</small>
+                </span>
+              </label>
+            ) : null}
           </div>
           {error ? <p className="extension-login-error">{error}</p> : null}
           <div className="extension-login-actions">
@@ -226,6 +237,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
                   const digit = event.target.value.replace(/\D/g, '').slice(-1);
                   setOtp((current) => `${current.slice(0, index)}${digit}${current.slice(index + 1)}`.slice(0, 6));
                   setError(null);
+                  if (digit && index < 5) otpInputRefs.current[index + 1]?.focus();
                 }}
                 onKeyDown={(event) => {
                   if (event.key === 'Backspace' && !otp[index] && index > 0) otpInputRefs.current[index - 1]?.focus();

@@ -40,7 +40,7 @@ const FACEBOOK_TARGET_TIMEOUT_MS = 90_000;
 const FACEBOOK_LOGIN_REQUIRED_MESSAGE = 'Vui lòng đăng nhập facebook trước khi thực hiện thao tác này.';
 // Temporary diagnostic switch: keep failed Facebook publish tabs open so their
 // DevTools Network response can be exported as a HAR for investigation.
-const KEEP_FAILED_FACEBOOK_PUBLISH_TABS_OPEN_FOR_DEBUG = false;
+const KEEP_FAILED_FACEBOOK_PUBLISH_TABS_OPEN_FOR_DEBUG = true;
 
 function splitTitleBySeparators(value: string) {
   const parts: string[] = [];
@@ -210,6 +210,7 @@ interface FacebookPublishGraphqlResponseBody {
 }
 
 const FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS = 3_000;
+const FACEBOOK_SUBMISSION_OBSERVATION_TIMEOUT_MS = 45_000;
 
 interface FacebookSubmitButtonPoint {
   clientX: number;
@@ -790,6 +791,13 @@ export async function ensureFacebookLoginInTab(
   let status = await enrichFacebookAccountIdentity(
     await runFacebookLoginProbe(tabId),
   );
+
+  // A newly-created background tab can briefly expose Facebook's logged-out
+  // shell while the existing browser session is still being restored. Give
+  // the cookie and page probe a short hidden-only grace period before opening
+  // the interactive login flow. Activating here makes the user's current tab
+  // flash even when the user is already authenticated.
+  status = await waitForFacebookLoginInBackgroundTab(tabId, status);
 
   if (status.ready) {
     callbacks.onStatus?.({
@@ -1695,6 +1703,39 @@ async function waitForFacebookSessionCookie(tabId: number, timeoutMs = 15_000) {
   return null;
 }
 
+async function waitForFacebookLoginInBackgroundTab(
+  tabId: number,
+  initialStatus: FacebookLoginCheckResult,
+) {
+  let status = initialStatus;
+  const deadline = Date.now() + FACEBOOK_BACKGROUND_LOGIN_GRACE_PERIOD_MS;
+
+  while (Date.now() < deadline) {
+    const cookieSession = await readFacebookSessionCookieForTab(tabId);
+    if (cookieSession) {
+      return {
+        ...status,
+        ready: true,
+        url: cookieSession.url,
+        message: 'Facebook login detected from browser session.',
+        account: {
+          facebookExternalId: cookieSession.externalId,
+        },
+      };
+    }
+
+    const probeStatus = await runFacebookLoginProbe(tabId);
+    status = await enrichFacebookAccountIdentity(probeStatus);
+    if (status.ready) return status;
+
+    const remainingMs = Math.max(0, deadline - Date.now());
+    if (remainingMs <= 0) break;
+    await sleep(Math.min(FACEBOOK_BACKGROUND_LOGIN_POLL_INTERVAL_MS, remainingMs));
+  }
+
+  return status;
+}
+
 async function enrichFacebookAccountIdentity(status: FacebookLoginCheckResult, sourceTabId?: number) {
   const cookieExternalId = await readFacebookSessionExternalId();
 
@@ -2161,8 +2202,8 @@ async function clickAndWaitForSubmission(
         activationMode: 'native-dom-click',
       }],
     );
-    const initialGraphqlResult = await graphqlCapture?.waitForResult(1_500) ?? null;
-    if (!initialGraphqlResult) {
+    let graphqlResult = await graphqlCapture?.waitForResult(1_500) ?? null;
+    if (!graphqlResult) {
       const fallbackPointProbe = await runScript<[], FacebookSubmitButtonPointProbe>(
         tabId,
         resolveFacebookSubmitButtonPointInPage,
@@ -2199,62 +2240,105 @@ async function clickAndWaitForSubmission(
     } else {
       console.warn('[FB06B_NATIVE_CLICK_TRIGGERED_GQL]', {
         tabId,
-        graphqlResult: initialGraphqlResult,
+        graphqlResult,
       });
     }
-    let submissionResult = await submissionPromise;
-    execution.throwIfCancelled();
-    await execution.wait(500);
-    const afterClickProbe = await runScript<[], {
-      buttonFound: boolean;
-      ariaDisabled: string | null;
-      buttonText: string | null;
-      dialogCount: number;
-    }>(tabId, () => {
-      const buttons = Array.from(document.querySelectorAll<HTMLElement>(
-        '[role="dialog"] [role="button"], [role="dialog"] button',
-      ));
-      const button = buttons.find((candidate) => {
-        const label = [candidate.getAttribute('aria-label'), candidate.textContent]
-          .filter(Boolean)
-          .join(' ')
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toLowerCase()
-          .trim();
-        return /^(post|dang)$/.test(label);
-      });
-      return {
-        buttonFound: Boolean(button),
-        ariaDisabled: button?.getAttribute('aria-disabled') ?? null,
-        buttonText: button?.textContent?.trim() ?? null,
-        dialogCount: document.querySelectorAll('[role="dialog"]').length,
+    void submissionPromise.catch(() => undefined);
+
+    let submissionResult: FacebookPagePublishResult;
+    if (graphqlResult) {
+      submissionResult = {
+        status: 'FAILED',
+        message: 'Facebook GraphQL confirmed the submission before the page confirmation was available.',
+        submitClickDispatched: true,
+        postClickEvidence: true,
       };
-    }, []);
-    const afterClickPointProbe = await runScript<[], FacebookSubmitButtonPointProbe>(
-      tabId,
-      resolveFacebookSubmitButtonPointInPage,
-      [],
-    ).catch(() => null);
-    const postClickEvidence = inferFacebookPostClickEvidence(
-      submissionResult,
-      {
-        submitButtonFound: afterClickProbe.buttonFound,
-        ariaDisabled: afterClickProbe.ariaDisabled,
-        clickPointStillSubmit: afterClickPointProbe?.found ?? null,
-      },
-    );
-    submissionResult = {
-      ...submissionResult,
-      postClickEvidence,
-    };
-    console.warn('[FB07_AFTER_500MS]', {
-      tabId,
-      afterClickProbe,
-      afterClickPointProbe,
-      postClickEvidence,
-    });
-    const graphqlResult = await graphqlCapture?.waitForResult(FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS) ?? null;
+      console.warn('[FB07_GQL_CONFIRMED_BEFORE_PAGE]', {
+        tabId,
+        graphqlResult,
+      });
+    } else {
+      const graphqlObservation = graphqlCapture
+        ? graphqlCapture.waitForResult(FACEBOOK_SUBMISSION_OBSERVATION_TIMEOUT_MS).then((result) => {
+          if (result) return { kind: 'graphql' as const, result };
+          return new Promise<never>(() => undefined);
+        })
+        : new Promise<never>(() => undefined);
+      const observation = await Promise.race([
+        submissionPromise.then((result) => ({ kind: 'page' as const, result })),
+        graphqlObservation,
+      ]);
+
+      if (observation.kind === 'graphql') {
+        graphqlResult = observation.result;
+        submissionResult = {
+          status: 'FAILED',
+          message: 'Facebook GraphQL confirmed the submission before the page confirmation was available.',
+          submitClickDispatched: true,
+          postClickEvidence: true,
+        };
+        console.warn('[FB07_GQL_CONFIRMED_BEFORE_PAGE]', {
+          tabId,
+          graphqlResult,
+        });
+      } else {
+        submissionResult = observation.result;
+      }
+    }
+    execution.throwIfCancelled();
+    if (!graphqlResult) {
+      await execution.wait(500);
+      const afterClickProbe = await runScript<[], {
+        buttonFound: boolean;
+        ariaDisabled: string | null;
+        buttonText: string | null;
+        dialogCount: number;
+      }>(tabId, () => {
+        const buttons = Array.from(document.querySelectorAll<HTMLElement>(
+          '[role="dialog"] [role="button"], [role="dialog"] button',
+        ));
+        const button = buttons.find((candidate) => {
+          const label = [candidate.getAttribute('aria-label'), candidate.textContent]
+            .filter(Boolean)
+            .join(' ')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .trim();
+          return /^(post|dang)$/.test(label);
+        });
+        return {
+          buttonFound: Boolean(button),
+          ariaDisabled: button?.getAttribute('aria-disabled') ?? null,
+          buttonText: button?.textContent?.trim() ?? null,
+          dialogCount: document.querySelectorAll('[role="dialog"]').length,
+        };
+      }, []);
+      const afterClickPointProbe = await runScript<[], FacebookSubmitButtonPointProbe>(
+        tabId,
+        resolveFacebookSubmitButtonPointInPage,
+        [],
+      ).catch(() => null);
+      const postClickEvidence = inferFacebookPostClickEvidence(
+        submissionResult,
+        {
+          submitButtonFound: afterClickProbe.buttonFound,
+          ariaDisabled: afterClickProbe.ariaDisabled,
+          clickPointStillSubmit: afterClickPointProbe?.found ?? null,
+        },
+      );
+      submissionResult = {
+        ...submissionResult,
+        postClickEvidence,
+      };
+      console.warn('[FB07_AFTER_500MS]', {
+        tabId,
+        afterClickProbe,
+        afterClickPointProbe,
+        postClickEvidence,
+      });
+      graphqlResult = await graphqlCapture?.waitForResult(FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS) ?? null;
+    }
     console.warn('[FB12_PRE_ENRICH_RESULT]', {
       tabId,
       status: submissionResult.status,
@@ -2858,6 +2942,8 @@ function shortenAutomationMessage(message: string, maxLength = 360) {
 
 const FACEBOOK_LOGIN_PROBE_ATTEMPTS = 3;
 const FACEBOOK_LOGIN_PROBE_RETRY_DELAY_MS = 300;
+const FACEBOOK_BACKGROUND_LOGIN_GRACE_PERIOD_MS = 5_000;
+const FACEBOOK_BACKGROUND_LOGIN_POLL_INTERVAL_MS = 250;
 
 async function runFacebookLoginProbe(tabId: number): Promise<FacebookLoginCheckResult> {
   for (let attempt = 0; attempt < FACEBOOK_LOGIN_PROBE_ATTEMPTS; attempt += 1) {

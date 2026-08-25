@@ -34,3 +34,18 @@ test('background publish recovery coordinate click does not bring the hidden tab
   assert.match(functionSource, /Input\.dispatchMouseEvent/);
   assert.doesNotMatch(functionSource, /Page\.bringToFront/);
 });
+
+test('background publish authentication retries before activating the login tab', () => {
+  const authStart = orchestratorSource.indexOf('export async function ensureFacebookLoginInTab');
+  const authEnd = orchestratorSource.indexOf('\nexport async function verifyFacebookGroupPostingEligibility', authStart);
+  const authSource = orchestratorSource.slice(authStart, authEnd);
+  const backgroundRetryIndex = authSource.indexOf('waitForFacebookLoginInBackgroundTab');
+  const waitingLoginIndex = authSource.indexOf("status: 'WAITING_LOGIN'");
+  const activationIndex = authSource.indexOf("active: true");
+
+  assert.ok(authStart >= 0, 'ensureFacebookLoginInTab should exist');
+  assert.ok(authEnd > authStart, 'ensureFacebookLoginInTab should have a bounded source section');
+  assert.ok(backgroundRetryIndex >= 0, 'background auth should have a bounded retry before interactive login');
+  assert.ok(backgroundRetryIndex < waitingLoginIndex, 'background auth retry should run before WAITING_LOGIN');
+  assert.ok(waitingLoginIndex < activationIndex, 'interactive activation should remain after the retry');
+});
