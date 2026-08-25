@@ -27,6 +27,7 @@ export interface ReferralApplicationMetricInput {
   processStatus: ApplicationStatus | string | null;
   hrReceptionStatus: HrReviewDecisionType | string | null;
   currentAmisStage?: ReferralCurrentAmisStage | null;
+  hiredAt?: Date | null;
 }
 
 export interface ReferralApplicationRowInput extends ReferralApplicationMetricInput {
@@ -134,15 +135,15 @@ export function buildCurrentAmisStageMap(
       recruitmentRoundName: optionalText(rawPayload.recruitmentRoundName),
       attractivePersonnelName: optionalText(
         rawPayload.attractivePersonnelName
-          ?? rawPayload.AttractivePersonnel
-          ?? rawPayload.AttractivePersonnelName,
+        ?? rawPayload.AttractivePersonnel
+        ?? rawPayload.AttractivePersonnelName,
       ),
       amisStatus: toNullableNumber(rawPayload.status),
       reasonRemoved: optionalText(
         rawPayload.reasonRemoved
-          ?? rawPayload.ReasonRemoved
-          ?? rawPayload.reasonRemovedName
-          ?? rawPayload.ReasonRemovedName,
+        ?? rawPayload.ReasonRemoved
+        ?? rawPayload.reasonRemovedName
+        ?? rawPayload.ReasonRemovedName,
       ),
       updatedAt: stageUpdatedAt,
     });
@@ -180,6 +181,7 @@ export function mapReferralApplicationRow(
 export function getReferralApplicationStatusCategory(
   application: ReferralApplicationMetricInput,
 ): ReferralApplicationStatusCategory {
+  // Check AMIS stage first
   if (application.currentAmisStage) {
     if (application.currentAmisStage.amisStatus === 0 || application.currentAmisStage.reasonRemoved?.trim()) {
       return 'REJECTED';
@@ -192,13 +194,18 @@ export function getReferralApplicationStatusCategory(
     return 'PROCESSING';
   }
 
-  if (application.hrReceptionStatus === HrReviewDecisionType.APPROVE
-    || application.hrReceptionStatus === HrReviewDecisionType.TALENT_POOL
-    || application.processStatus === ApplicationStatus.HR_APPROVED
-    || application.processStatus === ApplicationStatus.TALENT_POOL) {
+  // Check internal hiredAt (this replaces the old HR_APPROVED check)
+  if (application.hiredAt) {
     return 'PASSED';
   }
 
+  // Check hrReceptionStatus
+  if (application.hrReceptionStatus === HrReviewDecisionType.APPROVE
+    || application.hrReceptionStatus === HrReviewDecisionType.TALENT_POOL) {
+    return 'PASSED';
+  }
+
+  // Check processStatus for rejection
   if (application.hrReceptionStatus === HrReviewDecisionType.REJECT
     || REJECTED_PROCESS_STATUSES.has(application.processStatus ?? '')
   ) {

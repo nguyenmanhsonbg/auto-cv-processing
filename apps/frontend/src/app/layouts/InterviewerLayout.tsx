@@ -39,6 +39,7 @@ const hrAdminNavItems = [
 ];
 
 const recruitmentNavItems = [
+  { label: 'Pipeline', href: '/recruitment/dashboard', icon: BarChart2 },
   { label: 'Job Descriptions', href: '/recruitment/job-descriptions', icon: FileText },
   { label: 'Job Postings', href: '/recruitment/job-postings', icon: Briefcase },
   { label: 'Applications', href: '/recruitment/applications', icon: Users },

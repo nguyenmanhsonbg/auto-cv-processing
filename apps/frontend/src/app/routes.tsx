@@ -47,6 +47,8 @@ import { FreelancerRouteGuard } from '@/components/recruitment/FreelancerRouteGu
 import { CommitteeRouteGuard } from '@/components/recruitment/CommitteeRouteGuard';
 import { CommitteesPage } from '@/pages/interviewer/settings/CommitteesPage';
 import { Toaster } from '@/components/ui/toaster';
+// NEW: Pipeline Dashboard
+import { AnalystDashboard } from '@/pages/dashboard';
 
 export function AppRoutes() {
   return (
@@ -56,7 +58,6 @@ export function AppRoutes() {
         <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
         <Route path="/jobs/:slug" element={<PublicJobDetailPage />} />
         <Route path="/jobs/:slug/apply" element={<PublicJobApplyPage />} />
-        {/* Optional route. Public status API/policy needs confirmation before production use. */}
         <Route path="/apply/:applicationId/status" element={<PublicApplyResultPage />} />
         <Route path="/form/:token" element={<CandidateFormPage />} />
         <Route path="/" element={<InterviewerLayout />}>
@@ -96,6 +97,7 @@ export function AppRoutes() {
           </Route>
           <Route path="recruitment" element={<RecruitmentRouteGuard />}>
             <Route index element={<Navigate to="/recruitment/applications" replace />} />
+            <Route path="dashboard" element={<AnalystDashboard />} />
             <Route path="job-descriptions" element={<JobDescriptionListPage />} />
             <Route path="job-descriptions/:id" element={<JobDescriptionDetailPage />} />
             <Route path="job-postings" element={<JobPostingListPage />} />

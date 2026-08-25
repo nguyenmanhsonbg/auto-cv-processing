@@ -41,3 +41,15 @@
   z-index: 9999 !important;
 }
 
+@keyframes donutSliceZoom {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  100% {
+    transform: scale(1.055);
+    filter: brightness(1.15) drop-shadow(0 6px 16px rgba(0, 0, 0, 0.55));
+  }
+}
+
+
