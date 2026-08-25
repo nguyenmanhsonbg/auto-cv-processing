@@ -309,7 +309,7 @@ export function JobPostingPanel({
       <button
         type="button"
         className="primary-button sync-button"
-        disabled={syncDisabled}
+        disabled={syncDisabled || selectedPostingChannels.length === 0}
         onClick={onSync}
       >
         {facebookRunning

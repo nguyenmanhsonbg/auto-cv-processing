@@ -34,13 +34,16 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
     password: string | null;
   }>({ login: null, password: null });
 
-  const [internalLocalError, setInternalLocalError] = useState<string | null>(null);
-  const [internalErrorField, setInternalErrorField] = useState<'fullName' | 'email' | null>(null);
+  const [internalFieldErrors, setInternalFieldErrors] = useState<{
+    fullName: string | null;
+    email: string | null;
+  }>({ fullName: null, email: null });
 
   const loginInputRef = useRef<HTMLInputElement | null>(null);
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
   const internalFullNameRef = useRef<HTMLInputElement | null>(null);
   const internalEmailRef = useRef<HTMLInputElement | null>(null);
+  const skipLoginBlurValidationRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -120,9 +123,6 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   const hasLoginError = Boolean(blurErrors.login) || errorField === 'login' || isLockedOut;
   const hasPasswordError = Boolean(blurErrors.password) || errorField === 'password' || isLockedOut;
 
-  const hasInternalFullNameError = internalErrorField === 'fullName';
-  const hasInternalEmailError = internalErrorField === 'email';
-
   const handleLoginChange = (e: ChangeEvent<HTMLInputElement>) => {
     setBlurErrors((current) => ({ ...current, login: null }));
     if (!isLockedOut && (localError || errorField || error)) {
@@ -144,6 +144,10 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handleLoginBlur = () => {
+    if (skipLoginBlurValidationRef.current) {
+      skipLoginBlurValidationRef.current = false;
+      return;
+    }
     setBlurErrors((current) => ({
       ...current,
       login: login.trim() ? null : 'Tên đăng nhập là bắt buộc',
@@ -151,6 +155,10 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handlePasswordBlur = () => {
+    if (skipLoginBlurValidationRef.current) {
+      skipLoginBlurValidationRef.current = false;
+      return;
+    }
     setBlurErrors((current) => ({
       ...current,
       password: password ? null : 'Mật khẩu là bắt buộc',
@@ -244,53 +252,46 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handleInternalFullNameChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (internalLocalError || internalErrorField === 'fullName') {
-      setInternalLocalError(null);
-      setInternalErrorField(null);
-    }
+    setInternalFieldErrors((current) => ({ ...current, fullName: null }));
     setInternalFullName(e.target.value);
   };
 
   const handleInternalEmailChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (internalLocalError || internalErrorField === 'email') {
-      setInternalLocalError(null);
-      setInternalErrorField(null);
-    }
+    setInternalFieldErrors((current) => ({ ...current, email: null }));
     const val = e.target.value.length > 255 ? e.target.value.slice(0, 255) : e.target.value;
     setInternalEmail(val);
   };
 
   const handleInternalFullNameBlur = () => {
     if (!internalFullName.trim()) {
-      setInternalLocalError('Họ tên nhân sự là bắt buộc');
-      setInternalErrorField('fullName');
+      setInternalFieldErrors((current) => ({ ...current, fullName: 'Họ tên nhân sự là bắt buộc' }));
+      return;
     }
+    setInternalFieldErrors((current) => ({ ...current, fullName: null }));
   };
 
   const handleInternalEmailBlur = () => {
     const normalizedEmail = internalEmail.trim();
     if (!normalizedEmail) {
-      setInternalLocalError('Gmail nội bộ nhân sự là bắt buộc');
-      setInternalErrorField('email');
+      setInternalFieldErrors((current) => ({ ...current, email: 'Gmail nội bộ nhân sự là bắt buộc' }));
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      setInternalLocalError('Email không đúng định dạng vui lòng nhập lại.');
-      setInternalErrorField('email');
+      setInternalFieldErrors((current) => ({ ...current, email: 'Email không đúng định dạng vui lòng nhập lại.' }));
+      return;
     }
+    setInternalFieldErrors((current) => ({ ...current, email: null }));
   };
 
   const handleInternalFullNameClear = () => {
     setInternalFullName('');
-    setInternalLocalError(null);
-    setInternalErrorField(null);
+    setInternalFieldErrors((current) => ({ ...current, fullName: null }));
     internalFullNameRef.current?.focus();
   };
 
   const handleInternalEmailClear = () => {
     setInternalEmail('');
-    setInternalLocalError(null);
-    setInternalErrorField(null);
+    setInternalFieldErrors((current) => ({ ...current, email: null }));
     internalEmailRef.current?.focus();
   };
 
@@ -299,28 +300,24 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
     setError(null);
     setInternalMessage(null);
 
-    if (!internalFullName.trim()) {
-      setInternalLocalError('Họ tên nhân sự là bắt buộc');
-      setInternalErrorField('fullName');
+    const normalizedEmail = internalEmail.trim().toLowerCase();
+    const fullNameError = internalFullName.trim() ? null : 'Họ tên nhân sự là bắt buộc';
+    const emailError = !normalizedEmail
+      ? 'Gmail nội bộ nhân sự là bắt buộc'
+      : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(normalizedEmail)
+        ? 'Email nhân sự không chính xác. Vui lòng kiểm tra và thử lại.'
+        : null;
+    setInternalFieldErrors({ fullName: fullNameError, email: emailError });
+
+    if (fullNameError) {
       internalFullNameRef.current?.focus();
       return;
     }
-    const normalizedEmail = internalEmail.trim().toLowerCase();
-    if (!normalizedEmail) {
-      setInternalLocalError('Gmail nội bộ nhân sự là bắt buộc');
-      setInternalErrorField('email');
-      internalEmailRef.current?.focus();
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(normalizedEmail)) {
-      setInternalLocalError('Email nhân sự không chính xác. Vui lòng kiểm tra và thử lại.');
-      setInternalErrorField('email');
+    if (emailError) {
       internalEmailRef.current?.focus();
       return;
     }
 
-    setInternalLocalError(null);
-    setInternalErrorField(null);
     setInternalSubmitting(true);
     try {
       const response = await requestInternalPassword(normalizedEmail);
@@ -337,21 +334,24 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   const handleInternalCancel = () => {
     setInternalMode(false);
     setInternalMessage(null);
-    setInternalLocalError(null);
-    setInternalErrorField(null);
+    setInternalFieldErrors({ fullName: null, email: null });
   };
 
   const handleForgotPassword = () => {
+    skipLoginBlurValidationRef.current = false;
     setForgotPasswordMode(true);
     setError(null);
     setLocalError(null);
+    setBlurErrors({ login: null, password: null });
   };
 
   const handleInternalModeChange = () => {
+    skipLoginBlurValidationRef.current = false;
     setInternalMode(true);
     setInternalMessage(null);
     setError(null);
     setLocalError(null);
+    setBlurErrors({ login: null, password: null });
   };
 
   if (forgotPasswordMode) {
@@ -379,10 +379,8 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
         onEmailChange={handleInternalEmailChange}
         onEmailBlur={handleInternalEmailBlur}
         onEmailClear={handleInternalEmailClear}
-        hasFullNameError={hasInternalFullNameError}
-        hasEmailError={hasInternalEmailError}
-        localError={internalLocalError}
-        errorField={internalErrorField}
+        fullNameError={internalFieldErrors.fullName}
+        emailError={internalFieldErrors.email}
         onCancel={handleInternalCancel}
         onSubmit={handleInternalSubmit}
       />;
@@ -410,6 +408,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
     onRememberMeChange={(event) => setRememberMe(event.target.checked)}
     onForgotPassword={handleForgotPassword}
     onInternalModeChange={handleInternalModeChange}
+    onAuthLinkMouseDown={() => { skipLoginBlurValidationRef.current = true; }}
     onPasswordVisibilityChange={() => setShowPassword((visible) => !visible)}
     submitting={submitting}
     onSubmit={handleLoginSubmit}
@@ -456,10 +455,8 @@ function InternalPasswordRequestView({
   onEmailChange,
   onEmailBlur,
   onEmailClear,
-  hasFullNameError,
-  hasEmailError,
-  localError,
-  errorField,
+  fullNameError,
+  emailError,
   onCancel,
   onSubmit,
 }: {
@@ -476,10 +473,8 @@ function InternalPasswordRequestView({
   onEmailChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onEmailBlur: () => void;
   onEmailClear: () => void;
-  hasFullNameError: boolean;
-  hasEmailError: boolean;
-  localError: string | null;
-  errorField: 'fullName' | 'email' | null;
+  fullNameError: string | null;
+  emailError: string | null;
   onCancel: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
 }) {
@@ -500,8 +495,8 @@ function InternalPasswordRequestView({
               onBlur={onFullNameBlur}
               onClear={onFullNameClear}
               placeholder="Nhập tên nhân sự"
-              hasError={hasFullNameError}
-              errorMessage={errorField === 'fullName' ? localError : null}
+              hasError={Boolean(fullNameError)}
+              errorMessage={fullNameError}
               maxLength={255}
             />
             <AuthInput
@@ -516,15 +511,23 @@ function InternalPasswordRequestView({
               type="email"
               autoComplete="email"
               placeholder="Nhập email nhân sự"
-              hasError={hasEmailError || Boolean(error)}
-              errorMessage={errorField === 'email' ? localError : error}
+              hasError={Boolean(emailError || error)}
+              errorMessage={emailError ?? error}
               maxLength={255}
             />
           </div>
           {message ? <p className="extension-login-success">{message}</p> : null}
           <div className="extension-login-actions">
             <button type="button" className="secondary-button" onClick={onCancel}>Hủy</button>
-            <button type="submit" className="confirm-button" disabled={submitting}>
+            <button
+              type="submit"
+              className="confirm-button"
+              disabled={
+                submitting
+                || Boolean(fullNameError || emailError)
+                || (!fullName.trim() && !email.trim())
+              }
+            >
               {submitting ? 'Đang gửi...' : 'Xác nhận'}
             </button>
           </div>
@@ -555,6 +558,7 @@ function LoginCredentialsView({
   onRememberMeChange,
   onForgotPassword,
   onInternalModeChange,
+  onAuthLinkMouseDown,
   onPasswordVisibilityChange,
   submitting,
   onSubmit,
@@ -580,6 +584,7 @@ function LoginCredentialsView({
   onRememberMeChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onForgotPassword: () => void;
   onInternalModeChange: () => void;
+  onAuthLinkMouseDown: () => void;
   onPasswordVisibilityChange: () => void;
   submitting: boolean;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -649,6 +654,7 @@ function LoginCredentialsView({
             <button
               type="button"
               className="text-button"
+              onMouseDown={onAuthLinkMouseDown}
               onClick={onForgotPassword}
             >
               Quên mật khẩu
@@ -656,6 +662,7 @@ function LoginCredentialsView({
             <button
               type="button"
               className="text-button"
+              onMouseDown={onAuthLinkMouseDown}
               onClick={onInternalModeChange}
             >
               Là nhân sự nội bộ

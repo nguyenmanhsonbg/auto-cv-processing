@@ -28,10 +28,12 @@ import {
   ListExtensionReferralSourcesQueryDto,
   GetJobDescriptionQuestionSetQueryDto,
   SyncAmisRecruitmentRoundsDto,
+  SyncAmisRecruitmentBoardMembersDto,
 } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { ExtensionInstancesService } from './extension-instances.service';
 import { AmisRecruitmentRoundsService } from './amis-recruitment-rounds.service';
+import { AmisRecruitmentBoardMembersService } from './amis-recruitment-board-members.service';
 
 type HeaderValue = string | string[] | undefined;
 
@@ -54,6 +56,7 @@ export class ExtensionIntegrationController {
     private readonly extensionIntegrationService: ExtensionIntegrationService,
     private readonly extensionInstancesService: ExtensionInstancesService,
     private readonly amisRecruitmentRoundsService: AmisRecruitmentRoundsService,
+    private readonly amisRecruitmentBoardMembersService: AmisRecruitmentBoardMembersService,
   ) {}
 
   @Post('job-postings/sync-and-publish')
@@ -277,6 +280,24 @@ export class ExtensionIntegrationController {
   @ApiOperation({ summary: 'List the persisted active rounds for an AMIS recruitment' })
   async listRecruitmentRounds(@Param('amisRecruitmentId') amisRecruitmentId: string) {
     const data = await this.amisRecruitmentRoundsService.list(amisRecruitmentId);
+    return this.successResponse(data);
+  }
+
+  @Post('recruitments/:amisRecruitmentId/board-members/sync')
+  @ApiOperation({ summary: 'Persist the AMIS recruitment board members captured by the browser extension' })
+  @ApiBody({ type: SyncAmisRecruitmentBoardMembersDto })
+  async syncRecruitmentBoardMembers(
+    @Param('amisRecruitmentId') amisRecruitmentId: string,
+    @Body() dto: SyncAmisRecruitmentBoardMembersDto,
+  ) {
+    const data = await this.amisRecruitmentBoardMembersService.sync(amisRecruitmentId, dto);
+    return this.successResponse(data);
+  }
+
+  @Get('recruitments/:amisRecruitmentId/board-members')
+  @ApiOperation({ summary: 'List active AMIS recruitment board members and their VCS mappings' })
+  async listRecruitmentBoardMembers(@Param('amisRecruitmentId') amisRecruitmentId: string) {
+    const data = await this.amisRecruitmentBoardMembersService.listActive(amisRecruitmentId);
     return this.successResponse(data);
   }
 

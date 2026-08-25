@@ -11,6 +11,7 @@ import {
   AmisHrMappingEntity,
   AmisApplicationStageReminderEntity,
   AmisRecruitmentRoundEntity,
+  AmisRecruitmentBoardMemberEntity,
 } from './entities';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -35,6 +36,7 @@ import { VcsPortalClientService } from './vcs-portal-client.service';
 import { VcsPortalJdMapper } from './vcs-portal-jd.mapper';
 import { VcsPortalJdSyncService } from './vcs-portal-jd-sync.service';
 import { AmisRecruitmentRoundsService } from './amis-recruitment-rounds.service';
+import { AmisRecruitmentBoardMembersService } from './amis-recruitment-board-members.service';
 import { NotificationModule } from '../notification/notification.module';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
 import { ChannelPublishingController } from './channel-publishing/channel-publishing.controller';
@@ -54,6 +56,7 @@ import { TopCvMapper } from './channel-publishing/topcv/topcv.mapper';
       AmisHrMappingEntity,
       AmisApplicationStageReminderEntity,
       AmisRecruitmentRoundEntity,
+      AmisRecruitmentBoardMemberEntity,
       AuditLogEntity,
       UserEntity,
       JobDescriptionEntity,
@@ -85,6 +88,7 @@ import { TopCvMapper } from './channel-publishing/topcv/topcv.mapper';
     VcsPortalJdMapper,
     VcsPortalJdSyncService,
     AmisRecruitmentRoundsService,
+    AmisRecruitmentBoardMembersService,
     ChannelPublishingService,
     TopCvMapper,
   ],

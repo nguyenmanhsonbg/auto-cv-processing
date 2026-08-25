@@ -128,7 +128,7 @@ export class InterviewEvaluationsController {
 
   @Post('rounds/:roundId/next')
   @Roles(UserRole.ADMIN, UserRole.HR)
-  @ApiOperation({ summary: 'Create the next evaluation round from a completed round' })
+  @ApiOperation({ summary: 'Advance the single evaluation form to the next round' })
   async nextRound(
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
     @Param('roundId', ParseUUIDPipe) roundId: string,

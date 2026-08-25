@@ -60,6 +60,7 @@ import { getSelectedJobQuestionContextForTab, getSelectedJobQuestionIdsForTab } 
 import { resolveSelectedVcsJobDescriptionId } from '@/integrations/amis/amis-auto-sync-payload';
 import type {
   AmisDiagnosticEvent,
+  AmisCandidateStageChangedPayload,
   AmisExtractionResult,
   AmisJobSnapshot,
   AmisAutoSyncState,
@@ -102,6 +103,7 @@ installAmisDebuggerCapture(
   (capture, sender) => handleAmisSaved(capture, sender),
   (capture, sender) => handleAmisCareersCaptured(capture, sender),
   (capture, sender) => handleAmisApplicationsCaptured(capture, sender),
+  (capture, sender) => handleAmisCandidateStageCaptured(capture, sender),
 );
 
 chrome.runtime?.onInstalled.addListener(() => {
@@ -1086,6 +1088,18 @@ async function handleAmisApplicationsCaptured(
       details: toAutoSyncError(error),
     });
   }
+}
+
+async function handleAmisCandidateStageCaptured(
+  capture: AmisCandidateStageChangedPayload,
+  sender: ChromeMessageSender,
+) {
+  // The page hook remains the primary path. The debugger path is a fallback
+  // for AMIS requests that are not visible through the page's fetch/XHR realm.
+  // Relay the same contract so the side panel keeps one update pipeline.
+  await chrome.runtime?.sendMessage?.(
+    createAmisCandidateStageRelayMessage(capture, sender.tab?.id),
+  ).catch(() => undefined);
 }
 
 async function handleAmisSourceColumnData(

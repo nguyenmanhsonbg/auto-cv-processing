@@ -7,3 +7,4 @@ export * from './extension-idempotency-record.entity';
 export * from './amis-hr-mapping.entity';
 export * from './amis-application-stage-reminder.entity';
 export * from './amis-recruitment-round.entity';
+export * from './amis-recruitment-board-member.entity';

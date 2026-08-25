@@ -1,5 +1,6 @@
 import {
   Entity,
+  Index,
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
@@ -14,6 +15,10 @@ export class UserEntity {
 
   @Column({ unique: true })
   email: string;
+
+  @Index('UQ_users_amis_user_id', { unique: true })
+  @Column({ name: 'amis_user_id', type: 'varchar', nullable: true })
+  amisUserId: string | null;
 
   @Column()
   name: string;

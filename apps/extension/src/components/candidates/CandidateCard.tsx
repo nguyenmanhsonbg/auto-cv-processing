@@ -1,17 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type React from 'react';
 import type { AmisApplicationsForRecruitment, AmisRecruitmentRound } from '@/types/types';
 import type {
-  InterviewCommittee,
   InterviewEvaluationSummary,
-  InterviewEvaluationTemplate,
 } from '@/types/types';
 import { CandidateAvatar } from './CandidateAvatar';
 import { SourceIcon } from '@/components/icons';
 import {
   createInterviewEvaluationCase,
   getInterviewEvaluationSummary,
-  listInterviewCommittees,
 } from '@/lib/api-client';
 import { FRONTEND_BASE_URL } from '@/lib/config';
 
@@ -62,17 +59,7 @@ export function CandidateCard({
   const [evaluationSummary, setEvaluationSummary] = useState<InterviewEvaluationSummary | null>(null);
   const [evaluationLoading, setEvaluationLoading] = useState(false);
   const [evaluationError, setEvaluationError] = useState<string | null>(null);
-  const [evaluationDialogOpen, setEvaluationDialogOpen] = useState(false);
-  const [evaluationTemplate, setEvaluationTemplate] = useState<InterviewEvaluationTemplate>('BM04.1_KNL');
-  const [committees, setCommittees] = useState<InterviewCommittee[]>([]);
-  const [selectedCommitteeId, setSelectedCommitteeId] = useState<string | null>(null);
-  const [expandedCommitteeId, setExpandedCommitteeId] = useState<string | null>(null);
-  const [selectedCommitteeUserIds, setSelectedCommitteeUserIds] = useState<string[]>([]);
-  const [committeeLoading, setCommitteeLoading] = useState(false);
-  const [committeeLoaded, setCommitteeLoaded] = useState(false);
   const [evaluationCreating, setEvaluationCreating] = useState(false);
-  const evaluationActionButtonRef = useRef<HTMLButtonElement>(null);
-  const evaluationCloseButtonRef = useRef<HTMLButtonElement>(null);
   const candidateStages = getAmisCandidateStageOptions(amisRecruitmentRounds, application);
   const currentStageIndex = getAmisCandidateStageIndex(
     candidateStages,
@@ -83,31 +70,9 @@ export function CandidateCard({
   const isInterviewRound = isAmisInterviewRound(currentAmisRound);
   const evaluationStartRound = getEvaluationStartRound(application, currentAmisRound, isInterviewRound);
   const canInitializeEvaluation = Boolean(evaluationStartRound);
-  const evaluationRoundName = getEvaluationRoundName(
-    isInterviewRound,
-    currentAmisRound,
-    evaluationSummary,
-    evaluationStartRound,
-  );
   const evaluationVisible = isInterviewRound
     || Boolean(application.interviewEvaluationStartedAt)
     || Boolean(evaluationSummary?.hasCase);
-
-  useEffect(() => {
-    if (!evaluationDialogOpen) return undefined;
-    evaluationCloseButtonRef.current?.focus();
-    const handleDialogKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setEvaluationDialogOpen(false);
-      }
-    };
-    document.addEventListener('keydown', handleDialogKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleDialogKeyDown);
-      evaluationActionButtonRef.current?.focus();
-    };
-  }, [evaluationDialogOpen]);
 
   useEffect(() => {
     let disposed = false;
@@ -141,30 +106,6 @@ export function CandidateCard({
     token,
   ]);
 
-  useEffect(() => {
-    if (!canInitializeEvaluation || !evaluationDialogOpen || evaluationSummary?.hasCase || !token || committeeLoaded) return undefined;
-    let disposed = false;
-    setCommitteeLoading(true);
-    listInterviewCommittees(token)
-      .then((items) => {
-        if (!disposed) setCommittees(items);
-      })
-      .catch(() => {
-        if (!disposed) setEvaluationError('Không tải được danh sách hội đồng chuyên môn.');
-      })
-      .finally(() => {
-        if (!disposed) {
-          setCommitteeLoading(false);
-          setCommitteeLoaded(true);
-        }
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [canInitializeEvaluation, committeeLoaded, evaluationDialogOpen, evaluationSummary?.hasCase, token]);
-
-  const evaluationActionLabel = getInterviewEvaluationActionLabel(evaluationSummary, evaluationRoundName);
-
   function openEvaluationPage() {
     const evaluationUrl = `${FRONTEND_BASE_URL}/interview-evaluations/${encodeURIComponent(application.applicationId)}`;
     if (chrome.tabs?.create) {
@@ -174,31 +115,13 @@ export function CandidateCard({
     window.open(evaluationUrl, '_blank', 'noopener,noreferrer');
   }
 
-  function handleEvaluationAction() {
-    if (!evaluationSummary || evaluationLoading) return;
+  async function handleEvaluationAction() {
+    if (!evaluationSummary || evaluationLoading || evaluationCreating || !token) return;
     if (evaluationSummary.hasCase) {
       openEvaluationPage();
       return;
     }
-    if (!canInitializeEvaluation) return;
-    setSelectedCommitteeId(null);
-    setExpandedCommitteeId(null);
-    setSelectedCommitteeUserIds([]);
-    setCommitteeLoaded(false);
-    setEvaluationError(null);
-    setEvaluationDialogOpen(true);
-  }
-
-  async function handleCreateEvaluationCase() {
-    if (!evaluationStartRound) return;
-    if (!token || evaluationCreating || !selectedCommitteeId || selectedCommitteeUserIds.length === 0) {
-      if (!selectedCommitteeId) {
-        setEvaluationError('Vui lòng chọn một hội đồng chuyên môn.');
-      } else if (selectedCommitteeUserIds.length === 0) {
-        setEvaluationError('Vui lòng chọn ít nhất một thành viên HĐCM.');
-      }
-      return;
-    }
+    if (!canInitializeEvaluation || !evaluationStartRound) return;
     setEvaluationCreating(true);
     setEvaluationError(null);
     try {
@@ -207,33 +130,16 @@ export function CandidateCard({
         amisRoundId: evaluationStartRound.id,
         amisRoundType: evaluationStartRound.roundType ?? undefined,
         amisSortOrder: evaluationStartRound.sortOrder,
-        template: evaluationTemplate,
-        committeeId: selectedCommitteeId,
-        committeeUserIds: selectedCommitteeUserIds,
+        template: 'BM04.1_KNL',
       });
-      setEvaluationDialogOpen(false);
-      openEvaluationPage();
       const summary = await getInterviewEvaluationSummary(token, application.applicationId);
       setEvaluationSummary(summary);
+      openEvaluationPage();
     } catch {
       setEvaluationError('Không thể tạo phiếu đánh giá. Vui lòng thử lại.');
     } finally {
       setEvaluationCreating(false);
     }
-  }
-
-  function handleCommitteeSelect(committee: InterviewCommittee) {
-    setSelectedCommitteeId(committee.id);
-    setExpandedCommitteeId(committee.id);
-    setSelectedCommitteeUserIds(committee.members.map((member) => member.id));
-    setEvaluationError(null);
-  }
-
-  function toggleCommitteeMember(userId: string) {
-    setSelectedCommitteeUserIds((currentIds) => currentIds.includes(userId)
-      ? currentIds.filter((currentId) => currentId !== userId)
-      : [...currentIds, userId]);
-    setEvaluationError(null);
   }
 
   const syncStatus = getApplicationAmisSyncStatus(application);
@@ -346,43 +252,26 @@ export function CandidateCard({
               <strong>{aiEvaluationStatus.label}</strong>
             </div>
           </div>
-          {evaluationVisible ? <div className="cv-candidate-evaluation">
-            <div className="cv-candidate-evaluation-heading">
-              <div>
-                <small>PHIẾU ĐÁNH GIÁ PHỎNG VẤN</small>
-                <strong>
-                  {evaluationLoading
-                    ? 'Đang tải...'
-                    : evaluationRoundName}
-                </strong>
-              </div>
-              {evaluationSummary?.hasCase ? (
-                <span className={`cv-evaluation-status is-${getEvaluationStatusTone(evaluationSummary.currentRound.status)}`}>
-                  {getEvaluationStatusLabel(evaluationSummary.currentRound.status)}
-                </span>
-              ) : null}
-            </div>
-            <div className="cv-candidate-evaluation-meta">
-              {evaluationSummary?.hasCase
-                ? `Đã gửi ${evaluationSummary.reviewerProgress.submitted}/${evaluationSummary.reviewerProgress.total} đánh giá`
-                : 'Chưa khởi tạo phiếu cho ứng viên này'}
-            </div>
-            <button
-              type="button"
-              className="cv-evaluation-button"
-              ref={evaluationActionButtonRef}
-              disabled={evaluationLoading || !evaluationSummary?.canView || !canInitializeEvaluation}
-              onClick={handleEvaluationAction}
-            >
-              {evaluationActionLabel}
-            </button>
-            {evaluationError ? <span className="cv-evaluation-error">{evaluationError}</span> : null}
-          </div> : null}
           <div className="cv-candidate-note">
             <span className="cv-candidate-note-label">Ghi chú của CV</span>
             <span>{application.cvNote?.trim() || 'CV này không có ghi chú nào.'}</span>
           </div>
         </div>
+        {evaluationVisible ? (
+          <div className="cv-candidate-evaluation-action">
+            <button
+              type="button"
+              className="cv-evaluation-button"
+              aria-busy={evaluationLoading || evaluationCreating}
+              aria-label="Đánh giá sau phỏng vấn"
+              disabled={evaluationLoading || evaluationCreating || !evaluationSummary?.canView || !canInitializeEvaluation}
+              onClick={() => void handleEvaluationAction()}
+            >
+              Đánh giá sau phỏng vấn
+            </button>
+            {evaluationError ? <span className="cv-evaluation-error" role="alert">{evaluationError}</span> : null}
+          </div>
+        ) : null}
         <div className="cv-candidate-footer">
           {canShowAmisSyncButton && isAmisCandidateFormOpen ? (
             <button
@@ -421,90 +310,6 @@ export function CandidateCard({
             </button>
           ) : null}
         </div>
-        {canInitializeEvaluation && evaluationDialogOpen ? (
-          <div className="interview-evaluation-confirm-backdrop" role="presentation">
-            <section className="interview-evaluation-confirm-modal" role="dialog" aria-modal="true" aria-labelledby={`evaluation-dialog-title-${application.applicationId}`}>
-              <div className="interview-evaluation-confirm-header">
-                <div>
-                  <small>KHỞI TẠO PHIẾU</small>
-                  <h2 id={`evaluation-dialog-title-${application.applicationId}`}>Đánh giá {evaluationRoundName}</h2>
-                </div>
-                <button ref={evaluationCloseButtonRef} type="button" className="interview-evaluation-close-button" onClick={() => setEvaluationDialogOpen(false)} aria-label="Đóng">
-                  ×
-                </button>
-              </div>
-              <div className="interview-evaluation-confirm-grid">
-                <div><span>Ứng viên</span><strong>{application.candidateName}</strong></div>
-                <div><span>JD</span><strong>{evaluationSummary?.job.title ?? 'Chưa xác định'}</strong></div>
-                <div><span>Vòng</span><strong>{evaluationRoundName}</strong></div>
-                <label>
-                  <span>Mẫu đánh giá</span>
-                  <select value={evaluationTemplate} onChange={(event) => setEvaluationTemplate(event.target.value as InterviewEvaluationTemplate)}>
-                    <option value="BM04.1_KNL">BM04.1 - KNL</option>
-                    <option value="BM04.2_CAREERPATH">BM04.2 - Careerpath</option>
-                  </select>
-                </label>
-              </div>
-              <div className="interview-evaluation-committee-picker">
-                <span className="interview-evaluation-field-label">Hội đồng chuyên môn</span>
-                {committeeLoading ? <p>Đang tải danh sách hội đồng...</p> : null}
-                {!committeeLoading && committees.length === 0 ? <p>Chưa có hội đồng chuyên môn đang hoạt động.</p> : null}
-                {committees.map((committee) => (
-                  <div key={committee.id} className="interview-evaluation-committee-option">
-                    <div className="interview-evaluation-committee-option-header">
-                      <label className="interview-evaluation-committee-choice">
-                        <input
-                          type="radio"
-                          name={`interview-committee-${application.applicationId}`}
-                          checked={selectedCommitteeId === committee.id}
-                          onChange={() => handleCommitteeSelect(committee)}
-                        />
-                        <span>
-                          <strong>{committee.name}</strong>
-                          <small>{committee.memberCount} thành viên · {selectedCommitteeId === committee.id ? `${selectedCommitteeUserIds.length} người được chọn` : 'Chọn để phân công'}</small>
-                        </span>
-                      </label>
-                      <button
-                        type="button"
-                        className="interview-evaluation-expand-button"
-                        aria-expanded={expandedCommitteeId === committee.id}
-                        aria-controls={`committee-members-${application.applicationId}-${committee.id}`}
-                        aria-label={`${expandedCommitteeId === committee.id ? 'Thu gọn' : 'Mở rộng'} ${committee.name}`}
-                        onClick={() => setExpandedCommitteeId((currentId) => currentId === committee.id ? null : committee.id)}
-                      >
-                        {expandedCommitteeId === committee.id ? '⌃' : '⌄'}
-                      </button>
-                    </div>
-                    {expandedCommitteeId === committee.id ? (
-                      <div id={`committee-members-${application.applicationId}-${committee.id}`} className="interview-evaluation-committee-members">
-                        {committee.members.map((member) => (
-                          <label key={member.id} className="interview-evaluation-member-option">
-                            <input
-                              type="checkbox"
-                              checked={selectedCommitteeUserIds.includes(member.id)}
-                              disabled={selectedCommitteeId !== committee.id}
-                              onChange={() => toggleCommitteeMember(member.id)}
-                            />
-                            <span>
-                              <strong>{member.name}</strong>
-                              <small>{member.email}</small>
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-              <div className="interview-evaluation-confirm-actions">
-                <button type="button" className="interview-evaluation-secondary-button" onClick={() => setEvaluationDialogOpen(false)}>Hủy</button>
-                <button type="button" className="interview-evaluation-primary-button" disabled={evaluationCreating || committeeLoading || !selectedCommitteeId || selectedCommitteeUserIds.length === 0} onClick={handleCreateEvaluationCase}>
-                  {evaluationCreating ? 'Đang tạo...' : 'Tiếp tục đánh giá'}
-                </button>
-              </div>
-            </section>
-          </div>
-        ) : null}
       </div>
     </li>
   );
@@ -533,58 +338,6 @@ function getEvaluationStartRound(
   }
 
   return isInterviewRound ? currentAmisRound : undefined;
-}
-
-function getEvaluationRoundName(
-  isInterviewRound: boolean,
-  currentAmisRound: AmisRecruitmentRound | undefined,
-  summary: InterviewEvaluationSummary | null,
-  evaluationStartRound: AmisRecruitmentRound | undefined,
-) {
-  if (isInterviewRound && currentAmisRound) return currentAmisRound.name;
-  if (summary?.hasCase) return summary.currentRound.name;
-  if (evaluationStartRound) return evaluationStartRound.name;
-  return 'Vòng phỏng vấn';
-}
-
-function getInterviewEvaluationActionLabel(summary: InterviewEvaluationSummary | null, roundName: string) {
-  if (!summary) return `Đánh giá ${roundName}`;
-  if (!summary.hasCase) return `Đánh giá ${roundName}`;
-  switch (summary.currentRound.status) {
-    case 'DRAFT':
-    case 'NEEDS_REVISION':
-      return summary.currentRound.status === 'DRAFT' ? 'Tiếp tục đánh giá' : 'Bổ sung đánh giá';
-    case 'COMPLETED':
-    case 'LOCKED':
-      return 'Xem phiếu đánh giá';
-    case 'WAITING_COMMITTEE':
-    case 'IN_REVIEW':
-    case 'WAITING_AGGREGATION':
-      return 'Xem tiến độ';
-    default:
-      return `Đánh giá vòng ${summary.currentRound.name}`;
-  }
-}
-
-function getEvaluationStatusLabel(status: string | null) {
-  if (!status) return 'Chưa khởi tạo';
-  const labels: Record<string, string> = {
-    READY_TO_EVALUATE: 'Sẵn sàng đánh giá',
-    DRAFT: 'Bản nháp',
-    WAITING_COMMITTEE: 'Chờ HĐCM',
-    IN_REVIEW: 'Đang đánh giá',
-    WAITING_AGGREGATION: 'Chờ tổng hợp',
-    NEEDS_REVISION: 'Cần bổ sung',
-    COMPLETED: 'Đã hoàn tất',
-    LOCKED: 'Đã khóa',
-  };
-  return labels[status] ?? status;
-}
-
-function getEvaluationStatusTone(status: string | null) {
-  if (status === 'COMPLETED' || status === 'LOCKED') return 'success';
-  if (status === 'WAITING_COMMITTEE' || status === 'WAITING_AGGREGATION') return 'warning';
-  return 'active';
 }
 
 export function truncateCandidateName(value: string) {

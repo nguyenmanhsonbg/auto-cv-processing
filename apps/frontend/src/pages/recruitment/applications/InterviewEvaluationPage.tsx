@@ -364,7 +364,10 @@ export function InterviewEvaluationPage() {
     try {
       const nextDetail = await createNextInterviewEvaluationRound(applicationId, detail.currentRound.id);
       applyDetail(nextDetail);
-      toast({ title: 'Đã chuyển vòng', description: `Đã tạo phiếu ${nextDetail.currentRound.name}.` });
+      toast({
+        title: 'Đã chuyển vòng',
+        description: `Tiếp tục đánh giá trên cùng phiếu ${nextDetail.currentRound.name}; dữ liệu trước đó vẫn được giữ nguyên.`,
+      });
     } catch (nextError) {
       setError(getInternalSafeErrorMessage(nextError));
     } finally {

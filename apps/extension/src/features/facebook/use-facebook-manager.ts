@@ -564,15 +564,12 @@ export function useFacebookManager({
     if (files.length === 0) return;
 
     const availableSlots = FACEBOOK_MAX_IMAGE_ATTACHMENTS - facebookImageAttachments.length;
-    if (availableSlots <= 0 || files.length > availableSlots) {
-      setFacebookImageAttachmentState('ERROR');
-      setFacebookImageAttachmentError(`Bài đăng chỉ được tối đa ${FACEBOOK_MAX_IMAGE_ATTACHMENTS} ảnh.`);
-      return;
-    }
+    if (availableSlots <= 0) return;
+    const filesToProcess = files.slice(0, availableSlots);
 
     const readSeq = facebookImageReadSeqRef.current + 1;
     facebookImageReadSeqRef.current = readSeq;
-    const validationError = files
+    const validationError = filesToProcess
       .map((file) => getFacebookImageFileValidationError(file))
       .find(Boolean) ?? null;
     if (validationError) {
@@ -584,7 +581,7 @@ export function useFacebookManager({
     setFacebookImageAttachmentState('READING');
     setFacebookImageAttachmentError(null);
     try {
-      const dataUrls = await Promise.all(files.map((file) => readFileAsDataUrl(file)));
+      const dataUrls = await Promise.all(filesToProcess.map((file) => readFileAsDataUrl(file)));
       if (facebookImageReadSeqRef.current !== readSeq) return;
       const existingContentKeys = new Set(
         facebookImageAttachments.map((attachment) => getFacebookImageContentKey(attachment.dataUrl)),
@@ -604,7 +601,7 @@ export function useFacebookManager({
         return;
       }
 
-      const newAttachments = files.map((file, index): FacebookPublishAttachment => ({
+      const newAttachments = filesToProcess.map((file, index): FacebookPublishAttachment => ({
         type: 'IMAGE',
         source: 'LOCAL_UPLOAD',
         fileName: file.name || 'facebook-image',

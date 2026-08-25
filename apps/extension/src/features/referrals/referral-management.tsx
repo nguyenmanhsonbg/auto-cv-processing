@@ -846,7 +846,7 @@ export function ReferralManagementPanel({
 
   const title = source === 'FREELANCER' ? 'Freelancer' : 'Nội bộ';
   const emptyText = source === 'FREELANCER'
-    ? 'Chưa có Freelancer nào.'
+    ? 'Chưa có nhân sự Freelancer nào'
     : 'Chưa có người Nội bộ nào.';
   const hasActiveFilter = Boolean(search.trim())
     || cvStatusFilter !== 'ALL'
@@ -869,7 +869,7 @@ export function ReferralManagementPanel({
   }
 
   return (
-    <div className="referral-management-panel">
+    <div className={`referral-management-panel ${source === 'FREELANCER' ? 'is-freelancer' : 'is-internal'}`}>
       <ReferralFilters
         source={source}
         search={search}

@@ -7,6 +7,7 @@ import type {
   AmisExtractionResult,
   AmisJobSnapshot,
   AmisRecruitmentRound,
+  AmisRecruitmentBoardMember,
   JobDescriptionSummary,
 } from '@/types/types';
 import { normalizeOptionalText, truncateForMaxLength, wait } from '@/lib/utils';
@@ -17,6 +18,7 @@ export const UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE = 'VCS_UPLOAD_AMIS_CV_FILE';
 export const SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE = 'VCS_SELECT_AMIS_CANDIDATE_SOURCE';
 export const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 export const GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_ROUNDS';
+export const GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_BOARD_MEMBERS';
 export const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 export const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 export const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_STAGE_CHANGED';
@@ -564,6 +566,41 @@ export function isAmisRecruitmentRoundsResponse(value: unknown): value is {
     && typeof (value as { sourceUrl?: unknown }).sourceUrl === 'string'
     && Array.isArray((value as { rounds?: unknown }).rounds)
     && (value as { rounds: unknown[] }).rounds.every(isAmisRecruitmentRound)
+  );
+}
+
+export function isAmisRecruitmentBoardMembersResponse(value: unknown): value is {
+  ok: boolean;
+  amisRecruitmentId: string | null;
+  members: AmisRecruitmentBoardMember[];
+  sourceUrl: string;
+  error?: string;
+} {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && typeof (value as { ok?: unknown }).ok === 'boolean'
+    && (typeof (value as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string'
+      || (value as { amisRecruitmentId?: unknown }).amisRecruitmentId === null)
+    && typeof (value as { sourceUrl?: unknown }).sourceUrl === 'string'
+    && Array.isArray((value as { members?: unknown }).members)
+    && (value as { members: unknown[] }).members.every(isAmisRecruitmentBoardMember)
+  );
+}
+
+export function isAmisRecruitmentBoardMember(value: unknown): value is AmisRecruitmentBoardMember {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && ((value as { amisBoardId?: unknown }).amisBoardId === null
+      || typeof (value as { amisBoardId?: unknown }).amisBoardId === 'string')
+    && typeof (value as { amisUserId?: unknown }).amisUserId === 'string'
+    && typeof (value as { fullName?: unknown }).fullName === 'string'
+    && ((value as { email?: unknown }).email === null
+      || typeof (value as { email?: unknown }).email === 'string')
+    && typeof (value as { isAdmin?: unknown }).isAdmin === 'boolean'
+    && typeof (value as { isViewOffer?: unknown }).isViewOffer === 'boolean'
+    && typeof (value as { isPushNotification?: unknown }).isPushNotification === 'boolean'
   );
 }
 

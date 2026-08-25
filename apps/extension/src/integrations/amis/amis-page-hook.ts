@@ -1,4 +1,4 @@
-import type { AmisRecruitmentRound } from '@/types/types';
+import type { AmisCandidateStageChangedPayload, AmisRecruitmentRound } from '@/types/types';
 import { extractAmisJobStatusUpdate } from '@/integrations/amis/amis-job-status';
 import { removeHorizontalWhitespaceBeforeNewlines } from '@/text-normalization';
 
@@ -8,6 +8,7 @@ const AMIS_SAVE_RECRUITMENT_PATH = '/RecruitmentAPI/api/recruitment/SaveRecruitm
 const AMIS_UPDATE_RECRUITMENT_FIELD_PATH = '/recruitmentapi/api/recruitment/update-field';
 const AMIS_CANDIDATE_ADDITIONAL_INFO_PATH = '/RecruitmentAPI/api/Candidate/candidate-additional-infor/';
 const AMIS_CANDIDATE_UPDATE_ROUND_PATH = '/RecruitmentAPI/api/RecruitmentDetail/updateRound';
+const AMIS_CANDIDATE_ROUND_TIME_PAGING_PATH = '/RecruitmentAPI/api/RecruitmentRoundTime/paging';
 const AMIS_RECRUITMENT_ROUNDS_PATHS = [
   '/RecruitmentAPI/api/recruitment/detail-round-info/',
   '/RecruitmentAPI/api/recruitment/round-period/',
@@ -17,31 +18,39 @@ const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_CANDIDATE_STAGE_CHAN
 const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_RECRUITMENT_ROUNDS_CHANGED';
 const HOOK_INSTALLED_KEY = '__VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__';
 const FETCH_HOOK_INSTALLED_KEY = '__VCS_AMIS_FETCH_HOOK_INSTALLED__';
+const XHR_HOOK_VERSION_KEY = '__VCS_AMIS_XHR_HOOK_VERSION__';
+const FETCH_HOOK_VERSION_KEY = '__VCS_AMIS_FETCH_HOOK_VERSION__';
+const AMIS_PAGE_HOOK_VERSION = '2026-08-25-round-change-v2';
 
 const hookWindow = window as Window & {
   __VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__?: boolean;
   __VCS_AMIS_FETCH_HOOK_INSTALLED__?: boolean;
+  __VCS_AMIS_XHR_HOOK_VERSION__?: string;
+  __VCS_AMIS_FETCH_HOOK_VERSION__?: string;
 };
 
 schedulePageHooksAfterBootstrap();
 
 function schedulePageHooksAfterBootstrap() {
   const install = () => {
-    if (!hookWindow[HOOK_INSTALLED_KEY]) {
-      hookWindow[HOOK_INSTALLED_KEY] = true;
+    if (hookWindow[XHR_HOOK_VERSION_KEY] !== AMIS_PAGE_HOOK_VERSION) {
       installXhrHook();
+      hookWindow[HOOK_INSTALLED_KEY] = true;
+      hookWindow[XHR_HOOK_VERSION_KEY] = AMIS_PAGE_HOOK_VERSION;
       publishDiagnostic('HOOK_READY', {
         details: {
           watchedTransport: 'xhr',
           trigger: 'XMLHttpRequest.loadend',
           installPhase: 'after-window-load',
+          hookVersion: AMIS_PAGE_HOOK_VERSION,
         },
       });
     }
 
-    if (!hookWindow[FETCH_HOOK_INSTALLED_KEY]) {
-      hookWindow[FETCH_HOOK_INSTALLED_KEY] = true;
+    if (hookWindow[FETCH_HOOK_VERSION_KEY] !== AMIS_PAGE_HOOK_VERSION) {
       installFetchHook();
+      hookWindow[FETCH_HOOK_INSTALLED_KEY] = true;
+      hookWindow[FETCH_HOOK_VERSION_KEY] = AMIS_PAGE_HOOK_VERSION;
     }
   };
 
@@ -145,6 +154,13 @@ function installXhrHook() {
       }, { once: true });
     }
 
+    if (requestUrl && isAmisCandidateRoundTimePagingUrl(requestUrl)) {
+      this.addEventListener('loadend', () => {
+        if (this.status < 200 || this.status >= 300) return;
+        publishCandidateStagesFromRoundTimeResponse(readXhrJson(this), requestUrl);
+      }, { once: true });
+    }
+
     if (requestUrl && isAmisRecruitmentRoundsUrl(requestUrl)) {
       this.addEventListener('loadend', () => {
         if (this.status < 200 || this.status >= 300) return;
@@ -214,6 +230,13 @@ function inspectTrackedFetchResponse(
     return;
   }
 
+  if (isAmisCandidateRoundTimePagingUrl(requestUrl)) {
+    void response.clone().text()
+      .then((text) => publishCandidateStagesFromRoundTimeResponse(parseJsonText(text), requestUrl))
+      .catch(() => undefined);
+    return;
+  }
+
   if (isAmisRecruitmentRoundsUrl(requestUrl)) {
     void response.clone().text()
       .then((text) => publishRecruitmentRounds(parseJsonText(text), requestUrl))
@@ -229,6 +252,7 @@ function inspectTrackedFetchResponse(
 function isTrackedFetchUrl(url: string) {
   return isAmisCandidateAdditionalInfoUrl(url)
     || isAmisCandidateUpdateRoundUrl(url)
+    || isAmisCandidateRoundTimePagingUrl(url)
     || isAmisRecruitmentRoundsUrl(url)
     || isAmisUpdateRecruitmentFieldUrl(url);
 }
@@ -324,6 +348,22 @@ function publishCandidateStagesFromUpdateRoundRequest(requestJson: unknown, requ
   }
 }
 
+function publishCandidateStagesFromRoundTimeResponse(responseJson: unknown, requestUrl: string) {
+  const stages = mapAmisCandidateStageRoundTimeResponse(
+    responseJson,
+    new URL(requestUrl, window.location.origin).toString(),
+    window.location.href,
+  );
+
+  for (const stage of stages) {
+    window.postMessage({
+      source: 'vcs-recruitment-extension',
+      type: AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE,
+      payload: stage,
+    }, window.location.origin);
+  }
+}
+
 function publishRecruitmentRounds(responseJson: unknown, requestUrl: string) {
   const capture = mapAmisRecruitmentRoundsResponse(responseJson, requestUrl, window.location.href);
   if (!capture) return;
@@ -401,6 +441,10 @@ function isAmisCandidateAdditionalInfoUrl(url: string) {
 
 function isAmisCandidateUpdateRoundUrl(url: string) {
   return url.toLowerCase().includes(AMIS_CANDIDATE_UPDATE_ROUND_PATH.toLowerCase());
+}
+
+function isAmisCandidateRoundTimePagingUrl(url: string) {
+  return url.toLowerCase().includes(AMIS_CANDIDATE_ROUND_TIME_PAGING_PATH.toLowerCase());
 }
 
 function isAmisRecruitmentRoundsUrl(url: string) {
@@ -590,6 +634,107 @@ function mapAmisCandidateStageRequest(
       isTransitionEvent: true,
     };
   });
+}
+
+function mapAmisCandidateStageRoundTimeResponse(
+  response: unknown,
+  sourceUrl: string,
+  pageUrl: string,
+) {
+  if (!isObject(response)) return [];
+  if ((response.Success ?? response.success) === false) return [];
+
+  const responseData = response.Data ?? response.data;
+  if (!isObject(responseData)) return [];
+
+  const rows = readFirstValue(responseData, ['PageData', 'pageData']);
+  if (!Array.isArray(rows)) return [];
+
+  const latestByApplication = new Map<string, Record<string, unknown>>();
+  for (const value of rows) {
+    if (!isObject(value)) continue;
+
+    const amisRecruitmentId = cleanText(readFirst(value, [
+      'RecruitmentID',
+      'RecruitmentId',
+      'recruitmentId',
+    ]));
+    const amisCandidateId = cleanText(readFirst(value, [
+      'CandidateID',
+      'CandidateId',
+      'candidateId',
+    ]));
+    const amisRecruitmentRoundId = cleanText(readFirst(value, [
+      'RecruitmentRoundID',
+      'RecruitmentRoundId',
+      'recruitmentRoundId',
+    ]));
+    if (!amisRecruitmentId || !amisCandidateId || !amisRecruitmentRoundId) continue;
+
+    const key = `${amisRecruitmentId}:${amisCandidateId}`;
+    const current = latestByApplication.get(key);
+    if (!current || compareAmisRoundTimeRows(value, current) > 0) {
+      latestByApplication.set(key, value);
+    }
+  }
+
+  return [...latestByApplication.values()].map((row) => ({
+    amisRecruitmentId: cleanText(readFirst(row, ['RecruitmentID', 'RecruitmentId', 'recruitmentId'])),
+    amisCandidateId: cleanText(readFirst(row, ['CandidateID', 'CandidateId', 'candidateId'])),
+    amisRecruitmentRoundId: cleanText(readFirst(row, [
+      'RecruitmentRoundID',
+      'RecruitmentRoundId',
+      'recruitmentRoundId',
+    ])),
+    amisRecruitmentRoundName: cleanText(readFirst(row, [
+      'RecruitmentRoundName',
+      'RecruitmentRound',
+      'recruitmentRoundName',
+    ])) || null,
+    reasonRemoved: cleanText(readFirst(row, [
+      'ReasonRemoved',
+      'ReasonRemovedName',
+      'reasonRemoved',
+      'reasonRemovedName',
+    ])) || null,
+    // State belongs to the round-time history row, not the candidate status.
+    amisStatus: null,
+    sourceUrl,
+    pageUrl,
+    changedAt: cleanText(readFirst(row, [
+      'ChangeRoundTime',
+      'changeRoundTime',
+      'ModifiedDate',
+      'modifiedDate',
+      'CreatedDate',
+      'createdDate',
+    ])) || new Date().toISOString(),
+    isTransitionEvent: false,
+  } satisfies AmisCandidateStageChangedPayload));
+}
+
+function compareAmisRoundTimeRows(left: Record<string, unknown>, right: Record<string, unknown>) {
+  const leftTime = Date.parse(readFirst(left, [
+    'ChangeRoundTime',
+    'changeRoundTime',
+    'ModifiedDate',
+    'modifiedDate',
+    'CreatedDate',
+    'createdDate',
+  ]));
+  const rightTime = Date.parse(readFirst(right, [
+    'ChangeRoundTime',
+    'changeRoundTime',
+    'ModifiedDate',
+    'modifiedDate',
+    'CreatedDate',
+    'createdDate',
+  ]));
+
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
+
+  return (readNumber(left, ['RecruitmentRoundTimeID', 'recruitmentRoundTimeId']) ?? 0)
+    - (readNumber(right, ['RecruitmentRoundTimeID', 'recruitmentRoundTimeId']) ?? 0);
 }
 
 function readAmisCandidateStageIds(value: unknown) {

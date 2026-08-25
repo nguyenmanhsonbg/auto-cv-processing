@@ -17,6 +17,7 @@ import type {
   AmisApplicationsForRecruitment,
   AmisRecruitmentJobDescriptionMapping,
   AmisRecruitmentRound,
+  AmisRecruitmentBoardMember,
   AmisCandidateStageChangedPayload,
   AmisCareerCatalogItem,
   AmisCareerQuestionContext,
@@ -634,6 +635,39 @@ export async function syncAmisRecruitmentRounds(
           roundType: round.roundType,
           roundTypeId: round.roundTypeId,
           color: round.color,
+        })),
+      },
+    },
+  );
+}
+
+export async function syncAmisRecruitmentBoardMembers(
+  accessToken: string,
+  amisRecruitmentId: string,
+  payload: { members: AmisRecruitmentBoardMember[]; sourceUrl?: string | null },
+) {
+  return request<{
+    amisRecruitmentId: string;
+    syncedCount: number;
+    revokedCount: number;
+    matchedCount: number;
+    unmatchedCount: number;
+    lastSyncedAt: string;
+  }>(
+    `/extension/amis/recruitments/${encodeURIComponent(amisRecruitmentId)}/board-members/sync`,
+    {
+      method: 'POST',
+      accessToken,
+      body: {
+        sourceUrl: payload.sourceUrl ?? undefined,
+        members: payload.members.map((member) => ({
+          amisBoardId: member.amisBoardId,
+          amisUserId: member.amisUserId,
+          fullName: member.fullName,
+          email: member.email,
+          isAdmin: member.isAdmin,
+          isViewOffer: member.isViewOffer,
+          isPushNotification: member.isPushNotification,
         })),
       },
     },

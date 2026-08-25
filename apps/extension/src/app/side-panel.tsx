@@ -31,9 +31,11 @@ import {
   runApplicationAiScreening,
   syncAmisApplications,
   syncAmisRecruitmentRounds,
+  syncAmisRecruitmentBoardMembers,
   syncAndPublishAmisJob,
   syncVcsPortalJobDescriptions,
   syncInterviewEvaluationContext,
+  createInterviewEvaluationCase,
   updateAmisApplicationStage,
   changePassword,
 } from '@/lib/api-client';
@@ -90,6 +92,7 @@ import {
   GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE,
   GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE,
   GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE,
+  GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE,
   SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE,
   UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
   buildAmisFormFillPayload,
@@ -108,6 +111,7 @@ import {
   isAmisRecruitmentContextResponse,
   isAmisRecruitmentRoundsChangedMessage,
   isAmisRecruitmentRoundsResponse,
+  isAmisRecruitmentBoardMembersResponse,
   isApplicationsSyncedMessage,
   isAutoSyncUpdateMessage,
   isConfirmedAmisCandidateSourceSelection,
@@ -129,6 +133,7 @@ import type {
   AmisExtractionResult,
   AmisJobSnapshot,
   AmisRecruitmentRound,
+  AmisRecruitmentBoardMember,
   ApiPagination,
   ExtensionChannel,
   ExtensionSyncResponse,
@@ -495,6 +500,9 @@ function SidePanel() {
     reasonRemoved: string | null;
   }>());
   const processedAmisCandidateStageEventsRef = useRef(new Map<string, string>());
+  const amisCandidateStageChangeHandlerRef = useRef<
+    (payload: AmisCandidateStageChangedPayload) => Promise<void>
+  >(async () => undefined);
   const pendingAmisUploadApplicationIdsRef = useRef(new Set<string>());
   const pendingAmisUploadTimeoutsRef = useRef(new Map<string, number>());
   const postingSnapshotRefreshSeqRef = useRef(0);
@@ -774,7 +782,7 @@ function SidePanel() {
       }
 
       if (isAmisCandidateStageChangedMessage(message)) {
-        void applyAmisCandidateStageChangedMessage(message.payload);
+        void amisCandidateStageChangeHandlerRef.current(message.payload);
         return;
       }
 
@@ -1251,9 +1259,27 @@ function SidePanel() {
     if (!accessToken) return;
 
     try {
+      try {
+        const activeTab = await getActiveTab();
+        await syncAmisRecruitmentBoardMembersFromTab(activeTab.id, payload.amisRecruitmentId);
+      } catch {
+        // The last persisted board snapshot remains authoritative when AMIS is temporarily unavailable.
+      }
+
       const stageUpdate = await updateAmisApplicationStage(accessToken, payload);
       const interviewRound = await findAmisInterviewRound(accessToken, payload, amisRecruitmentRounds);
       if (interviewRound && stageUpdate.applicationId) {
+        try {
+          await createInterviewEvaluationCase(accessToken, stageUpdate.applicationId, {
+            roundName: interviewRound.name,
+            amisRoundId: interviewRound.id,
+            amisRoundType: interviewRound.roundType ?? 3,
+            amisSortOrder: interviewRound.sortOrder,
+            template: 'BM04.1_KNL',
+          });
+        } catch {
+          setApplicationsMessage('Đã cập nhật vòng AMIS nhưng chưa khởi tạo được phiếu đánh giá.');
+        }
         try {
           await syncInterviewEvaluationContext(accessToken, stageUpdate.applicationId, {
             amisRoundId: interviewRound.id,
@@ -1298,6 +1324,11 @@ function SidePanel() {
       setApplicationsMessage(`Stage update could not be saved: ${toErrorMessage(err)}`);
     }
   }
+
+  // The runtime listener is intentionally installed once. Keep its handler
+  // pointed at the latest render so stage changes use current applications,
+  // rounds, and API callbacks while the AMIS popup remains open.
+  amisCandidateStageChangeHandlerRef.current = applyAmisCandidateStageChangedMessage;
 
   function mergeAmisCandidateStageOverrides(context: AmisApplicationsForRecruitment) {
     return {
@@ -1407,6 +1438,8 @@ function SidePanel() {
           roundsResponse.sourceUrl,
         );
       }
+
+      await syncAmisRecruitmentBoardMembersFromTab(activeTab.id, context.amisRecruitmentId);
     } catch {
       // The passive AMIS response capture may arrive shortly after route hydration.
     }
@@ -1435,6 +1468,41 @@ function SidePanel() {
     } catch {
       // Catalog persistence is best-effort and must not block CV or posting flows.
     }
+  }
+
+  async function persistAmisRecruitmentBoardMembersSnapshot(
+    recruitmentId: string,
+    members: AmisRecruitmentBoardMember[],
+    sourceUrl?: string,
+  ) {
+    const accessToken = tokenRef.current;
+    if (!accessToken || !recruitmentId.trim()) return;
+
+    try {
+      await syncAmisRecruitmentBoardMembers(accessToken, recruitmentId, { members, sourceUrl });
+    } catch {
+      // A stale board snapshot must not block existing AMIS application flows.
+    }
+  }
+
+  async function syncAmisRecruitmentBoardMembersFromTab(tabId: number, recruitmentId: string) {
+    const response = await sendMessageToAmisTab(tabId, {
+      type: GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE,
+      payload: { amisRecruitmentId: recruitmentId, force: true },
+    });
+    if (
+      !isAmisRecruitmentBoardMembersResponse(response)
+      || !response.ok
+      || response.amisRecruitmentId !== recruitmentId
+    ) {
+      return;
+    }
+
+    await persistAmisRecruitmentBoardMembersSnapshot(
+      response.amisRecruitmentId,
+      response.members,
+      response.sourceUrl,
+    );
   }
 
   async function refreshAmisRecruitmentContextFromActiveTab(options: { silent?: boolean; sourceTabId?: number } = {}) {
@@ -1611,6 +1679,13 @@ function SidePanel() {
 
       applyExtractionResult(capture);
       await selectExistingJobDescriptionForAmisCapture(capture, tokenRef.current, sourceTabId);
+      if (tokenRef.current) {
+        try {
+          await syncAmisRecruitmentBoardMembersFromTab(activeTab.id, capture.amisRecruitmentId);
+        } catch {
+          // The context refresh will retry the board snapshot after AMIS finishes saving the JD.
+        }
+      }
     } catch (err) {
       if (!(err instanceof ApiClientError && err.status === 401)) {
         setJobDescriptionError(toErrorMessage(err));
