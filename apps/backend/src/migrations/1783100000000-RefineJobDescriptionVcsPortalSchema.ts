@@ -42,29 +42,29 @@ export class RefineJobDescriptionVcsPortalSchema1783100000000 implements Migrati
         "overview" = COALESCE(
           "overview",
           NULLIF(COALESCE(
-            "requirements"->'overview'->>'text',
-            "requirements"->'overview'->>'rawText',
-            "requirements"->'overview'->>'html'
+            ("requirements"::jsonb)->'overview'->>'text',
+            ("requirements"::jsonb)->'overview'->>'rawText',
+            ("requirements"::jsonb)->'overview'->>'html'
           ), '')
         ),
         "responsibilities" = COALESCE(
           "responsibilities",
           NULLIF(COALESCE(
-            "requirements"->'responsibilities'->>'text',
-            "requirements"->'responsibilities'->>'rawText',
-            "requirements"->'responsibilities'->>'html'
+            ("requirements"::jsonb)->'responsibilities'->>'text',
+            ("requirements"::jsonb)->'responsibilities'->>'rawText',
+            ("requirements"::jsonb)->'responsibilities'->>'html'
           ), '')
         ),
         "salary" = COALESCE(
           "salary",
           NULLIF(
             CASE
-              WHEN jsonb_typeof("benefits"->'salary') = 'string'
-                THEN "benefits"->'salary' #>> '{}'
+              WHEN jsonb_typeof(("benefits"::jsonb)->'salary') = 'string'
+                THEN ("benefits"::jsonb)->'salary' #>> '{}'
               ELSE COALESCE(
-                "benefits"->'salary'->>'text',
-                "benefits"->'salary'->>'rawText',
-                "benefits"->'salary'->>'html'
+                ("benefits"::jsonb)->'salary'->>'text',
+                ("benefits"::jsonb)->'salary'->>'rawText',
+                ("benefits"::jsonb)->'salary'->>'html'
               )
             END,
             ''
@@ -75,13 +75,13 @@ export class RefineJobDescriptionVcsPortalSchema1783100000000 implements Migrati
           NULLIF(
             trim(
               CASE
-                WHEN jsonb_typeof("benefits"->'annualLeave') = 'string'
-                  THEN "benefits"->'annualLeave' #>> '{}'
+                WHEN jsonb_typeof(("benefits"::jsonb)->'annualLeave') = 'string'
+                  THEN ("benefits"::jsonb)->'annualLeave' #>> '{}'
                 ELSE COALESCE(
-                  "benefits"->'annualLeave'->>'text',
-                  "benefits"->'annualLeave'->>'rawText',
-                  "benefits"->'annualLeave'->>'html',
-                  "benefits"->'annualLeave'->>'days'
+                  ("benefits"::jsonb)->'annualLeave'->>'text',
+                  ("benefits"::jsonb)->'annualLeave'->>'rawText',
+                  ("benefits"::jsonb)->'annualLeave'->>'html',
+                  ("benefits"::jsonb)->'annualLeave'->>'days'
                 )
               END
             ),
@@ -103,12 +103,12 @@ export class RefineJobDescriptionVcsPortalSchema1783100000000 implements Migrati
           'insurance',
           NULLIF(
             CASE
-              WHEN jsonb_typeof("benefits"->'insurance') = 'string'
-                THEN "benefits"->'insurance' #>> '{}'
+              WHEN jsonb_typeof(("benefits"::jsonb)->'insurance') = 'string'
+                THEN ("benefits"::jsonb)->'insurance' #>> '{}'
               ELSE COALESCE(
-                "benefits"->'insurance'->>'text',
-                "benefits"->'insurance'->>'rawText',
-                "benefits"->'insurance'->>'html'
+                ("benefits"::jsonb)->'insurance'->>'text',
+                ("benefits"::jsonb)->'insurance'->>'rawText',
+                ("benefits"::jsonb)->'insurance'->>'html'
               )
             END,
             ''
@@ -116,12 +116,12 @@ export class RefineJobDescriptionVcsPortalSchema1783100000000 implements Migrati
           'awards',
           NULLIF(
             CASE
-              WHEN jsonb_typeof("benefits"->'awards') = 'string'
-                THEN "benefits"->'awards' #>> '{}'
+              WHEN jsonb_typeof(("benefits"::jsonb)->'awards') = 'string'
+                THEN ("benefits"::jsonb)->'awards' #>> '{}'
               ELSE COALESCE(
-                "benefits"->'awards'->>'text',
-                "benefits"->'awards'->>'rawText',
-                "benefits"->'awards'->>'html'
+                ("benefits"::jsonb)->'awards'->>'text',
+                ("benefits"::jsonb)->'awards'->>'rawText',
+                ("benefits"::jsonb)->'awards'->>'html'
               )
             END,
             ''
@@ -129,12 +129,12 @@ export class RefineJobDescriptionVcsPortalSchema1783100000000 implements Migrati
           'office',
           NULLIF(
             CASE
-              WHEN jsonb_typeof("benefits"->'office') = 'string'
-                THEN "benefits"->'office' #>> '{}'
+              WHEN jsonb_typeof(("benefits"::jsonb)->'office') = 'string'
+                THEN ("benefits"::jsonb)->'office' #>> '{}'
               ELSE COALESCE(
-                "benefits"->'office'->>'text',
-                "benefits"->'office'->>'rawText',
-                "benefits"->'office'->>'html'
+                ("benefits"::jsonb)->'office'->>'text',
+                ("benefits"::jsonb)->'office'->>'rawText',
+                ("benefits"::jsonb)->'office'->>'html'
               )
             END,
             ''
@@ -142,12 +142,12 @@ export class RefineJobDescriptionVcsPortalSchema1783100000000 implements Migrati
           'celebration',
           NULLIF(
             CASE
-              WHEN jsonb_typeof("benefits"->'celebration') = 'string'
-                THEN "benefits"->'celebration' #>> '{}'
+              WHEN jsonb_typeof(("benefits"::jsonb)->'celebration') = 'string'
+                THEN ("benefits"::jsonb)->'celebration' #>> '{}'
               ELSE COALESCE(
-                "benefits"->'celebration'->>'text',
-                "benefits"->'celebration'->>'rawText',
-                "benefits"->'celebration'->>'html'
+                ("benefits"::jsonb)->'celebration'->>'text',
+                ("benefits"::jsonb)->'celebration'->>'rawText',
+                ("benefits"::jsonb)->'celebration'->>'html'
               )
             END,
             ''
@@ -163,19 +163,19 @@ export class RefineJobDescriptionVcsPortalSchema1783100000000 implements Migrati
       ALTER COLUMN "requirements" TYPE text
       USING (
         CASE
-          WHEN jsonb_typeof("requirements") = 'string'
-            THEN "requirements" #>> '{}'
-          WHEN "requirements" ? 'qualifications'
+          WHEN jsonb_typeof("requirements"::jsonb) = 'string'
+            THEN "requirements"::jsonb #>> '{}'
+          WHEN "requirements"::jsonb ? 'qualifications'
             THEN COALESCE(
-              "requirements"->'qualifications'->>'text',
-              "requirements"->'qualifications'->>'rawText',
-              "requirements"->'qualifications'->>'html',
-              ("requirements"->'qualifications')::text
+              ("requirements"::jsonb)->'qualifications'->>'text',
+              ("requirements"::jsonb)->'qualifications'->>'rawText',
+              ("requirements"::jsonb)->'qualifications'->>'html',
+              ("requirements"::jsonb->'qualifications')::text
             )
-          WHEN "requirements" ? 'rawText'
-            THEN "requirements"->>'rawText'
-          WHEN "requirements" ? 'text'
-            THEN "requirements"->>'text'
+          WHEN "requirements"::jsonb ? 'rawText'
+            THEN "requirements"::jsonb->>'rawText'
+          WHEN "requirements"::jsonb ? 'text'
+            THEN "requirements"::jsonb->>'text'
           ELSE "requirements"::text
         END
       )

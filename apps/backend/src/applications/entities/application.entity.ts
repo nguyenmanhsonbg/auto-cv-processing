@@ -14,10 +14,12 @@ import {
   AiScreeningStatus,
   ApplicationSourceType,
   ApplicationStatus,
+  ApplicationStage,
   FormSessionStatus,
   HrReviewDecisionType,
   MappingStatus,
   RecruitmentChannel,
+  OfferStatus,
 } from '../../recruitment-common';
 import { AuditLogEntity } from '../../audit-logs/entities/audit-log.entity';
 import { AiScreeningResultEntity } from '../../ai-screening/entities/ai-screening-result.entity';
@@ -34,6 +36,10 @@ import { WorkflowEventEntity } from '../../workflow-state/entities/workflow-even
 import { ApplicationReferralEntity } from '../../freelancers/entities/application-referral.entity';
 import { ApplicationSourceEntity } from './application-source.entity';
 import { DuplicateCheckEntity } from './duplicate-check.entity';
+import { InterviewRoundEntity } from '../../interview-rounds/entities/interview-round.entity';
+import { TestRoundEntity } from '../../test-rounds/entities/test-round.entity';
+import { OfferEntity } from '../../offers/entities/offer.entity';
+import { UserEntity } from '../../auth/entities/user.entity';
 
 @Entity('applications')
 @Index('IDX_applications_status', ['status'])
@@ -46,6 +52,8 @@ import { DuplicateCheckEntity } from './duplicate-check.entity';
 @Index('IDX_applications_external', ['sourceChannel', 'externalApplicationId'], {
   where: '"external_application_id" IS NOT NULL',
 })
+@Index('IDX_applications_current_stage', ['currentStage'])
+@Index('IDX_applications_hired_at', ['hiredAt'])
 export class ApplicationEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -90,6 +98,28 @@ export class ApplicationEntity {
   })
   status: ApplicationStatus;
 
+  // ========================================
+  // NEW: Recruitment Pipeline Stage
+  // ========================================
+  @Column({ name: 'current_stage', type: 'varchar', nullable: true })
+  currentStage: ApplicationStage | null;
+
+  @Column({ name: 'assigned_recruiter_id', type: 'uuid', nullable: true })
+  assignedRecruiterId: string | null;
+
+  @ManyToOne(() => UserEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'assigned_recruiter_id' })
+  assignedRecruiter: UserEntity | null;
+
+  @Column({ name: 'hired_at', type: 'timestamptz', nullable: true })
+  hiredAt: Date | null;
+
+  @Column({ name: 'offer_status', type: 'varchar', nullable: true })
+  offerStatus: OfferStatus | null;
+
+  // ========================================
+  // Existing fields
+  // ========================================
   @Column({ name: 'current_cv_document_id', type: 'uuid', nullable: true })
   currentCvDocumentId: string | null;
 
@@ -136,6 +166,21 @@ export class ApplicationEntity {
   @OneToMany(() => DuplicateCheckEntity, (duplicateCheck) => duplicateCheck.application)
   duplicateChecks: DuplicateCheckEntity[];
 
+  // ========================================
+  // Pipeline related entities
+  // ========================================
+  @OneToMany(() => InterviewRoundEntity, (round) => round.application)
+  interviewRounds: InterviewRoundEntity[];
+
+  @OneToMany(() => TestRoundEntity, (round) => round.application)
+  testRounds: TestRoundEntity[];
+
+  @OneToMany(() => OfferEntity, (offer) => offer.application)
+  offers: OfferEntity[];
+
+  // ========================================
+  // Status tracking fields
+  // ========================================
   @Column({ name: 'mapping_status', type: 'varchar', nullable: true })
   mappingStatus: MappingStatus | null;
 
