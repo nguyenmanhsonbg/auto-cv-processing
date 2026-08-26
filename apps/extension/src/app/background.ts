@@ -73,6 +73,12 @@ import type {
   FacebookPublishProgress,
   SyncAmisJobPostingRequest,
 } from '@/types/types';
+import {
+  EXTENSION_CLOSE_TAB_MESSAGE,
+  EXTENSION_TOAST_EVENT,
+  EXTENSION_TOAST_MESSAGE,
+  type ExtensionToastPayload,
+} from '@interview-assistant/shared';
 
 const AMIS_SAVED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
 const AMIS_CAPTURE_UPDATED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CAPTURE_UPDATED';
@@ -178,6 +184,21 @@ chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
 
   if (isFrontendFacebookGroupVerifyRequest(message)) {
     void handleFrontendFacebookGroupVerify(message, sender);
+    return;
+  }
+
+  if (isExtensionToastMessage(message)) {
+    void chrome.runtime?.sendMessage?.({
+      type: EXTENSION_TOAST_EVENT,
+      payload: message.payload,
+    }).catch(() => undefined);
+    return;
+  }
+
+  if (isExtensionCloseTabMessage(message)) {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined) return;
+    void closeTabAfterToast(tabId, message.payload);
     return;
   }
 
@@ -1478,6 +1499,55 @@ function isFrontendFacebookAuthCheckRequest(value: unknown): value is {
     && value !== null
     && (value as { type?: unknown }).type === FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST
     && typeof (value as { requestId?: unknown }).requestId === 'string';
+}
+
+function isExtensionToastMessage(value: unknown): value is {
+  type: typeof EXTENSION_TOAST_MESSAGE;
+  payload: ExtensionToastPayload;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { type?: unknown; payload?: unknown };
+  return candidate.type === EXTENSION_TOAST_MESSAGE
+    && isExtensionToastPayload(candidate.payload);
+}
+
+function isExtensionCloseTabMessage(value: unknown): value is {
+  type: typeof EXTENSION_CLOSE_TAB_MESSAGE;
+  payload: ExtensionToastPayload;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { type?: unknown; payload?: unknown };
+  return candidate.type === EXTENSION_CLOSE_TAB_MESSAGE
+    && isExtensionToastPayload(candidate.payload);
+}
+
+function isExtensionToastPayload(value: unknown): value is ExtensionToastPayload {
+  if (typeof value !== 'object' || value === null) return false;
+  const payload = value as { kind?: unknown; title?: unknown; message?: unknown };
+  return (payload.kind === 'SUCCESS'
+    || payload.kind === 'ERROR'
+    || payload.kind === 'WARNING'
+    || payload.kind === 'INFO')
+    && typeof payload.message === 'string'
+    && payload.message.trim().length > 0
+    && (payload.title === undefined || typeof payload.title === 'string');
+}
+
+async function closeTabAfterToast(tabId: number, payload: ExtensionToastPayload) {
+  try {
+    await chrome.runtime?.sendMessage?.({
+      type: EXTENSION_TOAST_EVENT,
+      payload,
+    });
+  } catch {
+    // The side panel may be closed; the requested tab must still be closed.
+  }
+
+  try {
+    await chrome.tabs?.remove?.(tabId);
+  } catch {
+    // The tab may already have been closed by the user.
+  }
 }
 
 function isFrontendFacebookPublishRequest(value: unknown): value is {

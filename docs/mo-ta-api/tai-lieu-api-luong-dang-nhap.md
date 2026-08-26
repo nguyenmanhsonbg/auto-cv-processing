@@ -509,7 +509,7 @@ sequenceDiagram
 **Body (JSON):**
 | Trường | Kiểu dữ liệu | Bắt buộc | Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- | :--- |
-| `email` | `string` | Có | Định dạng Email | Email nhân sự nội bộ (VD: `staff@viettel.com.vn`) |
+| `email` | `string` | Có | Định dạng Gmail | Gmail nhân sự nội bộ (VD: `staff@viettel.com.vn`) |
 
 ### 6.6 output
 **Body (JSON):**
@@ -544,7 +544,7 @@ curl -X POST "http://localhost:3002/api/auth/internal/request-password" \
 {
   "statusCode": 400,
   "code": "INTERNAL_EMAIL_NOT_FOUND",
-  "message": "Email nhân sự nội bộ chưa tồn tại hoặc đã bị vô hiệu hóa.",
+  "message": "Gmail nhân sự nội bộ chưa tồn tại hoặc đã bị vô hiệu hóa.",
   "error": "Bad Request"
 }
 ```
@@ -552,9 +552,9 @@ curl -X POST "http://localhost:3002/api/auth/internal/request-password" \
 ### 6.9 bảng mã lỗi
 | HTTP Status | Application Code | Message | Nguyên nhân & Cách xử lý |
 | :--- | :--- | :--- | :--- |
-| `400` | `INTERNAL_EMAIL_NOT_FOUND` | `Email nhân sự nội bộ chưa tồn tại hoặc đã bị vô hiệu hóa.` | Email chưa có trong danh sách nhân sự nội bộ hoặc đang bị vô hiệu hóa. |
-| `400` | `INTERNAL_ACCOUNT_CONFLICT` | `Email này đã được liên kết với loại tài khoản khác.` | Email đã được gắn với tài khoản role khác trong hệ thống. |
-| `400` | `INTERNAL_PASSWORD_EMAIL_FAILED` | `Không thể gửi email mật khẩu. Vui lòng kiểm tra cấu hình SMTP và thử lại sau.` | Máy chủ SMTP gửi mail gặp sự cố. |
+| `400` | `INTERNAL_EMAIL_NOT_FOUND` | `Gmail nhân sự nội bộ chưa tồn tại hoặc đã bị vô hiệu hóa.` | Email chưa có trong danh sách nhân sự nội bộ hoặc đang bị vô hiệu hóa. |
+| `400` | `INTERNAL_ACCOUNT_CONFLICT` | `Gmail này đã được liên kết với loại tài khoản khác.` | Email đã được gắn với tài khoản role khác trong hệ thống. |
+| `400` | `INTERNAL_PASSWORD_EMAIL_FAILED` | `Không thể gửi Gmail mật khẩu. Vui lòng kiểm tra cấu hình SMTP và thử lại sau.` | Máy chủ SMTP gửi mail gặp sự cố. |
 | `429` | - | `ThrottlerException: Too Many Requests` | Yêu cầu gửi mật khẩu quá 3 lần/phút. |
 
 ---

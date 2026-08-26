@@ -44,6 +44,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   const internalFullNameRef = useRef<HTMLInputElement | null>(null);
   const internalEmailRef = useRef<HTMLInputElement | null>(null);
   const skipLoginBlurValidationRef = useRef(false);
+  const skipInternalBlurValidationRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -263,6 +264,10 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handleInternalFullNameBlur = () => {
+    if (skipInternalBlurValidationRef.current) {
+      skipInternalBlurValidationRef.current = false;
+      return;
+    }
     if (!internalFullName.trim()) {
       setInternalFieldErrors((current) => ({ ...current, fullName: 'Họ tên nhân sự là bắt buộc' }));
       return;
@@ -271,6 +276,10 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   };
 
   const handleInternalEmailBlur = () => {
+    if (skipInternalBlurValidationRef.current) {
+      skipInternalBlurValidationRef.current = false;
+      return;
+    }
     const normalizedEmail = internalEmail.trim();
     if (!normalizedEmail) {
       setInternalFieldErrors((current) => ({ ...current, email: 'Gmail nội bộ nhân sự là bắt buộc' }));
@@ -305,7 +314,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
     const emailError = !normalizedEmail
       ? 'Gmail nội bộ nhân sự là bắt buộc'
       : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(normalizedEmail)
-        ? 'Email nhân sự không chính xác. Vui lòng kiểm tra và thử lại.'
+        ? 'Gmail nội bộ nhân sự không chính xác. Vui lòng kiểm tra và thử lại.'
         : null;
     setInternalFieldErrors({ fullName: fullNameError, email: emailError });
 
@@ -347,6 +356,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
 
   const handleInternalModeChange = () => {
     skipLoginBlurValidationRef.current = false;
+    skipInternalBlurValidationRef.current = false;
     setInternalMode(true);
     setInternalMessage(null);
     setError(null);
@@ -357,7 +367,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
   if (forgotPasswordMode) {
     return (
       <section className="extension-login-shell">
-        <ForgotPasswordForm onCancel={() => setForgotPasswordMode(false)} />
+        <ForgotPasswordForm onCancel={() => setForgotPasswordMode(false)} onError={onError} />
       </section>
     );
   }
@@ -382,6 +392,7 @@ export function LoginForm({ onLoginSuccess, onError }: LoginFormProps) {
         fullNameError={internalFieldErrors.fullName}
         emailError={internalFieldErrors.email}
         onCancel={handleInternalCancel}
+        onCancelMouseDown={() => { skipInternalBlurValidationRef.current = true; }}
         onSubmit={handleInternalSubmit}
       />;
   }
@@ -458,6 +469,7 @@ function InternalPasswordRequestView({
   fullNameError,
   emailError,
   onCancel,
+  onCancelMouseDown,
   onSubmit,
 }: {
   fullName: string;
@@ -476,6 +488,7 @@ function InternalPasswordRequestView({
   fullNameError: string | null;
   emailError: string | null;
   onCancel: () => void;
+  onCancelMouseDown: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
 }) {
   return (
@@ -501,7 +514,7 @@ function InternalPasswordRequestView({
             />
             <AuthInput
               ref={emailRef as RefObject<HTMLInputElement>}
-              label="Email nhân sự"
+              label="Gmail nội bộ nhân sự"
               required
               icon={<UserIcon />}
               value={email}
@@ -510,7 +523,7 @@ function InternalPasswordRequestView({
               onClear={onEmailClear}
               type="email"
               autoComplete="email"
-              placeholder="Nhập email nhân sự"
+              placeholder="Nhập gmail nội bộ nhân sự"
               hasError={Boolean(emailError || error)}
               errorMessage={emailError ?? error}
               maxLength={255}
@@ -518,7 +531,14 @@ function InternalPasswordRequestView({
           </div>
           {message ? <p className="extension-login-success">{message}</p> : null}
           <div className="extension-login-actions">
-            <button type="button" className="secondary-button" onClick={onCancel}>Hủy</button>
+            <button
+              type="button"
+              className="secondary-button"
+              onMouseDown={onCancelMouseDown}
+              onClick={() => {
+                onCancel();
+              }}
+            >Hủy</button>
             <button
               type="submit"
               className="confirm-button"

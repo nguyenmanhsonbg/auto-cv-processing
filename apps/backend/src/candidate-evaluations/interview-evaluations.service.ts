@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { UserRole } from '@interview-assistant/shared';
 import {
   InterviewEvaluationAuditAction,
+  InterviewEvaluationCriterionData,
   InterviewEvaluationFormData,
   InterviewEvaluationReviewerSection,
   InterviewEvaluationReviewerStatus,
@@ -490,6 +491,34 @@ export class InterviewEvaluationsService {
     return this.getDetail(applicationId, actor, roundId);
   }
 
+  async saveAggregateDraft(
+    applicationId: string,
+    roundId: string,
+    dto: AggregateInterviewEvaluationDto,
+    actor: InterviewEvaluationActor,
+  ) {
+    this.assertManager(actor);
+    const evaluationCase = await this.findCaseForRound(applicationId, roundId);
+    const round = await this.roundsRepo.findOne({ where: { id: roundId, caseId: evaluationCase.id } });
+    if (!round) throw new BadRequestException('Interview evaluation round not found');
+    this.assertVersion(round, dto.expectedVersion);
+
+    const previousStatus = round.status;
+    round.aggregateData = dto.formData;
+    round.version += 1;
+    await this.roundsRepo.save(round);
+    await this.recordAudit(this.dataSource.manager, {
+      caseId: evaluationCase.id,
+      roundId,
+      actorId: actor.id,
+      action: InterviewEvaluationAuditAction.AGGREGATION_DRAFT_SAVED,
+      fromStatus: previousStatus,
+      toStatus: round.status,
+      metadata: { version: round.version },
+    });
+    return this.getDetail(applicationId, actor, roundId);
+  }
+
   async complete(applicationId: string, roundId: string, actor: InterviewEvaluationActor) {
     this.assertManager(actor);
     const evaluationCase = await this.findCaseForRound(applicationId, roundId);
@@ -571,21 +600,24 @@ export class InterviewEvaluationsService {
     if (!reviewer) throw new BadRequestException('You are not assigned to this evaluation section');
     this.assertSectionRole(section, actor);
     const previousStatus = round.status;
-    reviewer.formData = dto.formData;
+    reviewer.formData = this.scopeReviewFormData(reviewer.formData, dto.formData, section);
     reviewer.status = submit
       ? InterviewEvaluationReviewerStatus.SUBMITTED
       : InterviewEvaluationReviewerStatus.DRAFT;
     reviewer.submittedAt = submit ? new Date() : null;
     await this.reviewersRepo.save(reviewer);
     round.version += 1;
-    round.status = submit
-      ? await this.statusAfterSubmission(round)
-      : InterviewEvaluationRoundStatus.DRAFT;
     if (section === InterviewEvaluationReviewerSection.HRBP) {
-      round.hrbpData = dto.formData;
+      round.hrbpData = this.scopeReviewFormData(round.hrbpData, dto.formData, section);
     } else {
-      round.committeeData = dto.formData;
+      round.committeeData = this.scopeReviewFormData(round.committeeData, dto.formData, section);
     }
+    const reviewers = await this.reviewersRepo.find({ where: { roundId } });
+    round.status = reviewers.some(
+      (roundReviewer) => roundReviewer.status === InterviewEvaluationReviewerStatus.SUBMITTED,
+    )
+      ? await this.statusAfterReviewerChange(round)
+      : InterviewEvaluationRoundStatus.DRAFT;
     await this.roundsRepo.save(round);
     await this.recordAudit(this.dataSource.manager, {
       caseId: evaluationCase.id,
@@ -599,7 +631,7 @@ export class InterviewEvaluationsService {
     return this.getDetail(applicationId, actor, roundId);
   }
 
-  private async statusAfterSubmission(round: InterviewEvaluationRoundEntity) {
+  private async statusAfterReviewerChange(round: InterviewEvaluationRoundEntity) {
     const reviewers = await this.reviewersRepo.find({ where: { roundId: round.id } });
     const hrbpSubmitted = reviewers.some(
       (reviewer) => reviewer.section === InterviewEvaluationReviewerSection.HRBP
@@ -614,6 +646,49 @@ export class InterviewEvaluationsService {
     if (hrbpSubmitted && allSubmitted) return InterviewEvaluationRoundStatus.WAITING_AGGREGATION;
     if (hrbpSubmitted) return InterviewEvaluationRoundStatus.WAITING_COMMITTEE;
     return InterviewEvaluationRoundStatus.IN_REVIEW;
+  }
+
+  private scopeReviewFormData(
+    existing: InterviewEvaluationFormData | null | undefined,
+    incoming: InterviewEvaluationFormData,
+    section: InterviewEvaluationReviewerSection,
+  ) {
+    const scoped = this.cloneFormData(existing);
+    if (section === InterviewEvaluationReviewerSection.HRBP) {
+      if (incoming.hrbp) scoped.hrbp = { ...scoped.hrbp, ...incoming.hrbp };
+      if (incoming.final) {
+        const currentSalaryDetails = scoped.final?.salaryDetails;
+        const incomingSalaryDetails = incoming.final.salaryDetails;
+        scoped.final = {
+          ...scoped.final,
+          ...incoming.final,
+          ...(incomingSalaryDetails ? {
+            salaryDetails: {
+              ...currentSalaryDetails,
+              ...incomingSalaryDetails,
+              notes: { ...currentSalaryDetails?.notes, ...incomingSalaryDetails.notes },
+            },
+          } : {}),
+        };
+      }
+      return scoped;
+    }
+
+    if (!incoming.committee) return scoped;
+    scoped.committee = { ...scoped.committee, ...incoming.committee };
+    if (incoming.committee.technicalCompetencies) {
+      scoped.committee.technicalCompetencies = this.cloneCriterionMatrix(incoming.committee.technicalCompetencies);
+    }
+    if (incoming.committee.personalGrowth) {
+      scoped.committee.personalGrowth = this.cloneCriterionMatrix(incoming.committee.personalGrowth);
+    }
+    return scoped;
+  }
+
+  private cloneCriterionMatrix(matrix?: Record<string, InterviewEvaluationCriterionData[]>) {
+    return Object.fromEntries(
+      Object.entries(matrix ?? {}).map(([key, rows]) => [key, rows.map((row) => ({ ...row }))]),
+    );
   }
 
   private async findApplication(applicationId: string) {
@@ -991,6 +1066,7 @@ export class InterviewEvaluationsService {
     if (canManage) return audits;
     return audits.filter(
       (audit) => audit.action !== InterviewEvaluationAuditAction.AGGREGATION_SAVED
+        && audit.action !== InterviewEvaluationAuditAction.AGGREGATION_DRAFT_SAVED
         && audit.action !== InterviewEvaluationAuditAction.ROUND_COMPLETED,
     );
   }

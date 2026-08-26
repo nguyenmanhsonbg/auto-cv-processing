@@ -38,6 +38,23 @@ export class LogoutDto {
   refreshToken?: string;
 }
 
+export class CreateEvaluationHandoffDto {
+  @ApiProperty({ example: '296d2881-c294-4eb5-a30a-be781f843c99' })
+  @IsUUID()
+  applicationId: string;
+}
+
+export class ExchangeEvaluationHandoffDto {
+  @ApiProperty({ example: 'eh_opaque_one_time_token' })
+  @IsString()
+  @MinLength(20)
+  handoffToken: string;
+
+  @ApiProperty({ example: '296d2881-c294-4eb5-a30a-be781f843c99' })
+  @IsUUID()
+  applicationId: string;
+}
+
 export class ChangePasswordDto {
   @ApiProperty({ example: 'currentPassword123' })
   @IsString()

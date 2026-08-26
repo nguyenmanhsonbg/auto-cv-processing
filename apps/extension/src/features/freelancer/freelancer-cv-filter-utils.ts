@@ -17,7 +17,19 @@ export interface FreelancerCvStatusOption {
 
 export interface FreelancerCvStatusApplicationLike {
   statusCategory: ReferralManagementStatusCategory;
+  processStatus?: string | null;
+  hrReceptionStatus?: string | null;
   currentAmisStage: Pick<ReferralManagementCurrentAmisStage, 'recruitmentRoundId' | 'recruitmentRoundName' | 'amisStatus'> | null;
+}
+
+export const FREELANCER_CV_SEARCH_MAX_LENGTH = 255;
+
+export function limitFreelancerCvSearchInput(value: string): string {
+  return Array.from(value).slice(0, FREELANCER_CV_SEARCH_MAX_LENGTH).join('');
+}
+
+export function normalizeFreelancerCvSearch(value: string): string {
+  return value.trim();
 }
 
 const TERMINAL_OPTIONS: FreelancerCvStatusOption[] = [
@@ -109,6 +121,11 @@ export function matchesFreelancerCvStatus(
     return application.statusCategory === 'REJECTED' || application.currentAmisStage?.amisStatus === 0;
   }
 
+  if (
+    option.normalizedName === normalizeFreelancerCvStageName('Screening CV')
+    && isFreelancerCvFormSent(application)
+  ) return true;
+
   const stageId = application.currentAmisStage?.recruitmentRoundId?.trim();
   const stageName = normalizeFreelancerCvStageName(application.currentAmisStage?.recruitmentRoundName);
   return Boolean(
@@ -125,4 +142,29 @@ export function normalizeFreelancerCvStageName(value?: string | null) {
     .replaceAll('đ', 'd')
     .toUpperCase()
     .trim();
+}
+
+export function isFreelancerCvFormSent(application: Pick<FreelancerCvStatusApplicationLike, 'processStatus' | 'hrReceptionStatus'>): boolean {
+  return [application.processStatus, application.hrReceptionStatus]
+    .some((value) => value?.trim().toUpperCase() === 'FORM_SENT');
+}
+
+export type FreelancerCvPaginationItem = number | 'ellipsis';
+
+export function buildFreelancerCvPaginationPages(
+  currentPage: number,
+  totalPages: number,
+): FreelancerCvPaginationItem[] {
+  const safeTotal = Math.max(1, totalPages);
+  const safeCurrent = Math.min(Math.max(1, currentPage), safeTotal);
+
+  if (safeTotal <= 7) {
+    return Array.from({ length: safeTotal }, (_, index) => index + 1);
+  }
+
+  if (safeCurrent <= 2) return [1, 2, 3, 'ellipsis', safeTotal - 1, safeTotal];
+  if (safeCurrent === 3) return [2, 3, 4, 'ellipsis', safeTotal - 1, safeTotal];
+  if (safeCurrent >= safeTotal - 2) return [1, 2, 'ellipsis', safeTotal - 2, safeTotal - 1, safeTotal];
+
+  return [1, 2, 'ellipsis', safeCurrent - 1, safeCurrent, safeCurrent + 1, 'ellipsis', safeTotal - 1, safeTotal];
 }

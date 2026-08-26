@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { DateRangeFilter, FilterBar, MultiSelectFilter, SearchField, SelectFilter } from '@/components/filters';
 import type { DateRangeValue, SelectFilterOption } from '@/components/filters';
 import { CloseIcon } from '@/components/icons';
+import { limitFreelancerCvSearchInput, normalizeFreelancerCvSearch } from '../freelancer-cv-filter-utils';
 
 export type FreelancerCvStatusFilter = string;
 
@@ -28,10 +29,15 @@ export function FreelancerCvFilters({ value, statusOptions, jdOptions, statusDis
       <SearchField
         className="freelancer-cv-search"
         value={value.search}
-        onChange={(search) => onChange({ ...value, search })}
+        onChange={(search) => onChange({ ...value, search: limitFreelancerCvSearchInput(search) })}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          const normalizedSearch = normalizeFreelancerCvSearch(value.search);
+          if (normalizedSearch !== value.search) onChange({ ...value, search: normalizedSearch });
+        }}
         placeholder="Tìm kiếm CV theo tên ứng viên, vị trí ứng tuyển"
         ariaLabel="Tìm kiếm CV theo tên ứng viên, vị trí ứng tuyển"
-        maxLength={255}
         clearButton={
           value.search ? (
             <button

@@ -19,6 +19,7 @@ import {
   getApplicationDetail,
   getApplicationParsedProfile,
   getAmisApplicationsForRecruitment,
+  listAssignedInterviewEvaluations,
   getAmisRecruitmentJobDescription,
   getAmisRecruitmentRounds,
   getFreelancerRecruitmentRounds,
@@ -134,6 +135,7 @@ import type {
   AmisJobSnapshot,
   AmisRecruitmentRound,
   AmisRecruitmentBoardMember,
+  InterviewEvaluationAssignment,
   ApiPagination,
   ExtensionChannel,
   ExtensionSyncResponse,
@@ -143,6 +145,10 @@ import type {
   SyncAmisJobPostingRequest,
   SyncVcsPortalJdsResponse,
 } from '@/types/types';
+import {
+  EXTENSION_TOAST_EVENT,
+  type ExtensionToastPayload,
+} from '@interview-assistant/shared';
 import './styles.css';
 
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'PASSWORD_CHANGE_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
@@ -150,6 +156,28 @@ type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv' | 'freelancer' | 'internal';
 type ApplicationsState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
+
+function isExtensionToastEvent(value: unknown): value is {
+  type: typeof EXTENSION_TOAST_EVENT;
+  payload: ExtensionToastPayload;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { type?: unknown; payload?: unknown };
+  return candidate.type === EXTENSION_TOAST_EVENT
+    && isExtensionToastPayload(candidate.payload);
+}
+
+function isExtensionToastPayload(value: unknown): value is ExtensionToastPayload {
+  if (typeof value !== 'object' || value === null) return false;
+  const payload = value as { kind?: unknown; title?: unknown; message?: unknown };
+  return (payload.kind === 'SUCCESS'
+    || payload.kind === 'ERROR'
+    || payload.kind === 'WARNING'
+    || payload.kind === 'INFO')
+    && typeof payload.message === 'string'
+    && payload.message.trim().length > 0
+    && (payload.title === undefined || typeof payload.title === 'string');
+}
 
 const MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS = 3;
 
@@ -225,6 +253,26 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'internal', label: 'Nội bộ' },
 ];
 const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
+
+function filterApplicationsForCommittee(
+  context: AmisApplicationsForRecruitment,
+  assignments: InterviewEvaluationAssignment[],
+) {
+  const assignedApplicationIds = new Set(
+    assignments
+      .filter((assignment) => assignment.job.id === context.jobPostingId)
+      .map((assignment) => assignment.applicationId),
+  );
+  const applications = context.applications.filter((application) =>
+    assignedApplicationIds.has(application.applicationId),
+  );
+
+  return {
+    ...context,
+    total: applications.length,
+    applications,
+  };
+}
 
 function normalizePostingChannels(channels: ExtensionChannel[]) {
   const seen = new Set<ExtensionChannel>();
@@ -762,7 +810,16 @@ function SidePanel() {
   }, []);
 
   useEffect(() => {
-    chrome.runtime?.onMessage.addListener((message, sender) => {
+    const handleRuntimeMessage = (message: unknown, sender: ChromeMessageSender) => {
+      if (isExtensionToastEvent(message)) {
+        showExtensionToast(
+          message.payload.kind,
+          message.payload.title ?? '',
+          message.payload.message,
+        );
+        return;
+      }
+
       if (isAmisCaptureUpdatedMessage(message)) {
         void applyAmisCaptureUpdatedMessage(message.payload, message.sourceTabId ?? sender.tab?.id);
         return;
@@ -821,7 +878,10 @@ function SidePanel() {
       if (isApplicationsSyncedMessage(message)) {
         void applyApplicationsSyncedMessage(message);
       }
-    });
+    };
+
+    chrome.runtime?.onMessage.addListener(handleRuntimeMessage);
+    return () => chrome.runtime?.onMessage.removeListener?.(handleRuntimeMessage);
   }, []);
 
   useEffect(() => {
@@ -850,7 +910,7 @@ function SidePanel() {
     }, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [token, amisRecruitmentId]);
+  }, [token, amisRecruitmentId, user?.role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -858,6 +918,7 @@ function SidePanel() {
     const nextRecruitmentId = amisRecruitmentId;
 
     async function prepareFacebookContent() {
+      if (user?.role === 'COMMITTEE') return;
       facebook.clearFacebookContent();
       await facebook.restoreFacebookImageAttachments(nextRecruitmentId, nextSnapshot, selectedJobDescription);
       if (!token || !nextRecruitmentId || !nextSnapshot) return;
@@ -889,6 +950,7 @@ function SidePanel() {
     snapshot?.location,
     snapshot?.deadline,
     selectedJobDescription?.id,
+    user?.role,
   ]);
   const missingFields = useMemo(() => {
     const missing: string[] = [];
@@ -902,12 +964,20 @@ function SidePanel() {
   }, [amisRecruitmentId, facebook.selectedFacebookGroupIds.length, selectedJobDescription?.id, selectedPostingChannels, snapshot]);
 
   const visibleWorkspaceTabs = useMemo<WorkspaceTab[]>(() => {
+    if (user?.role === 'COMMITTEE') return ['cv'];
     if (pinnedWorkspaceTab && pinnedWorkspaceTab !== activeWorkspaceTab) {
       return [pinnedWorkspaceTab, activeWorkspaceTab];
     }
 
     return [activeWorkspaceTab];
-  }, [activeWorkspaceTab, pinnedWorkspaceTab]);
+  }, [activeWorkspaceTab, pinnedWorkspaceTab, user?.role]);
+
+  const workspaceTabsForUser = useMemo(
+    () => user?.role === 'COMMITTEE'
+      ? WORKSPACE_TABS.filter((tab) => tab.id === 'cv')
+      : WORKSPACE_TABS,
+    [user?.role],
+  );
 
   const syncDisabled = state === 'EXTRACTING'
     || state === 'SYNCING'
@@ -946,6 +1016,7 @@ function SidePanel() {
       if (currentUser.role === 'COMMITTEE') {
         setToken(storedToken);
         setUser(currentUser);
+        setActiveWorkspaceTab('cv');
         setState('READY');
         return;
       }
@@ -992,6 +1063,7 @@ function SidePanel() {
       return;
     }
     if (authenticatedUser.role === 'COMMITTEE') {
+      setActiveWorkspaceTab('cv');
       setState('READY');
       return;
     }
@@ -1016,6 +1088,7 @@ function SidePanel() {
         return;
       }
       if (user?.role === 'COMMITTEE') {
+        setActiveWorkspaceTab('cv');
         setState('READY');
         return;
       }
@@ -1165,7 +1238,15 @@ function SidePanel() {
     }
 
     try {
-      const context = await getAmisApplicationsForRecruitment(accessToken, recruitmentId);
+      const [context, assignedEvaluations] = await Promise.all([
+        getAmisApplicationsForRecruitment(accessToken, recruitmentId),
+        user?.role === 'COMMITTEE'
+          ? listAssignedInterviewEvaluations(accessToken)
+          : Promise.resolve(null),
+      ]);
+      const visibleContext = user?.role === 'COMMITTEE'
+        ? filterApplicationsForCommittee(context, assignedEvaluations ?? [])
+        : context;
       if (
         requestSeq !== applicationsRequestSeqRef.current ||
         activeAmisRecruitmentIdRef.current !== recruitmentId
@@ -1173,8 +1254,8 @@ function SidePanel() {
         return;
       }
 
-      setApplicationsContext(mergeAmisCandidateStageOverrides(context));
-      const hasNewAmisUploadConfirmation = reconcilePendingAmisUploads(context);
+      setApplicationsContext(mergeAmisCandidateStageOverrides(visibleContext));
+      const hasNewAmisUploadConfirmation = reconcilePendingAmisUploads(visibleContext);
       setApplicationsState('READY');
       if (pendingAmisUploadApplicationIdsRef.current.size === 0 && !hasNewAmisUploadConfirmation) {
         setApplicationsMessage(null);
@@ -1450,7 +1531,12 @@ function SidePanel() {
       sourceUrl: context.sourceUrl ?? activeTab.url,
     });
 
-    if (tokenRef.current && context.sourceUrl && lastApplicationsFallbackSyncUrlRef.current !== context.sourceUrl) {
+    if (
+      user?.role !== 'COMMITTEE'
+      && tokenRef.current
+      && context.sourceUrl
+      && lastApplicationsFallbackSyncUrlRef.current !== context.sourceUrl
+    ) {
       await syncAmisApplicationsFromAmisTab(tokenRef.current, activeTab.id, context.sourceUrl);
     }
   }
@@ -2212,22 +2298,6 @@ function SidePanel() {
     });
   }
 
-  function openCommitteeEvaluationInbox() {
-    if (!chrome.tabs?.create) {
-      showExtensionToast('ERROR', 'HĐCM', 'Không thể mở inbox đánh giá trên web.');
-      return;
-    }
-
-    void chrome.tabs.create({
-      url: `${FRONTEND_BASE_URL}/interview-evaluations`,
-      active: true,
-    }).then(() => {
-      showExtensionToast('SUCCESS', 'HĐCM', 'Đã mở danh sách phiếu đánh giá được giao.');
-    }).catch(() => {
-      showExtensionToast('ERROR', 'HĐCM', 'Không thể mở inbox đánh giá trên web.');
-    });
-  }
-
   async function selectAllJobQuestions(context: JobDescriptionQuestionSetContext) {
     const questionIds = context.questions.map((question) => question.id);
     setSelectedJobQuestionIds(new Set(questionIds));
@@ -2750,7 +2820,7 @@ function SidePanel() {
       if (response.facebookPublishPlan && shouldPublishFacebook) {
         const publishResult = await facebook.executeFacebookPublish(response.facebookPublishPlan);
         if (publishResult && publishResult.summary.successCount === 0) {
-          setError(publishResult.summary.message);
+          setError(null);
           setState('ERROR');
           return;
         }
@@ -2867,6 +2937,7 @@ function SidePanel() {
         {tab === 'cv' ? (
           <CvManagementPanel
             token={token}
+            isCommittee={user?.role === 'COMMITTEE'}
             amisRecruitmentId={amisRecruitmentId}
             applicationsContext={applicationsContext}
             applicationsState={applicationsState}
@@ -2983,22 +3054,7 @@ function SidePanel() {
           </section>
         ) : null}
 
-        {showAuthenticatedWorkspace && user?.role === 'COMMITTEE' && token ? (
-          <section className="extension-login-shell">
-            <div className="extension-login-card">
-              <p className="extension-login-brand">VCS Recruitment Posting</p>
-              <div className="extension-auth-heading-group">
-                <h1>HĐCM – Hội đồng chuyên môn</h1>
-              </div>
-              <p className="muted-text">
-                Tài khoản HĐCM không sử dụng luồng đăng tin. Hãy mở inbox trên web để xem các phiếu đánh giá được phân công.
-              </p>
-              <button type="button" className="primary-button" onClick={openCommitteeEvaluationInbox}>
-                Mở phiếu đánh giá được giao
-              </button>
-            </div>
-          </section>
-        ) : showAuthenticatedWorkspace && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
+        {showAuthenticatedWorkspace && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
           <section className="freelancer-extension-shell">
             {!isFreelancerPasswordFormOpen ? (
               <nav className="extension-tabs freelancer-extension-tabs" aria-label="Freelancer sections">
@@ -3020,7 +3076,7 @@ function SidePanel() {
         ) : showAuthenticatedWorkspace && user ? (
           <>
             <nav className="extension-tabs" aria-label="VCS Recruitment sections">
-              {WORKSPACE_TABS.map((tab) => {
+              {workspaceTabsForUser.map((tab) => {
                 const isActive = activeWorkspaceTab === tab.id;
 
                 return (

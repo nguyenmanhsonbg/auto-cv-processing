@@ -38,13 +38,11 @@ import { JobPostingDetailPage } from '@/pages/recruitment/job-postings/JobPostin
 import { ApplicationListPage } from '@/pages/recruitment/applications/ApplicationListPage';
 import { ApplicationDetailPage } from '@/pages/recruitment/applications/ApplicationDetailPage';
 import { InterviewEvaluationPage } from '@/pages/recruitment/applications/InterviewEvaluationPage';
-import { InterviewEvaluationInboxPage } from '@/pages/recruitment/applications/InterviewEvaluationInboxPage';
 import { FreelancerDetailPage } from '@/pages/interviewer/candidates/FreelancerDetailPage';
 import { FreelancerLandingPage } from '@/pages/interviewer/candidates/FreelancerLandingPage';
 import { InternalDetailPage } from '@/pages/interviewer/candidates/InternalDetailPage';
 import { InternalListPage } from '@/pages/interviewer/candidates/InternalListPage';
 import { FreelancerRouteGuard } from '@/components/recruitment/FreelancerRouteGuard';
-import { CommitteeRouteGuard } from '@/components/recruitment/CommitteeRouteGuard';
 import { AuthProvider } from '@/lib/auth-context';
 import { CommitteesPage } from '@/pages/interviewer/settings/CommitteesPage';
 import { Toaster } from '@/components/ui/toaster';
@@ -70,7 +68,7 @@ export function AppRoutes() {
         <Route path="/apply/:applicationId/status" element={<PublicApplyResultPage />} />
         <Route path="/form/:token" element={<CandidateFormPage />} />
         <Route path="/interview-evaluations" element={<InterviewEvaluationAuthLayout />}>
-          <Route index element={<CommitteeRouteGuard><InterviewEvaluationInboxPage /></CommitteeRouteGuard>} />
+          <Route index element={<Navigate to="/login" replace />} />
           <Route path=":applicationId" element={<InterviewEvaluationPage />} />
         </Route>
         <Route path="/" element={<InterviewerLayout />}>

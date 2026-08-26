@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, UnauthorizedException, OnModuleInit } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -15,6 +15,9 @@ import { InternalEntity } from '../internals/entities/internal.entity';
 import { MailService } from '../notification/mail.service';
 import { PasswordResetRequestEntity } from './entities/password-reset-request.entity';
 import { generatePasswordResetOtp } from './otp.util';
+import { EvaluationHandoffEntity } from './entities/evaluation-handoff.entity';
+
+const EVALUATION_HANDOFF_TTL_MS = 60_000;
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -32,6 +35,9 @@ export class AuthService implements OnModuleInit {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
+    @Optional()
+    @InjectRepository(EvaluationHandoffEntity)
+    private readonly evaluationHandoffRepo?: Repository<EvaluationHandoffEntity>,
   ) {}
 
   async onModuleInit() {
@@ -153,7 +159,7 @@ export class AuthService implements OnModuleInit {
     if (!internal) {
       throw new BadRequestException({
         code: 'INTERNAL_EMAIL_NOT_FOUND',
-        message: 'Email nhân sự nội bộ chưa tồn tại hoặc đã bị vô hiệu hóa.',
+        message: 'Gmail nội bộ nhân sự chưa tồn tại hoặc đã bị vô hiệu hóa.',
       });
     }
 
@@ -416,6 +422,61 @@ export class AuthService implements OnModuleInit {
     }
 
     return { message: 'Logged out' };
+  }
+
+  async createEvaluationHandoff(userId: string, applicationId: string) {
+    const evaluationHandoffRepo = this.getEvaluationHandoffRepo();
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('Không tìm thấy tài khoản.');
+
+    const handoffToken = `eh_${randomBytes(32).toString('base64url')}`;
+    const handoff = evaluationHandoffRepo.create({
+      userId,
+      applicationId,
+      tokenHash: this.hashToken(handoffToken),
+      expiresAt: new Date(Date.now() + EVALUATION_HANDOFF_TTL_MS),
+      usedAt: null,
+    });
+    await evaluationHandoffRepo.save(handoff);
+
+    return {
+      handoffToken,
+      expiresAt: handoff.expiresAt.toISOString(),
+    };
+  }
+
+  async exchangeEvaluationHandoff(handoffToken: string, applicationId: string) {
+    const evaluationHandoffRepo = this.getEvaluationHandoffRepo();
+    const handoff = await evaluationHandoffRepo.findOne({
+      where: { tokenHash: this.hashToken(handoffToken) },
+    });
+    if (!handoff || handoff.applicationId !== applicationId || handoff.usedAt || handoff.expiresAt.getTime() <= Date.now()) {
+      throw new UnauthorizedException('Evaluation handoff is invalid or expired.');
+    }
+
+    const claimResult = await evaluationHandoffRepo
+      .createQueryBuilder()
+      .update(EvaluationHandoffEntity)
+      .set({ usedAt: new Date() })
+      .where('id = :id', { id: handoff.id })
+      .andWhere('used_at IS NULL')
+      .andWhere('expires_at > NOW()')
+      .execute();
+    if (claimResult.affected !== 1) {
+      throw new UnauthorizedException('Evaluation handoff is invalid or expired.');
+    }
+
+    const user = await this.userRepo.findOne({ where: { id: handoff.userId } });
+    if (!user) throw new UnauthorizedException('Evaluation handoff user is unavailable.');
+    await this.assertUserCanAuthenticate(user);
+    return this.login(user);
+  }
+
+  private getEvaluationHandoffRepo() {
+    if (!this.evaluationHandoffRepo) {
+      throw new BadRequestException('Evaluation handoff storage is unavailable.');
+    }
+    return this.evaluationHandoffRepo;
   }
 
   private signAccessToken(user: { id: string; email: string; role: string }) {

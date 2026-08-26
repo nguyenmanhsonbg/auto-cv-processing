@@ -158,24 +158,97 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 220px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+.evaluation-history::-webkit-scrollbar {
+  width: 6px;
+  height: 0;
+}
+
+.evaluation-history::-webkit-scrollbar-button,
+.evaluation-history::-webkit-scrollbar-button:vertical,
+.evaluation-history::-webkit-scrollbar-button:vertical:increment,
+.evaluation-history::-webkit-scrollbar-button:vertical:decrement,
+.evaluation-history::-webkit-scrollbar-button:vertical:start:increment,
+.evaluation-history::-webkit-scrollbar-button:vertical:start:decrement,
+.evaluation-history::-webkit-scrollbar-button:vertical:end:increment,
+.evaluation-history::-webkit-scrollbar-button:vertical:end:decrement,
+.evaluation-history::-webkit-scrollbar-button:single-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  -webkit-appearance: none !important;
+}
+
+.evaluation-history::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+.evaluation-history::-webkit-scrollbar-thumb {
+  background: #737373;
+  border-radius: 8px;
+}
+
+.evaluation-history-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evaluation-history-card .evaluation-sidebar-title {
+  margin-bottom: 0;
+}
+
+.evaluation-history-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.evaluation-history-content .evaluation-history {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.evaluation-history-scroll-indicator {
+  display: none;
 }
 
 .evaluation-history-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid #e5e5e5;
-  border-radius: 6px;
+  gap: 2px;
   color: #404040;
   font-size: 11px;
   line-height: 16.5px;
 }
 
-.evaluation-history-item strong {
-  color: #0b1c30;
-  font-size: 12px;
+.evaluation-history-timestamp {
+  color: #404040;
+  font-size: 11px;
   font-weight: 700;
+  line-height: 16.5px;
+}
+
+.evaluation-history-action {
+  color: #404040;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16.5px;
 }
 
 .evaluation-main {
@@ -248,16 +321,27 @@
 .evaluation-edit-table td,
 .evaluation-salary-table th,
 .evaluation-salary-table td {
-  min-height: 42px;
-  padding: 8px 12px;
+  min-height: 36px;
+  padding: 6px 12px;
   border: 1px solid #e5e5e5;
   vertical-align: middle;
 }
 
 .evaluation-info-table th,
-.evaluation-edit-table th,
 .evaluation-salary-table th {
   width: 200px;
+  background: #f5f5f5;
+  color: #262626;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.3px;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.evaluation-edit-table th {
+  width: 220px;
   background: #f5f5f5;
   color: #262626;
   font-size: 12px;
@@ -304,6 +388,26 @@
   color: #262626 !important;
   font-size: 14px !important;
   line-height: 20px !important;
+}
+
+#overview .evaluation-design-field {
+  min-height: 24px;
+  padding: 2px 4px !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  font-size: 14px !important;
+  line-height: 20px !important;
+  box-shadow: none !important;
+}
+
+#overview .evaluation-design-field::placeholder {
+  color: #a3a3a3;
+  opacity: 1;
+}
+
+#overview .evaluation-design-field:disabled {
+  background: transparent !important;
 }
 
 .evaluation-design-field:disabled {
@@ -412,7 +516,7 @@
 
 .evaluation-matrix-table {
   width: 100%;
-  min-width: 1700px;
+  min-width: 1668px;
   border-collapse: collapse;
   table-layout: fixed;
   outline: 1px solid #d4d4d4;
@@ -427,15 +531,34 @@
 }
 
 .evaluation-matrix-table col.evaluation-matrix-requirement {
-  width: 350px;
+  width: auto;
 }
 
 .evaluation-matrix-table col.evaluation-matrix-evidence {
   width: 400px;
 }
 
-.evaluation-matrix-table col.evaluation-rating-header,
 .evaluation-matrix-table col.evaluation-rating-cell {
+  width: 90px;
+}
+
+.evaluation-matrix-table col.evaluation-rating-cell-1 {
+  width: 88px;
+}
+
+.evaluation-matrix-table col.evaluation-rating-cell-2 {
+  width: 90px;
+}
+
+.evaluation-matrix-table col.evaluation-rating-cell-3 {
+  width: 91px;
+}
+
+.evaluation-matrix-table col.evaluation-rating-cell-4 {
+  width: 89px;
+}
+
+.evaluation-matrix-table col.evaluation-rating-cell-5 {
   width: 90px;
 }
 
@@ -451,6 +574,8 @@
 }
 
 .evaluation-matrix-table thead th {
+  height: 68px;
+  padding: 4px 2px;
   background: #075985;
   color: #fff;
   font-size: 12px;
@@ -458,6 +583,7 @@
   line-height: 16px;
   text-align: center;
   text-transform: uppercase;
+  vertical-align: middle;
 }
 
 .evaluation-matrix-table thead tr:first-child th {
@@ -465,10 +591,35 @@
   line-height: 19.6px;
 }
 
+.evaluation-matrix-table thead tr:first-child th[colspan='5'] {
+  height: 28px;
+  padding: 4px 2px;
+}
+
+.evaluation-matrix-table thead tr:nth-child(2) th {
+  height: 40px;
+  padding: 4px;
+}
+
+.evaluation-requirement-header {
+  padding: 4px 2px !important;
+}
+
+.evaluation-requirement-header > span {
+  display: block;
+}
+
+.evaluation-requirement-header-description {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 19.6px;
+  text-transform: none;
+}
+
 .evaluation-rating-header {
-  height: 86px;
-  font-size: 11px !important;
-  line-height: 14px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  line-height: 19.6px !important;
   text-transform: none !important;
 }
 
@@ -477,17 +628,17 @@
 }
 
 .evaluation-rating-header.is-orange {
-  background: #f59e0b !important;
+  background: #fb923c !important;
 }
 
 .evaluation-rating-header.is-yellow {
   background: #fde047 !important;
-  color: #262626 !important;
+  color: #fff !important;
 }
 
 .evaluation-rating-header.is-light-green {
   background: #4ade80 !important;
-  color: #262626 !important;
+  color: #fff !important;
 }
 
 .evaluation-rating-header.is-green {
@@ -510,7 +661,7 @@
 }
 
 .evaluation-matrix-requirement {
-  color: #525252;
+  color: #a3a3a3;
   font-size: 14px;
   line-height: 19.6px;
 }
@@ -533,6 +684,12 @@
   background: #f5f5f5 !important;
   color: #737373 !important;
   opacity: 1 !important;
+}
+
+.evaluation-matrix-field::placeholder,
+.evaluation-comment-field::placeholder {
+  color: #a3a3a3;
+  opacity: 1;
 }
 
 .evaluation-comment-field {
@@ -587,18 +744,92 @@
   text-transform: uppercase;
 }
 
-.evaluation-salary-note {
-  margin: 0;
-  padding: 8px 16px;
-  background: #f0f9ff;
+.evaluation-salary-header {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 10px 16px;
+  background: #0369a1;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.evaluation-salary-header span:last-child {
   color: #a3a3a3;
   font-size: 12px;
   font-style: italic;
+  font-weight: 400;
   line-height: 16px;
 }
 
-.evaluation-salary-table th {
-  width: 240px;
+.evaluation-salary-table {
+  min-width: 960px;
+}
+
+.evaluation-salary-table col.evaluation-salary-content {
+  width: 220px;
+}
+
+.evaluation-salary-table col.evaluation-salary-value {
+  width: 200px;
+}
+
+.evaluation-salary-table col.evaluation-salary-note-column {
+  width: auto;
+}
+
+.evaluation-salary-table thead th {
+  width: auto;
+  padding: 8px 16px;
+  background: #0284c7;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  text-transform: none;
+}
+
+.evaluation-salary-table tbody th {
+  width: auto;
+  padding: 8px 16px;
+  background: #fff;
+  color: #262626;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-transform: none;
+}
+
+.evaluation-salary-table tbody td {
+  padding: 4px 16px;
+}
+
+.evaluation-salary-field {
+  min-height: 24px;
+  padding: 2px 4px !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: #262626 !important;
+  font-size: 12px !important;
+  line-height: 16px !important;
+  box-shadow: none !important;
+}
+
+.evaluation-salary-field::placeholder {
+  color: #a3a3a3;
+  opacity: 1;
+}
+
+.evaluation-salary-field:disabled {
+  background: transparent !important;
+  color: #737373 !important;
+}
+
+.evaluation-salary-field:focus-visible {
+  outline: 1px solid #0369a1;
 }
 
 .evaluation-main-history .evaluation-history {

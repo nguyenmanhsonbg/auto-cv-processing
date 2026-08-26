@@ -880,6 +880,35 @@ export function useFacebookManager({
     }
   }, [facebookGroupLoadState, onAuthRequired, syncFacebookGroupsFromBrowser, token]);
 
+  const refreshFacebookGroupsAfterPublish = useCallback(async () => {
+    const accessToken = tokenRef.current;
+    const accountId = facebookAccount?.id;
+    if (!accessToken || !accountId) return;
+
+    try {
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken, accountId));
+      facebookGroupsRef.current = groups;
+      setFacebookGroups(groups);
+      const selectedIds = await reconcileSelectedFacebookGroups(
+        groups,
+        selectedFacebookGroupIdsRef.current,
+        accountId,
+      );
+
+      if (channelsRef.current.includes('FACEBOOK')) {
+        setFacebookGroupLoadState('READY');
+        setFacebookGroupMessage(
+          groups.length > 0
+            ? buildFacebookGroupSelectionMessage(selectedIds, groups)
+            : 'Đã quét được 0 nhóm',
+        );
+      }
+    } catch (error) {
+      // A quota refresh must not turn an already accepted Facebook publish into a failed publish.
+      console.warn('[FB_QUOTA_REFRESH] Failed to refresh Facebook group quotas after publish.', error);
+    }
+  }, [facebookAccount?.id, reconcileSelectedFacebookGroups]);
+
   const refreshFacebookGroupsForSettings = useCallback(async (accessToken = token) => {
     if (!accessToken) return;
     setFacebookSettingsState('LOADING');
@@ -1503,12 +1532,13 @@ export function useFacebookManager({
           jobDescriptionId: draftScope.jobDescriptionId ?? previousDraftScope.jobDescriptionId,
           snapshot,
         });
+        await refreshFacebookGroupsAfterPublish();
       }
       return { facebookResults, summary };
     } finally {
       setFacebookRunning(false);
     }
-  }, [amisRecruitmentId, clearFacebookImageViewIfReleased, getFacebookContentDraftScope, getFacebookImageAttachmentScope, requestFacebookImageAttachDecision, setSyncResult, snapshot, token]);
+  }, [amisRecruitmentId, clearFacebookImageViewIfReleased, getFacebookContentDraftScope, getFacebookImageAttachmentScope, refreshFacebookGroupsAfterPublish, requestFacebookImageAttachDecision, setSyncResult, snapshot, token]);
 
   const facebookConfig = useMemo(() => ({
     selectedPostingChannels,

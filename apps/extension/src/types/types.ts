@@ -1075,6 +1075,29 @@ export interface InterviewEvaluationSummary {
   canView: boolean;
 }
 
+export interface InterviewEvaluationAssignment {
+  applicationId: string;
+  caseId: string;
+  candidate: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  };
+  job: {
+    id: string;
+    title?: string | null;
+    jobDescriptionVersionId?: string | null;
+  };
+  round: InterviewEvaluationRoundSummary;
+  reviewer: {
+    id: string;
+    status: InterviewEvaluationReviewerStatus;
+    submittedAt?: string | null;
+  };
+  reviewerProgress: { total: number; submitted: number };
+}
+
 export interface InterviewCommitteeMember {
   id: string;
   name: string;

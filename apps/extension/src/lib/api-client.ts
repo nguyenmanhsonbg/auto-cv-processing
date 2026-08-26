@@ -64,6 +64,7 @@ import type {
   InterviewEvaluationFormData,
   InterviewEvaluationReviewerSection,
   InterviewEvaluationSummary,
+  InterviewEvaluationAssignment,
   InterviewEvaluationRoundKey,
   InterviewEvaluationTemplate,
   InterviewCommittee,
@@ -811,6 +812,27 @@ export async function getInterviewEvaluationSummary(
     `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/summary`,
     { method: 'GET', accessToken },
   );
+}
+
+export async function createInterviewEvaluationHandoff(
+  accessToken: string,
+  applicationId: string,
+) {
+  return request<{ handoffToken: string; expiresAt: string }>(
+    '/auth/evaluation-handoffs',
+    {
+      method: 'POST',
+      accessToken,
+      body: { applicationId },
+    },
+  );
+}
+
+export async function listAssignedInterviewEvaluations(accessToken: string) {
+  return request<InterviewEvaluationAssignment[]>('/interview-evaluations/assigned', {
+    method: 'GET',
+    accessToken,
+  });
 }
 
 export async function listAssignableRecruitmentUsers(accessToken: string) {

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type FocusEvent } from 'react';
 import { ApiClientError, checkPasswordResetLogin, completePasswordReset, requestPasswordReset, verifyPasswordReset } from '@/lib/api-client';
 import { ChangePasswordForm } from './ChangePasswordForm';
 import { AuthInput } from './AuthInput';
@@ -6,7 +6,24 @@ import { UserIcon } from '@/components/svg';
 
 type Step = 'IDENTIFIER' | 'METHOD' | 'OTP' | 'RESET';
 
-export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
+const NETWORK_ERROR_MESSAGE = 'Có lỗi kết nối mạng, vui lòng kiểm tra lại.';
+
+function isNetworkError(error: unknown) {
+  if (error instanceof ApiClientError) {
+    return error.code === 'NETWORK_ERROR' || error.status === 0;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return /network error|networkerror|failed to fetch|network request failed|err_network|err_failed|load failed|fetch failed/i.test(message);
+}
+
+export function ForgotPasswordForm({
+  onCancel,
+  onError,
+}: {
+  onCancel: () => void;
+  onError?: (message: string) => void;
+}) {
   const [step, setStep] = useState<Step>('IDENTIFIER');
   const [login, setLogin] = useState('');
   const [method, setMethod] = useState<'PHONE' | 'EMAIL'>('PHONE');
@@ -16,14 +33,51 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
   const [targetEmail, setTargetEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [identifierError, setIdentifierError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [resendRemaining, setResendRemaining] = useState(5);
   const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const loginInputRef = useRef<HTMLInputElement | null>(null);
+  const skipIdentifierBlurValidationRef = useRef(false);
+
+  function handleRequestError(error: unknown, fallback: string, notifyNetwork = true) {
+    if (isNetworkError(error)) {
+      if (notifyNetwork && onError) {
+        setError(null);
+        onError(NETWORK_ERROR_MESSAGE);
+      } else if (notifyNetwork) {
+        setError(NETWORK_ERROR_MESSAGE);
+      } else {
+        setError(null);
+      }
+      return;
+    }
+
+    setError(error instanceof ApiClientError ? error.message : fallback);
+  }
+
+  function handleIdentifierBlur(event: FocusEvent<HTMLInputElement>) {
+    const relatedTarget = event.relatedTarget;
+    const isActionButton = relatedTarget instanceof HTMLElement && relatedTarget.tagName === 'BUTTON';
+    if (skipIdentifierBlurValidationRef.current || isActionButton) {
+      skipIdentifierBlurValidationRef.current = false;
+      return;
+    }
+    if (!login.trim()) {
+      setIdentifierError('Tên đăng nhập là bắt buộc');
+      loginInputRef.current?.focus();
+      return;
+    }
+    setIdentifierError(null);
+  }
 
   async function confirmIdentifier() {
     const trimmed = login.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      setIdentifierError('Tên đăng nhập là bắt buộc');
+      loginInputRef.current?.focus();
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -46,7 +100,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
       }
       await sendOtpAndAdvance();
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Không thể kiểm tra tên đăng nhập. Vui lòng thử lại.');
+      handleRequestError(err, 'Không thể kiểm tra tên đăng nhập. Vui lòng thử lại.');
     } finally {
       setLoading(false);
     }
@@ -61,12 +115,13 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
       setOtp('');
       setStep('OTP');
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Không thể gửi mã xác nhận. Vui lòng thử lại.');
+      handleRequestError(err, 'Không thể gửi mã xác nhận. Vui lòng thử lại.', false);
       throw err;
     }
   }
 
   async function confirmMethod() {
+    setOtp('');
     if (method === 'PHONE') {
       setError('Luồng SMS chưa được hỗ trợ. Vui lòng chọn Gmail.');
       return;
@@ -79,7 +134,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
       setTargetEmail(response.email);
       setStep('OTP');
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Không thể gửi mã xác nhận. Vui lòng thử lại.');
+      handleRequestError(err, 'Không thể gửi mã xác nhận. Vui lòng thử lại.');
     } finally {
       setLoading(false);
     }
@@ -93,7 +148,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
       setResetToken(response.resetToken);
       setStep('RESET');
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'OTP không đúng. Vui lòng kiểm tra lại.');
+      handleRequestError(err, 'OTP không đúng. Vui lòng kiểm tra lại.');
     } finally {
       setLoading(false);
     }
@@ -110,7 +165,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
       setOtp('');
       setResendRemaining((current) => current - 1);
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Không thể gửi lại mã xác nhận.');
+      handleRequestError(err, 'Không thể gửi lại mã xác nhận.');
     } finally {
       setLoading(false);
     }
@@ -126,7 +181,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
       });
       onCancel();
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Không thể đổi mật khẩu. Vui lòng thử lại.');
+      handleRequestError(err, 'Không thể đổi mật khẩu. Vui lòng thử lại.');
     } finally {
       setLoading(false);
     }
@@ -162,16 +217,32 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
               required
               icon={<UserIcon />}
               value={login}
-              onChange={(event) => { setLogin(event.target.value); setError(null); }}
+              onChange={(event) => {
+                setLogin(event.target.value);
+                setIdentifierError(null);
+                setError(null);
+              }}
+              onBlur={handleIdentifierBlur}
               placeholder="Nhập tên đăng nhập"
               autoFocus
-              hasError={Boolean(error)}
+              hasError={Boolean(identifierError || error)}
+              errorMessage={identifierError}
               maxLength={255}
             />
           </div>
           {error ? <p className="extension-login-error">{error}</p> : null}
           <div className="extension-login-actions">
-            <button type="button" className="secondary-button" onClick={() => { setError(null); onCancel(); }}>Quay lại</button>
+            <button
+              type="button"
+              className="secondary-button"
+              onMouseDown={() => { skipIdentifierBlurValidationRef.current = true; }}
+              onClick={() => {
+                skipIdentifierBlurValidationRef.current = false;
+                setIdentifierError(null);
+                setError(null);
+                onCancel();
+              }}
+            >Quay lại</button>
             <button type="submit" className="confirm-button" disabled={!login.trim() || loading}>
               {loading ? 'Đang kiểm tra...' : 'Xác nhận'}
             </button>
@@ -269,7 +340,7 @@ export function ForgotPasswordForm({ onCancel }: { onCancel: () => void }) {
             <p className="extension-otp-hint">Bạn có thể gửi lại mã OTP 5 lần / 1 ngày, cài lại lúc 00:00:00 hàng ngày</p>
           </div>
           <div className="extension-login-actions">
-            <button type="button" className="secondary-button" onClick={() => { setError(null); setStep('METHOD'); }}>Quay lại</button>
+            <button type="button" className="secondary-button" onClick={() => { setOtp(''); setError(null); setStep('METHOD'); }}>Quay lại</button>
             <button type="submit" className="confirm-button" disabled={loading || otp.length !== 6}>
               {loading ? 'Đang xác nhận...' : 'Xác nhận'}
             </button>

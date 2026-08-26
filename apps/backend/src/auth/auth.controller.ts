@@ -19,7 +19,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Roles } from './decorators/roles.decorator';
-import { ChangePasswordDto, CompletePasswordResetDto, CreateUserDto, LoginDto, LogoutDto, RefreshTokenDto, RequestInternalPasswordDto, RequestPasswordResetDto, UpdateUserDto, VerifyPasswordResetDto } from './dto/login.dto';
+import { ChangePasswordDto, CompletePasswordResetDto, CreateEvaluationHandoffDto, CreateUserDto, ExchangeEvaluationHandoffDto, LoginDto, LogoutDto, RefreshTokenDto, RequestInternalPasswordDto, RequestPasswordResetDto, UpdateUserDto, VerifyPasswordResetDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
@@ -90,6 +90,20 @@ export class AuthController {
   @ApiOperation({ summary: 'Revoke the current refresh token' })
   async logout(@Body() dto: LogoutDto) {
     return this.authService.logout(dto.refreshToken);
+  }
+
+  @Post('evaluation-handoffs')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a one-time session handoff for an evaluation page' })
+  async createEvaluationHandoff(@Request() req: any, @Body() dto: CreateEvaluationHandoffDto) {
+    return this.authService.createEvaluationHandoff(req.user.id, dto.applicationId);
+  }
+
+  @Post('evaluation-handoffs/exchange')
+  @ApiOperation({ summary: 'Exchange a one-time evaluation handoff for a normal auth session' })
+  async exchangeEvaluationHandoff(@Body() dto: ExchangeEvaluationHandoffDto) {
+    return this.authService.exchangeEvaluationHandoff(dto.handoffToken, dto.applicationId);
   }
 
   @Get('me')

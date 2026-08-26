@@ -53,3 +53,11 @@ test('internal password form keeps full name and email errors independently', ()
   assert.match(source, /fullNameError=\{internalFieldErrors\.fullName\}/);
   assert.match(source, /emailError=\{internalFieldErrors\.email\}/);
 });
+
+test('internal password cancel bypasses blur validation', () => {
+  assert.match(source, /skipInternalBlurValidationRef = useRef\(false\)/);
+  assert.match(source, /skipInternalBlurValidationRef\.current = true/);
+  assert.match(source, /skipInternalBlurValidationRef\.current = false/);
+  assert.match(source, /handleInternalFullNameBlur[\s\S]*skipInternalBlurValidationRef\.current/);
+  assert.match(source, /handleInternalEmailBlur[\s\S]*skipInternalBlurValidationRef\.current/);
+});

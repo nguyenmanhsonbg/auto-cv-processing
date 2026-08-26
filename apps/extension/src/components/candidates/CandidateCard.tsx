@@ -8,6 +8,7 @@ import { CandidateAvatar } from './CandidateAvatar';
 import { SourceIcon } from '@/components/icons';
 import {
   createInterviewEvaluationCase,
+  createInterviewEvaluationHandoff,
   getInterviewEvaluationSummary,
 } from '@/lib/api-client';
 import { FRONTEND_BASE_URL } from '@/lib/config';
@@ -24,6 +25,7 @@ export type ApplicationQuestionStatus = {
 export type CandidateCardProps = Readonly<{
   application: ExtensionApplication;
   token: string | null;
+  isCommittee: boolean;
   isSelected: boolean;
   onToggleSelect: (applicationId: string) => void;
   isAmisUploadPending: boolean;
@@ -42,6 +44,7 @@ export type CandidateCardProps = Readonly<{
 export function CandidateCard({
   application,
   token,
+  isCommittee,
   isSelected,
   onToggleSelect,
   isAmisUploadPending,
@@ -70,9 +73,11 @@ export function CandidateCard({
   const isInterviewRound = isAmisInterviewRound(currentAmisRound);
   const evaluationStartRound = getEvaluationStartRound(application, currentAmisRound, isInterviewRound);
   const canInitializeEvaluation = Boolean(evaluationStartRound);
-  const evaluationVisible = isInterviewRound
-    || Boolean(application.interviewEvaluationStartedAt)
-    || Boolean(evaluationSummary?.hasCase);
+  const evaluationVisible = isCommittee
+    ? Boolean(evaluationSummary?.hasCase)
+    : isInterviewRound
+      || Boolean(application.interviewEvaluationStartedAt)
+      || Boolean(evaluationSummary?.hasCase);
 
   useEffect(() => {
     let disposed = false;
@@ -106,37 +111,37 @@ export function CandidateCard({
     token,
   ]);
 
-  function openEvaluationPage() {
-    const evaluationUrl = `${FRONTEND_BASE_URL}/interview-evaluations/${encodeURIComponent(application.applicationId)}`;
+  async function openEvaluationPage(accessToken: string) {
+    const handoff = await createInterviewEvaluationHandoff(accessToken, application.applicationId);
+    const evaluationUrl = `${FRONTEND_BASE_URL}/interview-evaluations/${encodeURIComponent(application.applicationId)}?handoff=${encodeURIComponent(handoff.handoffToken)}`;
     if (chrome.tabs?.create) {
-      chrome.tabs.create({ url: evaluationUrl }).catch(() => window.open(evaluationUrl, '_blank', 'noopener,noreferrer'));
+      await chrome.tabs.create({ url: evaluationUrl });
       return;
     }
-    window.open(evaluationUrl, '_blank', 'noopener,noreferrer');
+    const openedWindow = window.open(evaluationUrl, '_blank', 'noopener,noreferrer');
+    if (!openedWindow) throw new Error('Evaluation page could not be opened.');
   }
 
   async function handleEvaluationAction() {
     if (!evaluationSummary || evaluationLoading || evaluationCreating || !token) return;
-    if (evaluationSummary.hasCase) {
-      openEvaluationPage();
-      return;
-    }
-    if (!canInitializeEvaluation || !evaluationStartRound) return;
+    if (!evaluationSummary.hasCase && (!canInitializeEvaluation || !evaluationStartRound)) return;
     setEvaluationCreating(true);
     setEvaluationError(null);
     try {
-      await createInterviewEvaluationCase(token, application.applicationId, {
-        roundName: evaluationStartRound.name,
-        amisRoundId: evaluationStartRound.id,
-        amisRoundType: evaluationStartRound.roundType ?? undefined,
-        amisSortOrder: evaluationStartRound.sortOrder,
-        template: 'BM04.1_KNL',
-      });
-      const summary = await getInterviewEvaluationSummary(token, application.applicationId);
-      setEvaluationSummary(summary);
-      openEvaluationPage();
+      if (!evaluationSummary.hasCase && evaluationStartRound) {
+        await createInterviewEvaluationCase(token, application.applicationId, {
+          roundName: evaluationStartRound.name,
+          amisRoundId: evaluationStartRound.id,
+          amisRoundType: evaluationStartRound.roundType ?? undefined,
+          amisSortOrder: evaluationStartRound.sortOrder,
+          template: 'BM04.1_KNL',
+        });
+        const summary = await getInterviewEvaluationSummary(token, application.applicationId);
+        setEvaluationSummary(summary);
+      }
+      await openEvaluationPage(token);
     } catch {
-      setEvaluationError('Không thể tạo phiếu đánh giá. Vui lòng thử lại.');
+      setEvaluationError('Không thể mở phiếu đánh giá. Vui lòng thử lại.');
     } finally {
       setEvaluationCreating(false);
     }
@@ -185,13 +190,15 @@ export function CandidateCard({
     <li className={isSelected ? 'is-selected' : ''}>
       <div className="cv-candidate-card">
         <div className="cv-candidate-main">
-          <label className="cv-candidate-select" aria-label={`Chọn ${application.candidateName}`}>
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={() => onToggleSelect(application.applicationId)}
-            />
-          </label>
+          {!isCommittee ? (
+            <label className="cv-candidate-select" aria-label={`Chọn ${application.candidateName}`}>
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => onToggleSelect(application.applicationId)}
+              />
+            </label>
+          ) : null}
           <CandidateAvatar name={application.candidateName} />
           <div>
             <strong title={application.candidateName}>
@@ -264,7 +271,8 @@ export function CandidateCard({
               className="cv-evaluation-button"
               aria-busy={evaluationLoading || evaluationCreating}
               aria-label="Đánh giá sau phỏng vấn"
-              disabled={evaluationLoading || evaluationCreating || !evaluationSummary?.canView || !canInitializeEvaluation}
+              disabled={evaluationLoading || evaluationCreating || !evaluationSummary || !evaluationSummary.canView
+                || (!evaluationSummary.hasCase && !canInitializeEvaluation)}
               onClick={() => void handleEvaluationAction()}
             >
               Đánh giá sau phỏng vấn
@@ -272,7 +280,8 @@ export function CandidateCard({
             {evaluationError ? <span className="cv-evaluation-error" role="alert">{evaluationError}</span> : null}
           </div>
         ) : null}
-        <div className="cv-candidate-footer">
+        {!isCommittee ? (
+          <div className="cv-candidate-footer">
           {canShowAmisSyncButton && isAmisCandidateFormOpen ? (
             <button
               type="button"
@@ -309,7 +318,8 @@ export function CandidateCard({
                 : 'Tải file đánh giá lên AMIS'}
             </button>
           ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
     </li>
   );

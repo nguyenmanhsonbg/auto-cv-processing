@@ -73,6 +73,7 @@ export const CV_SOURCE_FILTER_OPTIONS: Array<{ value: CvSourceFilter; label: str
 
 export type CvManagementPanelProps = {
   token: string | null;
+  isCommittee: boolean;
   amisRecruitmentId: string | null;
   applicationsContext: AmisApplicationsForRecruitment | null;
   applicationsState: ApplicationsState;
@@ -104,6 +105,7 @@ export type CvManagementPanelProps = {
 
 export function CvManagementPanel({
   token,
+  isCommittee,
   amisRecruitmentId,
   applicationsContext,
   applicationsState,
@@ -430,17 +432,19 @@ export function CvManagementPanel({
         <div className="cv-list-toolbar">
           <div className="cv-list-toolbar-heading">
             <span>Danh sách ứng viên</span>
-            <button
-              type="button"
-              className="cv-bulk-sync-button"
-              disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId)}
-              onClick={() => void onUploadApplicationCvsToAmisForm(selectedFilteredApplications)}
-            >
-              <RefreshIcon />
-              {cvUploadApplicationId === 'BATCH' ? 'Đang đồng bộ...' : 'Đồng bộ CV đã chọn'}
-            </button>
+            {!isCommittee ? (
+              <button
+                type="button"
+                className="cv-bulk-sync-button"
+                disabled={selectedFilteredUploadableCount === 0 || Boolean(cvUploadApplicationId)}
+                onClick={() => void onUploadApplicationCvsToAmisForm(selectedFilteredApplications)}
+              >
+                <RefreshIcon />
+                {cvUploadApplicationId === 'BATCH' ? 'Đang đồng bộ...' : 'Đồng bộ CV đã chọn'}
+              </button>
+            ) : null}
           </div>
-          {filteredApplications.length > 0 ? (
+          {!isCommittee && filteredApplications.length > 0 ? (
             <label className="cv-select-all-control">
               <input
                 type="checkbox"
@@ -473,6 +477,7 @@ export function CvManagementPanel({
                 token={token}
                 isSelected={selectedCvApplicationIds.has(application.applicationId)}
                 onToggleSelect={onToggleCvCandidateSelection}
+                isCommittee={isCommittee}
                 isAmisUploadPending={pendingAmisUploadApplicationIds.has(application.applicationId)}
                 isAiEvaluationUploaded={aiEvaluationUploadedApplicationIds.has(application.applicationId)}
                 isCurrentAmisCandidate={Boolean(

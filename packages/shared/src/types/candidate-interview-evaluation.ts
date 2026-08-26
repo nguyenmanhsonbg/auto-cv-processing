@@ -36,6 +36,7 @@ export enum InterviewEvaluationAuditAction {
   ROUND_CREATED = 'ROUND_CREATED',
   REVIEW_SAVED = 'REVIEW_SAVED',
   REVIEW_SUBMITTED = 'REVIEW_SUBMITTED',
+  AGGREGATION_DRAFT_SAVED = 'AGGREGATION_DRAFT_SAVED',
   AGGREGATION_SAVED = 'AGGREGATION_SAVED',
   ROUND_COMPLETED = 'ROUND_COMPLETED',
   NEXT_ROUND_CREATED = 'NEXT_ROUND_CREATED',
@@ -95,6 +96,13 @@ export interface InterviewEvaluationFormData {
       rule?: string;
       comparison?: string;
       desired?: string;
+      notes?: {
+        contract?: string;
+        rule?: string;
+        comparison?: string;
+        desired?: string;
+        proposed?: string;
+      };
     };
   };
 }

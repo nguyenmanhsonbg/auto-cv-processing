@@ -2087,6 +2087,14 @@ dd {
   background: #ecfdf5;
 }
 
+.channel-group-info-button:disabled,
+.channel-group-info-button:disabled:hover {
+  color: #9ca3af;
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .channel-group-info-button svg {
   width: 15px;
   height: 15px;
@@ -8291,9 +8299,7 @@ dd {
 }
 
 .freelancer-cv-card>header,
-.freelancer-cv-card>footer,
-.freelancer-cv-pagination,
-.freelancer-cv-pagination>div {
+.freelancer-cv-card>footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -8302,17 +8308,35 @@ dd {
 
 .freelancer-cv-card-heading {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
   gap: 10px;
 }
 
 .freelancer-cv-card-heading>div {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
 }
 
-.freelancer-cv-card h3 {
+.freelancer-cv-card h3,
+.freelancer-cv-candidate-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 16px;
+}
+
+.freelancer-cv-card-heading .cv-avatar {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  overflow: hidden;
+  border-radius: 50%;
 }
 
 .freelancer-cv-card header p,
@@ -8426,16 +8450,63 @@ dd {
 }
 
 .freelancer-cv-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   border-top: 1px solid #e5e7eb;
   padding-top: 12px;
   color: #5b6677;
   font-size: 12px;
 }
 
-.freelancer-cv-pagination .secondary-button {
-  min-width: 34px;
-  min-height: 32px;
-  padding: 5px 9px;
+.freelancer-cv-pagination>span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.freelancer-cv-pagination>div {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.freelancer-cv-page-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 6px;
+  color: #2f2b3d;
+  background: rgba(47, 43, 61, .08);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16.8px;
+  cursor: pointer;
+}
+
+.freelancer-cv-page-button:disabled {
+  color: rgba(47, 43, 61, .4);
+  cursor: not-allowed;
+}
+
+.freelancer-cv-page-button.is-active {
+  color: #f0fdf4;
+  background: #15803d;
+}
+
+.freelancer-cv-pagination-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 30px;
 }
 
 .freelancer-cv-save-button {
@@ -8479,8 +8550,7 @@ dd {
   }
 
   .freelancer-cv-pagination {
-    align-items: flex-start;
-    flex-direction: column;
+    gap: 6px;
   }
 }
 
@@ -9191,7 +9261,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-person-card.is-inactive {
-  opacity: 0.85;
+  opacity: 1;
 }
 
 .referral-person-heading {
@@ -9220,9 +9290,10 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-person-identity h3 {
-  flex: 1 1 auto;
+  flex: 0 1 150px;
+  width: 150px;
   min-width: 0;
-  max-width: 24ch;
+  max-width: min(150px, 24ch);
   margin: 0;
   color: #262626;
   font-family: Inter, sans-serif;
@@ -9309,6 +9380,8 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .referral-active-badge {
   flex: none;
+  min-width: 32px;
+  box-sizing: border-box;
   border-radius: 999px;
   padding: 2px 12px;
   color: #15803D;
@@ -9464,8 +9537,9 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   /* The custom scrollbar below the table remains the horizontal scroll control. */
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #737373 #F1F5F9;
+  /* Keep the WebKit scrollbar styling active so Chrome does not re-add native arrow buttons. */
+  scrollbar-width: auto;
+  scrollbar-color: auto;
   background: #FFFFFF;
   border: 0;
   cursor: grab;
@@ -9485,9 +9559,36 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-table-wrap::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  -webkit-appearance: none;
+}
+
+.referral-table-wrap::-webkit-scrollbar-button:vertical,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:increment,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:decrement,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:start:increment,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:start:decrement,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:end:increment,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:end:decrement,
+.referral-table-wrap::-webkit-scrollbar-button:single-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  -webkit-appearance: none !important;
 }
 
 .referral-table-wrap::-webkit-scrollbar-track {
@@ -9544,8 +9645,9 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-application-table {
-  width: 100%;
-  min-width: 1180px;
+  width: 1200px;
+  min-width: 1200px;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
   background: #FFFFFF;
@@ -9561,7 +9663,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-weight: 600;
   line-height: 18px;
   letter-spacing: 0.02em;
-  text-align: left;
+  text-align: center;
   white-space: nowrap;
   height: 60px;
   box-sizing: border-box;
@@ -9571,44 +9673,57 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .referral-application-table td:first-child {
   width: 50px;
   min-width: 50px;
+  max-width: 50px;
   text-align: center;
   padding: 12px 8px;
 }
 
 .referral-application-table th:nth-child(2),
 .referral-application-table td:nth-child(2) {
-  min-width: 120px;
-  text-align: left;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  text-align: center;
 }
 
 .referral-application-table th:nth-child(3),
 .referral-application-table td:nth-child(3) {
-  min-width: 120px;
-  text-align: left;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  text-align: center;
 }
 
 .referral-application-table th:nth-child(4),
 .referral-application-table td:nth-child(4) {
-  min-width: 120px;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
   text-align: center;
 }
 
 .referral-application-table th:nth-child(5),
 .referral-application-table td:nth-child(5) {
-  min-width: 120px;
-  text-align: left;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  text-align: center;
 }
 
 .referral-application-table th:nth-child(6),
 .referral-application-table td:nth-child(6) {
+  width: 180px;
   min-width: 180px;
-  text-align: left;
+  max-width: 180px;
+  text-align: center;
 }
 
 .referral-application-table th:nth-child(7),
 .referral-application-table td:nth-child(7) {
-  min-width: 200px;
-  text-align: left;
+  width: 250px;
+  min-width: 250px;
+  max-width: 250px;
+  text-align: center;
 }
 
 .referral-application-table td {
@@ -10125,6 +10240,109 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   width: 38px;
   height: 38px;
   color: #344258;
+}
+
+.referral-confirm-modal.is-lock-confirmation .referral-modal-header h2,
+.referral-confirm-modal.is-unlock-confirmation .referral-modal-header h2 {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.referral-confirm-modal.is-lock-confirmation,
+.referral-confirm-modal.is-unlock-confirmation {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.referral-confirm-modal.is-lock-confirmation .referral-modal-close-btn,
+.referral-confirm-modal.is-unlock-confirmation .referral-modal-close-btn {
+  color: #262626;
+}
+
+.referral-account-confirmation-body {
+  padding: 16px;
+  font-family: Inter, sans-serif;
+}
+
+.referral-account-confirmation-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 16px 0;
+}
+
+.referral-account-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 72px;
+  padding-bottom: 8px;
+  margin: 0 auto;
+}
+
+.referral-confirm-lock-icon {
+  width: 36.67px;
+  height: 31.67px;
+  color: #262626;
+}
+
+.referral-account-confirmation-content h3 {
+  margin: 0;
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 24px;
+  text-align: center;
+}
+
+.referral-account-confirmation-content p {
+  margin: 4px 0;
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 24px;
+  text-align: center;
+}
+
+.referral-account-confirmation-content p strong {
+  font-weight: 700;
+}
+
+.referral-confirm-modal.is-unlock-confirmation .referral-account-confirmation-content p {
+  font-weight: 700;
+}
+
+.referral-account-person {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px;
+  margin-top: 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  color: #262626;
+  text-align: center;
+}
+
+.referral-account-person span {
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.referral-account-person strong {
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
 }
 
 

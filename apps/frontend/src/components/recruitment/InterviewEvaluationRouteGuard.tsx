@@ -1,4 +1,5 @@
 import { Navigate, Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
 import { UserRole } from '@interview-assistant/shared';
 import { useAuthContext } from '@/lib/auth-context';
 
@@ -6,8 +7,17 @@ export function InterviewEvaluationRouteGuard() {
   const { user, authState } = useAuthContext();
   const token = localStorage.getItem('token');
   const refreshToken = localStorage.getItem('refreshToken');
+  const hasHandoff = new URLSearchParams(window.location.search).has('handoff');
 
-  if ((!token && !refreshToken) || authState === 'unauthenticated') {
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = 'Phiếu đánh giá phỏng vấn';
+    return () => {
+      document.title = previousTitle;
+    };
+  }, []);
+
+  if ((!token && !refreshToken && !hasHandoff) || authState === 'unauthenticated') {
     return <Navigate to="/login" replace />;
   }
   if (authState === 'loading') {
