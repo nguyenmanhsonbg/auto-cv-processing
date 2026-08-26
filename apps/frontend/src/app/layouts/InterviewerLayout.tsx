@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { apiClient, ApiError } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { AuthProvider, useAuthContext } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -436,49 +436,7 @@ function SidebarContent() {
 
 function LayoutInner() {
   const location = useLocation();
-  const { user, setUser } = useAuthContext();
-  const [authState, setAuthState] = useState<'loading' | 'ready' | 'unauthenticated' | 'error'>('loading');
-
-  useEffect(() => {
-    let isActive = true;
-    const token = localStorage.getItem('token');
-    const refreshToken = localStorage.getItem('refreshToken');
-
-    if (!token && !refreshToken) {
-      apiClient.clearTokens();
-      setUser(null);
-      setAuthState('unauthenticated');
-      return () => {
-        isActive = false;
-      };
-    }
-
-    apiClient.setToken(token);
-    apiClient.setRefreshToken(refreshToken);
-    apiClient.get<User>('/auth/me')
-      .then((resolvedUser) => {
-        if (!isActive) return;
-        setUser(resolvedUser);
-        setAuthState('ready');
-      })
-      .catch((err) => {
-        if (!isActive) return;
-
-        // Only logout on 401 - network errors (e.g. backend restarting) should not clear the session
-        if (err instanceof ApiError && err.status === 401) {
-          apiClient.clearTokens();
-          setUser(null);
-          setAuthState('unauthenticated');
-          return;
-        }
-
-        setAuthState('error');
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [setUser]);
+  const { user, authState } = useAuthContext();
 
   if (authState === 'loading') {
     return (

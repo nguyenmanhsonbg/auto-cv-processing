@@ -141,7 +141,10 @@ export class InterviewEvaluationsService {
           (reviewer) => reviewer.userId === actor.id
             && reviewer.section === InterviewEvaluationReviewerSection.COMMITTEE,
         );
-        visibleRound.committeeData = ownCommitteeReviewer?.formData ?? visibleRound.committeeData;
+        visibleRound.committeeData = this.mergeFormData(
+          visibleRound.committeeData,
+          ownCommitteeReviewer?.formData,
+        );
       } else {
         visibleRound.hrbpData = {};
         visibleRound.committeeData = {};
@@ -160,6 +163,8 @@ export class InterviewEvaluationsService {
         candidate: this.candidateSummary(application),
         job: this.jobSummary(application),
         template: evaluationCase.template,
+        source: application.source,
+        sourceChannel: application.sourceChannel,
       },
       currentRound: visibleRound,
       rounds: rounds.map((round) => this.roundSummary(round)),

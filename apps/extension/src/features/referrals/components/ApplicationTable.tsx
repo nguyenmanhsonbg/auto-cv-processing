@@ -95,7 +95,8 @@ export function ApplicationTable({ applications, source }: ApplicationTableProps
 
   function handleWheel(e: React.WheelEvent<HTMLDivElement>) {
     if (!tableWrapRef.current) return;
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && scrollState.canScroll) {
+    const canScrollVertically = tableWrapRef.current.scrollHeight > tableWrapRef.current.clientHeight + 2;
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && scrollState.canScroll && !canScrollVertically) {
       tableWrapRef.current.scrollLeft += e.deltaY;
     }
   }

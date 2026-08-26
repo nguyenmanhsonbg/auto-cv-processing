@@ -444,6 +444,8 @@ export interface InterviewEvaluationDetail {
     candidate: InterviewEvaluationSummary['candidate'];
     job: InterviewEvaluationSummary['job'];
     template: InterviewEvaluationTemplate;
+    source?: string | null;
+    sourceChannel?: string | null;
   };
   currentRound: InterviewEvaluationRoundSummary & {
     hrbpData: InterviewEvaluationFormData;

@@ -44,6 +44,12 @@ export enum InterviewEvaluationAuditAction {
 
 export type InterviewEvaluationResult = 'PASS' | 'FAIL' | 'PENDING';
 
+export interface InterviewEvaluationCriterionData {
+  evidence?: string;
+  rating?: number;
+  note?: string;
+}
+
 export interface InterviewEvaluationFormData {
   overall?: {
     result?: InterviewEvaluationResult;
@@ -62,6 +68,7 @@ export interface InterviewEvaluationFormData {
     /** Legacy fields retained so existing evaluation records remain readable. */
     level?: string;
     placement?: string;
+    cvSource?: string;
     salaryExpectation?: string;
     noticePeriod?: string;
     motivation?: string;
@@ -73,6 +80,8 @@ export interface InterviewEvaluationFormData {
     communicationRating?: number;
     teamworkRating?: number;
     leadershipRating?: number;
+    technicalCompetencies?: Record<string, InterviewEvaluationCriterionData[]>;
+    personalGrowth?: Record<string, InterviewEvaluationCriterionData[]>;
     notes?: string;
   };
   final?: {
@@ -81,5 +90,11 @@ export interface InterviewEvaluationFormData {
     proposedSalary?: string;
     nextAction?: string;
     notes?: string;
+    salaryDetails?: {
+      contract?: string;
+      rule?: string;
+      comparison?: string;
+      desired?: string;
+    };
   };
 }

@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, Clock3, FileText, LockKeyhole, Save, Send, Users } from 'lucide-react';
-import { UserRole } from '@interview-assistant/shared';
-import type {
-  InterviewEvaluationFormData,
-  InterviewEvaluationReviewerSection,
+import { CalendarDays } from 'lucide-react';
+import {
+  UserRole,
+  type InterviewEvaluationCriterionData,
+  type InterviewEvaluationFormData,
 } from '@interview-assistant/shared';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Separator } from '@/components/ui/separator';
 import { getInternalSafeErrorMessage } from '@/lib/api-errors';
 import { useAuthContext } from '@/lib/auth-context';
 import {
@@ -22,70 +18,171 @@ import {
   saveInterviewEvaluationReview,
   submitInterviewEvaluationReview,
   type InterviewEvaluationDetail,
-  type InterviewEvaluationReviewerRecord,
 } from '@/lib/recruitment-api';
 import { formatRecruitmentDateTime } from '@/lib/date-time';
 import { useToast } from '@/components/ui/use-toast';
+import { useNavigate, useParams } from 'react-router-dom';
+import './interview-evaluation-page.css';
+
+type CriterionMatrix = 'technicalCompetencies' | 'personalGrowth';
+type CriterionRow = InterviewEvaluationCriterionData;
+type CriterionDefinition = Readonly<{ key: string; label: string; requirement: string }>;
 
 const EMPTY_FORM: InterviewEvaluationFormData = {
   overall: { result: 'PENDING', strengths: '', concerns: '', notes: '' },
   hrbp: {
-    educationCertificates: '',
-    foreignLanguage: '',
-    experienceSummary: '',
-    projectsHighlights: '',
-    developmentMotivation: '',
-    onboardingTimeline: '',
-    concerns: '',
-    level: '',
-    placement: '',
-    salaryExpectation: '',
-    noticePeriod: '',
-    motivation: '',
-    notes: '',
+    educationCertificates: '', foreignLanguage: '', experienceSummary: '', projectsHighlights: '',
+    developmentMotivation: '', onboardingTimeline: '', concerns: '', level: '', placement: '',
+    cvSource: '', salaryExpectation: '', noticePeriod: '', motivation: '', notes: '',
   },
   committee: {
-    technicalRating: 0,
-    problemSolvingRating: 0,
-    communicationRating: 0,
-    teamworkRating: 0,
-    leadershipRating: 0,
-    notes: '',
+    technicalRating: 0, problemSolvingRating: 0, communicationRating: 0, teamworkRating: 0,
+    leadershipRating: 0, technicalCompetencies: {}, personalGrowth: {}, notes: '',
   },
-  final: { result: 'PENDING', proposedLevel: '', proposedSalary: '', nextAction: '', notes: '' },
+  final: { result: 'PENDING', proposedLevel: '', proposedSalary: '', nextAction: '', notes: '', salaryDetails: {} },
 };
+
+const HRBP_FIELDS = [
+  { key: 'educationCertificates', label: 'Bằng cấp, chứng chỉ' },
+  { key: 'foreignLanguage', label: 'Ngoại ngữ' },
+  { key: 'experienceSummary', label: 'Tổng quan kỹ năng kinh nghiệm' },
+  { key: 'projectsHighlights', label: 'Dự án & kết quả nổi bật' },
+  { key: 'developmentMotivation', label: 'Động lực phát triển' },
+  { key: 'onboardingTimeline', label: 'Thời gian dự kiến onboard' },
+  { key: 'concerns', label: 'Điểm cần lưu ý' },
+] as const;
+
+const TECHNICAL_CRITERIA: readonly CriterionDefinition[] = [
+  { key: 'knowledge', label: 'Kiến thức chuyên môn (Knowledge)', requirement: '(Theo thông tin của Careerpath đã được ban hành đối với từng level của vị trí)' },
+  { key: 'skill', label: 'Kỹ năng chuyên môn (Skill)', requirement: '(Theo thông tin của Careerpath đã được ban hành đối với từng level của vị trí)' },
+  { key: 'additionalCompetencies', label: 'Năng lực bổ sung theo đặc thù vị trí/dự án', requirement: 'HM/HĐCM bổ sung theo bối cảnh/yêu cầu đặc thù của dự án, vị trí công việc' },
+  { key: 'riskFactors', label: 'Các yếu tố rủi ro', requirement: 'Nêu rõ các rủi ro nếu có (kỹ năng thiếu hụt, gap kinh nghiệm, khác biệt domain...)' },
+  { key: 'levelRegion', label: 'Đánh giá Level/Vùng', requirement: 'Đánh giá Level và xếp vùng tương ứng, kèm theo lý do tại cột bên' },
+];
+
+const PERSONAL_GROWTH_CRITERIA: readonly CriterionDefinition[] = [
+  { key: 'fit', label: 'Sự phù hợp về đặc điểm con người, phong cách làm việc', requirement: 'Ấn tượng tổng thể về tính cách, cá tính, phong cách làm việc của UV? Mức độ phù hợp với đặc thù/tính chất dự án, phong cách làm việc chung của đội nhóm/đơn vị?' },
+  { key: 'analysis', label: 'Tư duy phân tích & logic', requirement: 'Khả năng phân tích vấn đề, xác định nguyên nhân gốc rễ, đề xuất giải pháp có cấu trúc, cách làm sáng tạo' },
+  { key: 'collaboration', label: 'Khả năng làm việc nhóm & cộng tác', requirement: 'Khả năng hợp tác cross-functional; cách xử lý xung đột / bất đồng trong team' },
+  { key: 'adaptability', label: 'Khả năng thích ứng & thúc đẩy kết quả', requirement: 'Hướng kết quả/outcomes, khả năng xử lý rào cản trong thực thi (deadline gấp, yêu cầu thay đổi, yếu tố không chắc chắn…)' },
+  { key: 'selfDevelopment', label: 'Khả năng phát triển bản thân', requirement: 'UV có thể hiện sự chủ động học hỏi, cập nhật kiến thức, kỹ năng mới? Dẫn chứng gần nhất?' },
+  { key: 'growthPotential', label: 'Động lực & tiềm năng phát triển', requirement: 'UV có tiềm năng đảm nhận scope lớn hơn trong 12–18 tháng tới không? Căn cứ vào đâu? Động lực phát triển của họ là gì?' },
+];
+
+const TECHNICAL_LEGEND = [
+  { value: 1, label: 'Không đạt', color: 'is-red' },
+  { value: 2, label: 'Hiểu / Biết khái niệm cơ bản', color: 'is-orange' },
+  { value: 3, label: 'Đã triển khai thực tế & có kinh nghiệm', color: 'is-yellow' },
+  { value: 4, label: 'Có khả năng giải quyết vấn đề', color: 'is-light-green' },
+  { value: 5, label: 'Hoạch định chiến lược, xây dựng thể chế', color: 'is-green' },
+] as const;
+
+const PERSONAL_LEGEND = [
+  { value: 1, label: 'Yếu / Không rõ ràng', color: 'is-red' },
+  { value: 2, label: 'Thể hiện có hạn', color: 'is-orange' },
+  { value: 3, label: 'Thể hiện rõ ràng', color: 'is-yellow' },
+  { value: 4, label: 'Thể hiện mạnh mẽ, mang giá trị nền', color: 'is-light-green' },
+  { value: 5, label: 'Truyền cảm hứng, có tác động và tầm ảnh hưởng', color: 'is-green' },
+] as const;
+
+const TECHNICAL_ROW_COUNTS: Readonly<Record<string, number>> = {
+  knowledge: 4,
+  skill: 4,
+  additionalCompetencies: 4,
+  riskFactors: 1,
+  levelRegion: 1,
+};
+
+const SALARY_FIELDS = [
+  { key: 'contract', label: 'Diện ký hợp đồng' },
+  { key: 'rule', label: 'Lương_Rule' },
+  { key: 'comparison', label: 'Mức lương so sánh' },
+  { key: 'desired', label: 'Mức lương mong muốn' },
+  { key: 'proposed', label: 'Mức lương đề xuất' },
+] as const;
+
+type SalaryFieldKey = (typeof SALARY_FIELDS)[number]['key'];
+type SalaryDetailKey = Exclude<SalaryFieldKey, 'proposed'>;
+
+function cloneMatrix(matrix?: Record<string, CriterionRow[]>) {
+  return Object.fromEntries(Object.entries(matrix ?? {}).map(([key, rows]) => [key, rows.map((row) => ({ ...row }))]));
+}
 
 function cloneFormData(data?: InterviewEvaluationFormData | null): InterviewEvaluationFormData {
   return {
     overall: { ...EMPTY_FORM.overall, ...data?.overall },
     hrbp: { ...EMPTY_FORM.hrbp, ...data?.hrbp },
-    committee: { ...EMPTY_FORM.committee, ...data?.committee },
-    final: { ...EMPTY_FORM.final, ...data?.final },
+    committee: {
+      ...EMPTY_FORM.committee,
+      ...data?.committee,
+      technicalCompetencies: cloneMatrix(data?.committee?.technicalCompetencies),
+      personalGrowth: cloneMatrix(data?.committee?.personalGrowth),
+    },
+    final: {
+      ...EMPTY_FORM.final,
+      ...data?.final,
+      salaryDetails: { ...EMPTY_FORM.final?.salaryDetails, ...data?.final?.salaryDetails },
+    },
   };
 }
 
-function statusLabel(status: string) {
+function getHrbpValue(hrbp: InterviewEvaluationFormData['hrbp'], field: string) {
+  if (field === 'developmentMotivation') return hrbp?.developmentMotivation || hrbp?.motivation;
+  if (field === 'concerns') return hrbp?.concerns || hrbp?.notes;
+  return hrbp?.[field as keyof NonNullable<InterviewEvaluationFormData['hrbp']>];
+}
+
+function interviewLabel(roundName: string) {
+  const match = roundName.match(/(\d+)/);
+  if (!match) return roundName || '1st Interview';
+  const number = Number(match[1]);
+  let suffix = 'th';
+  if (number % 100 < 11 || number % 100 > 13) {
+    if (number % 10 === 1) suffix = 'st';
+    else if (number % 10 === 2) suffix = 'nd';
+    else if (number % 10 === 3) suffix = 'rd';
+  }
+  return `${number}${suffix} Interview`;
+}
+
+function formatEvaluationDate(detail: InterviewEvaluationDetail) {
+  const source = detail.currentRound.completedAt ?? [...detail.audits].reverse().find((audit) => audit.createdAt)?.createdAt;
+  if (!source) return 'dd/mm/yyyy';
+  const date = new Date(source);
+  if (Number.isNaN(date.getTime())) return 'dd/mm/yyyy';
+  return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
+}
+
+function getTemplateDescription(template: InterviewEvaluationDetail['case']['template']) {
+  if (template === 'BM04.2_CAREERPATH') return 'BM04.2: Áp dụng các Vị trí chưa có KNL, đánh giá theo Careerpath';
+  return 'BM04.1: Áp dụng theo Khung năng lực (Competency Framework)';
+}
+
+function getMatrixRowCount(matrix: CriterionMatrix, criterionKey: string) {
+  if (matrix === 'technicalCompetencies') return TECHNICAL_ROW_COUNTS[criterionKey] ?? 1;
+  return 1;
+}
+
+function formatCandidateSource(source?: string | null, sourceChannel?: string | null) {
+  const sourceValue = sourceChannel || source;
+  if (!sourceValue) return 'Chưa đồng bộ';
   const labels: Record<string, string> = {
-    READY_TO_EVALUATE: 'Sẵn sàng đánh giá',
-    DRAFT: 'Bản nháp',
-    WAITING_COMMITTEE: 'Chờ HĐCM',
-    IN_REVIEW: 'Đang đánh giá',
-    WAITING_AGGREGATION: 'Chờ tổng hợp',
-    NEEDS_REVISION: 'Cần bổ sung',
-    COMPLETED: 'Đã hoàn tất',
-    LOCKED: 'Đã khóa',
+    VCS_PORTAL: 'VCS Portal',
+    PORTAL: 'VCS Portal',
+    FACEBOOK: 'Facebook',
+    TOPCV: 'TopCV',
+    ITVIEC: 'ITviec',
+    VIETNAMWORKS: 'VietnamWorks',
+    LINKEDIN: 'LinkedIn',
+    MANUAL: 'Nhập thủ công',
+    OTHER: 'Khác',
   };
-  return labels[status] ?? status;
+  return labels[sourceValue.toUpperCase()] ?? sourceValue;
 }
 
-function statusClass(status: string) {
-  if (status === 'COMPLETED' || status === 'LOCKED') return 'bg-green-100 text-green-800';
-  if (status === 'WAITING_COMMITTEE' || status === 'WAITING_AGGREGATION') return 'bg-amber-100 text-amber-800';
-  return 'bg-blue-100 text-blue-800';
-}
-
-function sectionLabel(section: InterviewEvaluationReviewerSection) {
-  return section === 'HRBP' ? 'HRBP' : 'Hội đồng chuyên môn';
+function getHistoryLabel(action: string) {
+  const labels: Record<string, string> = { CASE_CREATED: 'Khởi tạo đánh giá', ROUND_CREATED: 'Khởi tạo vòng đánh giá', REVIEW_SAVED: 'Lưu nháp đánh giá', REVIEW_SUBMITTED: 'Hoàn thành đánh giá', AGGREGATION_SAVED: 'Lưu tổng hợp', ROUND_COMPLETED: 'Hoàn thành vòng phỏng vấn', NEXT_ROUND_CREATED: 'Tạo vòng phỏng vấn tiếp theo', ROUND_CONTEXT_SYNCHRONIZED: 'Đồng bộ dữ liệu vòng phỏng vấn' };
+  return labels[action] ?? action;
 }
 
 function findCurrentReviewer(detail: InterviewEvaluationDetail | null, userId?: string) {
@@ -93,104 +190,60 @@ function findCurrentReviewer(detail: InterviewEvaluationDetail | null, userId?: 
   return detail.reviewers.find((reviewer) => reviewer.userId === userId);
 }
 
-function readOnlyValue(value?: string | number | null) {
-  if (value === undefined || value === null || value === '') return 'Chưa nhập';
-  return `${value}`;
+function SectionHeader({ title, tone }: Readonly<{ title: string; tone: 'blue' | 'green' | 'committee' }>) {
+  return <div className={`evaluation-section-header is-${tone}`}>{title}</div>;
 }
 
-type HrbpFieldKey =
-  | 'educationCertificates'
-  | 'foreignLanguage'
-  | 'experienceSummary'
-  | 'projectsHighlights'
-  | 'developmentMotivation'
-  | 'onboardingTimeline'
-  | 'concerns';
-
-type HrbpFieldDefinition = Readonly<{
-  key: HrbpFieldKey;
-  label: string;
-  multiline: boolean;
-}>;
-
-const HRBP_FIELDS: readonly HrbpFieldDefinition[] = [
-  { key: 'educationCertificates', label: 'Bằng cấp, chứng chỉ', multiline: true },
-  { key: 'foreignLanguage', label: 'Ngoại ngữ', multiline: true },
-  { key: 'experienceSummary', label: 'Tổng quan kỹ năng kinh nghiệm', multiline: true },
-  { key: 'projectsHighlights', label: 'Dự án & kết quả nổi bật', multiline: true },
-  { key: 'developmentMotivation', label: 'Động lực phát triển', multiline: true },
-  { key: 'onboardingTimeline', label: 'Thời gian dự kiến onboard', multiline: false },
-  { key: 'concerns', label: 'Điểm cần lưu ý', multiline: true },
-];
-
-function getHrbpValue(hrbp: InterviewEvaluationFormData['hrbp'], field: HrbpFieldKey) {
-  if (field === 'developmentMotivation') return hrbp?.developmentMotivation || hrbp?.motivation;
-  if (field === 'concerns') return hrbp?.concerns || hrbp?.notes;
-  return hrbp?.[field];
+function DesignInfoRow({ label, value, placeholder = 'Chưa nhập' }: Readonly<{ label: string; value?: string | null; placeholder?: string }>) {
+  return <tr><th scope="row">{label}</th><td className={value ? undefined : 'evaluation-empty-value'}>{value || placeholder}</td></tr>;
 }
 
-function HrbpSectionHeader({ readOnly }: Readonly<{ readOnly: boolean }>) {
-  return <CardHeader className="border-b border-slate-200 bg-[#dceaf2]"><CardTitle className="flex items-center gap-2 text-[#1f3b70]"><Users className="h-4 w-4" />II. ĐÁNH GIÁ TỪ HRBP PHỤ TRÁCH {readOnly ? <Badge variant="outline">Chỉ xem</Badge> : null}</CardTitle><p className="text-xs italic leading-5 text-slate-600">Mục này do HRBP hoàn thiện trước buổi phỏng vấn chuyên môn, dựa trên hồ sơ CV, kết quả phone screening và quan sát trong quá trình tiếp xúc. Đây là cơ sở quan trọng để HM/HĐCM và BGĐ đánh giá toàn diện ứng viên.</p>{readOnly ? <p className="text-xs text-slate-600">Nội dung HRBP đã nhập được chia sẻ để HĐCM tham khảo.</p> : null}</CardHeader>;
+function EditableInfoRow({ label, value, placeholder, disabled, onChange }: Readonly<{ label: string; value: string; placeholder: string; disabled: boolean; onChange: (value: string) => void }>) {
+  const controlId = `overview-${label.toLowerCase().replaceAll(' ', '-')}`;
+  return <tr><th scope="row"><label htmlFor={controlId}>{label}</label></th><td><Input id={controlId} className="evaluation-design-field" value={value} placeholder={placeholder} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></td></tr>;
+}
+
+function InfoGroupRow({ label, description }: Readonly<{ label: string; description: string }>) {
+  return <tr className="evaluation-info-group"><th scope="row">{label}</th><td>{description}</td></tr>;
+}
+
+function EditableHrbpRow({ label, value, disabled, onChange }: Readonly<{ label: string; value: string; disabled: boolean; onChange: (value: string) => void }>) {
+  const controlId = `hrbp-${label.toLowerCase().replaceAll(' ', '-')}`;
+  return <tr><th scope="row"><label htmlFor={controlId}>{label}</label></th><td><Textarea id={controlId} className="evaluation-design-field" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></td></tr>;
 }
 
 function ReadOnlyHrbpRow({ label, value }: Readonly<{ label: string; value?: string | null }>) {
-  return <div className="grid gap-0 border-b border-slate-200 last:border-b-0 sm:grid-cols-[220px_minmax(0,1fr)]"><div className="bg-[#e6f1f5] px-3 py-3 text-sm font-medium text-slate-700">{label}</div><div className="min-h-12 whitespace-pre-wrap px-3 py-3 text-sm text-slate-800">{readOnlyValue(value)}</div></div>;
+  return <tr><th scope="row">{label}</th><td className={value ? undefined : 'evaluation-empty-value'}>{value || 'Chưa nhập'}</td></tr>;
 }
 
-function EditableHrbpRow({ field, value, disabled, onChange }: Readonly<{ field: HrbpFieldDefinition; value: string; disabled: boolean; onChange: (value: string) => void }>) {
-  const controlId = `hrbp-${field.key}`;
-  return <div className="grid gap-2 border-b border-slate-200 p-3 last:border-b-0 sm:grid-cols-[220px_minmax(0,1fr)] sm:gap-4"><label className="flex items-start pt-2 text-sm font-medium text-slate-700" htmlFor={controlId}>{field.label}</label>{field.multiline ? <Textarea id={controlId} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /> : <Input id={controlId} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />}</div>;
+function RatingLegend({ entries }: Readonly<{ entries: readonly { value: number; label: string; color: string }[] }>) {
+  return <div className="evaluation-rating-legend" aria-label="Thang đánh giá mức độ thể hiện">{entries.map((entry) => <div className="evaluation-rating-legend-item" key={entry.value}><span className={`evaluation-rating-legend-swatch ${entry.color}`}>{entry.value}</span><span>{entry.label}</span></div>)}</div>;
 }
 
-function ReadOnlyValue({ label, value }: Readonly<{ label: string; value?: string | number | null }>) {
-  return <div className="rounded-md border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{readOnlyValue(value)}</p></div>;
+function MatrixCellInput({ value, disabled, multiline, ariaLabel, placeholder, onChange }: Readonly<{ value: string; disabled: boolean; multiline?: boolean; ariaLabel: string; placeholder?: string; onChange: (value: string) => void }>) {
+  if (disabled) return <div className="evaluation-matrix-readonly" aria-label={ariaLabel}>{value}</div>;
+  if (multiline) return <Textarea aria-label={ariaLabel} className="evaluation-matrix-field" placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />;
+  return <Input aria-label={ariaLabel} className="evaluation-matrix-field" placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />;
 }
 
-function ReadOnlyHrbpSection({ data }: Readonly<{ data: InterviewEvaluationFormData }>) {
-  const hrbp = data.hrbp ?? {};
-  return <Card id="hrbp" className="border-slate-200 shadow-sm"><HrbpSectionHeader readOnly /><CardContent className="pt-5"><div className="overflow-hidden rounded-md border border-slate-200">{HRBP_FIELDS.map((field) => <ReadOnlyHrbpRow key={field.key} label={field.label} value={getHrbpValue(hrbp, field.key)} />)}</div></CardContent></Card>;
+function CommitteeMatrix({ matrix, criteria, legend, disabled, values, onChange }: Readonly<{ matrix: CriterionMatrix; criteria: readonly CriterionDefinition[]; legend: readonly { value: number; label: string; color: string }[]; disabled: boolean; values: Record<string, CriterionRow[]>; onChange: (key: string, rowIndex: number, patch: Partial<CriterionRow>) => void }>) {
+  return <>
+    <div className="evaluation-matrix-help">Thang đánh giá mức độ thể hiện:</div>
+    <RatingLegend entries={legend} />
+    <div className="evaluation-matrix-scroll"><table className="evaluation-matrix-table"><colgroup><col className="evaluation-matrix-index" /><col className="evaluation-matrix-criterion" /><col className="evaluation-matrix-requirement" /><col className="evaluation-matrix-evidence" /><col className="evaluation-rating-cell" /><col className="evaluation-rating-cell" /><col className="evaluation-rating-cell" /><col className="evaluation-rating-cell" /><col className="evaluation-rating-cell" /><col className="evaluation-matrix-note" /></colgroup><thead><tr><th rowSpan={2}>STT</th><th rowSpan={2}>{matrix === 'technicalCompetencies' ? 'KHÍA CẠNH ĐÁNH GIÁ' : 'TIÊU CHÍ ĐÁNH GIÁ'}</th><th rowSpan={2}>YÊU CẦU</th><th rowSpan={2}>ĐÁNH GIÁ / DẪN CHỨNG CỤ THỂ</th><th colSpan={5}>ĐÁNH GIÁ MỨC ĐỘ THỂ HIỆN</th><th rowSpan={2}>GHI CHÚ</th></tr><tr>{legend.map((entry) => <th className={`evaluation-rating-header ${entry.color}`} key={entry.value}>{entry.value}</th>)}</tr></thead><tbody>{criteria.map((criterion, criterionIndex) => { const rowCount = getMatrixRowCount(matrix, criterion.key); const rows = values[criterion.key] ?? []; return Array.from({ length: rowCount }, (_, rowIndex) => { const row = rows[rowIndex] ?? {}; const rowKey = `${criterion.key}-${rowIndex}`; return <tr key={rowKey}>{rowIndex === 0 ? <><td rowSpan={rowCount} className="evaluation-matrix-index">{criterionIndex + 1}</td><td rowSpan={rowCount} className="evaluation-matrix-criterion">{criterion.label}</td><td rowSpan={rowCount} className="evaluation-matrix-requirement">{criterion.requirement}</td></> : null}<td><MatrixCellInput value={row.evidence ?? ''} disabled={disabled} multiline ariaLabel={`${criterion.label} dẫn chứng ${rowIndex + 1}`} onChange={(value) => onChange(criterion.key, rowIndex, { evidence: value })} /></td>{legend.map((entry) => <td className="evaluation-rating-cell" key={entry.value}><input type="radio" name={`${matrix}-${criterion.key}-${rowIndex}`} value={entry.value} checked={row.rating === entry.value} disabled={disabled} aria-label={`${criterion.label}: mức ${entry.value}`} onChange={() => onChange(criterion.key, rowIndex, { rating: entry.value })} /></td>)}<td><MatrixCellInput value={row.note ?? ''} disabled={disabled} ariaLabel={`${criterion.label} ghi chú ${rowIndex + 1}`} placeholder="Ghi chú" onChange={(value) => onChange(criterion.key, rowIndex, { note: value })} /></td></tr>; }); })}</tbody></table></div>
+  </>;
 }
 
-function ReadOnlyCommitteeSection({ reviewers }: Readonly<{ reviewers: InterviewEvaluationReviewerRecord[] }>) {
-  const committeeReviewers = reviewers.filter((reviewer) => reviewer.section === 'COMMITTEE');
-  return <Card id="committee" className="border-slate-200 shadow-sm"><CardHeader className="border-b border-slate-200 bg-[#dceaf2]"><CardTitle className="flex items-center gap-2 text-[#1f3b70]"><Users className="h-4 w-4" />III. Đánh giá của Hội đồng chuyên môn <Badge variant="outline">Chỉ xem</Badge></CardTitle><p className="text-xs text-slate-600">HR/Admin được xem nội dung đánh giá của HĐCM nhưng không được chỉnh sửa.</p></CardHeader><CardContent className="space-y-4 pt-5">{committeeReviewers.length === 0 ? <p className="text-sm text-muted-foreground">Chưa có thành viên HĐCM được phân công.</p> : committeeReviewers.map((reviewer) => { const committee = reviewer.formData?.committee ?? {}; return <div key={reviewer.id} className="space-y-3 rounded-lg border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold text-slate-900">{reviewer.name}</p><p className="text-xs text-slate-500">{reviewer.email ?? 'Không có email'}</p></div><Badge variant="outline">{statusLabel(reviewer.status)}</Badge></div><div className="grid gap-3 md:grid-cols-2"><ReadOnlyValue label="Kiến thức chuyên môn" value={committee.technicalRating ? `${committee.technicalRating}/5` : null} /><ReadOnlyValue label="Giải quyết vấn đề" value={committee.problemSolvingRating ? `${committee.problemSolvingRating}/5` : null} /><ReadOnlyValue label="Giao tiếp" value={committee.communicationRating ? `${committee.communicationRating}/5` : null} /><ReadOnlyValue label="Làm việc nhóm" value={committee.teamworkRating ? `${committee.teamworkRating}/5` : null} /><ReadOnlyValue label="Leadership / ownership" value={committee.leadershipRating ? `${committee.leadershipRating}/5` : null} /><ReadOnlyValue label="Đánh giá / dẫn chứng cụ thể" value={committee.notes} /></div></div>; })}</CardContent></Card>;
-}
-
-function ReadOnlyCommitteeReviews({ reviewers, currentUserId }: Readonly<{ reviewers: InterviewEvaluationReviewerRecord[]; currentUserId?: string }>) {
-  const submittedReviews = reviewers.filter(
-    (reviewer) => reviewer.section === 'COMMITTEE'
-      && reviewer.userId !== currentUserId
-      && reviewer.status === 'SUBMITTED'
-      && reviewer.formData,
-  );
-  return <Card id="peer-reviews" className="border-slate-200 shadow-sm"><CardHeader className="border-b border-slate-200 bg-[#dceaf2]"><CardTitle className="flex items-center gap-2 text-[#1f3b70]"><Users className="h-4 w-4" />Đánh giá HĐCM đã gửi <Badge variant="outline">Chỉ xem</Badge></CardTitle><p className="text-xs text-slate-600">Chỉ hiển thị đánh giá của thành viên khác sau khi họ đã gửi.</p></CardHeader><CardContent className="space-y-4 pt-5">{submittedReviews.length === 0 ? <p className="text-sm text-muted-foreground">Chưa có đánh giá HĐCM nào khác đã gửi.</p> : submittedReviews.map((reviewer) => { const committee = reviewer.formData?.committee ?? {}; const overall = reviewer.formData?.overall ?? {}; return <div key={reviewer.id} className="space-y-3 rounded-lg border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold text-slate-900">{reviewer.name}</p><p className="text-xs text-slate-500">{reviewer.email ?? 'Không có email'}</p></div><Badge className="bg-emerald-100 text-emerald-800">Đã gửi</Badge></div><div className="grid gap-3 md:grid-cols-2"><ReadOnlyValue label="Kiến thức chuyên môn" value={committee.technicalRating ? `${committee.technicalRating}/5` : null} /><ReadOnlyValue label="Giải quyết vấn đề" value={committee.problemSolvingRating ? `${committee.problemSolvingRating}/5` : null} /><ReadOnlyValue label="Giao tiếp" value={committee.communicationRating ? `${committee.communicationRating}/5` : null} /><ReadOnlyValue label="Làm việc nhóm" value={committee.teamworkRating ? `${committee.teamworkRating}/5` : null} /><ReadOnlyValue label="Leadership / ownership" value={committee.leadershipRating ? `${committee.leadershipRating}/5` : null} /><ReadOnlyValue label="Kết quả đề xuất" value={overall.result} /><ReadOnlyValue label="Đánh giá / dẫn chứng" value={committee.notes} /><ReadOnlyValue label="Ghi chú" value={overall.notes} /></div></div>; })}</CardContent></Card>;
-}
-
-const RATING_STYLES: Record<number, string> = {
-  1: 'border-red-300 bg-red-50 text-red-700',
-  2: 'border-amber-300 bg-amber-50 text-amber-700',
-  3: 'border-yellow-300 bg-yellow-50 text-yellow-700',
-  4: 'border-lime-300 bg-lime-50 text-lime-700',
-  5: 'border-emerald-300 bg-emerald-50 text-emerald-700',
-};
-
-function RatingScale({ value, disabled, onChange }: Readonly<{ value?: number; disabled: boolean; onChange: (value: number) => void }>) {
-  return (
-    <div className="flex gap-2">
-      {[1, 2, 3, 4, 5].map((rating) => (
-        <button
-          key={rating}
-          type="button"
-          disabled={disabled}
-          className={`h-9 w-9 rounded-md border text-sm font-semibold transition-colors ${value === rating ? RATING_STYLES[rating] : 'border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:bg-blue-50'}`}
-          onClick={() => onChange(rating)}
-          aria-label={`Đánh giá ${rating} trên 5`}
-        >
-          {rating}
-        </button>
-      ))}
-    </div>
-  );
+function SalaryProposalSection({ data, disabled, onChange }: Readonly<{ data: InterviewEvaluationFormData; disabled: boolean; onChange: (field: SalaryFieldKey, value: string) => void }>) {
+  const salaryDetails = data.final?.salaryDetails ?? {};
+  return <section id="salary" className="evaluation-design-block evaluation-salary-section">
+    <SectionHeader title="Đề xuất lương" tone="blue" />
+    <p className="evaluation-salary-note">Mục này được cập nhật trong quá trình đánh giá và hoàn thiện sau phỏng vấn final.</p>
+    <table className="evaluation-salary-table"><tbody>{SALARY_FIELDS.map((field) => {
+      const value = field.key === 'proposed' ? data.final?.proposedSalary ?? '' : salaryDetails[field.key] ?? '';
+      return <tr key={field.key}><th scope="row"><label htmlFor={`salary-${field.key}`}>{field.label}</label></th><td><Input id={`salary-${field.key}`} className="evaluation-design-field" value={value} placeholder="Nhập thông tin..." disabled={disabled} onChange={(event) => onChange(field.key, event.target.value)} /></td></tr>;
+    })}</tbody></table>
+  </section>;
 }
 
 export function InterviewEvaluationPage() {
@@ -205,275 +258,146 @@ export function InterviewEvaluationPage() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const editRevision = useRef(0);
 
-  const currentReviewer = useMemo(
-    () => findCurrentReviewer(detail, user?.id),
-    [detail, user?.id],
-  );
+  const currentReviewer = useMemo(() => findCurrentReviewer(detail, user?.id), [detail, user?.id]);
   const reviewerSection = currentReviewer?.section;
-  const canReview = Boolean(
-    currentReviewer
-      && detail?.permissions.canReview,
-  );
+  const canReview = Boolean(currentReviewer && detail?.permissions.canReview);
   const isManager = user?.role === UserRole.ADMIN || user?.role === UserRole.HR;
+  const isCommitteeReviewer = reviewerSection === 'COMMITTEE';
+  const canViewCommittee = isCommitteeReviewer || isManager;
+  const canEditCommittee = isCommitteeReviewer && canReview;
 
   const applyDetail = useCallback((nextDetail: InterviewEvaluationDetail) => {
     setDetail(nextDetail);
-    setSelectedRoundId(nextDetail.currentRound.id);
     const reviewer = findCurrentReviewer(nextDetail, user?.id);
-    setFormData(cloneFormData(reviewer?.formData));
+    const reviewerFormData = cloneFormData(reviewer?.formData);
+    if (reviewer?.section === 'COMMITTEE') {
+      const sharedCommitteeData = cloneFormData(nextDetail.currentRound.committeeData);
+      setFormData({ ...reviewerFormData, committee: { ...sharedCommitteeData.committee, ...(reviewer.formData?.committee ?? {}), technicalCompetencies: { ...sharedCommitteeData.committee?.technicalCompetencies, ...reviewer.formData?.committee?.technicalCompetencies }, personalGrowth: { ...sharedCommitteeData.committee?.personalGrowth, ...reviewer.formData?.committee?.personalGrowth } } });
+    } else {
+      const hrbpFormData = cloneFormData(reviewer?.formData ?? nextDetail.currentRound.hrbpData);
+      const savedCvSource = hrbpFormData.hrbp?.cvSource?.trim();
+      const cvSource = savedCvSource || formatCandidateSource(nextDetail.case.source, nextDetail.case.sourceChannel);
+      setFormData({ ...hrbpFormData, hrbp: { ...hrbpFormData.hrbp, cvSource } });
+    }
     setAggregateData(cloneFormData(nextDetail.currentRound.aggregateData));
     setDirty(false);
   }, [user?.id]);
 
-  const loadDetail = useCallback(async (roundId?: string) => {
-    if (!applicationId) {
-      setError('Application id is missing.');
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getInterviewEvaluation(applicationId, roundId);
-      applyDetail(data);
-    } catch (loadError) {
-      setError(getInternalSafeErrorMessage(loadError));
-    } finally {
-      setLoading(false);
-    }
+  const loadDetail = useCallback(async () => {
+    if (!applicationId) { setError('Application id is missing.'); setLoading(false); return; }
+    setLoading(true); setError(null);
+    try { applyDetail(await getInterviewEvaluation(applicationId)); } catch (loadError) { setError(getInternalSafeErrorMessage(loadError)); } finally { setLoading(false); }
   }, [applicationId, applyDetail]);
 
-  useEffect(() => {
-    loadDetail();
-  }, [loadDetail]);
+  useEffect(() => { loadDetail(); }, [loadDetail]);
 
-  function selectRound(roundId: string) {
-    if (roundId === selectedRoundId) return;
-    setSelectedRoundId(roundId);
-    void loadDetail(roundId);
+  function updateFormData(next: InterviewEvaluationFormData) { editRevision.current += 1; setFormData(next); setDirty(true); }
+  function updateHrbp(field: string, value: string) { updateFormData({ ...formData, hrbp: { ...formData.hrbp, [field]: value } }); }
+  function updateCommitteeMatrix(matrix: CriterionMatrix, key: string, rowIndex: number, patch: Partial<CriterionRow>) {
+    const currentMatrix = formData.committee?.[matrix] ?? {};
+    const nextRows = [...(currentMatrix[key] ?? [])];
+    nextRows[rowIndex] = { ...nextRows[rowIndex], ...patch };
+    updateFormData({ ...formData, committee: { ...formData.committee, [matrix]: { ...currentMatrix, [key]: nextRows } } });
   }
 
-  const saveDraft = useCallback(async () => {
-    if (!applicationId || !detail || !reviewerSection || !canReview || saving) return;
-    setSaving(true);
-    const requestRevision = editRevision.current;
-    try {
-      const nextDetail = await saveInterviewEvaluationReview(
-        applicationId,
-        detail.currentRound.id,
-        reviewerSection,
-        { formData, expectedVersion: detail.currentRound.version },
-      );
-      if (editRevision.current === requestRevision) {
-        applyDetail(nextDetail);
-      } else {
-        setDetail(nextDetail);
-        setAggregateData(cloneFormData(nextDetail.currentRound.aggregateData));
-        setDirty(true);
-      }
-    } catch (saveError) {
-      setError(getInternalSafeErrorMessage(saveError));
-    } finally {
-      setSaving(false);
-    }
-  }, [applicationId, applyDetail, canReview, detail, formData, reviewerSection, saving]);
-
-  useEffect(() => {
-    if (!dirty || !canReview) return undefined;
-    const timer = window.setTimeout(() => {
-      saveDraft();
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [canReview, dirty, formData, saveDraft]);
-
-  function updateFormData(next: InterviewEvaluationFormData) {
-    editRevision.current += 1;
-    setFormData(next);
-    setDirty(true);
-  }
-
-  function updateOverall(field: 'result' | 'strengths' | 'concerns' | 'notes', value: string) {
-    updateFormData({ ...formData, overall: { ...formData.overall, [field]: value } });
-  }
-
-  function updateHrbp(field: HrbpFieldKey, value: string) {
+  function updateOverviewField(field: 'level' | 'cvSource', value: string) {
+    if (!isManager || !canReview) return;
     updateFormData({ ...formData, hrbp: { ...formData.hrbp, [field]: value } });
   }
 
-  function updateCommittee(field: 'technicalRating' | 'problemSolvingRating' | 'communicationRating' | 'teamworkRating' | 'leadershipRating', value: number) {
-    updateFormData({ ...formData, committee: { ...formData.committee, [field]: value } });
+  function updateSalary(field: SalaryFieldKey, value: string) {
+    if (!isManager) return;
+    const nextFinal = field === 'proposed'
+      ? { ...aggregateData.final, proposedSalary: value }
+      : { ...aggregateData.final, salaryDetails: { ...aggregateData.final?.salaryDetails, [field]: value } };
+    if (canReview) {
+      const reviewerFinal = field === 'proposed'
+        ? { ...formData.final, proposedSalary: value }
+        : { ...formData.final, salaryDetails: { ...formData.final?.salaryDetails, [field as SalaryDetailKey]: value } };
+      updateFormData({ ...formData, final: reviewerFinal });
+      return;
+    }
+    setAggregateData({ ...aggregateData, final: nextFinal });
+  }
+  const saveDraft = useCallback(async () => {
+    if (!applicationId || !detail || !reviewerSection || !canReview || saving) return;
+    setSaving(true); const requestRevision = editRevision.current;
+    try {
+      const nextDetail = await saveInterviewEvaluationReview(applicationId, detail.currentRound.id, reviewerSection, { formData, expectedVersion: detail.currentRound.version });
+      if (editRevision.current === requestRevision) applyDetail(nextDetail); else { setDetail(nextDetail); setDirty(true); }
+    } catch (saveError) { setError(getInternalSafeErrorMessage(saveError)); } finally { setSaving(false); }
+  }, [applicationId, applyDetail, canReview, detail, formData, reviewerSection, saving]);
+
+  useEffect(() => { if (!dirty || !canReview) return undefined; const timer = window.setTimeout(() => { saveDraft(); }, 1200); return () => window.clearTimeout(timer); }, [canReview, dirty, formData, saveDraft]);
+
+  async function saveAllDraft() {
+    if (!applicationId || !detail || saving) return;
+    setSaving(true);
+    try {
+      let nextDetail = detail;
+      if (canReview && reviewerSection) nextDetail = await saveInterviewEvaluationReview(applicationId, nextDetail.currentRound.id, reviewerSection, { formData, expectedVersion: nextDetail.currentRound.version });
+      if (isManager) nextDetail = await aggregateInterviewEvaluation(applicationId, nextDetail.currentRound.id, { formData: aggregateData, expectedVersion: nextDetail.currentRound.version });
+      applyDetail(nextDetail); toast({ title: 'Đã lưu nháp', description: 'Thông tin trên phiếu đã được lưu.' });
+    } catch (saveError) { setError(getInternalSafeErrorMessage(saveError)); } finally { setSaving(false); }
   }
 
   async function submitReview() {
     if (!applicationId || !detail || !reviewerSection || !canReview) return;
     setSaving(true);
-    try {
-      const nextDetail = await submitInterviewEvaluationReview(
-        applicationId,
-        detail.currentRound.id,
-        reviewerSection,
-        { formData, expectedVersion: detail.currentRound.version },
-      );
-      applyDetail(nextDetail);
-      toast({ title: 'Đã gửi đánh giá', description: 'Phiếu đánh giá đã được chuyển sang bước tiếp theo.' });
-    } catch (submitError) {
-      setError(getInternalSafeErrorMessage(submitError));
-    } finally {
-      setSaving(false);
-    }
+    try { applyDetail(await submitInterviewEvaluationReview(applicationId, detail.currentRound.id, reviewerSection, { formData, expectedVersion: detail.currentRound.version })); toast({ title: 'Đã hoàn thành đánh giá', description: 'Đánh giá đã được lưu trên phiếu ứng viên.' }); } catch (submitError) { setError(getInternalSafeErrorMessage(submitError)); } finally { setSaving(false); }
   }
-
-  async function saveAggregation() {
-    if (!applicationId || !detail || !isManager) return;
-    setSaving(true);
-    try {
-      const nextDetail = await aggregateInterviewEvaluation(
-        applicationId,
-        detail.currentRound.id,
-        { formData: aggregateData, expectedVersion: detail.currentRound.version },
-      );
-      applyDetail(nextDetail);
-      toast({ title: 'Đã lưu tổng hợp', description: 'HR/HĐCM có thể hoàn tất vòng đánh giá.' });
-    } catch (aggregateError) {
-      setError(getInternalSafeErrorMessage(aggregateError));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function completeRound() {
     if (!applicationId || !detail || !isManager) return;
     setSaving(true);
-    try {
-      const nextDetail = await completeInterviewEvaluation(applicationId, detail.currentRound.id);
-      applyDetail(nextDetail);
-      toast({ title: 'Đã hoàn tất vòng', description: 'Vòng đánh giá đã được khóa và lưu lịch sử.' });
-    } catch (completeError) {
-      setError(getInternalSafeErrorMessage(completeError));
-    } finally {
-      setSaving(false);
-    }
+    try { applyDetail(await completeInterviewEvaluation(applicationId, detail.currentRound.id)); toast({ title: 'Đã hoàn thành vòng', description: 'Vòng đánh giá đã được khóa và lưu lịch sử.' }); } catch (completeError) { setError(getInternalSafeErrorMessage(completeError)); } finally { setSaving(false); }
   }
-
+  async function completeCurrentReview() {
+    if (isCommitteeReviewer) await submitReview();
+    else await completeRound();
+  }
   async function moveToNextRound() {
     if (!applicationId || !detail || !isManager) return;
     setSaving(true);
-    try {
-      const nextDetail = await createNextInterviewEvaluationRound(applicationId, detail.currentRound.id);
-      applyDetail(nextDetail);
-      toast({
-        title: 'Đã chuyển vòng',
-        description: `Tiếp tục đánh giá trên cùng phiếu ${nextDetail.currentRound.name}; dữ liệu trước đó vẫn được giữ nguyên.`,
-      });
-    } catch (nextError) {
-      setError(getInternalSafeErrorMessage(nextError));
-    } finally {
-      setSaving(false);
-    }
+    try { applyDetail(await createNextInterviewEvaluationRound(applicationId, detail.currentRound.id)); toast({ title: 'Đã chuyển vòng', description: 'Tiếp tục đánh giá trên cùng phiếu; dữ liệu trước đó vẫn được giữ nguyên.' }); } catch (nextError) { setError(getInternalSafeErrorMessage(nextError)); } finally { setSaving(false); }
   }
 
-  if (loading) return <div className="rounded-lg border p-6 text-sm text-muted-foreground">Đang tải phiếu đánh giá...</div>;
-  if (error && !detail) {
-    return (
-      <div className="space-y-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="mr-2 h-4 w-4" />Quay lại</Button>
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>
-      </div>
-    );
-  }
+  if (loading) return <div className="evaluation-loading">Đang tải phiếu đánh giá...</div>;
+  if (error && !detail) return <div className="evaluation-error-page"><p>{error}</p><Button type="button" onClick={() => navigate(-1)}>Quay lại</Button></div>;
   if (!detail) return null;
 
   const round = detail.currentRound;
-  const committeeForm = formData.committee ?? {};
-  const aggregateOverall = aggregateData.overall ?? {};
-  const isCommitteeReviewer = reviewerSection === 'COMMITTEE';
-  const canViewCommitteeSection = isCommitteeReviewer || isManager;
-  const navigationItems = [
-    { id: 'overview', label: 'Tổng quan', visible: true },
-    { id: 'hrbp', label: 'HRBP', visible: reviewerSection === 'HRBP' || isCommitteeReviewer },
-    { id: 'committee', label: 'HĐCM', visible: canViewCommitteeSection },
-    { id: 'peer-reviews', label: 'Đánh giá đã gửi', visible: isCommitteeReviewer },
-    { id: 'aggregate', label: 'Tổng hợp', visible: isManager },
-    { id: 'history', label: 'Lịch sử', visible: true },
-  ].filter((item) => item.visible);
+  const currentInterviewLabel = interviewLabel(round.name);
+  const hrbpReviewer = detail.reviewers.find((reviewer) => reviewer.section === 'HRBP');
+  const committeeReviewerNames = detail.reviewers.filter((reviewer) => reviewer.section === 'COMMITTEE').map((reviewer) => reviewer.name).join(', ');
+  const reviewerNames = committeeReviewerNames || 'Chưa phân công';
+  const hrbpData = round.hrbpData ?? {};
+  const committeeData = round.committeeData ?? {};
+  const canEditOverview = isManager && canReview && reviewerSection === 'HRBP';
+  const overviewHrbpData = canEditOverview ? formData.hrbp : hrbpData.hrbp ?? formData.hrbp;
+  const defaultCvSource = formatCandidateSource(detail.case.source, detail.case.sourceChannel);
+  const overviewCvSource = overviewHrbpData?.cvSource || defaultCvSource;
+  const technicalValues = (isCommitteeReviewer ? formData.committee?.technicalCompetencies : committeeData.committee?.technicalCompetencies) ?? {};
+  const personalValues = (isCommitteeReviewer ? formData.committee?.personalGrowth : committeeData.committee?.personalGrowth) ?? {};
+  let salaryData = aggregateData;
+  if (isCommitteeReviewer) salaryData = cloneFormData({ final: { ...aggregateData.final, ...hrbpData.final } });
+  else if (canReview) salaryData = formData;
+  const canComplete = isCommitteeReviewer ? canReview : isManager && round.status === 'WAITING_AGGREGATION';
 
-  return (
-    <div className="min-h-screen space-y-5 bg-slate-50/70 pb-24">
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="bg-[#1f3b70] px-6 py-5 text-white">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <Button asChild variant="ghost" size="sm" className="-ml-3 mb-2 text-white hover:bg-white/10 hover:text-white">
-                <Link to={`/recruitment/applications/${detail.case.applicationId}`}><ArrowLeft className="mr-2 h-4 w-4" />Quay lại hồ sơ</Link>
-              </Button>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-100">BM04 – QTTĐ</p>
-              <h1 className="mt-1 text-xl font-bold uppercase tracking-wide md:text-2xl">Form đánh giá ứng viên sau phỏng vấn</h1>
-              <p className="mt-2 text-sm text-blue-100">Phiếu đánh giá vòng {round.name} · {detail.case.template}</p>
-            </div>
-            <div className="flex flex-col items-start gap-2 text-sm text-blue-100 md:items-end">
-              <Badge className={statusClass(round.status)}>{statusLabel(round.status)}</Badge>
-              <span className="flex items-center gap-2"><Clock3 className="h-4 w-4" />Phiên bản {round.version} · {saving ? 'Đang lưu...' : dirty ? 'Chưa đồng bộ' : 'Đã lưu'}</span>
-            </div>
-          </div>
-        </div>
-        <div className="grid gap-4 bg-white px-6 py-5 sm:grid-cols-2 lg:grid-cols-4">
-          <Info label="Ứng viên" value={detail.case.candidate.name ?? '-'} />
-          <Info label="Email" value={detail.case.candidate.email ?? '-'} />
-          <Info label="Điện thoại" value={detail.case.candidate.phone ?? '-'} />
-          <Info label="Vị trí / JD" value={detail.case.job.title ?? '-'} />
-        </div>
-      </div>
-
-      {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
-
-      <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-          <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle className="text-sm text-[#1f3b70]">Điều hướng phiếu</CardTitle></CardHeader><CardContent className="space-y-2 text-sm">{navigationItems.map((item) => <a key={item.id} className="block rounded px-2 py-1.5 hover:bg-blue-50" href={`#${item.id}`}>{item.label}</a>)}</CardContent></Card>
-          <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle className="text-sm text-[#1f3b70]">Lịch sử vòng</CardTitle></CardHeader><CardContent className="space-y-2">{detail.rounds.map((item) => <button key={item.id} type="button" aria-pressed={selectedRoundId === item.id} onClick={() => selectRound(item.id)} className={`flex w-full items-center justify-between gap-2 rounded border p-2 text-left text-xs transition-colors ${selectedRoundId === item.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'}`}><span className="font-medium">{item.name}</span><Badge className={statusClass(item.status)}>{statusLabel(item.status)}</Badge></button>)}</CardContent></Card>
-        </aside>
-
-        <main className="space-y-5">
-          <Card id="overview" className="border-slate-200 shadow-sm"><CardHeader className="border-b border-slate-200 bg-[#dceaf2]"><CardTitle className="flex items-center gap-2 text-[#1f3b70]"><FileText className="h-4 w-4" />I. Thông tin phiếu đánh giá</CardTitle></CardHeader><CardContent className="grid gap-4 pt-5 md:grid-cols-3"><Info label="Ứng viên" value={detail.case.candidate.name ?? '-'} /><Info label="Email" value={detail.case.candidate.email ?? '-'} /><Info label="Điện thoại" value={detail.case.candidate.phone ?? '-'} /><Info label="Vị trí / JD" value={detail.case.job.title ?? '-'} /><Info label="Mẫu đánh giá" value={detail.case.template} /><Info label="Cập nhật gần nhất" value={formatRecruitmentDateTime(round.completedAt)} /></CardContent></Card>
-
-          {reviewerSection === 'HRBP' ? <Card id="hrbp" className="border-slate-200 shadow-sm"><HrbpSectionHeader readOnly={false} /><CardContent className="pt-5"><div className="overflow-hidden rounded-md border border-slate-200">{HRBP_FIELDS.map((field) => <EditableHrbpRow key={field.key} field={field} value={getHrbpValue(formData.hrbp, field.key) ?? ''} disabled={!canReview} onChange={(value) => updateHrbp(field.key, value)} />)}</div></CardContent></Card> : null}
-          {isCommitteeReviewer ? <ReadOnlyHrbpSection data={round.hrbpData} /> : null}
-
-          {reviewerSection === 'COMMITTEE' ? <Card id="committee" className="border-slate-200 shadow-sm"><CardHeader className="border-b border-slate-200 bg-[#dceaf2]"><CardTitle className="flex items-center gap-2 text-[#1f3b70]"><Users className="h-4 w-4" />III. Đánh giá của Hội đồng chuyên môn</CardTitle><p className="text-xs text-slate-600">Đánh giá theo khung năng lực của vị trí và ghi nhận dẫn chứng cụ thể.</p></CardHeader><CardContent className="space-y-4 pt-5"><div className="rounded-md border border-slate-200"><div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-200 bg-[#2b75b5] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-white"><span>Khía cạnh đánh giá</span><span>Mức độ thể hiện</span></div><div className="space-y-1 p-4"><RatingField label="Kiến thức chuyên môn" value={committeeForm.technicalRating} disabled={!canReview} onChange={(value) => updateCommittee('technicalRating', value)} /><RatingField label="Giải quyết vấn đề" value={committeeForm.problemSolvingRating} disabled={!canReview} onChange={(value) => updateCommittee('problemSolvingRating', value)} /><RatingField label="Giao tiếp" value={committeeForm.communicationRating} disabled={!canReview} onChange={(value) => updateCommittee('communicationRating', value)} /><RatingField label="Làm việc nhóm" value={committeeForm.teamworkRating} disabled={!canReview} onChange={(value) => updateCommittee('teamworkRating', value)} /><RatingField label="Leadership / ownership" value={committeeForm.leadershipRating} disabled={!canReview} onChange={(value) => updateCommittee('leadershipRating', value)} /></div></div><TextField label="Đánh giá / dẫn chứng cụ thể của HĐCM" value={committeeForm.notes ?? ''} disabled={!canReview} onChange={(value) => updateFormData({ ...formData, committee: { ...formData.committee, notes: value } })} /></CardContent></Card> : null}
-          {!isCommitteeReviewer && isManager ? <ReadOnlyCommitteeSection reviewers={detail.reviewers} /> : null}
-          {isCommitteeReviewer ? <ReadOnlyCommitteeReviews reviewers={detail.reviewers} currentUserId={user?.id} /> : null}
-
-          {canReview ? <Card id="overview-form" className="border-slate-200 shadow-sm"><CardHeader className="border-b border-slate-200 bg-[#dceaf2]"><CardTitle className="text-[#1f3b70]">IV. Nhận xét và đề xuất của người đánh giá</CardTitle></CardHeader><CardContent className="space-y-5 pt-5"><SelectField label="Kết quả đề xuất" value={formData.overall?.result ?? 'PENDING'} disabled={!canReview} options={['PENDING', 'PASS', 'FAIL']} onChange={(value) => updateOverall('result', value)} /><div className="grid gap-4 md:grid-cols-2"><TextField label="Điểm mạnh" value={formData.overall?.strengths ?? ''} disabled={!canReview} onChange={(value) => updateOverall('strengths', value)} /><TextField label="Điểm cần làm rõ" value={formData.overall?.concerns ?? ''} disabled={!canReview} onChange={(value) => updateOverall('concerns', value)} /></div><TextField label="Ghi chú" value={formData.overall?.notes ?? ''} disabled={!canReview} onChange={(value) => updateOverall('notes', value)} /></CardContent></Card> : null}
-
-          {isManager ? <Card id="aggregate" className="border-slate-200 shadow-sm"><CardHeader className="border-b border-slate-200 bg-[#dceaf2]"><CardTitle className="flex items-center gap-2 text-[#1f3b70]"><Check className="h-4 w-4" />V. Tổng hợp và quyết định cuối</CardTitle></CardHeader><CardContent className="space-y-5 pt-5"><SelectField label="Kết quả cuối" value={aggregateOverall.result ?? 'PENDING'} disabled={false} options={['PENDING', 'PASS', 'FAIL']} onChange={(value) => setAggregateData({ ...aggregateData, overall: { ...aggregateData.overall, result: value as 'PENDING' | 'PASS' | 'FAIL' } })} /><div className="grid gap-4 md:grid-cols-2"><Field label="Level đề xuất" value={aggregateData.final?.proposedLevel ?? ''} disabled={false} onChange={(value) => setAggregateData({ ...aggregateData, final: { ...aggregateData.final, proposedLevel: value } })} /><Field label="Mức lương đề xuất" value={aggregateData.final?.proposedSalary ?? ''} disabled={false} onChange={(value) => setAggregateData({ ...aggregateData, final: { ...aggregateData.final, proposedSalary: value } })} /></div><TextField label="Bước tiếp theo" value={aggregateData.final?.nextAction ?? ''} disabled={false} onChange={(value) => setAggregateData({ ...aggregateData, final: { ...aggregateData.final, nextAction: value } })} /><TextField label="Ghi chú tổng hợp" value={aggregateData.final?.notes ?? ''} disabled={false} onChange={(value) => setAggregateData({ ...aggregateData, final: { ...aggregateData.final, notes: value } })} /><Separator /><p className="text-sm text-muted-foreground">Chỉ HR/Admin có quyền xem và lưu phần tổng hợp. Điểm của từng thành viên HĐCM không được hiển thị cho thành viên khác.</p></CardContent></Card> : null}
-
-          <Card id="history" className="border-slate-200 shadow-sm"><CardHeader className="border-b border-slate-200 bg-[#dceaf2]"><CardTitle className="flex items-center gap-2 text-[#1f3b70]"><Clock3 className="h-4 w-4" />VI. Lịch sử thao tác</CardTitle></CardHeader><CardContent className="space-y-3 pt-5">{detail.audits.length === 0 ? <p className="text-sm text-muted-foreground">Chưa có lịch sử.</p> : detail.audits.map((audit) => <div key={audit.id} className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3 text-sm last:border-0"><div><p className="font-medium">{audit.action}</p><p className="text-xs text-muted-foreground">{audit.fromStatus ?? '-'} → {audit.toStatus ?? '-'}</p></div><span className="text-xs text-muted-foreground">{formatRecruitmentDateTime(audit.createdAt)}</span></div>)}</CardContent></Card>
-        </main>
-      </div>
-
-      <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur"><div className="mx-auto flex max-w-6xl flex-wrap items-center justify-end gap-2"><span className="mr-auto text-xs font-medium text-slate-600">{currentReviewer ? `${sectionLabel(currentReviewer.section)} · ${currentReviewer.status}` : 'Chế độ xem'}</span>{canReview ? <><Button type="button" variant="outline" disabled={saving} onClick={saveDraft}><Save className="mr-2 h-4 w-4" />Lưu nháp</Button><Button type="button" disabled={saving} onClick={submitReview}><Send className="mr-2 h-4 w-4" />{reviewerSection === 'HRBP' ? 'Gửi HĐCM' : 'Gửi đánh giá'}</Button></> : null}{isManager ? <Button type="button" variant="outline" disabled={saving} onClick={saveAggregation}>Lưu tổng hợp</Button> : null}{isManager && round.status === 'WAITING_AGGREGATION' ? <Button type="button" disabled={saving} onClick={completeRound}><LockKeyhole className="mr-2 h-4 w-4" />Hoàn tất</Button> : null}{isManager && round.status === 'COMPLETED' && round.nextRoundKey ? <Button type="button" disabled={saving} onClick={moveToNextRound}>Chuyển vòng {round.nextRoundKey}</Button> : null}</div></div>
+  return <div className="evaluation-page"><div className="evaluation-shell">
+    <header className="evaluation-titlebar"><h1>Form Đánh Giá Ứng Viên Sau Phỏng Vấn {currentInterviewLabel}</h1></header>
+    <div className="evaluation-subbar"><div className="evaluation-subbar-label">Đánh giá sau {currentInterviewLabel}</div><div className="evaluation-interview-date"><span>Ngày phỏng vấn:</span><span className="evaluation-date-value"><CalendarDays aria-hidden="true" />{formatEvaluationDate(detail)}</span></div><div className="evaluation-template-note">{getTemplateDescription(detail.case.template)}</div></div>
+    {error ? <div className="evaluation-error">{error}</div> : null}
+    <div className="evaluation-layout">
+      <aside className="evaluation-sidebar" aria-label="Điều hướng phiếu đánh giá"><div className="evaluation-sidebar-card"><h2 className="evaluation-sidebar-title">Điều hướng phiếu</h2><nav className="evaluation-navigation"><a href="#overview">I. Thông tin ứng viên</a><a href="#hrbp">II. Đánh giá từ HRBP</a><a href="#committee">III. Đánh giá HĐCM</a><div className="evaluation-navigation-subitems"><a href="#technical">III.1 Năng lực chuyên môn</a><a href="#personal-growth">III.2 Nhận diện con người &amp; Tiềm năng phát triển</a></div></nav></div><div className="evaluation-sidebar-card"><h2 className="evaluation-sidebar-title">Lịch sử chỉnh sửa</h2><div className="evaluation-history">{detail.audits.length === 0 ? <span className="evaluation-empty-value">Chưa có lịch sử.</span> : detail.audits.map((audit) => <div className="evaluation-history-item" key={audit.id}><strong>{formatRecruitmentDateTime(audit.createdAt)}</strong><span>{getHistoryLabel(audit.action)}</span></div>)}</div></div></aside>
+      <main className="evaluation-main">
+        <section id="overview" className="evaluation-design-block"><SectionHeader title="I. Thông tin ứng viên" tone="blue" /><table className="evaluation-info-table"><tbody><DesignInfoRow label="Họ tên ứng viên" value={detail.case.candidate.name} /><DesignInfoRow label="Năm sinh" placeholder="VD: 1995" /><DesignInfoRow label="Vị trí ứng tuyển" value={detail.case.job.title} placeholder="Tên vị trí..." /><InfoGroupRow label="Dự kiến sắp xếp công việc" description="Sau 1st interview, HRBP tóm tắt các thông tin chính về phương án sắp xếp công việc trong trường hợp offer ứng viên" /><DesignInfoRow label="- Đơn vị (N-1)" /><DesignInfoRow label="- Bộ phận/Dự án (N-2)" /><DesignInfoRow label="- Mảng việc chuyên hướng" /><DesignInfoRow label="- Chân dung yêu cầu" /><DesignInfoRow label="- Lý do tuyển dụng" /><InfoGroupRow label="Tổng quan đánh giá" description="Dựa trên đánh giá 1st interview, HRBP cập nhật thông tin về xếp loại Level/Vùng dự kiến và mức độ tài năng/tiềm năng của ứng viên so với chân dung vị trí" />{canEditOverview ? <EditableInfoRow label="Xếp loại Level – Vùng – Loại" value={overviewHrbpData?.level ?? ''} placeholder="VD: Level 3 – Vùng B – Loại 2" disabled={!canEditOverview} onChange={(value) => updateOverviewField('level', value)} /> : <DesignInfoRow label="Xếp loại Level – Vùng – Loại" value={overviewHrbpData?.level} placeholder="VD: Level 3 – Vùng B – Loại 2" />}{canEditOverview ? <EditableInfoRow label="Nguồn CV" value={overviewCvSource} placeholder="LinkedIn / Referral / JD..." disabled={!canEditOverview} onChange={(value) => updateOverviewField('cvSource', value)} /> : <DesignInfoRow label="Nguồn CV" value={overviewCvSource} placeholder="LinkedIn / Referral / JD..." />}<DesignInfoRow label="HRBP phụ trách" value={hrbpReviewer?.name} placeholder="Họ tên HRBP..." /><DesignInfoRow label="Người đánh giá (HM/HĐCM)" value={reviewerNames} placeholder="Họ tên người đánh giá..." /></tbody></table></section>
+        <SalaryProposalSection data={salaryData} disabled={!isManager} onChange={updateSalary} />
+        <section id="hrbp" className="evaluation-design-block"><SectionHeader title="II. Đánh giá từ HRBP phụ trách" tone="green" /><div className="evaluation-section-description">Mục này do HRBP hoàn thiện trước buổi phỏng vấn chuyên môn, dựa trên hồ sơ CV, kết quả phone screening và quan sát trong quá trình tiếp xúc. Đây là sở cứ quan trọng để HM/HĐCM và BGĐ đánh giá toàn diện ứng viên.</div><table className="evaluation-edit-table"><tbody>{HRBP_FIELDS.map((field) => isCommitteeReviewer ? <ReadOnlyHrbpRow key={field.key} label={field.label} value={`${getHrbpValue(hrbpData.hrbp, field.key) ?? ''}`} /> : <EditableHrbpRow key={field.key} label={field.label} value={`${getHrbpValue(formData.hrbp, field.key) ?? ''}`} disabled={!canReview} onChange={(value) => updateHrbp(field.key, value)} />)}</tbody></table></section>
+        {canViewCommittee ? <section id="committee" className="evaluation-design-block evaluation-committee-section"><SectionHeader title="III. Đánh giá của Hội Đồng Chuyên Môn" tone="committee" /><div className="evaluation-section-description committee-description">Mục này do Hội đồng chuyên môn hoàn thiện trong và sau buổi phỏng vấn. Đánh giá theo Khung năng lực (Competency Framework) đã ban hành cho từng vị trí. Với vị trí chưa có KNL, HDCM đánh giá theo thông tin của Careerpath đã được ban hành đối với từng level tương ứng.</div><div id="technical" className="evaluation-matrix-section"><div className="evaluation-matrix-title">III.1 Năng lực chuyên môn <span>(Functional Competencies – theo Khung Năng lực)</span></div><div className="evaluation-matrix-content"><CommitteeMatrix matrix="technicalCompetencies" criteria={TECHNICAL_CRITERIA} legend={TECHNICAL_LEGEND} disabled={!canEditCommittee} values={technicalValues} onChange={(key, rowIndex, patch) => updateCommitteeMatrix('technicalCompetencies', key, rowIndex, patch)} /></div></div><div id="personal-growth" className="evaluation-matrix-section"><div className="evaluation-matrix-title">III.2 Nhận diện con người &amp; Tiềm năng phát triển (Personal &amp; Growth Potential)</div><div className="evaluation-matrix-content"><CommitteeMatrix matrix="personalGrowth" criteria={PERSONAL_GROWTH_CRITERIA} legend={PERSONAL_LEGEND} disabled={!canEditCommittee} values={personalValues} onChange={(key, rowIndex, patch) => updateCommitteeMatrix('personalGrowth', key, rowIndex, patch)} /></div></div><div className="evaluation-committee-comment"><div className="evaluation-committee-comment-title">Nhận xét tổng quan của HĐCM</div><Textarea className="evaluation-comment-field" value={isCommitteeReviewer ? formData.committee?.notes ?? '' : committeeData.committee?.notes ?? ''} disabled={!canEditCommittee} placeholder="Nhập nhận xét..." onChange={(event) => updateFormData({ ...formData, committee: { ...formData.committee, notes: event.target.value } })} /></div></section> : null}
+      </main>
     </div>
-  );
-}
-
-function Info({ label, value }: Readonly<{ label: string; value: string }>) {
-  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 break-words text-sm font-medium">{value}</p></div>;
-}
-
-function Field({ label, value, disabled, onChange }: Readonly<{ label: string; value: string; disabled: boolean; onChange: (value: string) => void }>) {
-  return <label className="space-y-2"><span className="text-sm font-medium">{label}</span><Input value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></label>;
-}
-
-function TextField({ label, value, disabled, onChange }: Readonly<{ label: string; value: string; disabled: boolean; onChange: (value: string) => void }>) {
-  return <label className="block space-y-2"><span className="text-sm font-medium">{label}</span><Textarea value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></label>;
-}
-
-function SelectField({ label, value, options, disabled, onChange }: Readonly<{ label: string; value: string; options: readonly string[]; disabled: boolean; onChange: (value: string) => void }>) {
-  return <label className="block space-y-2"><span className="text-sm font-medium">{label}</span><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>;
-}
-
-function RatingField({ label, value, disabled, onChange }: Readonly<{ label: string; value?: number; disabled: boolean; onChange: (value: number) => void }>) {
-  return <div className="space-y-2"><div className="flex items-center justify-between"><span className="text-sm font-medium">{label}</span><span className="text-xs text-muted-foreground">{value || '-'} / 5</span></div><div className={disabled ? 'opacity-60' : ''}><RatingScale value={value} disabled={disabled} onChange={onChange} /></div></div>;
+    <footer className="evaluation-footer"><Button type="button" className="evaluation-footer-cancel" disabled={saving} onClick={() => navigate(-1)}>Hủy</Button>{canReview || isManager ? <Button type="button" className="evaluation-footer-draft" disabled={saving} onClick={saveAllDraft}>Lưu nháp</Button> : null}{canComplete ? <Button type="button" className="evaluation-footer-complete" disabled={saving} onClick={completeCurrentReview}>Hoàn thành</Button> : null}{isManager && round.status === 'COMPLETED' && round.nextRoundKey ? <Button type="button" className="evaluation-footer-next" disabled={saving} onClick={moveToNextRound}>Chuyển vòng {round.nextRoundKey}</Button> : null}</footer>
+  </div></div>;
 }
