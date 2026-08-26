@@ -13,7 +13,7 @@ import { QuotaDeptGapData } from '../../types';
 import {
   useChartHover,
   createVerticalBarShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface QuotaGapByDeptChartProps {
@@ -41,8 +41,12 @@ export const QuotaGapByDeptChart: React.FC<QuotaGapByDeptChartProps> = ({ data }
             <XAxis dataKey="dept" stroke="#64748b" tick={{ fontSize: 9, fill: '#94a3b8' }} />
             <YAxis stroke="#64748b" tick={{ fontSize: 9, fill: '#94a3b8' }} />
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number) => [`${value} nhân sự`]}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  valueFormatter={(value) => `${value} nhân sự`}
+                />
+              }
             />
             <Legend wrapperStyle={{ fontSize: '10px' }} iconSize={8} />
             <Bar

@@ -8,8 +8,11 @@ import { extractJsonFromText } from '../common/parsing/extract-json';
 const DEFAULT_GEMINI_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
-  'gemini-3-flash',
-  'gemini-3.1-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-3.1-flash-live-preview',
+  'gemini-3.5-flash',
+  'gemini-3.6-flash',
+  'gemini-3.7-flash',
 ] as const;
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_MAX_TEXT_CHARS = 36_000;
@@ -17,8 +20,11 @@ const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_MODEL_ALIASES: Record<string, string> = {
   'gemini 2.5 flash': 'gemini-2.5-flash',
   'gemini 2.5 flash lite': 'gemini-2.5-flash-lite',
-  'gemini 3 flash': 'gemini-3-flash',
-  'gemini 3.1 flash lite': 'gemini-3.1-flash-lite',
+  'gemini 3 flash preview': 'gemini-3-flash-preview',
+  'gemini 3.1 flash live preview': 'gemini-3.1-flash-live-preview',
+  'gemini 3.5 flash': 'gemini-3.5-flash',
+  'gemini 3.6 flash': 'gemini-3.6-flash',
+  'gemini 3.7 flash': 'gemini-3.7-flash',
 };
 const NULL_CHARACTER = String.fromCodePoint(0);
 

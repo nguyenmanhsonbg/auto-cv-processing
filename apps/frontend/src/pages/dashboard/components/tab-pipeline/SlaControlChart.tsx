@@ -13,7 +13,7 @@ import { SlaStageData, SLA_STAGE_LABELS } from '../../types';
 import {
   useChartHover,
   createVerticalBarShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface SlaControlChartProps {
@@ -51,8 +51,13 @@ export const SlaControlChart: React.FC<SlaControlChartProps> = ({ data }) => {
               ticks={[0, 2, 4, 6, 8, 10]}
             />
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number) => [`${value} ngày`]}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  labelFormatter={(v) => SLA_STAGE_LABELS[v] || v}
+                  valueFormatter={(value) => `${value} ngày`}
+                />
+              }
             />
             {data.some((item) => item.standard !== null) && <Legend
               wrapperStyle={{ fontSize: '10.5px', paddingBottom: '12px' }}

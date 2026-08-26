@@ -10,6 +10,7 @@ import {
   Legend,
 } from 'recharts';
 import { NormRadarData, NORM_METRIC_LABELS } from '../../types';
+import { ChartTooltip } from '../common/chart-effects';
 
 export interface NormRadarCompareChartProps {
   data: NormRadarData[];
@@ -34,18 +35,12 @@ export const NormRadarCompareChart: React.FC<NormRadarCompareChartProps> = ({ da
             />
             <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="#334155" tick={false} />
             <Tooltip
-              contentStyle={{
-                backgroundColor: '#111827',
-                borderColor: '#334155',
-                color: '#f8fafc',
-                fontSize: '11px',
-                borderRadius: '8px',
-                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)',
-              }}
-              itemStyle={{ color: '#93c5fd' }}
-              labelStyle={{ color: '#ffffff', fontWeight: 'bold', marginBottom: '2px' }}
-              labelFormatter={(label) => NORM_METRIC_LABELS[label] || label}
-              formatter={(value: number) => [`${value}%`]}
+              content={
+                <ChartTooltip
+                  labelFormatter={(label) => NORM_METRIC_LABELS[label] || label}
+                  valueFormatter={(value) => `${value}%`}
+                />
+              }
             />
             <Legend
               wrapperStyle={{ fontSize: '10px', paddingTop: '0px', marginBottom: '6px' }}

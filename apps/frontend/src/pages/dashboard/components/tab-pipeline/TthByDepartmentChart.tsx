@@ -13,7 +13,7 @@ import { TthDeptData } from '../../types';
 import {
   useChartHover,
   createVerticalBarShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface TthByDepartmentChartProps {
@@ -47,8 +47,12 @@ export const TthByDepartmentChart: React.FC<TthByDepartmentChartProps> = ({ data
               tickFormatter={(v) => `${v}`}
             />
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number) => [`${value} ngày`]}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  valueFormatter={(value) => `${value} ngày`}
+                />
+              }
             />
             <Legend
               wrapperStyle={{ fontSize: '10.5px', paddingBottom: '12px' }}

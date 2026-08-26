@@ -13,7 +13,7 @@ import { PositionStat } from '../../types';
 import {
   useChartHover,
   createVerticalBarShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface PositionProgressChartProps {
@@ -56,7 +56,10 @@ export const PositionProgressChart: React.FC<PositionProgressChartProps> = ({ da
                 style: { textAnchor: 'middle', fontSize: 10, fill: '#64748b' },
               }}
             />
-            <Tooltip {...getCommonTooltipProps()} />
+            <Tooltip
+              cursor={false}
+              content={<ChartTooltip />}
+            />
             {data.some((item) => item.target !== null) && <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '4px' }} iconSize={8} />}
             {data.some((item) => item.target !== null) && <Bar
               dataKey="target"

@@ -10,6 +10,7 @@ import {
   Legend,
 } from 'recharts';
 import { QuotaForecastData } from '../../types';
+import { ChartTooltip } from '../common/chart-effects';
 
 export interface QuotaForecastChartProps {
   data: QuotaForecastData[];
@@ -33,14 +34,11 @@ export const QuotaForecastChart: React.FC<QuotaForecastChartProps> = ({ data }) 
               domain={[600, 1100]}
             />
             <Tooltip
-              contentStyle={{
-                backgroundColor: '#111827',
-                borderColor: '#334155',
-                color: '#f8fafc',
-                fontSize: '11px',
-                borderRadius: '8px',
-              }}
-              formatter={(value: number) => [`${value} nhân sự`]}
+              content={
+                <ChartTooltip
+                  valueFormatter={(value) => `${value} nhân sự`}
+                />
+              }
             />
             <Legend wrapperStyle={{ fontSize: '10px' }} iconSize={8} />
             <Line

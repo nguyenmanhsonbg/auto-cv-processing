@@ -13,7 +13,7 @@ import { QuotaLevelFillData } from '../../types';
 import {
   useChartHover,
   createVerticalBarShape,
-  getCommonTooltipProps,
+  ChartTooltip,
 } from '../common/chart-effects';
 
 export interface LevelFillRateChartProps {
@@ -46,8 +46,12 @@ export const LevelFillRateChart: React.FC<LevelFillRateChartProps> = ({ data }) 
               domain={[0, 100]}
             />
             <Tooltip
-              {...getCommonTooltipProps()}
-              formatter={(value: number) => [`${value}%`, 'Đảm bảo định biên']}
+              cursor={false}
+              content={
+                <ChartTooltip
+                  valueFormatter={(value) => `${value}%`}
+                />
+              }
             />
             <Bar
               dataKey="rate"
