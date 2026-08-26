@@ -8190,16 +8190,18 @@ dd {
 
 .shared-filter-multi-select {
   position: relative;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
   min-width: 0;
+  width: 100%;
 }
 
 .shared-filter-field>span,
 .shared-filter-multi-select-label,
 .shared-filter-date-range>span {
   color: #262626;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .shared-filter-multi-select-label {
@@ -8208,10 +8210,204 @@ dd {
   color: #262626;
   background: transparent;
   font-family: Inter, sans-serif;
-  font-size: 12px;
+  font-size: 14px;
   font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.shared-filter-multi-select-trigger {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  height: auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #D4D4D4;
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: #262626;
+  background: #FFFFFF;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.shared-filter-multi-select-trigger:hover {
+  border-color: #15803D;
+}
+
+.shared-filter-multi-select-trigger:focus,
+.shared-filter-multi-select-trigger:focus-within {
+  border-color: #15803D;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.15);
+}
+
+.shared-filter-chips-container {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  max-height: 24px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-filter-placeholder {
+  color: #737373;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #DCFCE7;
+  color: #15803D;
+  border-radius: 999px;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
   font-weight: 500;
-  line-height: 16px;
+  line-height: 17px;
+  max-width: min(100%, 260px);
+  margin-right: 4px;
+  vertical-align: middle;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.shared-filter-chip>span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-filter-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #15803D;
+  cursor: pointer;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  transition: opacity 0.15s ease;
+}
+
+.shared-filter-chip-remove:hover {
+  opacity: 0.7;
+}
+
+.shared-filter-chip-remove svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 2.2;
+}
+
+.shared-filter-trigger-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: #737373;
+}
+
+.shared-filter-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #737373;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  transition: color 0.15s ease;
+}
+
+.shared-filter-clear-btn:hover {
+  color: #15803D;
+}
+
+.shared-filter-clear-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.shared-filter-trigger-actions svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: #737373;
+  transition: transform 0.15s ease;
+}
+
+.shared-filter-trigger-actions svg.is-open {
+  transform: rotate(180deg);
+}
+
+.shared-filter-multi-select .referral-jd-options {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  display: grid;
+  min-width: 100%;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid #D4D4D4;
+  border-radius: 6px;
+  padding: 6px;
+  background: #FFFFFF;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.shared-filter-multi-select .referral-jd-option {
+  border-radius: 4px;
+  padding: 6px 10px;
+  min-height: 36px;
+}
+
+.shared-filter-multi-select .referral-jd-option:hover,
+.shared-filter-multi-select .referral-jd-option.is-selected {
+  color: #15803D;
+  background: #F0FDF4;
+}
+
+.shared-filter-multi-select .referral-jd-checkbox {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #D4D4D4;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.shared-filter-multi-select .referral-jd-checkbox.is-checked {
+  border-color: #15803D;
+  background: #15803D;
+  color: #FFFFFF;
 }
 
 .freelancer-cv-toolbar {
@@ -8828,7 +9024,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   color: #45464D;
 }
 
-.shared-filter-multi-select-label {
+.referral-filter-row .shared-filter-multi-select-label {
   border: 0;
   padding: 0;
   color: #45464D;
@@ -12683,6 +12879,22 @@ textarea:focus {
   box-sizing: border-box;
 }
 
+.topcv-grid-2 > .shared-filter-field,
+.topcv-grid-2 > .topcv-form-group {
+  align-self: start;
+  gap: 6px;
+}
+
+.topcv-grid-2 > .shared-filter-field > span:first-child {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.topcv-grid-2 > .shared-filter-field .shared-filter-select-control select {
+  height: 38px;
+  padding: 0 10px;
+}
+
 /* Editor Toolbar */
 .topcv-editor-box {
   border: 1px solid #d1d5db;
@@ -12919,15 +13131,19 @@ textarea:focus {
 .topcv-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  background: #f1f5f9;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #DCFCE7;
+  border: none;
+  border-radius: 999px;
+  font-family: Inter, sans-serif;
   font-size: 12px;
-  color: #1e293b;
+  font-weight: 500;
+  line-height: 17px;
+  color: #15803D;
   max-width: 100%;
   word-break: break-word;
+  user-select: none;
 }
 
 .topcv-chip button {
@@ -12936,13 +13152,17 @@ textarea:focus {
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  color: #64748b;
+  color: #15803D;
   padding: 0;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease;
 }
 
 .topcv-chip button:hover {
-  color: #ef4444;
+  opacity: 0.7;
 }
 
 .topcv-email-chips-container {
@@ -14780,4 +15000,137 @@ textarea:focus {
   text-align: center;
   font-variant-numeric: tabular-nums;
   user-select: none;
+}
+
+/* ComboboxFilter styles */
+.shared-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shared-filter-field>span:first-child {
+  color: #262626;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.shared-filter-select-control {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.shared-filter-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #D4D4D4;
+  border-radius: 6px;
+  background: white;
+  font-size: 13px;
+  color: #262626;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.shared-filter-trigger:hover {
+  border-color: #15803D;
+}
+
+.shared-filter-trigger:focus {
+  border-color: #15803D;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.15);
+}
+
+.shared-filter-trigger svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #374151;
+}
+
+.shared-filter-trigger>span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.shared-filter-trigger .placeholder {
+  color: #9ca3af;
+}
+
+.shared-filter-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: 240px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.shared-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  color: #1f2937;
+  box-sizing: border-box;
+}
+
+.shared-filter-option:hover {
+  background: #f3f4f6;
+}
+
+.shared-filter-option.is-selected {
+  background: #f0fdf4;
+  color: #065f46;
+}
+
+.shared-filter-checkbox {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+  background: white;
+}
+
+.shared-filter-option.is-selected .shared-filter-checkbox {
+  background: #00b14f;
+  border-color: #00b14f;
+  color: white;
+}
+
+.shared-filter-loading {
+  padding: 8px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 12px;
 }

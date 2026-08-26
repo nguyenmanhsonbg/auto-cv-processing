@@ -30,10 +30,10 @@ export async function fetchJobFamilies(): Promise<JobFamily[]> {
   }
 
   const auth = chrome.storage?.local
-    ? (await chrome.storage.local.get('topcv_saved_auth') as { topcv_saved_auth?: { accessToken?: string } } | undefined)
+    ? (await chrome.storage.local.get('topcv_saved_auth') as { topcv_saved_auth?: { accessToken?: string; cookieSession?: boolean } } | undefined)
     : undefined;
   const token = auth?.topcv_saved_auth?.accessToken;
-  if (!token) {
+  if (!token && !auth?.topcv_saved_auth?.cookieSession) {
     throw new Error('TOPCV_LOGIN_REQUIRED');
   }
 
@@ -42,10 +42,11 @@ export async function fetchJobFamilies(): Promise<JobFamily[]> {
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       Origin: 'https://tuyendung.topcv.vn',
       Referer: 'https://tuyendung.topcv.vn/',
     },
+    credentials: 'include',
   });
 
   if (!response.ok) {

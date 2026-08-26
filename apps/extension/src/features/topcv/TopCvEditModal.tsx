@@ -1,15 +1,21 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import {
   BackIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   CloseIcon,
 } from '@/components/icons';
+import { InputField } from '@/components/form';
+import { MultiSelectFilter, SelectFilter } from '@/components/filters';
+import { ComboboxFilter } from '@/components/filters/ComboboxFilter';
 import type { TopCvFormData } from './topcv-form.types';
 import { TopCvJobFamilyPicker } from './TopCvJobFamilyPicker';
 import { TopCvLocationPicker } from './TopCvLocationPicker';
 import { TopCvDatePicker } from './TopCvDatePicker';
 import { TopCvTimePicker } from './TopCvTimePicker';
+import { fetchTopCvDomainKnowledge, fetchTopCvOptions, type TopCvDomainKnowledge, type TopCvOption } from './topcv-options.service';
+import type { TopCvOptionsResponse } from './topcv-options.service';
+import { fetchTopCvSkills, type TopCvSkill } from './topcv-api';
 
 function TopCvWarningIcon() {
   return (
@@ -27,6 +33,7 @@ interface TopCvEditModalProps {
   onSave: (data: TopCvFormData) => void;
   onPreview: () => void;
   onClose: () => void;
+  onForeignLanguageOptions?: (options: TopCvOptionsResponse['data']['certificate_foreign_languages']) => void;
 }
 
 export function TopCvEditModal({
@@ -34,8 +41,20 @@ export function TopCvEditModal({
   onChange,
   onSave,
   onClose,
+  onForeignLanguageOptions,
 }: TopCvEditModalProps) {
   const [form, setForm] = useState<TopCvFormData>(formData);
+  const [educationOptions, setEducationOptions] = useState<TopCvOption[]>([]);
+  const [jobTypeOptions, setJobTypeOptions] = useState<TopCvOption[]>([]);
+  const [workingMethodOptions, setWorkingMethodOptions] = useState<TopCvOption[]>([]);
+  const [isWorkingMethodSelectOpen, setIsWorkingMethodSelectOpen] = useState(false);
+  const [domainKnowledgeOptions, setDomainKnowledgeOptions] = useState<TopCvDomainKnowledge[]>([]);
+  const [isDomainKnowledgeSelectOpen, setIsDomainKnowledgeSelectOpen] = useState(false);
+  const [skillOptions, setSkillOptions] = useState<TopCvSkill[]>([]);
+  const [skillPage, setSkillPage] = useState(1);
+  const [skillHasMore, setSkillHasMore] = useState(true);
+  const [skillLoading, setSkillLoading] = useState(false);
+  const [foreignLanguageOptions, setForeignLanguageOptions] = useState<TopCvOptionsResponse['data']['certificate_foreign_languages']>([]);
 
   // Trạng thái mở/đóng từng Accordion - mặc định ban đầu là ĐÓNG (false) theo thiết kế
   const [expandedSections, setExpandedSections] = useState({
@@ -45,13 +64,51 @@ export function TopCvEditModal({
     contact: false,
   });
 
-  const [newRequiredSkill, setNewRequiredSkill] = useState('');
-  const [newPreferredSkill, setNewPreferredSkill] = useState('');
   const [newEmail, setNewEmail] = useState('');
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
+
+  // Fetch education options from TopCV API
+  useEffect(() => {
+    fetchTopCvOptions()
+      .then((options) => {
+        setEducationOptions(options.education);
+        setJobTypeOptions(options.job_types);
+        setWorkingMethodOptions(options.working_methods);
+        setForeignLanguageOptions(options.certificate_foreign_languages);
+        onForeignLanguageOptions?.(options.certificate_foreign_languages);
+      })
+      .catch(console.error);
+    fetchTopCvDomainKnowledge()
+      .then(setDomainKnowledgeOptions)
+      .catch(console.error);
+  }, []);
+
+  // Fetch skills from TopCV API with pagination
+  const loadMoreSkills = () => {
+    if (!skillHasMore || skillLoading) return;
+    setSkillLoading(true);
+    fetchTopCvSkills(skillPage + 1, 200)
+      .then((result) => {
+        setSkillOptions(result.skills);
+        setSkillPage((p) => p + 1);
+        setSkillHasMore(result.hasMore);
+      })
+      .catch(console.error)
+      .finally(() => setSkillLoading(false));
+  };
+
+  useEffect(() => {
+    fetchTopCvSkills(1, 200)
+      .then((result) => {
+        setSkillOptions(result.skills);
+        setSkillPage(1);
+        setSkillHasMore(result.hasMore);
+      })
+      .catch(console.error);
+  }, []);
 
   const update = (patch: Partial<TopCvFormData>) => {
     const next = { ...form, ...patch };
@@ -65,9 +122,9 @@ export function TopCvEditModal({
   };
 
   // Kiểm tra thiếu trường bắt buộc để hiện icon tam giác cảnh báo màu đỏ
-  const isGeneralIncomplete = !form.title?.trim() || !form.position?.trim() || !form.employeeLevel?.trim();
+  const isGeneralIncomplete = !form.title?.trim() || !form.position?.trim() || !String(form.employeeLevel).trim();
   const isDescriptionIncomplete = !form.jobDescription?.trim() || !form.jobRequirement?.trim() || !form.jobBenefit?.trim() || form.locations.length === 0;
-  const isExpectationIncomplete = !form.education?.trim() || !form.experience?.trim();
+  const isExpectationIncomplete = !String(form.education).trim() || !form.experience?.trim();
   const isContactIncomplete = !form.deadline?.trim() || !form.quantity || !form.contactName?.trim() || !form.contactPhone?.trim() || form.contactEmails.length === 0;
 
   // Rich text mini-toolbar helper
@@ -82,24 +139,12 @@ export function TopCvEditModal({
     }
   };
 
-  const addRequiredSkill = () => {
-    if (!newRequiredSkill.trim()) return;
-    update({ requiredSkills: [...form.requiredSkills, newRequiredSkill.trim()] });
-    setNewRequiredSkill('');
+  const removeRequiredSkill = (value: number) => {
+    update({ requiredSkills: form.requiredSkills.filter((s) => s.value !== value) });
   };
 
-  const removeRequiredSkill = (index: number) => {
-    update({ requiredSkills: form.requiredSkills.filter((_, i) => i !== index) });
-  };
-
-  const addPreferredSkill = () => {
-    if (!newPreferredSkill.trim()) return;
-    update({ preferredSkills: [...form.preferredSkills, newPreferredSkill.trim()] });
-    setNewPreferredSkill('');
-  };
-
-  const removePreferredSkill = (index: number) => {
-    update({ preferredSkills: form.preferredSkills.filter((_, i) => i !== index) });
+  const removePreferredSkill = (value: number) => {
+    update({ preferredSkills: form.preferredSkills.filter((s) => s.value !== value) });
   };
 
   const addEmail = () => {
@@ -143,19 +188,14 @@ export function TopCvEditModal({
 
           {expandedSections.general && (
             <div className="topcv-accordion-content">
-              <div className="topcv-form-group">
-                <label className="topcv-form-label">
-                  Tiêu đề <span className="req">*</span>
-                </label>
-                <input
-                  type="text"
-                  className="topcv-input"
-                  value={form.title}
-                  onChange={(e) => update({ title: e.target.value })}
-                  placeholder="Nhập tiêu đề bài đăng"
-                  required
-                />
-              </div>
+              <InputField
+                label="Tiêu đề"
+                value={form.title}
+                onChange={(e) => update({ title: e.target.value })}
+                placeholder="Nhập tiêu đề bài đăng"
+                required
+                maxLength={50}
+              />
 
               <div className="topcv-form-group">
                 <TopCvJobFamilyPicker
@@ -181,73 +221,60 @@ export function TopCvEditModal({
               </div>
 
               <div className="topcv-form-group">
-                <label className="topcv-form-label">Kiến thức ngành</label>
-                <select
-                  className="topcv-select"
-                  value={form.industryKnowledge}
-                  onChange={(e) => update({ industryKnowledge: e.target.value })}
-                >
-                  <option value="">Chọn kiến thức ngành</option>
-                  <option value="IT - Phần mềm">IT - Phần mềm</option>
-                  <option value="IT - Phần cứng và máy tính">IT - Phần cứng và máy tính</option>
-                  <option value="Viễn thông">Viễn thông</option>
-                  <option value="Tài chính / Ngân hàng">Tài chính / Ngân hàng</option>
-                  <option value="Điện toán đám mây (Cloud)">Điện toán đám mây (Cloud)</option>
-                  <option value="An toàn thông tin">An toàn thông tin</option>
-                </select>
+                <MultiSelectFilter
+                  label="Kiến thức ngành"
+                  values={form.industryKnowledge}
+                  options={domainKnowledgeOptions.map((option) => ({ value: option.id, label: option.name }))}
+                  allLabel="Chọn kiến thức ngành"
+                  isOpen={isDomainKnowledgeSelectOpen}
+                  onToggle={() => setIsDomainKnowledgeSelectOpen((open) => !open)}
+                  onClose={() => setIsDomainKnowledgeSelectOpen(false)}
+                  onChange={(values) => update({ industryKnowledge: values.map(Number) })}
+                />
               </div>
 
               <div className="topcv-form-group">
-                <label className="topcv-form-label">
-                  Cấp bậc <span className="req">*</span>
-                </label>
-                <select
-                  className="topcv-select"
+                <SelectFilter
+                  label="Cấp bậc *"
                   value={form.employeeLevel}
-                  onChange={(e) => update({ employeeLevel: e.target.value })}
-                  required
-                >
-                  <option value="">Chọn cấp bậc</option>
-                  <option value="Nhân viên">Nhân viên</option>
-                  <option value="Trưởng nhóm">Trưởng nhóm</option>
-                  <option value="Trưởng phòng">Trưởng phòng</option>
-                  <option value="Quản lý / Giám đốc">Quản lý / Giám đốc</option>
-                  <option value="Thực tập sinh">Thực tập sinh</option>
-                </select>
+                  options={[
+                    { value: '', label: 'Chọn cấp bậc' },
+                    { value: 1, label: 'Nhân viên' },
+                    { value: 2, label: 'Trưởng nhóm' },
+                    { value: 3, label: 'Trưởng / Phó phòng' },
+                    { value: 10, label: 'Quản lý / Giám sát' },
+                    { value: 20, label: 'Trưởng chi nhánh' },
+                    { value: 25, label: 'Phó giám đốc' },
+                    { value: 30, label: 'Giám đốc' },
+                    { value: 50, label: 'Thực tập sinh' },
+                  ]}
+                  onChange={(value) => update({ employeeLevel: value === '' ? '' : Number(value) })}
+                />
               </div>
 
               <div className="topcv-form-group">
-                <label className="topcv-form-label">
-                  Loại công việc <span className="req">*</span>
-                </label>
-                <select
-                  className="topcv-select"
+                <SelectFilter
+                  label="Loại công việc *"
                   value={form.jobType}
-                  onChange={(e) => update({ jobType: e.target.value })}
-                  required
-                >
-                  <option value="">Chọn loại công việc</option>
-                  <option value="Toàn thời gian">Toàn thời gian</option>
-                  <option value="Bán thời gian">Bán thời gian</option>
-                  <option value="Thực tập">Thực tập</option>
-                </select>
+                  options={[
+                    { value: '', label: 'Chọn loại công việc' },
+                    ...jobTypeOptions.map((option) => ({ value: option.value, label: option.name })),
+                  ]}
+                  onChange={(value) => update({ jobType: value === '' ? '' : Number(value) })}
+                />
               </div>
 
               <div className="topcv-form-group">
-                <label className="topcv-form-label">
-                  Hình thức làm việc <span className="req">*</span>
-                </label>
-                <select
-                  className="topcv-select"
-                  value={form.workingType}
-                  onChange={(e) => update({ workingType: e.target.value })}
-                  required
-                >
-                  <option value="">Chọn hình thức làm việc</option>
-                  <option value="Trực tiếp">Trực tiếp</option>
-                  <option value="Hybrid">Hybrid</option>
-                  <option value="Remote">Remote</option>
-                </select>
+                <MultiSelectFilter
+                  label="Hình thức làm việc *"
+                  values={form.workingType}
+                  options={workingMethodOptions.map((option) => ({ value: option.value, label: option.name }))}
+                  allLabel="Chọn hình thức làm việc"
+                  isOpen={isWorkingMethodSelectOpen}
+                  onToggle={() => setIsWorkingMethodSelectOpen((open) => !open)}
+                  onClose={() => setIsWorkingMethodSelectOpen(false)}
+                  onChange={(values) => update({ workingType: values.map(Number) })}
+                />
               </div>
 
               <div className="topcv-form-group">
@@ -511,61 +538,47 @@ export function TopCvEditModal({
             <div className="topcv-accordion-content">
               {/* Row 1: Học vấn & Kinh nghiệm */}
               <div className="topcv-grid-2">
-                <div className="topcv-form-group">
-                  <label className="topcv-form-label">
-                    Học vấn tối thiểu <span className="req">*</span>
-                  </label>
-                  <select
-                    className="topcv-select"
-                    value={form.education}
-                    onChange={(e) => update({ education: e.target.value })}
-                    required
-                  >
-                    <option value="">Chọn học vấn tối thiểu</option>
-                    <option value="Đại Học trở lên">Đại Học trở lên</option>
-                    <option value="Cao đẳng">Cao đẳng</option>
-                    <option value="Trung cấp">Trung cấp</option>
-                    <option value="Không yêu cầu">Không yêu cầu</option>
-                  </select>
-                </div>
+                <SelectFilter
+                  label="Học vấn tối thiểu *"
+                  value={form.education}
+                  options={[
+                    { value: '', label: 'Chọn học vấn tối thiểu' },
+                    ...educationOptions.map((opt) => ({ value: opt.value, label: opt.name })),
+                  ]}
+                  onChange={(value) => update({ education: String(value) })}
+                />
 
-                <div className="topcv-form-group">
-                  <label className="topcv-form-label">
-                    Số năm kinh nghiệm <span className="req">*</span>
-                  </label>
-                  <select
-                    className="topcv-select"
-                    value={form.experience}
-                    onChange={(e) => update({ experience: e.target.value })}
-                    required
-                  >
-                    <option value="">Chọn kinh nghiệm</option>
-                    <option value="Không yêu cầu">Không yêu cầu</option>
-                    <option value="Dưới 1 năm">Dưới 1 năm</option>
-                    <option value="1 năm">1 năm</option>
-                    <option value="2 năm">2 năm</option>
-                    <option value="3 năm">3 năm</option>
-                    <option value="5 năm">5 năm</option>
-                    <option value="Trên 5 năm">Trên 5 năm</option>
-                  </select>
-                </div>
+                <SelectFilter
+                  label="Số năm kinh nghiệm *"
+                  value={form.experience}
+                  options={[
+                    { value: '', label: 'Chọn kinh nghiệm' },
+                    { value: '0-0', label: 'Chưa có kinh nghiệm' },
+                    { value: '0-1', label: 'Dưới 1 năm kinh nghiệm' },
+                    { value: '1-0', label: '1 năm kinh nghiệm' },
+                    { value: '2-0', label: '2 năm kinh nghiệm' },
+                    { value: '3-0', label: '3 năm kinh nghiệm' },
+                    { value: '4-0', label: '4 năm kinh nghiệm' },
+                    { value: '5-0', label: '5 năm kinh nghiệm' },
+                    { value: '6-0', label: 'Trên 5 năm kinh nghiệm' },
+                  ]}
+                  onChange={(value) => update({ experience: String(value) })}
+                />
               </div>
 
               {/* Row 2: Giới tính & Độ tuổi */}
               <div className="topcv-grid-2">
-                <div className="topcv-form-group">
-                  <label className="topcv-form-label">Giới tính</label>
-                  <select
-                    className="topcv-select"
-                    value={form.gender}
-                    onChange={(e) => update({ gender: e.target.value })}
-                  >
-                    <option value="Không yêu cầu">Chọn giới tính</option>
-                    <option value="Không yêu cầu">Không yêu cầu</option>
-                    <option value="Nam">Nam</option>
-                    <option value="Nữ">Nữ</option>
-                  </select>
-                </div>
+                <SelectFilter
+                  label="Giới tính"
+                  value={form.gender}
+                  options={[
+                    { value: '', label: 'Chọn giới tính' },
+                    { value: 0, label: 'Không yêu cầu' },
+                    { value: 1, label: 'Nữ' },
+                    { value: 2, label: 'Nam' },
+                  ]}
+                  onChange={(value) => update({ gender: String(value) })}
+                />
 
                 <div className="topcv-form-group">
                   <label className="topcv-form-label">Độ tuổi</label>
@@ -593,97 +606,105 @@ export function TopCvEditModal({
               <div className="topcv-form-group">
                 <label className="topcv-form-label">Kỹ năng cần có</label>
                 <div className="topcv-chips-wrap">
-                  {form.requiredSkills.map((skill, index) => (
-                    <span key={skill + index} className="topcv-chip">
-                      {skill}
-                      <button type="button" onClick={() => removeRequiredSkill(index)} title="Xóa">×</button>
+                  {form.requiredSkills.map((skill) => (
+                    <span key={skill.value} className="topcv-chip">
+                      {skill.label}
+                      <button type="button" onClick={() => removeRequiredSkill(skill.value)} title="Xóa">×</button>
                     </span>
                   ))}
                 </div>
-                <div className="topcv-add-input-row">
-                  <input
-                    type="text"
-                    className="topcv-input compact"
-                    value={newRequiredSkill}
-                    onChange={(e) => setNewRequiredSkill(e.target.value)}
-                    placeholder="Chọn kỹ năng hoặc nhập để thêm..."
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addRequiredSkill(); } }}
-                  />
-                  <button type="button" className="secondary-button compact-button" onClick={addRequiredSkill}>+ Thêm</button>
-                </div>
+                <ComboboxFilter
+                  label=""
+                  values={form.requiredSkills}
+                  options={skillOptions.map((opt) => ({ value: opt.value, label: opt.text }))}
+                  onChange={(values) => update({ requiredSkills: values })}
+                  onLoadMore={loadMoreSkills}
+                  hasMore={skillHasMore}
+                  loading={skillLoading}
+                  placeholder="Chọn kỹ năng..."
+                />
               </div>
 
               {/* Kỹ năng nên có */}
               <div className="topcv-form-group">
                 <label className="topcv-form-label">Kỹ năng nên có</label>
                 <div className="topcv-chips-wrap">
-                  {form.preferredSkills.map((skill, index) => (
-                    <span key={skill + index} className="topcv-chip">
-                      {skill}
-                      <button type="button" onClick={() => removePreferredSkill(index)} title="Xóa">×</button>
+                  {form.preferredSkills.map((skill) => (
+                    <span key={skill.value} className="topcv-chip">
+                      {skill.label}
+                      <button type="button" onClick={() => removePreferredSkill(skill.value)} title="Xóa">×</button>
                     </span>
                   ))}
                 </div>
-                <div className="topcv-add-input-row">
-                  <input
-                    type="text"
-                    className="topcv-input compact"
-                    value={newPreferredSkill}
-                    onChange={(e) => setNewPreferredSkill(e.target.value)}
-                    placeholder="Chọn kỹ năng..."
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPreferredSkill(); } }}
-                  />
-                  <button type="button" className="secondary-button compact-button" onClick={addPreferredSkill}>+ Thêm</button>
-                </div>
+                <ComboboxFilter
+                  label=""
+                  values={form.preferredSkills}
+                  options={skillOptions.map((opt) => ({ value: opt.value, label: opt.text }))}
+                  onChange={(values) => update({ preferredSkills: values })}
+                  onLoadMore={loadMoreSkills}
+                  hasMore={skillHasMore}
+                  loading={skillLoading}
+                  placeholder="Chọn kỹ năng..."
+                />
               </div>
 
               {/* Ngoại ngữ */}
               <div className="topcv-form-group">
                 <label className="topcv-form-label">Ngoại ngữ</label>
-                {form.languages.map((lang, idx) => (
-                  <div key={idx} className="topcv-sub-card">
-                    <div className="topcv-sub-card-header">
-                      <span>Ngoại ngữ {idx + 1}:</span>
-                      <button
-                        type="button"
-                        className="topcv-remove-icon-btn"
-                        onClick={() => {
-                          update({ languages: form.languages.filter((_, i) => i !== idx) });
-                        }}
-                      >
-                        <CloseIcon />
-                      </button>
-                    </div>
-                    <div className="topcv-sub-card-row">
-                      <select
-                        className="topcv-select"
-                        value={lang.language}
-                        onChange={(e) => {
-                          const next = [...form.languages];
-                          next[idx].language = e.target.value;
-                          update({ languages: next });
-                        }}
-                      >
-                        <option value="Tiếng Anh">Tiếng Anh</option>
-                        <option value="Tiếng Nhật">Tiếng Nhật</option>
-                        <option value="Tiếng Trung">Tiếng Trung</option>
-                        <option value="Tiếng Hàn">Tiếng Hàn</option>
-                      </select>
+                {form.languages.map((lang, idx) => {
+                  const selectedLang = foreignLanguageOptions.find((l) => l.value === lang.language);
+                  return (
+                    <div key={idx} className="topcv-sub-card">
+                      <div className="topcv-sub-card-header">
+                        <span>Ngoại ngữ {idx + 1}:</span>
+                        <button
+                          type="button"
+                          className="topcv-remove-icon-btn"
+                          onClick={() => {
+                            update({ languages: form.languages.filter((_, i) => i !== idx) });
+                          }}
+                        >
+                          <CloseIcon />
+                        </button>
+                      </div>
+                      <div className="topcv-sub-card-row">
+                        <SelectFilter
+                          label=""
+                          value={lang.language}
+                          options={[
+                            { value: 0, label: 'Chọn ngoại ngữ' },
+                            ...foreignLanguageOptions.map((opt) => ({ value: opt.value, label: opt.name })),
+                          ]}
+                          onChange={(value) => {
+                            const next = form.languages.map((item, itemIdx) => itemIdx === idx
+                              ? { ...item, language: Number(value), certificate: '' as const }
+                              : item);
+                            update({ languages: next });
+                          }}
+                        />
 
-                      <input
-                        type="text"
-                        className="topcv-input"
-                        value={lang.certificate}
-                        onChange={(e) => {
-                          const next = [...form.languages];
-                          next[idx].certificate = e.target.value;
-                          update({ languages: next });
-                        }}
-                        placeholder="Chứng chỉ (VD: TOEIC 550, IELTS 6.0)"
-                      />
+                      </div>
+                      {lang.language !== 0 && (
+                        <div className="topcv-sub-card-row">
+                          <SelectFilter
+                            label="Trình độ/Chứng chỉ ngoại ngữ"
+                            value={lang.certificate}
+                            options={[
+                              { value: '', label: 'Chọn trình độ/chứng chỉ' },
+                              ...(selectedLang?.data.map((cert) => ({ value: cert.value, label: cert.name })) ?? []),
+                            ]}
+                            onChange={(value) => {
+                              const next = form.languages.map((item, itemIdx) => itemIdx === idx
+                                ? { ...item, certificate: value === '' ? '' as const : Number(value) }
+                                : item);
+                              update({ languages: next });
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 <button
                   type="button"
@@ -691,7 +712,7 @@ export function TopCvEditModal({
                   style={{ marginTop: 6 }}
                   onClick={() => {
                     update({
-                      languages: [...form.languages, { language: 'Tiếng Anh', certificate: '' }],
+                      languages: [...form.languages, { language: 0, certificate: '' }],
                     });
                   }}
                 >

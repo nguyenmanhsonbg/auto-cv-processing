@@ -1,14 +1,17 @@
 import { BackIcon, EditIcon } from '@/components/icons';
 import { formatTopCvSalary, type TopCvFormData } from './topcv-form.types';
+import { getLanguageDisplay, type TopCvOptionsResponse } from './topcv-options.service';
 
 interface TopCvPreviewModalProps {
   formData: TopCvFormData;
+  foreignLanguageOptions: TopCvOptionsResponse['data']['certificate_foreign_languages'];
   onEdit: () => void;
   onClose: () => void;
 }
 
 export function TopCvPreviewModal({
   formData,
+  foreignLanguageOptions,
   onEdit,
   onClose,
 }: TopCvPreviewModalProps) {
@@ -64,18 +67,20 @@ export function TopCvPreviewModal({
                 <span className="topcv-tag">{formData.experience}</span>
                 <span className="topcv-tag">{formData.education}</span>
                 {formData.languages.map((l, i) => (
-                  <span key={i} className="topcv-tag">{l.language} {l.certificate}</span>
+                  <span key={i} className="topcv-tag">
+                    {getLanguageDisplay(l.language, l.certificate, foreignLanguageOptions)}
+                  </span>
                 ))}
               </div>
             </div>
             <div className="topcv-overview-row">
               <span className="topcv-overview-label">Chuyên môn:</span>
               <div className="topcv-overview-chips">
-                {formData.requiredSkills.map((s, i) => (
-                  <span key={i} className="topcv-tag is-primary">{s}</span>
+                {formData.requiredSkills.map((s) => (
+                  <span key={s.value} className="topcv-tag is-primary">{s.label}</span>
                 ))}
-                {formData.preferredSkills.map((s, i) => (
-                  <span key={i} className="topcv-tag">{s}</span>
+                {formData.preferredSkills.map((s) => (
+                  <span key={s.value} className="topcv-tag">{s.label}</span>
                 ))}
               </div>
             </div>

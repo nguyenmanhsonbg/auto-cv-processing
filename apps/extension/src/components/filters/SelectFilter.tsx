@@ -1,15 +1,15 @@
 import { ChevronDownIcon } from '@/components/icons';
 
 export type SelectFilterOption = {
-  value: string;
+  value: string | number;
   label: string;
 };
 
 type SelectFilterProps = {
   label: string;
-  value: string;
+  value: string | number;
   options: SelectFilterOption[];
-  onChange: (value: string) => void;
+  onChange: (value: string | number) => void;
   className?: string;
   ariaLabel?: string;
   disabled?: boolean;

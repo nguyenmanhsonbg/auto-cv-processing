@@ -10,10 +10,10 @@ export interface TopCvFormData {
   // 1. Thông tin chung
   title: string;
   position: string;
-  industryKnowledge: string;
-  employeeLevel: string;
-  jobType: string;
-  workingType: string;
+  industryKnowledge: number[];
+  employeeLevel: number | '';
+  jobType: number | '';
+  workingType: number[];
   salaryType: 'negotiable' | 'range';
   salaryFrom: number | null;
   salaryTo: number | null;
@@ -48,16 +48,16 @@ export interface TopCvFormData {
   };
 
   // 3. Kỳ vọng về ứng viên
-  education: string;
+  education: string | number; // '' = unselected, number = from TopCV options API
   experience: string;
-  gender: string;
+  gender: string | number; // '' = unselected, number = from TopCV options
   ageFrom: number | null;
   ageTo: number | null;
-  requiredSkills: string[];
-  preferredSkills: string[];
+  requiredSkills: Array<{ value: number; label: string }>;
+  preferredSkills: Array<{ value: number; label: string }>;
   languages: Array<{
-    language: string;
-    certificate: string;
+    language: number; // value from certificate_foreign_languages
+    certificate: number | ''; // certificate value (number), empty string = unselected
   }>;
 
   // 4. Thông tin nhận hồ sơ
@@ -71,10 +71,10 @@ export interface TopCvFormData {
 export const DEFAULT_TOPCV_FORM: TopCvFormData = {
   title: '',
   position: '',
-  industryKnowledge: '',
+  industryKnowledge: [],
   employeeLevel: '',
   jobType: '',
-  workingType: '',
+  workingType: [],
   salaryType: 'range',
   salaryFrom: null,
   salaryTo: null,

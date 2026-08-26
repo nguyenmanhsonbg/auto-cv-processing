@@ -59,6 +59,7 @@ import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
 import { checkTopCvAuth, type TopCvAuthState } from '@/features/topcv/topcv-auth';
 import { logoutTopCv } from '@/features/topcv/topcv-login.service';
 import { DEFAULT_TOPCV_FORM, type TopCvFormData } from '@/features/topcv/topcv-form.types';
+import { type TopCvOptionsResponse } from '@/features/topcv/topcv-options.service';
 
 import { prepareChannelForm } from '@/lib/api-client';
 import { publishTopCvJob, transformTopCvPayload } from '@/features/topcv/topcv-api';
@@ -448,6 +449,7 @@ function SidePanel() {
   const [topCvAuth, setTopCvAuth] = useState<TopCvAuthState | null>(null);
   const [isCheckingTopCvAuth, setIsCheckingTopCvAuth] = useState(false);
   const [topCvModalMode, setTopCvModalMode] = useState<'EDIT' | 'PREVIEW' | null>(null);
+  const [foreignLanguageOptions, setForeignLanguageOptions] = useState<TopCvOptionsResponse['data']['certificate_foreign_languages']>([]);
   const [topCvLoadingFromBe, setTopCvLoadingFromBe] = useState(false);
   const [topCvPublishing, setTopCvPublishing] = useState(false);
 
@@ -2605,7 +2607,7 @@ function SidePanel() {
         setState('ERROR');
         return;
       }
-      if (!topCvFormData.position?.trim() || !topCvFormData.employeeLevel?.trim()) {
+      if (!topCvFormData.position?.trim() || !String(topCvFormData.employeeLevel).trim()) {
         setError('TopCV: Vui lòng chọn vị trí chuyên môn và cấp bậc (chọn "Chỉnh sửa" ở mục TopCV).');
         setState('ERROR');
         return;
@@ -2783,6 +2785,8 @@ function SidePanel() {
               topCvPublishing,
               topCvModalMode,
               setTopCvModalMode,
+              foreignLanguageOptions,
+              setForeignLanguageOptions,
               onShowExtensionToast: showExtensionToast,
               onLogoutTopCv: logoutTopCv,
               onFetchTopCvFromBackend: fetchTopCvFromBackend,

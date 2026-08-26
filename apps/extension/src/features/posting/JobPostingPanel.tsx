@@ -34,6 +34,7 @@ import { TopCvPreviewModal } from '@/features/topcv/TopCvPreviewModal';
 import { TopCvContentPanel } from '@/features/topcv/TopCvContentPanel';
 import type { TopCvFormData } from '@/features/topcv/topcv-form.types';
 import type { TopCvAuthState } from '@/features/topcv/topcv-auth';
+import type { TopCvOptionsResponse } from '@/features/topcv/topcv-options.service';
 import { isFacebookResultPendingReview } from '@/features/facebook/facebook-channel-status';
 
 export type JobDescriptionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
@@ -140,6 +141,8 @@ export interface TopCvPostingConfig {
   topCvPublishing: boolean;
   topCvModalMode: TopCvModalMode;
   setTopCvModalMode: React.Dispatch<React.SetStateAction<TopCvModalMode>>;
+  foreignLanguageOptions: TopCvOptionsResponse['data']['certificate_foreign_languages'];
+  setForeignLanguageOptions: React.Dispatch<React.SetStateAction<TopCvOptionsResponse['data']['certificate_foreign_languages']>>;
   onShowExtensionToast: (kind: ExtensionToastKind, title: string, message: string) => void;
   onLogoutTopCv: () => Promise<void>;
   onFetchTopCvFromBackend?: () => Promise<void>;
@@ -252,6 +255,8 @@ export function JobPostingPanel({
     topCvPublishing,
     topCvModalMode,
     setTopCvModalMode,
+    foreignLanguageOptions,
+    setForeignLanguageOptions,
     onShowExtensionToast,
     onLogoutTopCv,
     onFetchTopCvFromBackend,
@@ -286,6 +291,7 @@ export function JobPostingPanel({
         }}
         onPreview={() => setTopCvModalMode('PREVIEW')}
         onClose={() => setTopCvModalMode(null)}
+        onForeignLanguageOptions={setForeignLanguageOptions}
       />
     );
   }
@@ -294,6 +300,7 @@ export function JobPostingPanel({
     return (
       <TopCvPreviewModal
         formData={topCvFormData}
+        foreignLanguageOptions={foreignLanguageOptions}
         onEdit={() => setTopCvModalMode('EDIT')}
         onClose={() => setTopCvModalMode(null)}
       />
@@ -426,9 +433,10 @@ export function JobPostingPanel({
               value={jobDescriptionStatusFilter}
               options={JOB_DESCRIPTION_STATUS_OPTIONS}
               disabled={jobDescriptionStatus === 'LOADING'}
-              onChange={(value: string) => {
-                setJobDescriptionStatusFilter(value);
-                void onLoadJobDescriptions(token, 1, { status: value });
+              onChange={(value) => {
+                const v = String(value);
+                setJobDescriptionStatusFilter(v);
+                void onLoadJobDescriptions(token, 1, { status: v });
               }}
             />
           </div>

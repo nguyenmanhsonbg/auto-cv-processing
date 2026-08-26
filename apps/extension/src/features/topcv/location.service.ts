@@ -26,20 +26,21 @@ export async function fetchProvinces(): Promise<Province[]> {
   if (cachedProvinces) return cachedProvinces;
 
   const auth = chrome.storage?.local
-    ? (await chrome.storage.local.get('topcv_saved_auth') as { topcv_saved_auth?: { accessToken?: string } } | undefined)
+    ? (await chrome.storage.local.get('topcv_saved_auth') as { topcv_saved_auth?: { accessToken?: string; cookieSession?: boolean } } | undefined)
     : undefined;
   const token = auth?.topcv_saved_auth?.accessToken;
-  if (!token) throw new Error('TOPCV_LOGIN_REQUIRED');
+  if (!token && !auth?.topcv_saved_auth?.cookieSession) throw new Error('TOPCV_LOGIN_REQUIRED');
 
   const response = await fetch(`${TOPCV_API_BASE_URL}/provinces`, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       Origin: 'https://tuyendung.topcv.vn',
       Referer: 'https://tuyendung.topcv.vn/',
     },
+    credentials: 'include',
   });
 
   if (!response.ok) throw new Error(`Failed to fetch provinces: ${response.status}`);
@@ -53,20 +54,21 @@ export async function fetchDistricts(provinceId: number): Promise<District[]> {
   if (cachedDistricts[provinceId]) return cachedDistricts[provinceId];
 
   const auth = chrome.storage?.local
-    ? (await chrome.storage.local.get('topcv_saved_auth') as { topcv_saved_auth?: { accessToken?: string } } | undefined)
+    ? (await chrome.storage.local.get('topcv_saved_auth') as { topcv_saved_auth?: { accessToken?: string; cookieSession?: boolean } } | undefined)
     : undefined;
   const token = auth?.topcv_saved_auth?.accessToken;
-  if (!token) throw new Error('TOPCV_LOGIN_REQUIRED');
+  if (!token && !auth?.topcv_saved_auth?.cookieSession) throw new Error('TOPCV_LOGIN_REQUIRED');
 
   const response = await fetch(`${TOPCV_API_BASE_URL}/provinces/${provinceId}/districts?option_all=true`, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       Origin: 'https://tuyendung.topcv.vn',
       Referer: 'https://tuyendung.topcv.vn/',
     },
+    credentials: 'include',
   });
 
   if (!response.ok) throw new Error(`Failed to fetch districts: ${response.status}`);
