@@ -119,6 +119,7 @@ export interface FreelancerSelfApplication {
   jobPosting: {
     jobPostingId: string;
     title: string;
+    createdAt?: string | null;
     sourceSystem?: string | null;
     sourceJobId?: string | null;
     amisRecruitmentId?: string | null;

@@ -152,6 +152,7 @@ function getCreateFormErrors(
 }
 
 const REFERRAL_PAGE_SIZE = 5;
+const INTERNAL_REFERRAL_SEARCH_MAX_LENGTH = 255;
 const REFERRAL_ALL_ROUNDS_OPTION: ReferralRoundOption = {
   value: 'ALL',
   label: 'Tất cả các vòng',
@@ -160,6 +161,10 @@ const REFERRAL_ALL_ROUNDS_OPTION: ReferralRoundOption = {
   normalizedName: '',
   sortOrder: -1,
 };
+
+function limitInternalReferralSearchInput(value: string): string {
+  return Array.from(value).slice(0, INTERNAL_REFERRAL_SEARCH_MAX_LENGTH).join('');
+}
 
 function ReferralFilterDropdown({
   label,
@@ -914,9 +919,16 @@ export function ReferralManagementPanel({
         source={source}
         search={search}
         onSearchChange={(value) => {
-          setSearch(value.slice(0, 64));
+          setSearch(source === 'INTERNAL' ? limitInternalReferralSearchInput(value) : value.slice(0, 64));
           setPage(1);
         }}
+        onKeyDown={source === 'INTERNAL' ? (event) => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          const normalizedSearch = search.trim();
+          if (normalizedSearch !== search) setSearch(normalizedSearch);
+          setPage(1);
+        } : undefined}
         placeholder={source === 'FREELANCER' ? 'Tìm kiếm theo tên, mã Freelancer' : 'Tìm kiếm theo tên, email, số điện thoại'}
         ariaLabel={`Tìm kiếm ${title}`}
         clearButton={search ? (

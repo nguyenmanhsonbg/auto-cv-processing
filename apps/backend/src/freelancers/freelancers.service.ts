@@ -102,6 +102,7 @@ export interface FreelancerApplicationSummary {
   jobPosting: {
     jobPostingId: string;
     title: string;
+    createdAt: Date;
     sourceSystem: string | null;
     sourceJobId: string | null;
     amisRecruitmentId: string | null;
@@ -820,6 +821,7 @@ export class FreelancersService {
       jobPosting: {
         jobPostingId: application.jobPostingId,
         title: application.jobPosting.title,
+        createdAt: application.jobPosting.createdAt,
         sourceSystem: application.jobPosting.jobDescription?.sourceSystem ?? null,
         sourceJobId: application.jobPosting.jobDescription?.sourceJobId ?? null,
         amisRecruitmentId,

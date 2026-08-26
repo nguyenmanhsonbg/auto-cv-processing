@@ -10,6 +10,7 @@ import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
 import { CandidateAvatar } from '@/components/candidates/CandidateAvatar';
 import { AppliedDateIcon, JobDescriptionIcon, SaveNoteIcon } from '@/components/icons';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
+import { formatDate } from '@/lib/utils';
 import { FreelancerCvFilters } from './components/FreelancerCvFilters';
 import type { FreelancerCvFilterValues } from './components/FreelancerCvFilters';
 import {
@@ -95,7 +96,7 @@ export function FreelancerCvPanel({
   const [roundsLoading, setRoundsLoading] = useState(false);
   const [pagination, setPagination] = useState<ApiPagination | null>(null);
   const [applicationPage, setApplicationPage] = useState(1);
-  const [filters, setFilters] = useState<FreelancerCvFilterValues>({ search: '', status: 'ALL', jd: 'ALL', dateRange: { from: '', to: '' } });
+  const [filters, setFilters] = useState<FreelancerCvFilterValues>({ search: '', status: 'ALL', jd: [], dateRange: { from: '', to: '' } });
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [savingReferralId, setSavingReferralId] = useState<string | null>(null);
@@ -148,8 +149,11 @@ export function FreelancerCvPanel({
   }, [filters.search]);
 
   const jdOptions = useMemo(() => {
-    const values = new Map<string, string>();
-    catalogApplications.forEach((application) => values.set(application.jobPosting.jobPostingId, application.jobPosting.title));
+    const values = new Map<string, { title: string; createdAt?: string | null }>();
+    catalogApplications.forEach((application) => values.set(application.jobPosting.jobPostingId, {
+      title: application.jobPosting.title,
+      createdAt: application.jobPosting.createdAt,
+    }));
     return Array.from(values.entries());
   }, [catalogApplications]);
 
@@ -161,7 +165,7 @@ export function FreelancerCvPanel({
         catalogApplications
           .filter((application) => (
             Boolean((application.jobPosting.amisRecruitmentId ?? application.jobPosting.sourceJobId)?.trim())
-            && (filters.jd === 'ALL' || application.jobPosting.jobPostingId === filters.jd)
+            && (filters.jd.length === 0 || filters.jd.includes(application.jobPosting.jobPostingId))
           ))
           .map((application) => [application.jobPosting.jobPostingId, {
             jobPostingId: application.jobPosting.jobPostingId,
@@ -194,9 +198,9 @@ export function FreelancerCvPanel({
   }, [catalogApplications, filters.jd, loadRecruitmentRounds]);
 
   const scopedApplications = useMemo(
-    () => filters.jd === 'ALL'
+    () => filters.jd.length === 0
       ? catalogApplications
-      : catalogApplications.filter((application) => application.jobPosting.jobPostingId === filters.jd),
+      : catalogApplications.filter((application) => filters.jd.includes(application.jobPosting.jobPostingId)),
     [catalogApplications, filters.jd],
   );
   const statusOptions = useMemo(() => {
@@ -221,7 +225,7 @@ export function FreelancerCvPanel({
 
   const visibleApplications = useMemo(() => catalogApplications.filter((application) => {
     if (!matchesFreelancerCvStatus(application, filters.status, statusOptions)) return false;
-    if (filters.jd !== 'ALL' && application.jobPosting.jobPostingId !== filters.jd) return false;
+    if (filters.jd.length > 0 && !filters.jd.includes(application.jobPosting.jobPostingId)) return false;
 
     const appliedAt = new Date(application.appliedAt).getTime();
     if (filters.dateRange.from && appliedAt < new Date(`${filters.dateRange.from}T00:00:00`).getTime()) return false;
@@ -328,7 +332,14 @@ export function FreelancerCvPanel({
         statusOptions={[
           ...statusOptions.map((option) => ({ value: option.value, label: option.label })),
         ]}
-        jdOptions={[{ value: 'ALL', label: 'Tất cả các vòng' }, ...jdOptions.map(([value, label]) => ({ value, label }))]}
+        jdOptions={[
+          { value: 'ALL', label: 'Tất cả các vòng' },
+          ...jdOptions.map(([value, jd]) => ({
+            value,
+            label: jd.title,
+            meta: jd.createdAt ? (formatDate(jd.createdAt) ?? undefined) : undefined,
+          })),
+        ]}
         statusDisabled={roundsLoading}
         onChange={(nextFilters) => {
           setApplicationPage(1);
@@ -386,6 +397,7 @@ export function FreelancerCvPanel({
                   onChange={(event) => setDraftNotes((current) => ({ ...current, [application.referralId]: event.target.value }))}
                   placeholder="Nhập ghi chú của bạn tại đây"
                   maxLength={255}
+                  rows={3}
                 />
               </div>
               {isEditingNote ? (

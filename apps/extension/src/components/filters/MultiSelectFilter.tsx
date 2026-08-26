@@ -3,6 +3,13 @@ import { ChevronDownIcon } from '@/components/icons';
 
 export type MultiSelectFilterOption = { value: string; label: string; meta?: string };
 
+export function toggleMultiSelectValue(values: string[], value: string | null): string[] {
+  if (value === null) return [];
+  return values.includes(value)
+    ? values.filter((item) => item !== value)
+    : [...values, value];
+}
+
 type MultiSelectFilterProps = {
   label: string;
   values: string[];
@@ -30,7 +37,7 @@ export function MultiSelectFilter({ label, values, options, allLabel = 'Tất c�
   }, [isOpen, onClose]);
 
   function toggleValue(value: string) {
-    onChange(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
+    onChange(toggleMultiSelectValue(values, value));
   }
 
   return (
@@ -41,17 +48,34 @@ export function MultiSelectFilter({ label, values, options, allLabel = 'Tất c�
         <ChevronDownIcon className={isOpen ? 'is-open' : ''} />
       </button>
       {isOpen ? (
-        <div className="referral-jd-options" role="listbox" aria-label={label}>
-          <button type="button" role="option" aria-selected={allSelected} className={`referral-jd-option${allSelected ? ' is-selected' : ''}`} onClick={() => onChange([])}>
+        <div className="referral-jd-options" role="group" aria-label={label}>
+          <label className={`referral-jd-option${allSelected ? ' is-selected' : ''}`}>
+            <input
+              type="checkbox"
+              className="referral-jd-option-input"
+              checked={allSelected}
+              onChange={() => onChange([])}
+            />
             <span className="referral-jd-option-label"><span className={`referral-jd-checkbox${allSelected ? ' is-checked' : ''}`} aria-hidden="true">✓</span><span>{allLabel}</span></span>
-          </button>
+          </label>
           {options.map((option) => {
             const selected = values.includes(option.value);
             return (
-              <button key={option.value} type="button" role="option" aria-selected={selected} className={`referral-jd-option${selected ? ' is-selected' : ''}`} onClick={() => toggleValue(option.value)}>
-                <span className="referral-jd-option-label"><span className={`referral-jd-checkbox${selected ? ' is-checked' : ''}`} aria-hidden="true">✓</span><span>{option.label}</span></span>
-                {option.meta ? <time>{option.meta}</time> : null}
-              </button>
+              <label key={option.value} className={`referral-jd-option${selected ? ' is-selected' : ''}${option.meta ? ' has-meta' : ''}`}>
+                <input
+                  type="checkbox"
+                  className="referral-jd-option-input"
+                  checked={selected}
+                  onChange={() => toggleValue(option.value)}
+                />
+                <span className="referral-jd-option-label">
+                  <span className={`referral-jd-checkbox${selected ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
+                  <span className="referral-jd-option-content">
+                    <span className="referral-jd-option-title">{option.label}</span>
+                    {option.meta ? <time className="referral-jd-option-meta">{option.meta}</time> : null}
+                  </span>
+                </span>
+              </label>
             );
           })}
         </div>

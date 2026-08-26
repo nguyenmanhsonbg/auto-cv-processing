@@ -4,6 +4,7 @@ export { FilterBar } from './FilterBar';
 export { FilterDropdown } from './FilterDropdown';
 export type { FilterDropdownOption } from './FilterDropdown';
 export { MultiSelectFilter } from './MultiSelectFilter';
+export type { MultiSelectFilterOption } from './MultiSelectFilter';
 export { SearchField } from './SearchField';
 export { SelectFilter } from './SelectFilter';
 export type { SelectFilterOption } from './SelectFilter';

@@ -8283,6 +8283,65 @@ dd {
   min-width: 0;
 }
 
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option {
+  min-height: 44px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 12px;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-label {
+  align-items: center;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-content {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-meta {
+  flex: none;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter {
+  container-type: inline-size;
+}
+
+@container (max-width: 240px) {
+  .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta {
+    min-height: 56px;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 8px 12px;
+  }
+
+  .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-label {
+    align-items: flex-start;
+  }
+
+  .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-content {
+    display: grid;
+    align-items: start;
+    justify-content: initial;
+    gap: 2px;
+  }
+
+  .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-meta {
+    display: block;
+  }
+}
+
 .freelancer-cv-list {
   display: grid;
   gap: 12px;
@@ -8406,8 +8465,12 @@ dd {
 }
 
 .freelancer-cv-note textarea {
-  min-height: 58px;
-  resize: vertical;
+  height: 80px;
+  min-height: 80px;
+  max-height: 80px;
+  line-height: 20px;
+  overflow-y: auto;
+  resize: none;
 }
 
 .freelancer-cv-empty {
@@ -9104,6 +9167,8 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .referral-jd-option {
   display: flex;
+  width: 100%;
+  box-sizing: border-box;
   min-height: 44px;
   align-items: center;
   justify-content: space-between;
@@ -9121,6 +9186,19 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   cursor: pointer;
 }
 
+.referral-jd-option-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.referral-jd-option:focus-within {
+  outline: 2px solid #15803D;
+  outline-offset: -2px;
+}
+
 .referral-jd-option:hover,
 .referral-jd-option.is-selected {
   color: #15803D;
@@ -9134,9 +9212,38 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   gap: 8px;
 }
 
-.referral-jd-option-label>span:last-child {
-  overflow: visible;
+.referral-jd-option.has-meta {
+  min-height: 56px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 8px 12px;
+}
+
+.referral-jd-option.has-meta .referral-jd-option-label {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+}
+
+.referral-jd-option.has-meta .referral-jd-option-content {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.referral-jd-option.has-meta .referral-jd-option-title {
+  overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.referral-jd-option.has-meta .referral-jd-option-meta {
+  display: block;
+  color: #A3A3A3;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 15px;
+  white-space: nowrap;
 }
 
 .referral-jd-checkbox {
@@ -9160,13 +9267,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   background: #15803D;
 }
 
-.referral-jd-option>time {
-  flex: none;
-  color: #737373;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .referral-filter-row .referral-jd-options {
   width: max(100%, 300px);
   min-width: 0;
@@ -9179,15 +9279,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   flex: 1 1 auto;
 }
 
-.referral-filter-row .referral-jd-option-label>span:last-child {
+.referral-filter-row .referral-jd-option.has-meta .referral-jd-option-content {
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
-.referral-filter-row .referral-jd-option>time {
-  width: 108px;
-  flex: 0 0 108px;
-  text-align: right;
+.referral-filter-row .referral-jd-option.has-meta .referral-jd-option-title {
+  overflow-wrap: anywhere;
 }
 
 .referral-state {
