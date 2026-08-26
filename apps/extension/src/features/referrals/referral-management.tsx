@@ -56,7 +56,7 @@ type JdFilter = string[];
 type AccountStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 type ModalMode = 'CREATE' | 'CREDENTIALS' | 'STATUS' | null;
 type NotifyKind = 'SUCCESS' | 'ERROR';
-type ReferralRoundOptionKind = 'ROUND' | 'HIRED' | 'REJECTED' | 'LEGACY_STAGE';
+type ReferralRoundOptionKind = 'ROUND';
 
 interface ReferralRoundLoadTarget {
   jobPostingId: string;
@@ -443,7 +443,7 @@ export function ReferralManagementPanel({
   const [search, setSearch] = useState('');
   const [cvStatusFilter, setCvStatusFilter] = useState<string>('ALL');
   const [cvRoundOptions, setCvRoundOptions] = useState<ReferralRoundOption[]>(() => (
-    buildReferralRoundOptions([], !usesDynamicReferralRounds(source))
+    buildReferralRoundOptions([])
   ));
   const [roundsLoading, setRoundsLoading] = useState(false);
   const [jdFilter, setJdFilter] = useState<JdFilter>([]);
@@ -648,7 +648,7 @@ export function ReferralManagementPanel({
     && isDateRangeComplete(dateRangeFilter);
   useEffect(() => {
     if (!usesDynamicReferralRounds(source)) {
-      setCvRoundOptions(buildReferralRoundOptions([], true));
+      setCvRoundOptions(buildReferralRoundOptions([]));
       setRoundsLoading(false);
       return undefined;
     }
@@ -694,7 +694,7 @@ export function ReferralManagementPanel({
         name: round.name,
         sortOrder: round.sortOrder,
       })));
-      const options = buildReferralRoundOptions([...configuredEntries, ...fallbackEntries], false);
+      const options = buildReferralRoundOptions([...configuredEntries, ...fallbackEntries]);
 
       if (!cancelled) {
         setCvRoundOptions(options);
@@ -1576,77 +1576,22 @@ function addReferralRoundEntry(
     return;
   }
 
-  let kind: ReferralRoundOptionKind = 'ROUND';
-  if (normalizedName === 'DA TUYEN') {
-    kind = 'HIRED';
-  } else if (normalizedName === 'LOAI') {
-    kind = 'REJECTED';
-  }
-
   groupedRounds.set(normalizedName, {
     value: 'ROUND:' + normalizedName,
     label,
-    kind,
+    kind: 'ROUND',
     roundIds: roundId ? [roundId] : [],
     normalizedName,
     sortOrder,
   });
 }
 
-function addLegacyReferralRoundOptions(groupedRounds: Map<string, ReferralRoundOption>) {
-  [
-    { name: '\u1ee8ng tuy\u1ec3n', normalizedName: 'UNG TUYEN' },
-    { name: 'Thi tuy\u1ec3n', normalizedName: 'THI TUYEN' },
-    { name: 'Ph\u1ecfng v\u1ea5n', normalizedName: 'PHONG VAN' },
-    { name: 'Offer', normalizedName: 'OFFER' },
-  ].forEach((entry, index) => {
-    groupedRounds.set(entry.normalizedName, {
-      value: 'ROUND:' + entry.normalizedName,
-      label: entry.name,
-      kind: 'LEGACY_STAGE',
-      roundIds: [],
-      normalizedName: entry.normalizedName,
-      sortOrder: index,
-    });
-  });
-}
-
-function addRequiredReferralStatusOptions(groupedRounds: Map<string, ReferralRoundOption>) {
-  if (!groupedRounds.has('DA TUYEN')) {
-    groupedRounds.set('DA TUYEN', {
-      value: 'STATUS:HIRED',
-      label: 'Đã tuyển',
-      kind: 'HIRED',
-      roundIds: [],
-      normalizedName: 'DA TUYEN',
-      sortOrder: Number.MAX_SAFE_INTEGER - 1,
-    });
-  }
-  if (!groupedRounds.has('LOAI')) {
-    groupedRounds.set('LOAI', {
-      value: 'STATUS:REJECTED',
-      label: 'Loại',
-      kind: 'REJECTED',
-      roundIds: [],
-      normalizedName: 'LOAI',
-      sortOrder: Number.MAX_SAFE_INTEGER,
-    });
-  }
-}
-
 function buildReferralRoundOptions(
   entries: Array<{ id?: string | null; name: string; sortOrder?: number | null }>,
-  includeLegacyStageOptions: boolean,
 ): ReferralRoundOption[] {
   const groupedRounds = new Map<string, ReferralRoundOption>();
 
   entries.forEach((entry) => addReferralRoundEntry(groupedRounds, entry));
-
-  if (groupedRounds.size === 0 && includeLegacyStageOptions) {
-    addLegacyReferralRoundOptions(groupedRounds);
-  }
-
-  addRequiredReferralStatusOptions(groupedRounds);
 
   return [
     REFERRAL_ALL_ROUNDS_OPTION,
@@ -1681,10 +1626,6 @@ function matchesCvStatus(
   const stageId = application.currentAmisStage?.recruitmentRoundId?.trim();
   if (stageId && option.roundIds.includes(stageId)) return true;
   if (option.normalizedName && option.normalizedName === stageName) return true;
-  if (option.kind === 'REJECTED') {
-    return application.statusCategory === 'REJECTED' || application.currentAmisStage?.amisStatus === 0;
-  }
-  if (option.kind === 'HIRED') return application.statusCategory === 'PASSED';
   return false;
 }
 

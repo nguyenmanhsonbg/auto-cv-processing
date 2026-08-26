@@ -203,9 +203,6 @@ export function FreelancerCvPanel({
     const configuredRounds = scopedApplications.flatMap((application) => (
       roundsByJobPostingId[application.jobPosting.jobPostingId] ?? []
     )).map((round) => ({ id: round.id, name: round.name, sortOrder: round.sortOrder }));
-    const formSentRound = scopedApplications.some(isFreelancerCvFormSent)
-      ? [{ id: 'FORM_SENT', name: 'Screening CV', sortOrder: -1 }]
-      : [];
     const currentStageRounds = scopedApplications
       .map((application) => application.currentAmisStage)
       .filter((stage): stage is NonNullable<typeof stage> => Boolean(stage?.recruitmentRoundName?.trim()))
@@ -214,7 +211,7 @@ export function FreelancerCvPanel({
         name: stage.recruitmentRoundName?.trim() ?? '',
         sortOrder: Number.MAX_SAFE_INTEGER - 4,
       }));
-    return buildFreelancerCvStatusOptions([...formSentRound, ...configuredRounds, ...currentStageRounds]);
+    return buildFreelancerCvStatusOptions([...configuredRounds, ...currentStageRounds]);
   }, [roundsByJobPostingId, scopedApplications]);
 
   useEffect(() => {

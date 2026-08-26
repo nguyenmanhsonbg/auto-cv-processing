@@ -14,7 +14,7 @@ test('trims leading and trailing spaces from the Freelancer CV search on submit'
   assert.equal(normalizeFreelancerCvSearch('   '), '');
 });
 
-test('builds round options for the selected JD and keeps terminal status filters', () => {
+test('builds only AMIS round options for the selected JD', () => {
   const options = buildFreelancerCvStatusOptions([
     { id: 'round-1', name: 'Ứng tuyển', sortOrder: 1 },
     { id: 'round-2', name: 'Phỏng vấn', sortOrder: 2 },
@@ -22,12 +22,12 @@ test('builds round options for the selected JD and keeps terminal status filters
 
   assert.deepEqual(
     options.map((option) => option.value),
-    ['ALL', 'round-1', 'round-2', 'PROCESSING', 'PASSED', 'REJECTED'],
+    ['ALL', 'round-1', 'round-2'],
   );
   assert.equal(options.find((option) => option.value === 'round-2')?.label, 'Phỏng vấn');
 });
 
-test('matches an application by AMIS round id, name, or terminal category', () => {
+test('matches an application by AMIS round id or name', () => {
   const options = buildFreelancerCvStatusOptions([
     { id: 'round-2', name: 'Phỏng vấn', sortOrder: 2 },
   ]);
@@ -41,8 +41,8 @@ test('matches an application by AMIS round id, name, or terminal category', () =
   };
 
   assert.equal(matchesFreelancerCvStatus(application, 'round-2', options), true);
-  assert.equal(matchesFreelancerCvStatus(application, 'PROCESSING', options), true);
-  assert.equal(matchesFreelancerCvStatus({ ...application, statusCategory: 'REJECTED' }, 'REJECTED', options), true);
+  assert.equal(matchesFreelancerCvStatus(application, 'ALL', options), true);
+  assert.equal(matchesFreelancerCvStatus(application, 'UNKNOWN', options), false);
 });
 
 test('maps FORM_SENT applications to the Screening CV filter', () => {
