@@ -17,6 +17,16 @@ import { fetchTopCvDomainKnowledge, fetchTopCvOptions, type TopCvDomainKnowledge
 import type { TopCvOptionsResponse } from './topcv-options.service';
 import { fetchTopCvSkills, type TopCvSkill } from './topcv-api';
 
+const DAY_OPTIONS = [
+  { value: 1, label: 'Thứ 2' },
+  { value: 2, label: 'Thứ 3' },
+  { value: 3, label: 'Thứ 4' },
+  { value: 4, label: 'Thứ 5' },
+  { value: 5, label: 'Thứ 6' },
+  { value: 6, label: 'Thứ 7' },
+  { value: 7, label: 'Chủ Nhật' },
+];
+
 function TopCvWarningIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -65,6 +75,7 @@ export function TopCvEditModal({
   });
 
   const [newEmail, setNewEmail] = useState('');
+  const [salaryTouched, setSalaryTouched] = useState(false);
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -121,8 +132,24 @@ export function TopCvEditModal({
     onSave(form);
   };
 
+  let salaryError: string | null = null;
+  if (form.salaryType === 'range') {
+    if (form.salaryFrom === null || form.salaryTo === null) {
+      if (salaryTouched) {
+        salaryError = 'Mức lương không được để trống';
+      }
+    } else if (form.salaryFrom > form.salaryTo) {
+      salaryError = 'Mức lương từ không được lớn hơn đến';
+    }
+  }
+
   // Kiểm tra thiếu trường bắt buộc để hiện icon tam giác cảnh báo màu đỏ
-  const isGeneralIncomplete = !form.title?.trim() || !form.position?.trim() || !String(form.employeeLevel).trim();
+  const isGeneralIncomplete =
+    !form.title?.trim() ||
+    !form.position?.trim() ||
+    !String(form.employeeLevel).trim() ||
+    (form.salaryType === 'range' &&
+      (form.salaryFrom === null || form.salaryTo === null || form.salaryFrom > form.salaryTo));
   const isDescriptionIncomplete = !form.jobDescription?.trim() || !form.jobRequirement?.trim() || !form.jobBenefit?.trim() || form.locations.length === 0;
   const isExpectationIncomplete = !String(form.education).trim() || !form.experience?.trim();
   const isContactIncomplete = !form.deadline?.trim() || !form.quantity || !form.contactName?.trim() || !form.contactPhone?.trim() || form.contactEmails.length === 0;
@@ -181,12 +208,12 @@ export function TopCvEditModal({
           {expandedSections.general && (
             <div className="topcv-accordion-content">
               <InputField
-                label="Tiêu đề"
+                label="Tiêu đề bài đăng"
                 value={form.title}
                 onChange={(e) => update({ title: e.target.value })}
                 placeholder="Nhập tiêu đề bài đăng"
                 required
-                maxLength={50}
+                maxLength={255}
               />
 
               <div className="topcv-form-group">
@@ -217,7 +244,7 @@ export function TopCvEditModal({
                   label="Kiến thức ngành"
                   values={form.industryKnowledge}
                   options={domainKnowledgeOptions.map((option) => ({ value: option.id, label: option.name }))}
-                  allLabel="Chọn kiến thức ngành"
+                  placeholder="Chọn kiến thức ngành"
                   isOpen={isDomainKnowledgeSelectOpen}
                   onToggle={() => setIsDomainKnowledgeSelectOpen((open) => !open)}
                   onClose={() => setIsDomainKnowledgeSelectOpen(false)}
@@ -264,7 +291,7 @@ export function TopCvEditModal({
                   required
                   values={form.workingType}
                   options={workingMethodOptions.map((option) => ({ value: option.value, label: option.name }))}
-                  allLabel="Chọn hình thức làm việc"
+                  placeholder="Chọn hình thức làm việc"
                   isOpen={isWorkingMethodSelectOpen}
                   onToggle={() => setIsWorkingMethodSelectOpen((open) => !open)}
                   onClose={() => setIsWorkingMethodSelectOpen(false)}
@@ -281,29 +308,52 @@ export function TopCvEditModal({
                     <input
                       type="checkbox"
                       checked={form.salaryType === 'negotiable'}
-                      onChange={(e) => update({ salaryType: e.target.checked ? 'negotiable' : 'range' })}
+                      onChange={(e) => {
+                        const isNegotiable = e.target.checked;
+                        update({
+                          salaryType: isNegotiable ? 'negotiable' : 'range',
+                          ...(isNegotiable ? { salaryFrom: 0, salaryTo: 0 } : {}),
+                        });
+                        if (isNegotiable) setSalaryTouched(false);
+                      }}
                     />
                     <span>Thỏa thuận</span>
                   </label>
                 </div>
 
-                <div className={`topcv-salary-control ${form.salaryType === 'negotiable' ? 'is-disabled' : ''}`}>
+                <div className={`topcv-salary-control ${form.salaryType === 'negotiable' ? 'is-disabled' : ''} ${salaryError ? 'has-error' : ''}`}>
                   <div className="topcv-salary-inputs">
-                    <input
-                      type="number"
+                    <InputField
+                      type="text"
+                      inputMode="numeric"
+                      containerClassName="topcv-salary-input-container"
                       className="topcv-salary-field"
-                      value={form.salaryFrom ?? ''}
-                      onChange={(e) => update({ salaryFrom: Number(e.target.value) || null })}
+                      value={form.salaryFrom != null ? String(form.salaryFrom) : ''}
+                      onChange={(e) => {
+                        setSalaryTouched(true);
+                        const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        update({ salaryFrom: digits !== '' ? Number(digits) : null });
+                      }}
+                      onBlur={() => setSalaryTouched(true)}
                       placeholder="0"
+                      maxLength={10}
                       disabled={form.salaryType === 'negotiable'}
                     />
                     <span className="topcv-dash">—</span>
-                    <input
-                      type="number"
+                    <InputField
+                      type="text"
+                      inputMode="numeric"
+                      containerClassName="topcv-salary-input-container"
                       className="topcv-salary-field"
-                      value={form.salaryTo ?? ''}
-                      onChange={(e) => update({ salaryTo: Number(e.target.value) || null })}
+                      value={form.salaryTo != null ? String(form.salaryTo) : ''}
+                      onChange={(e) => {
+                        setSalaryTouched(true);
+                        const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        update({ salaryTo: digits !== '' ? Number(digits) : null });
+                      }}
+                      onBlur={() => setSalaryTouched(true)}
                       placeholder="0"
+                      maxLength={10}
                       disabled={form.salaryType === 'negotiable'}
                     />
                   </div>
@@ -319,6 +369,7 @@ export function TopCvEditModal({
                     </select>
                   </div>
                 </div>
+                {salaryError ? <p className="input-field-error">{salaryError}</p> : null}
               </div>
             </div>
           )}
@@ -440,31 +491,23 @@ export function TopCvEditModal({
                   Thời gian làm việc <span className="req">*</span>
                 </label>
                 <div className="topcv-worktime-row">
-                  <select
-                    className="topcv-select compact"
+                  <SelectFilter
                     value={form.workingHours.fromDay}
-                    onChange={(e) => {
-                      update({ workingHours: { ...form.workingHours, fromDay: e.target.value } });
+                    options={DAY_OPTIONS}
+                    onChange={(val) => {
+                      update({ workingHours: { ...form.workingHours, fromDay: val } });
                     }}
-                  >
-                    <option value="Thứ 2">Thứ 2</option>
-                    <option value="Thứ 3">Thứ 3</option>
-                    <option value="Thứ 4">Thứ 4</option>
-                  </select>
+                  />
 
                   <span className="topcv-dash">—</span>
 
-                  <select
-                    className="topcv-select compact"
+                  <SelectFilter
                     value={form.workingHours.toDay}
-                    onChange={(e) => {
-                      update({ workingHours: { ...form.workingHours, toDay: e.target.value } });
+                    options={DAY_OPTIONS}
+                    onChange={(val) => {
+                      update({ workingHours: { ...form.workingHours, toDay: val } });
                     }}
-                  >
-                    <option value="Thứ 6">Thứ 6</option>
-                    <option value="Thứ 7">Thứ 7</option>
-                    <option value="Chủ nhật">Chủ nhật</option>
-                  </select>
+                  />
 
                   <TopCvTimePicker
                     value={form.workingHours.fromTime}

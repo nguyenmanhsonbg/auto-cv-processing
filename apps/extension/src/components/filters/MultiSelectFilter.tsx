@@ -118,18 +118,6 @@ export function MultiSelectFilter({
       </div>
       {isOpen ? (
         <div className="referral-jd-options" role="listbox" aria-label={label || placeholderText}>
-          <button
-            type="button"
-            role="option"
-            aria-selected={allSelected}
-            className={`referral-jd-option${allSelected ? ' is-selected' : ''}`}
-            onClick={() => onChange([])}
-          >
-            <span className="referral-jd-option-label">
-              <span className={`referral-jd-checkbox${allSelected ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
-              <span>{allLabel}</span>
-            </span>
-          </button>
           {options.map((option) => {
             const selected = values.includes(option.value);
             return (

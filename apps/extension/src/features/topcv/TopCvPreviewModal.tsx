@@ -132,11 +132,25 @@ export function TopCvPreviewModal({
               <p>Chưa cập nhật</p>
             )}
             <p style={{ marginTop: 8 }}><strong>Thời gian làm việc:</strong></p>
-            <p>
-              {formData.workingHours.fromDay && formData.workingHours.toDay
-                ? `${formData.workingHours.fromDay} - ${formData.workingHours.toDay} (${formData.workingHours.fromTime || ''} đến ${formData.workingHours.toTime || ''})`
-                : 'Chưa cập nhật'}
-            </p>
+            {(() => {
+              const DAY_MAP: Record<string | number, string> = {
+                1: 'Thứ 2',
+                2: 'Thứ 3',
+                3: 'Thứ 4',
+                4: 'Thứ 5',
+                5: 'Thứ 6',
+                6: 'Thứ 7',
+                7: 'Chủ Nhật',
+              };
+              const formatDay = (val: string | number) => DAY_MAP[val] || val;
+              return (
+                <p>
+                  {formData.workingHours.fromDay && formData.workingHours.toDay
+                    ? `${formatDay(formData.workingHours.fromDay)} - ${formatDay(formData.workingHours.toDay)} (${formData.workingHours.fromTime || ''} đến ${formData.workingHours.toTime || ''})`
+                    : 'Chưa cập nhật'}
+                </p>
+              );
+            })()}
             {formData.workingHours.lunchBreak && <p>{formData.workingHours.lunchBreak}</p>}
           </div>
         </div>
