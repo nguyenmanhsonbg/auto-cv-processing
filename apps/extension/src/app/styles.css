@@ -12990,6 +12990,10 @@ textarea:focus {
   min-width: 0;
 }
 
+.topcv-sub-card-row > .shared-filter-field:first-child > span:first-child {
+  visibility: hidden;
+}
+
 .topcv-sub-card-footer {
   display: flex;
   align-items: center;

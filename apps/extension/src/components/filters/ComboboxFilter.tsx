@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { ChevronDownIcon } from '@/components/icons';
+import { useState, useRef, useEffect, type KeyboardEvent, type MouseEvent } from 'react';
+import { ChevronDownIcon, CloseIcon } from '@/components/icons';
 
 export type ComboboxOption = {
   value: string | number;
@@ -73,19 +73,68 @@ export function ComboboxFilter({
       ? values[0].label
       : `${values.length} mục đã chọn`;
 
+  const removeValue = (event: MouseEvent | KeyboardEvent, value: number) => {
+    event.stopPropagation();
+    onChange(values.filter((item) => item.value !== value));
+  };
+
+  const clearAll = (event: MouseEvent | KeyboardEvent) => {
+    event.stopPropagation();
+    onChange([]);
+  };
+
   return (
     <div ref={rootRef} className={`shared-filter-field ${className}`.trim()}>
       {label && <span>{label}</span>}
       <span className="shared-filter-select-control">
-        <button
-          type="button"
+        <div
+          role="combobox"
+          tabIndex={0}
           className="shared-filter-trigger"
+          title={values.map((value) => value.label).join(', ')}
           onClick={() => setIsOpen((prev) => !prev)}
           aria-expanded={isOpen}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setIsOpen((prev) => !prev);
+            }
+          }}
         >
-          <span className={values.length === 0 ? 'placeholder' : ''}>{displayLabel}</span>
-          <ChevronDownIcon className={isOpen ? 'is-open' : ''} />
-        </button>
+          <div className="shared-filter-chips-container">
+            {values.length === 0 ? (
+              <span className="placeholder">{displayLabel}</span>
+            ) : (
+              values.map((value) => (
+                <span key={value.value} className="shared-filter-chip" title={value.label}>
+                  <span>{value.label}</span>
+                  <button
+                    type="button"
+                    className="shared-filter-chip-remove"
+                    aria-label={`Xóa ${value.label}`}
+                    onClick={(event) => removeValue(event, value.value)}
+                  >
+                    <CloseIcon />
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+          <div className="shared-filter-trigger-actions">
+            {values.length > 0 ? (
+              <button
+                type="button"
+                className="shared-filter-clear-btn"
+                aria-label="Xóa tất cả"
+                title="Xóa tất cả"
+                onClick={clearAll}
+              >
+                <CloseIcon />
+              </button>
+            ) : null}
+            <ChevronDownIcon className={isOpen ? 'is-open' : ''} />
+          </div>
+        </div>
         {isOpen && (
           <div ref={listRef} className="shared-filter-dropdown" role="listbox">
             {options.map((option) => {

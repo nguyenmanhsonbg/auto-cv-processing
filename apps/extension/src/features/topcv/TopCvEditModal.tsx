@@ -139,14 +139,6 @@ export function TopCvEditModal({
     }
   };
 
-  const removeRequiredSkill = (value: number) => {
-    update({ requiredSkills: form.requiredSkills.filter((s) => s.value !== value) });
-  };
-
-  const removePreferredSkill = (value: number) => {
-    update({ preferredSkills: form.preferredSkills.filter((s) => s.value !== value) });
-  };
-
   const addEmail = () => {
     if (!newEmail.trim() || form.contactEmails.length >= 5) return;
     update({ contactEmails: [...form.contactEmails, newEmail.trim()] });
@@ -235,7 +227,8 @@ export function TopCvEditModal({
 
               <div className="topcv-form-group">
                 <SelectFilter
-                  label="Cấp bậc *"
+                  label="Cấp bậc"
+                  required
                   value={form.employeeLevel}
                   options={[
                     { value: '', label: 'Chọn cấp bậc' },
@@ -254,7 +247,8 @@ export function TopCvEditModal({
 
               <div className="topcv-form-group">
                 <SelectFilter
-                  label="Loại công việc *"
+                  label="Loại công việc"
+                  required
                   value={form.jobType}
                   options={[
                     { value: '', label: 'Chọn loại công việc' },
@@ -266,7 +260,8 @@ export function TopCvEditModal({
 
               <div className="topcv-form-group">
                 <MultiSelectFilter
-                  label="Hình thức làm việc *"
+                  label="Hình thức làm việc"
+                  required
                   values={form.workingType}
                   options={workingMethodOptions.map((option) => ({ value: option.value, label: option.name }))}
                   allLabel="Chọn hình thức làm việc"
@@ -539,7 +534,8 @@ export function TopCvEditModal({
               {/* Row 1: Học vấn & Kinh nghiệm */}
               <div className="topcv-grid-2">
                 <SelectFilter
-                  label="Học vấn tối thiểu *"
+                  label="Học vấn tối thiểu"
+                  required
                   value={form.education}
                   options={[
                     { value: '', label: 'Chọn học vấn tối thiểu' },
@@ -549,7 +545,8 @@ export function TopCvEditModal({
                 />
 
                 <SelectFilter
-                  label="Số năm kinh nghiệm *"
+                  label="Số năm kinh nghiệm"
+                  required
                   value={form.experience}
                   options={[
                     { value: '', label: 'Chọn kinh nghiệm' },
@@ -604,17 +601,8 @@ export function TopCvEditModal({
 
               {/* Kỹ năng cần có */}
               <div className="topcv-form-group">
-                <label className="topcv-form-label">Kỹ năng cần có</label>
-                <div className="topcv-chips-wrap">
-                  {form.requiredSkills.map((skill) => (
-                    <span key={skill.value} className="topcv-chip">
-                      {skill.label}
-                      <button type="button" onClick={() => removeRequiredSkill(skill.value)} title="Xóa">×</button>
-                    </span>
-                  ))}
-                </div>
                 <ComboboxFilter
-                  label=""
+                  label="Kỹ năng cần có"
                   values={form.requiredSkills}
                   options={skillOptions.map((opt) => ({ value: opt.value, label: opt.text }))}
                   onChange={(values) => update({ requiredSkills: values })}
@@ -627,17 +615,8 @@ export function TopCvEditModal({
 
               {/* Kỹ năng nên có */}
               <div className="topcv-form-group">
-                <label className="topcv-form-label">Kỹ năng nên có</label>
-                <div className="topcv-chips-wrap">
-                  {form.preferredSkills.map((skill) => (
-                    <span key={skill.value} className="topcv-chip">
-                      {skill.label}
-                      <button type="button" onClick={() => removePreferredSkill(skill.value)} title="Xóa">×</button>
-                    </span>
-                  ))}
-                </div>
                 <ComboboxFilter
-                  label=""
+                  label="Kỹ năng nên có"
                   values={form.preferredSkills}
                   options={skillOptions.map((opt) => ({ value: opt.value, label: opt.text }))}
                   onChange={(values) => update({ preferredSkills: values })}
@@ -682,10 +661,7 @@ export function TopCvEditModal({
                             update({ languages: next });
                           }}
                         />
-
-                      </div>
-                      {lang.language !== 0 && (
-                        <div className="topcv-sub-card-row">
+                        {lang.language !== 0 && (
                           <SelectFilter
                             label="Trình độ/Chứng chỉ ngoại ngữ"
                             value={lang.certificate}
@@ -700,8 +676,8 @@ export function TopCvEditModal({
                               update({ languages: next });
                             }}
                           />
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   );
                 })}

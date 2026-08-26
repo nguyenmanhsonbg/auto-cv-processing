@@ -14,6 +14,7 @@ type MultiSelectFilterProps = {
   readonly onClose?: () => void;
   readonly onChange: (values: (string | number)[]) => void;
   readonly className?: string;
+  readonly required?: boolean;
 };
 
 export function MultiSelectFilter({
@@ -27,6 +28,7 @@ export function MultiSelectFilter({
   onClose,
   onChange,
   className = '',
+  required = false,
 }: MultiSelectFilterProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const allSelected = values.length === 0;
@@ -64,7 +66,7 @@ export function MultiSelectFilter({
 
   return (
     <div ref={rootRef} className={`shared-filter-multi-select ${className}`.trim()}>
-      {label ? <span className="shared-filter-multi-select-label">{label}</span> : null}
+      {label ? <span className="shared-filter-multi-select-label">{label}{required ? <span className="required-mark"> *</span> : null}</span> : null}
       <div
         role="combobox"
         aria-expanded={isOpen}
