@@ -68,6 +68,12 @@ export interface TopCvFormData {
   contactEmails: string[];
 }
 
+export function hasTopCvRichTextContent(value: string): boolean {
+  const document = new DOMParser().parseFromString(value, 'text/html');
+  const textContent = document.body.textContent?.replaceAll('\u00a0', ' ') ?? '';
+  return Boolean(textContent.trim());
+}
+
 export const DEFAULT_TOPCV_FORM: TopCvFormData = {
   title: '',
   position: '',

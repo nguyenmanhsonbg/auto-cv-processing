@@ -61,7 +61,7 @@ import { LoginForm } from '@/features/auth/LoginForm';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
 import { checkTopCvAuth, type TopCvAuthState } from '@/features/topcv/topcv-auth';
 import { logoutTopCv } from '@/features/topcv/topcv-login.service';
-import { DEFAULT_TOPCV_FORM, type TopCvFormData } from '@/features/topcv/topcv-form.types';
+import { DEFAULT_TOPCV_FORM, hasTopCvRichTextContent, type TopCvFormData } from '@/features/topcv/topcv-form.types';
 import { type TopCvOptionsResponse } from '@/features/topcv/topcv-options.service';
 
 import { prepareChannelForm } from '@/lib/api-client';
@@ -2757,7 +2757,9 @@ function SidePanel() {
         setState('ERROR');
         return;
       }
-      if (!topCvFormData.jobDescription?.trim() || !topCvFormData.jobRequirement?.trim() || !topCvFormData.jobBenefit?.trim()) {
+      if (!hasTopCvRichTextContent(topCvFormData.jobDescription)
+        || !hasTopCvRichTextContent(topCvFormData.jobRequirement)
+        || !hasTopCvRichTextContent(topCvFormData.jobBenefit)) {
         setError('TopCV: Vui lòng nhập đầy đủ mô tả, yêu cầu và quyền lợi (chọn "Chỉnh sửa" ở mục TopCV).');
         setState('ERROR');
         return;

@@ -13281,6 +13281,21 @@ textarea:focus {
   color: #111827;
 }
 
+.topcv-editor-toolbar button:focus-visible {
+  outline: 2px solid #0b805f;
+  outline-offset: 1px;
+}
+
+.topcv-editor-toolbar button:disabled {
+  color: #c5cdd9;
+  cursor: not-allowed;
+}
+
+.topcv-editor-toolbar button.is-active {
+  background: #e6f5ef;
+  color: #087653;
+}
+
 .topcv-toolbar-divider {
   width: 1px;
   height: 16px;
@@ -13288,17 +13303,48 @@ textarea:focus {
   margin: 0 2px;
 }
 
-.topcv-editor-textarea {
+.topcv-editor-content {
   width: 100%;
   border: none;
+  min-height: 96px;
   padding: 8px 10px;
   font-size: 13px;
   color: #1f2937;
   outline: none;
-  resize: vertical;
   line-height: 1.5;
   font-family: inherit;
   box-sizing: border-box;
+}
+
+.topcv-editor-box:focus-within {
+  border-color: #0b805f;
+  box-shadow: 0 0 0 2px rgba(11, 128, 95, 0.12);
+}
+
+.topcv-editor-content p {
+  margin: 0 0 8px;
+}
+
+.topcv-editor-content p:last-child {
+  margin-bottom: 0;
+}
+
+.topcv-editor-content ul,
+.topcv-editor-content ol {
+  margin: 0 0 8px;
+  padding-left: 24px;
+}
+
+.topcv-editor-content li p {
+  margin: 0;
+}
+
+.topcv-editor-content.ProseMirror p.is-editor-empty:first-child::before {
+  float: left;
+  height: 0;
+  color: #9ca3af;
+  content: attr(data-placeholder);
+  pointer-events: none;
 }
 
 /* Sub-cards (Locations, Languages) */

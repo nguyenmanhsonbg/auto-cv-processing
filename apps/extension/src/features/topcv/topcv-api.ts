@@ -3,13 +3,7 @@ import type { TopCvFormData } from './topcv-form.types';
 
 // Transform TopCV form data to API payload
 export function transformTopCvPayload(formData: TopCvFormData): Record<string, unknown> {
-  // Helper để wrap text thành HTML paragraphs
-  const toHtmlParagraphs = (text: string): string => {
-    if (!text.trim()) return '<p></p>';
-    const lines = text.split('\n').filter(line => line.trim());
-    if (lines.length === 0) return '<p></p>';
-    return lines.map(line => `<p>${line.trim()}</p>`).join('');
-  };
+  const toTopCvRichText = (html: string): string => html.trim() || '<p></p>';
 
   const employee_level = formData.employeeLevel === '' ? 1 : formData.employeeLevel;
 
@@ -56,9 +50,9 @@ export function transformTopCvPayload(formData: TopCvFormData): Record<string, u
 
     // Job details
     description: '', // Trống theo format mới
-    job_description: toHtmlParagraphs(formData.jobDescription),
-    job_requirement: toHtmlParagraphs(formData.jobRequirement),
-    job_benefit: toHtmlParagraphs(formData.jobBenefit),
+    job_description: toTopCvRichText(formData.jobDescription),
+    job_requirement: toTopCvRichText(formData.jobRequirement),
+    job_benefit: toTopCvRichText(formData.jobBenefit),
 
     // Requirements
     employee_level,

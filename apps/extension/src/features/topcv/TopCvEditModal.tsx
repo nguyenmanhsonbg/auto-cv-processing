@@ -5,10 +5,10 @@ import {
   ChevronUpIcon,
   CloseIcon,
 } from '@/components/icons';
-import { InputField } from '@/components/form';
+import { InputField, RichTextEditor } from '@/components/form';
 import { MultiSelectFilter, SelectFilter } from '@/components/filters';
 import { ComboboxFilter } from '@/components/filters/ComboboxFilter';
-import type { TopCvFormData } from './topcv-form.types';
+import { hasTopCvRichTextContent, type TopCvFormData } from './topcv-form.types';
 import { TopCvJobFamilyPicker } from './TopCvJobFamilyPicker';
 import { TopCvLocationPicker } from './TopCvLocationPicker';
 import { TopCvDatePicker } from './TopCvDatePicker';
@@ -150,21 +150,12 @@ export function TopCvEditModal({
     !String(form.employeeLevel).trim() ||
     (form.salaryType === 'range' &&
       (form.salaryFrom === null || form.salaryTo === null || form.salaryFrom > form.salaryTo));
-  const isDescriptionIncomplete = !form.jobDescription?.trim() || !form.jobRequirement?.trim() || !form.jobBenefit?.trim() || form.locations.length === 0;
+  const isDescriptionIncomplete = !hasTopCvRichTextContent(form.jobDescription)
+    || !hasTopCvRichTextContent(form.jobRequirement)
+    || !hasTopCvRichTextContent(form.jobBenefit)
+    || form.locations.length === 0;
   const isExpectationIncomplete = !String(form.education).trim() || !form.experience?.trim();
   const isContactIncomplete = !form.deadline?.trim() || !form.quantity || !form.contactName?.trim() || !form.contactPhone?.trim() || form.contactEmails.length === 0;
-
-  // Rich text mini-toolbar helper
-  const handleFormatText = (field: 'jobDescription' | 'jobRequirement' | 'jobBenefit', tag: string) => {
-    const currentVal = form[field] || '';
-    if (tag === 'list') {
-      update({ [field]: currentVal ? `${currentVal}\n• ` : '• ' });
-    } else if (tag === 'numlist') {
-      update({ [field]: currentVal ? `${currentVal}\n1. ` : '1. ' });
-    } else {
-      update({ [field]: `${currentVal} ` });
-    }
-  };
 
   const addEmail = () => {
     if (!newEmail.trim() || form.contactEmails.length >= 5) return;
@@ -393,89 +384,29 @@ export function TopCvEditModal({
 
           {expandedSections.description && (
             <div className="topcv-accordion-content">
-              {/* Mô tả công việc */}
-              <div className="topcv-form-group">
-                <label className="topcv-form-label">
-                  Mô tả công việc <span className="req">*</span>
-                </label>
-                <div className="topcv-editor-box">
-                  <div className="topcv-editor-toolbar">
-                    <button type="button" title="Undo" onClick={() => { }}>↶</button>
-                    <button type="button" title="Redo" onClick={() => { }}>↷</button>
-                    <span className="topcv-toolbar-divider" />
-                    <button type="button" title="Bold" onClick={() => handleFormatText('jobDescription', 'b')}><strong>B</strong></button>
-                    <button type="button" title="Italic" onClick={() => handleFormatText('jobDescription', 'i')}><em>I</em></button>
-                    <button type="button" title="Underline" onClick={() => handleFormatText('jobDescription', 'u')}><u>U</u></button>
-                    <span className="topcv-toolbar-divider" />
-                    <button type="button" title="Bullet list" onClick={() => handleFormatText('jobDescription', 'list')}>≡</button>
-                    <button type="button" title="Numbered list" onClick={() => handleFormatText('jobDescription', 'numlist')}>⁝</button>
-                  </div>
-                  <textarea
-                    className="topcv-editor-textarea"
-                    rows={4}
-                    value={form.jobDescription}
-                    onChange={(e) => update({ jobDescription: e.target.value })}
-                    placeholder="Nhập mô tả công việc"
-                    required
-                  />
-                </div>
-              </div>
+              <RichTextEditor
+                label="Mô tả công việc"
+                value={form.jobDescription}
+                onChange={(jobDescription) => update({ jobDescription })}
+                placeholder="Nhập mô tả công việc"
+                required
+              />
 
-              {/* Yêu cầu ứng viên */}
-              <div className="topcv-form-group">
-                <label className="topcv-form-label">
-                  Yêu cầu ứng viên <span className="req">*</span>
-                </label>
-                <div className="topcv-editor-box">
-                  <div className="topcv-editor-toolbar">
-                    <button type="button" title="Undo" onClick={() => { }}>↶</button>
-                    <button type="button" title="Redo" onClick={() => { }}>↷</button>
-                    <span className="topcv-toolbar-divider" />
-                    <button type="button" title="Bold" onClick={() => handleFormatText('jobRequirement', 'b')}><strong>B</strong></button>
-                    <button type="button" title="Italic" onClick={() => handleFormatText('jobRequirement', 'i')}><em>I</em></button>
-                    <button type="button" title="Underline" onClick={() => handleFormatText('jobRequirement', 'u')}><u>U</u></button>
-                    <span className="topcv-toolbar-divider" />
-                    <button type="button" title="Bullet list" onClick={() => handleFormatText('jobRequirement', 'list')}>≡</button>
-                    <button type="button" title="Numbered list" onClick={() => handleFormatText('jobRequirement', 'numlist')}>⁝</button>
-                  </div>
-                  <textarea
-                    className="topcv-editor-textarea"
-                    rows={4}
-                    value={form.jobRequirement}
-                    onChange={(e) => update({ jobRequirement: e.target.value })}
-                    placeholder="Nhập yêu cầu ứng viên"
-                    required
-                  />
-                </div>
-              </div>
+              <RichTextEditor
+                label="Yêu cầu ứng viên"
+                value={form.jobRequirement}
+                onChange={(jobRequirement) => update({ jobRequirement })}
+                placeholder="Nhập yêu cầu ứng viên"
+                required
+              />
 
-              {/* Quyền lợi ứng viên */}
-              <div className="topcv-form-group">
-                <label className="topcv-form-label">
-                  Quyền lợi ứng viên <span className="req">*</span>
-                </label>
-                <div className="topcv-editor-box">
-                  <div className="topcv-editor-toolbar">
-                    <button type="button" title="Undo" onClick={() => { }}>↶</button>
-                    <button type="button" title="Redo" onClick={() => { }}>↷</button>
-                    <span className="topcv-toolbar-divider" />
-                    <button type="button" title="Bold" onClick={() => handleFormatText('jobBenefit', 'b')}><strong>B</strong></button>
-                    <button type="button" title="Italic" onClick={() => handleFormatText('jobBenefit', 'i')}><em>I</em></button>
-                    <button type="button" title="Underline" onClick={() => handleFormatText('jobBenefit', 'u')}><u>U</u></button>
-                    <span className="topcv-toolbar-divider" />
-                    <button type="button" title="Bullet list" onClick={() => handleFormatText('jobBenefit', 'list')}>≡</button>
-                    <button type="button" title="Numbered list" onClick={() => handleFormatText('jobBenefit', 'numlist')}>⁝</button>
-                  </div>
-                  <textarea
-                    className="topcv-editor-textarea"
-                    rows={4}
-                    value={form.jobBenefit}
-                    onChange={(e) => update({ jobBenefit: e.target.value })}
-                    placeholder="Nhập quyền lợi ứng viên"
-                    required
-                  />
-                </div>
-              </div>
+              <RichTextEditor
+                label="Quyền lợi ứng viên"
+                value={form.jobBenefit}
+                onChange={(jobBenefit) => update({ jobBenefit })}
+                placeholder="Nhập quyền lợi ứng viên"
+                required
+              />
 
               {/* Địa điểm làm việc */}
               <div className="topcv-form-group">
