@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type MouseEvent, type KeyboardEvent } from 'react';
 import { ChevronDownIcon, CloseIcon } from '@/components/icons';
 
-export type MultiSelectFilterOption = { value: string; label: string; meta?: string };
+export type MultiSelectFilterOption = { value: string | number; label: string; meta?: string };
 
 export function toggleMultiSelectValue(values: string[], value: string | null): string[] {
   if (value === null) return [];
@@ -50,7 +50,7 @@ export function MultiSelectFilter({
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [isOpen, onClose]);
 
-  function toggleValue(value: string) {
+  function toggleValue(value: string | number) {
     onChange(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
   }
 

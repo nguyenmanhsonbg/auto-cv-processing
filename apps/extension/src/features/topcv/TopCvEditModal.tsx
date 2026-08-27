@@ -188,7 +188,7 @@ export function TopCvEditModal({
 
       {/* FORM BODY WITH ACCORDION SECTIONS */}
       <form className="topcv-screen-body" onSubmit={handleSubmit}>
-        
+
         {/* ================= SECTION 1: THÔNG TIN CHUNG ================= */}
         <section className={`topcv-accordion-card ${expandedSections.general ? 'is-open' : ''}`}>
           <div className="topcv-accordion-header" onClick={() => toggleSection('general')}>
@@ -400,8 +400,8 @@ export function TopCvEditModal({
                 </label>
                 <div className="topcv-editor-box">
                   <div className="topcv-editor-toolbar">
-                    <button type="button" title="Undo" onClick={() => {}}>↶</button>
-                    <button type="button" title="Redo" onClick={() => {}}>↷</button>
+                    <button type="button" title="Undo" onClick={() => { }}>↶</button>
+                    <button type="button" title="Redo" onClick={() => { }}>↷</button>
                     <span className="topcv-toolbar-divider" />
                     <button type="button" title="Bold" onClick={() => handleFormatText('jobDescription', 'b')}><strong>B</strong></button>
                     <button type="button" title="Italic" onClick={() => handleFormatText('jobDescription', 'i')}><em>I</em></button>
@@ -428,8 +428,8 @@ export function TopCvEditModal({
                 </label>
                 <div className="topcv-editor-box">
                   <div className="topcv-editor-toolbar">
-                    <button type="button" title="Undo" onClick={() => {}}>↶</button>
-                    <button type="button" title="Redo" onClick={() => {}}>↷</button>
+                    <button type="button" title="Undo" onClick={() => { }}>↶</button>
+                    <button type="button" title="Redo" onClick={() => { }}>↷</button>
                     <span className="topcv-toolbar-divider" />
                     <button type="button" title="Bold" onClick={() => handleFormatText('jobRequirement', 'b')}><strong>B</strong></button>
                     <button type="button" title="Italic" onClick={() => handleFormatText('jobRequirement', 'i')}><em>I</em></button>
@@ -456,8 +456,8 @@ export function TopCvEditModal({
                 </label>
                 <div className="topcv-editor-box">
                   <div className="topcv-editor-toolbar">
-                    <button type="button" title="Undo" onClick={() => {}}>↶</button>
-                    <button type="button" title="Redo" onClick={() => {}}>↷</button>
+                    <button type="button" title="Undo" onClick={() => { }}>↶</button>
+                    <button type="button" title="Redo" onClick={() => { }}>↷</button>
                     <span className="topcv-toolbar-divider" />
                     <button type="button" title="Bold" onClick={() => handleFormatText('jobBenefit', 'b')}><strong>B</strong></button>
                     <button type="button" title="Italic" onClick={() => handleFormatText('jobBenefit', 'i')}><em>I</em></button>
@@ -492,20 +492,22 @@ export function TopCvEditModal({
                 </label>
                 <div className="topcv-worktime-row">
                   <SelectFilter
+                    label=""
                     value={form.workingHours.fromDay}
                     options={DAY_OPTIONS}
                     onChange={(val) => {
-                      update({ workingHours: { ...form.workingHours, fromDay: val } });
+                      update({ workingHours: { ...form.workingHours, fromDay: String(val) } });
                     }}
                   />
 
                   <span className="topcv-dash">—</span>
 
                   <SelectFilter
+                    label=""
                     value={form.workingHours.toDay}
                     options={DAY_OPTIONS}
                     onChange={(val) => {
-                      update({ workingHours: { ...form.workingHours, toDay: val } });
+                      update({ workingHours: { ...form.workingHours, toDay: String(val) } });
                     }}
                   />
 
@@ -529,7 +531,7 @@ export function TopCvEditModal({
                   <button
                     type="button"
                     className="topcv-remove-icon-btn"
-                    onClick={() => {}}
+                    onClick={() => { }}
                     title="Xóa"
                   >
                     <CloseIcon />
