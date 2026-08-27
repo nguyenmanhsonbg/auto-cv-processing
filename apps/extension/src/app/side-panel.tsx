@@ -799,6 +799,10 @@ function SidePanel() {
     setToken(accessToken);
     if (!accessToken) {
       setUser(null);
+      setTopCvFormData(DEFAULT_TOPCV_FORM);
+      setTopCvAuth(null);
+      setTopCvModalMode(null);
+      setForeignLanguageOptions([]);
       setState('AUTH_REQUIRED');
     }
   }), []);
@@ -1121,6 +1125,10 @@ function SidePanel() {
       setJobDescriptions([]);
       setJobDescriptionPagination(null);
       setJobDescriptionStatus('IDLE');
+      setTopCvFormData(DEFAULT_TOPCV_FORM);
+      setTopCvAuth(null);
+      setTopCvModalMode(null);
+      setForeignLanguageOptions([]);
       setState('AUTH_REQUIRED');
     }
   }

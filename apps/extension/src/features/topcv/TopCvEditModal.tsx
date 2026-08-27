@@ -76,6 +76,15 @@ export function TopCvEditModal({
 
   const [newEmail, setNewEmail] = useState('');
   const [salaryTouched, setSalaryTouched] = useState(false);
+  const [touchedFields, setTouchedFields] = useState<{
+    position: boolean;
+    employeeLevel: boolean;
+    jobType: boolean;
+    workingType: boolean;
+  }>({ position: false, employeeLevel: false, jobType: false, workingType: false });
+  const markTouched = (field: keyof typeof touchedFields) => {
+    setTouchedFields((prev) => (prev[field] ? prev : { ...prev, [field]: true }));
+  };
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -142,6 +151,19 @@ export function TopCvEditModal({
       salaryError = 'Mức lương từ không được lớn hơn đến';
     }
   }
+
+  const positionError = touchedFields.position && !form.position?.trim()
+    ? 'Vị trí chuyên môn không được để trống'
+    : null;
+  const employeeLevelError = touchedFields.employeeLevel && !String(form.employeeLevel).trim()
+    ? 'Cấp bậc không được để trống'
+    : null;
+  const jobTypeError = touchedFields.jobType && !String(form.jobType).trim()
+    ? 'Loại công việc không được để trống'
+    : null;
+  const workingTypeError = touchedFields.workingType && form.workingType.length === 0
+    ? 'Hình thức làm việc không được để trống'
+    : null;
 
   // Kiểm tra thiếu trường bắt buộc để hiện icon tam giác cảnh báo màu đỏ
   const isGeneralIncomplete =
@@ -296,6 +318,8 @@ export function TopCvEditModal({
                       });
                     }
                   }}
+                  onClose={() => markTouched('position')}
+                  error={positionError}
                 />
               </div>
 
@@ -329,6 +353,8 @@ export function TopCvEditModal({
                     { value: 50, label: 'Thực tập sinh' },
                   ]}
                   onChange={(value) => update({ employeeLevel: value === '' ? '' : Number(value) })}
+                  onBlur={() => markTouched('employeeLevel')}
+                  error={employeeLevelError}
                 />
               </div>
 
@@ -342,6 +368,8 @@ export function TopCvEditModal({
                     ...jobTypeOptions.map((option) => ({ value: option.value, label: option.name })),
                   ]}
                   onChange={(value) => update({ jobType: value === '' ? '' : Number(value) })}
+                  onBlur={() => markTouched('jobType')}
+                  error={jobTypeError}
                 />
               </div>
 
@@ -354,8 +382,12 @@ export function TopCvEditModal({
                   placeholder="Chọn hình thức làm việc"
                   isOpen={isWorkingMethodSelectOpen}
                   onToggle={() => setIsWorkingMethodSelectOpen((open) => !open)}
-                  onClose={() => setIsWorkingMethodSelectOpen(false)}
+                  onClose={() => {
+                    setIsWorkingMethodSelectOpen(false);
+                    markTouched('workingType');
+                  }}
                   onChange={(values) => update({ workingType: values.map(Number) })}
+                  error={workingTypeError}
                 />
               </div>
 

@@ -22,6 +22,7 @@ type MultiSelectFilterProps = {
   readonly onChange: (values: (string | number)[]) => void;
   readonly className?: string;
   readonly required?: boolean;
+  readonly error?: string | null;
 };
 
 export function MultiSelectFilter({
@@ -36,6 +37,7 @@ export function MultiSelectFilter({
   onChange,
   className = '',
   required = false,
+  error = null,
 }: MultiSelectFilterProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const allSelected = values.length === 0;
@@ -71,8 +73,9 @@ export function MultiSelectFilter({
     });
   }, [options, values]);
 
+  const hasError = Boolean(error);
   return (
-    <div ref={rootRef} className={`shared-filter-multi-select ${className}`.trim()}>
+    <div ref={rootRef} className={`shared-filter-multi-select ${className} ${hasError ? 'has-error' : ''}`.trim()}>
       {label ? <span className="shared-filter-multi-select-label">{label}{required ? <span className="required-mark"> *</span> : null}</span> : null}
       <div
         role="combobox"
@@ -156,6 +159,7 @@ export function MultiSelectFilter({
           })}
         </div>
       ) : null}
+      {hasError ? <span className="input-field-error">{error}</span> : null}
     </div>
   );
 }

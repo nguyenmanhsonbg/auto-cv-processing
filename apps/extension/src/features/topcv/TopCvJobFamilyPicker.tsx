@@ -6,6 +6,8 @@ interface TopCvJobFamilyPickerProps {
   initialLevel3Id?: number;
   selectedPathName?: string;
   onChange: (path: JobFamilyPath | null) => void;
+  onClose?: () => void;
+  error?: string | null;
 }
 
 interface FlattenedJobFamily {
@@ -14,10 +16,10 @@ interface FlattenedJobFamily {
   level3: JobFamily;
 }
 
-export function TopCvJobFamilyPicker({ initialLevel3Id, selectedPathName, onChange }: TopCvJobFamilyPickerProps) {
+export function TopCvJobFamilyPicker({ initialLevel3Id, selectedPathName, onChange, onClose, error = null }: TopCvJobFamilyPickerProps) {
   const [data, setData] = useState<JobFamily[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
   const [hoveredL1, setHoveredL1] = useState<JobFamily | null>(null);
@@ -46,7 +48,7 @@ export function TopCvJobFamilyPicker({ initialLevel3Id, selectedPathName, onChan
         setLoading(false);
       } catch (err) {
         if (!mounted) return;
-        setError(err instanceof Error ? err.message : 'Lỗi tải dữ liệu vị trí chuyên môn');
+        setFetchError(err instanceof Error ? err.message : 'Lỗi tải dữ liệu vị trí chuyên môn');
         setLoading(false);
       }
     })();
@@ -87,6 +89,12 @@ export function TopCvJobFamilyPicker({ initialLevel3Id, selectedPathName, onChan
     const path = buildJobFamilyPath(l3.id, data);
     onChange(path);
     setIsOpen(false);
+    onClose?.();
+  };
+
+  const handleClose = () => {
+    setIsOpen(false);
+    onClose?.();
   };
 
   const handleHoverL1 = (item: JobFamily) => {
@@ -117,7 +125,7 @@ export function TopCvJobFamilyPicker({ initialLevel3Id, selectedPathName, onChan
       {/* Trigger Button in Form */}
       <button
         type="button"
-        className={`topcv-family-trigger-btn ${displayValue ? 'has-value' : ''}`}
+        className={`topcv-family-trigger-btn ${displayValue ? 'has-value' : ''} ${error ? 'has-error' : ''}`}
         onClick={() => setIsOpen(true)}
       >
         <span className="topcv-family-trigger-text">
@@ -127,10 +135,11 @@ export function TopCvJobFamilyPicker({ initialLevel3Id, selectedPathName, onChan
           <ChevronDownIcon />
         </span>
       </button>
+      {error ? <p className="input-field-error">{error}</p> : null}
 
       {/* Modal Dialog Overlay */}
       {isOpen && (
-        <div className="topcv-family-modal-overlay" onClick={() => setIsOpen(false)}>
+        <div className="topcv-family-modal-overlay" onClick={handleClose}>
           <div className="topcv-family-modal-dialog" onClick={(e) => e.stopPropagation()}>
             {/* Header with Title & Close Icon */}
             <div className="topcv-family-header">
@@ -138,7 +147,7 @@ export function TopCvJobFamilyPicker({ initialLevel3Id, selectedPathName, onChan
               <button
                 type="button"
                 className="topcv-family-close-btn"
-                onClick={() => setIsOpen(false)}
+                onClick={handleClose}
                 title="Đóng"
                 aria-label="Đóng"
               >
@@ -151,8 +160,8 @@ export function TopCvJobFamilyPicker({ initialLevel3Id, selectedPathName, onChan
                 <span className="topcv-spinner" />
                 <span>Đang tải danh sách vị trí chuyên môn...</span>
               </div>
-            ) : error ? (
-              <div className="topcv-field-error">{error}</div>
+            ) : fetchError ? (
+              <div className="topcv-field-error">{fetchError}</div>
             ) : (
               <>
                 {/* Search Bar */}

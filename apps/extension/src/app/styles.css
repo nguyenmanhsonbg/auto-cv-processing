@@ -7917,6 +7917,15 @@ dd {
   transform: translateY(-50%);
 }
 
+.shared-filter-field.has-error .shared-filter-select-control select {
+  border-color: #ff0000;
+  box-shadow: none;
+}
+
+.shared-filter-multi-select.has-error .shared-filter-multi-select-trigger {
+  border-color: #ff0000;
+}
+
 .shared-filter-date-range {
   position: relative;
   display: flex;
@@ -14413,6 +14422,15 @@ textarea:focus {
 .topcv-family-trigger-btn:focus {
   border-color: #00B14F;
   box-shadow: 0 0 0 2px rgba(0, 177, 79, 0.12);
+}
+
+.topcv-family-trigger-btn.has-error {
+  border-color: #ff0000;
+}
+
+.topcv-family-trigger-btn.has-error:focus {
+  border-color: #ff0000;
+  box-shadow: none;
 }
 
 .topcv-family-trigger-text {
