@@ -12,7 +12,8 @@ test('internal password form validates empty full name on blur without trapping 
 
   assert.match(handler, /!internalFullName\.trim\(\)/);
   assert.match(handler, /Họ tên nhân sự là bắt buộc/);
-  assert.match(handler, /setInternalErrorField\('fullName'\)/);
+  assert.match(handler, /setInternalFieldErrors/);
+  assert.match(handler, /fullName: 'Họ tên nhân sự là bắt buộc'/);
   assert.doesNotMatch(handler, /internalFullNameRef\.current\?\.focus\(\)/);
 });
 
@@ -22,23 +23,41 @@ test('internal password form validates empty Gmail on blur without trapping focu
   assert.match(handler, /const normalizedEmail = internalEmail\.trim\(\)/);
   assert.match(handler, /!normalizedEmail/);
   assert.match(handler, /Gmail nội bộ nhân sự là bắt buộc/);
-  assert.match(handler, /setInternalErrorField\('email'\)/);
+  assert.match(handler, /setInternalFieldErrors/);
+  assert.match(handler, /email: 'Gmail nội bộ nhân sự là bắt buộc'/);
   assert.doesNotMatch(handler, /internalEmailRef\.current\?\.focus\(\)/);
 });
 
 test('internal password submit still focuses the first invalid field', () => {
   const handler = source.match(/const handleInternalSubmit:[\s\S]*?\n  \};/)?.[0] ?? '';
 
-  assert.match(handler, /setInternalErrorField\('fullName'\)/);
+  assert.match(handler, /setInternalFieldErrors\(\{ fullName: fullNameError, email: emailError \}\)/);
+  assert.match(handler, /if \(fullNameError\)/);
   assert.match(handler, /internalFullNameRef\.current\?\.focus\(\)/);
-  assert.match(handler, /setInternalErrorField\('email'\)/);
+  assert.match(handler, /if \(emailError\)/);
   assert.match(handler, /internalEmailRef\.current\?\.focus\(\)/);
 });
 
-test('internal password confirmation remains clickable so submit validation can run', () => {
-  assert.doesNotMatch(
+test('internal password confirmation is disabled when validation errors are visible', () => {
+  assert.match(
     source,
-    /disabled=\{submitting \|\| !fullName\.trim\(\) \|\| !email\.trim\(\)\}/,
+    /disabled=\{[\s\S]*Boolean\(fullNameError \|\| emailError\)[\s\S]*!fullName\.trim\(\) && !email\.trim\(\)/,
   );
   assert.match(source, /Gmail nội bộ nhân sự là bắt buộc/);
+});
+
+test('internal password form keeps full name and email errors independently', () => {
+  assert.match(source, /const \[internalFieldErrors, setInternalFieldErrors\] = useState/);
+  assert.match(source, /\.\.\.current, fullName: null/);
+  assert.match(source, /\.\.\.current, email: null/);
+  assert.match(source, /fullNameError=\{internalFieldErrors\.fullName\}/);
+  assert.match(source, /emailError=\{internalFieldErrors\.email\}/);
+});
+
+test('internal password cancel bypasses blur validation', () => {
+  assert.match(source, /skipInternalBlurValidationRef = useRef\(false\)/);
+  assert.match(source, /skipInternalBlurValidationRef\.current = true/);
+  assert.match(source, /skipInternalBlurValidationRef\.current = false/);
+  assert.match(source, /handleInternalFullNameBlur[\s\S]*skipInternalBlurValidationRef\.current/);
+  assert.match(source, /handleInternalEmailBlur[\s\S]*skipInternalBlurValidationRef\.current/);
 });

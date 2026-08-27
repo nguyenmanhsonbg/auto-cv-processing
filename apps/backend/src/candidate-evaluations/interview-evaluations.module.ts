@@ -11,6 +11,8 @@ import { InterviewEvaluationReviewerEntity } from './entities/interview-evaluati
 import { InterviewEvaluationRoundEntity } from './entities/interview-evaluation-round.entity';
 import { InterviewCommitteeEntity } from './entities/interview-committee.entity';
 import { InterviewCommitteeMemberEntity } from './entities/interview-committee-member.entity';
+import { AmisRecruitmentBoardMemberEntity } from '../extension-integration/entities/amis-recruitment-board-member.entity';
+import { RecruitmentExternalReferenceEntity } from '../extension-integration/entities/recruitment-external-reference.entity';
 import { InterviewCommitteesController } from './interview-committees.controller';
 import { InterviewCommitteesService } from './interview-committees.service';
 
@@ -25,6 +27,8 @@ import { InterviewCommitteesService } from './interview-committees.service';
       InterviewEvaluationRoundEntity,
       InterviewCommitteeEntity,
       InterviewCommitteeMemberEntity,
+      AmisRecruitmentBoardMemberEntity,
+      RecruitmentExternalReferenceEntity,
     ]),
   ],
   controllers: [InterviewEvaluationsController, InterviewEvaluationInboxController, InterviewCommitteesController],

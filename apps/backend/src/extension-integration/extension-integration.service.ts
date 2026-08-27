@@ -1,4 +1,4 @@
-import { UserRole } from '@interview-assistant/shared';
+import { InterviewEvaluationReviewerSection, UserRole } from '@interview-assistant/shared';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -66,6 +66,9 @@ import { QuestionType } from '@interview-assistant/shared';
 import { ApplicationsService } from '../applications/applications.service';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { ApplicationSourceEntity } from '../applications/entities/application-source.entity';
+import { InterviewEvaluationCaseEntity } from '../candidate-evaluations/entities/interview-evaluation-case.entity';
+import { InterviewEvaluationReviewerEntity } from '../candidate-evaluations/entities/interview-evaluation-reviewer.entity';
+import { InterviewEvaluationRoundEntity } from '../candidate-evaluations/entities/interview-evaluation-round.entity';
 import { FreelancersService } from '../freelancers/freelancers.service';
 import { FreelancerStatusFilter } from '../freelancers/dto/list-freelancers-query.dto';
 import { InternalsService } from '../internals/internals.service';
@@ -1940,7 +1943,10 @@ export class ExtensionIntegrationService {
     };
   }
 
-  async listAmisApplicationsForRecruitment(amisRecruitmentId: string) {
+  async listAmisApplicationsForRecruitment(
+    amisRecruitmentId: string,
+    actor?: { id: string; role: UserRole },
+  ) {
     const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
     const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(normalizedRecruitmentId);
     const applications = await this.dataSource.getRepository(ApplicationEntity).find({
@@ -1956,8 +1962,11 @@ export class ExtensionIntegrationService {
       ],
       order: { createdAt: 'DESC' },
     });
+    const visibleApplications = actor?.role === UserRole.COMMITTEE
+      ? await this.filterApplicationsForCommittee(applications, actor.id)
+      : applications;
     const applicationRows = this.buildAmisApplicationListRows(
-      applications,
+      visibleApplications,
       normalizedRecruitmentId,
     );
 
@@ -2045,6 +2054,37 @@ export class ExtensionIntegrationService {
         };
       }),
     };
+  }
+
+  private async filterApplicationsForCommittee(
+    applications: ApplicationEntity[],
+    userId: string,
+  ) {
+    const reviewerRepository = this.dataSource.getRepository(InterviewEvaluationReviewerEntity);
+    const reviewers = await reviewerRepository.find({
+      where: { userId, section: InterviewEvaluationReviewerSection.COMMITTEE },
+    });
+    if (reviewers.length === 0) return [];
+
+    const roundIds = [...new Set(reviewers.map((reviewer) => reviewer.roundId))];
+    const rounds = await this.dataSource.getRepository(InterviewEvaluationRoundEntity).find({
+      where: { id: In(roundIds) },
+    });
+    const caseIds = [...new Set(rounds.map((round) => round.caseId))];
+    const evaluationCases = caseIds.length > 0
+      ? await this.dataSource.getRepository(InterviewEvaluationCaseEntity).find({
+        where: { id: In(caseIds) },
+      })
+      : [];
+    const assignedRoundIds = new Set(rounds.map((round) => round.id));
+    const allowedApplicationIds = new Set(
+      evaluationCases
+        .filter((evaluationCase) => evaluationCase.currentRoundId !== null
+          && assignedRoundIds.has(evaluationCase.currentRoundId))
+        .map((evaluationCase) => evaluationCase.applicationId),
+    );
+
+    return applications.filter((application) => allowedApplicationIds.has(application.id));
   }
 
   async updateAmisApplicationStage(

@@ -17,6 +17,11 @@ export interface ApiErrorPayload {
   details?: unknown;
 }
 
+export interface EvaluationHandoffAuthResponse {
+  accessToken: string;
+  refreshToken: string;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -176,6 +181,13 @@ class ApiClient {
     return this.request<T>('POST', path, body, options);
   }
 
+  exchangeEvaluationHandoff(handoffToken: string, applicationId: string) {
+    return this.post<EvaluationHandoffAuthResponse>('/auth/evaluation-handoffs/exchange', {
+      handoffToken,
+      applicationId,
+    });
+  }
+
   put<T>(path: string, body?: unknown, options?: ApiRequestOptions) {
     return this.request<T>('PUT', path, body, options);
   }
@@ -284,7 +296,8 @@ class ApiClient {
   private shouldAttemptRefresh(path: string) {
     return !path.startsWith('/auth/login')
       && !path.startsWith('/auth/refresh')
-      && !path.startsWith('/auth/logout');
+      && !path.startsWith('/auth/logout')
+      && !path.startsWith('/auth/evaluation-handoffs/exchange');
   }
 
   private async doRefreshAccessToken() {

@@ -359,7 +359,7 @@ sequenceDiagram
 | `data.sourceId` | `string (UUID)` | ID hồ sơ nội bộ |
 | `data.identifier` | `null` | `null` |
 | `data.name` | `string` | Họ và tên nhân sự |
-| `data.email` | `string` | Email nhân sự |
+| `data.email` | `string` | Gmail nội bộ nhân sự |
 | `data.phone` | `string` | Số điện thoại |
 | `data.isActive` | `boolean` | Trạng thái hoạt động (`true`) |
 | `data.applicationCount` | `number` | Số CV ban đầu (`0`) |

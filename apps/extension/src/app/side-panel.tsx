@@ -19,6 +19,7 @@ import {
   getApplicationDetail,
   getApplicationParsedProfile,
   getAmisApplicationsForRecruitment,
+  listAssignedInterviewEvaluations,
   getAmisRecruitmentJobDescription,
   getAmisRecruitmentRounds,
   getFreelancerRecruitmentRounds,
@@ -31,9 +32,11 @@ import {
   runApplicationAiScreening,
   syncAmisApplications,
   syncAmisRecruitmentRounds,
+  syncAmisRecruitmentBoardMembers,
   syncAndPublishAmisJob,
   syncVcsPortalJobDescriptions,
   syncInterviewEvaluationContext,
+  createInterviewEvaluationCase,
   updateAmisApplicationStage,
   changePassword,
 } from '@/lib/api-client';
@@ -91,6 +94,7 @@ import {
   GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE,
   GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE,
   GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE,
+  GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE,
   SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE,
   UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
   buildAmisFormFillPayload,
@@ -109,6 +113,7 @@ import {
   isAmisRecruitmentContextResponse,
   isAmisRecruitmentRoundsChangedMessage,
   isAmisRecruitmentRoundsResponse,
+  isAmisRecruitmentBoardMembersResponse,
   isApplicationsSyncedMessage,
   isAutoSyncUpdateMessage,
   isConfirmedAmisCandidateSourceSelection,
@@ -130,6 +135,8 @@ import type {
   AmisExtractionResult,
   AmisJobSnapshot,
   AmisRecruitmentRound,
+  AmisRecruitmentBoardMember,
+  InterviewEvaluationAssignment,
   ApiPagination,
   ExtensionChannel,
   ExtensionSyncResponse,
@@ -139,6 +146,10 @@ import type {
   SyncAmisJobPostingRequest,
   SyncVcsPortalJdsResponse,
 } from '@/types/types';
+import {
+  EXTENSION_TOAST_EVENT,
+  type ExtensionToastPayload,
+} from '@interview-assistant/shared';
 import './styles.css';
 
 type PanelState = 'AUTH_LOADING' | 'AUTH_REQUIRED' | 'PASSWORD_CHANGE_REQUIRED' | 'READY' | 'EXTRACTING' | 'SYNCING' | 'SUCCESS' | 'ERROR';
@@ -146,6 +157,28 @@ type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv' | 'freelancer' | 'internal';
 type ApplicationsState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
+
+function isExtensionToastEvent(value: unknown): value is {
+  type: typeof EXTENSION_TOAST_EVENT;
+  payload: ExtensionToastPayload;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { type?: unknown; payload?: unknown };
+  return candidate.type === EXTENSION_TOAST_EVENT
+    && isExtensionToastPayload(candidate.payload);
+}
+
+function isExtensionToastPayload(value: unknown): value is ExtensionToastPayload {
+  if (typeof value !== 'object' || value === null) return false;
+  const payload = value as { kind?: unknown; title?: unknown; message?: unknown };
+  return (payload.kind === 'SUCCESS'
+    || payload.kind === 'ERROR'
+    || payload.kind === 'WARNING'
+    || payload.kind === 'INFO')
+    && typeof payload.message === 'string'
+    && payload.message.trim().length > 0
+    && (payload.title === undefined || typeof payload.title === 'string');
+}
 
 const MAX_POSTING_SNAPSHOT_REFRESH_ATTEMPTS = 3;
 
@@ -221,6 +254,26 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'internal', label: 'Nội bộ' },
 ];
 const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
+
+function filterApplicationsForCommittee(
+  context: AmisApplicationsForRecruitment,
+  assignments: InterviewEvaluationAssignment[],
+) {
+  const assignedApplicationIds = new Set(
+    assignments
+      .filter((assignment) => assignment.job.id === context.jobPostingId)
+      .map((assignment) => assignment.applicationId),
+  );
+  const applications = context.applications.filter((application) =>
+    assignedApplicationIds.has(application.applicationId),
+  );
+
+  return {
+    ...context,
+    total: applications.length,
+    applications,
+  };
+}
 
 function normalizePostingChannels(channels: ExtensionChannel[]) {
   const seen = new Set<ExtensionChannel>();
@@ -497,6 +550,9 @@ function SidePanel() {
     reasonRemoved: string | null;
   }>());
   const processedAmisCandidateStageEventsRef = useRef(new Map<string, string>());
+  const amisCandidateStageChangeHandlerRef = useRef<
+    (payload: AmisCandidateStageChangedPayload) => Promise<void>
+  >(async () => undefined);
   const pendingAmisUploadApplicationIdsRef = useRef(new Set<string>());
   const pendingAmisUploadTimeoutsRef = useRef(new Map<string, number>());
   const postingSnapshotRefreshSeqRef = useRef(0);
@@ -756,7 +812,16 @@ function SidePanel() {
   }, []);
 
   useEffect(() => {
-    chrome.runtime?.onMessage.addListener((message, sender) => {
+    const handleRuntimeMessage = (message: unknown, sender: ChromeMessageSender) => {
+      if (isExtensionToastEvent(message)) {
+        showExtensionToast(
+          message.payload.kind,
+          message.payload.title ?? '',
+          message.payload.message,
+        );
+        return;
+      }
+
       if (isAmisCaptureUpdatedMessage(message)) {
         void applyAmisCaptureUpdatedMessage(message.payload, message.sourceTabId ?? sender.tab?.id);
         return;
@@ -776,7 +841,7 @@ function SidePanel() {
       }
 
       if (isAmisCandidateStageChangedMessage(message)) {
-        void applyAmisCandidateStageChangedMessage(message.payload);
+        void amisCandidateStageChangeHandlerRef.current(message.payload);
         return;
       }
 
@@ -815,7 +880,10 @@ function SidePanel() {
       if (isApplicationsSyncedMessage(message)) {
         void applyApplicationsSyncedMessage(message);
       }
-    });
+    };
+
+    chrome.runtime?.onMessage.addListener(handleRuntimeMessage);
+    return () => chrome.runtime?.onMessage.removeListener?.(handleRuntimeMessage);
   }, []);
 
   useEffect(() => {
@@ -844,7 +912,7 @@ function SidePanel() {
     }, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [token, amisRecruitmentId]);
+  }, [token, amisRecruitmentId, user?.role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -852,6 +920,7 @@ function SidePanel() {
     const nextRecruitmentId = amisRecruitmentId;
 
     async function prepareFacebookContent() {
+      if (user?.role === 'COMMITTEE') return;
       facebook.clearFacebookContent();
       await facebook.restoreFacebookImageAttachments(nextRecruitmentId, nextSnapshot, selectedJobDescription);
       if (!token || !nextRecruitmentId || !nextSnapshot) return;
@@ -883,6 +952,7 @@ function SidePanel() {
     snapshot?.location,
     snapshot?.deadline,
     selectedJobDescription?.id,
+    user?.role,
   ]);
   const missingFields = useMemo(() => {
     const missing: string[] = [];
@@ -896,12 +966,20 @@ function SidePanel() {
   }, [amisRecruitmentId, facebook.selectedFacebookGroupIds.length, selectedJobDescription?.id, selectedPostingChannels, snapshot]);
 
   const visibleWorkspaceTabs = useMemo<WorkspaceTab[]>(() => {
+    if (user?.role === 'COMMITTEE') return ['cv'];
     if (pinnedWorkspaceTab && pinnedWorkspaceTab !== activeWorkspaceTab) {
       return [pinnedWorkspaceTab, activeWorkspaceTab];
     }
 
     return [activeWorkspaceTab];
-  }, [activeWorkspaceTab, pinnedWorkspaceTab]);
+  }, [activeWorkspaceTab, pinnedWorkspaceTab, user?.role]);
+
+  const workspaceTabsForUser = useMemo(
+    () => user?.role === 'COMMITTEE'
+      ? WORKSPACE_TABS.filter((tab) => tab.id === 'cv')
+      : WORKSPACE_TABS,
+    [user?.role],
+  );
 
   const syncDisabled = state === 'EXTRACTING'
     || state === 'SYNCING'
@@ -940,6 +1018,7 @@ function SidePanel() {
       if (currentUser.role === 'COMMITTEE') {
         setToken(storedToken);
         setUser(currentUser);
+        setActiveWorkspaceTab('cv');
         setState('READY');
         return;
       }
@@ -986,6 +1065,7 @@ function SidePanel() {
       return;
     }
     if (authenticatedUser.role === 'COMMITTEE') {
+      setActiveWorkspaceTab('cv');
       setState('READY');
       return;
     }
@@ -1010,6 +1090,7 @@ function SidePanel() {
         return;
       }
       if (user?.role === 'COMMITTEE') {
+        setActiveWorkspaceTab('cv');
         setState('READY');
         return;
       }
@@ -1159,7 +1240,15 @@ function SidePanel() {
     }
 
     try {
-      const context = await getAmisApplicationsForRecruitment(accessToken, recruitmentId);
+      const [context, assignedEvaluations] = await Promise.all([
+        getAmisApplicationsForRecruitment(accessToken, recruitmentId),
+        user?.role === 'COMMITTEE'
+          ? listAssignedInterviewEvaluations(accessToken)
+          : Promise.resolve(null),
+      ]);
+      const visibleContext = user?.role === 'COMMITTEE'
+        ? filterApplicationsForCommittee(context, assignedEvaluations ?? [])
+        : context;
       if (
         requestSeq !== applicationsRequestSeqRef.current ||
         activeAmisRecruitmentIdRef.current !== recruitmentId
@@ -1167,8 +1256,8 @@ function SidePanel() {
         return;
       }
 
-      setApplicationsContext(mergeAmisCandidateStageOverrides(context));
-      const hasNewAmisUploadConfirmation = reconcilePendingAmisUploads(context);
+      setApplicationsContext(mergeAmisCandidateStageOverrides(visibleContext));
+      const hasNewAmisUploadConfirmation = reconcilePendingAmisUploads(visibleContext);
       setApplicationsState('READY');
       if (pendingAmisUploadApplicationIdsRef.current.size === 0 && !hasNewAmisUploadConfirmation) {
         setApplicationsMessage(null);
@@ -1253,9 +1342,27 @@ function SidePanel() {
     if (!accessToken) return;
 
     try {
+      try {
+        const activeTab = await getActiveTab();
+        await syncAmisRecruitmentBoardMembersFromTab(activeTab.id, payload.amisRecruitmentId);
+      } catch {
+        // The last persisted board snapshot remains authoritative when AMIS is temporarily unavailable.
+      }
+
       const stageUpdate = await updateAmisApplicationStage(accessToken, payload);
       const interviewRound = await findAmisInterviewRound(accessToken, payload, amisRecruitmentRounds);
       if (interviewRound && stageUpdate.applicationId) {
+        try {
+          await createInterviewEvaluationCase(accessToken, stageUpdate.applicationId, {
+            roundName: interviewRound.name,
+            amisRoundId: interviewRound.id,
+            amisRoundType: interviewRound.roundType ?? 3,
+            amisSortOrder: interviewRound.sortOrder,
+            template: 'BM04.1_KNL',
+          });
+        } catch {
+          setApplicationsMessage('Đã cập nhật vòng AMIS nhưng chưa khởi tạo được phiếu đánh giá.');
+        }
         try {
           await syncInterviewEvaluationContext(accessToken, stageUpdate.applicationId, {
             amisRoundId: interviewRound.id,
@@ -1300,6 +1407,11 @@ function SidePanel() {
       setApplicationsMessage(`Stage update could not be saved: ${toErrorMessage(err)}`);
     }
   }
+
+  // The runtime listener is intentionally installed once. Keep its handler
+  // pointed at the latest render so stage changes use current applications,
+  // rounds, and API callbacks while the AMIS popup remains open.
+  amisCandidateStageChangeHandlerRef.current = applyAmisCandidateStageChangedMessage;
 
   function mergeAmisCandidateStageOverrides(context: AmisApplicationsForRecruitment) {
     return {
@@ -1409,6 +1521,8 @@ function SidePanel() {
           roundsResponse.sourceUrl,
         );
       }
+
+      await syncAmisRecruitmentBoardMembersFromTab(activeTab.id, context.amisRecruitmentId);
     } catch {
       // The passive AMIS response capture may arrive shortly after route hydration.
     }
@@ -1419,7 +1533,12 @@ function SidePanel() {
       sourceUrl: context.sourceUrl ?? activeTab.url,
     });
 
-    if (tokenRef.current && context.sourceUrl && lastApplicationsFallbackSyncUrlRef.current !== context.sourceUrl) {
+    if (
+      user?.role !== 'COMMITTEE'
+      && tokenRef.current
+      && context.sourceUrl
+      && lastApplicationsFallbackSyncUrlRef.current !== context.sourceUrl
+    ) {
       await syncAmisApplicationsFromAmisTab(tokenRef.current, activeTab.id, context.sourceUrl);
     }
   }
@@ -1437,6 +1556,41 @@ function SidePanel() {
     } catch {
       // Catalog persistence is best-effort and must not block CV or posting flows.
     }
+  }
+
+  async function persistAmisRecruitmentBoardMembersSnapshot(
+    recruitmentId: string,
+    members: AmisRecruitmentBoardMember[],
+    sourceUrl?: string,
+  ) {
+    const accessToken = tokenRef.current;
+    if (!accessToken || !recruitmentId.trim()) return;
+
+    try {
+      await syncAmisRecruitmentBoardMembers(accessToken, recruitmentId, { members, sourceUrl });
+    } catch {
+      // A stale board snapshot must not block existing AMIS application flows.
+    }
+  }
+
+  async function syncAmisRecruitmentBoardMembersFromTab(tabId: number, recruitmentId: string) {
+    const response = await sendMessageToAmisTab(tabId, {
+      type: GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE,
+      payload: { amisRecruitmentId: recruitmentId, force: true },
+    });
+    if (
+      !isAmisRecruitmentBoardMembersResponse(response)
+      || !response.ok
+      || response.amisRecruitmentId !== recruitmentId
+    ) {
+      return;
+    }
+
+    await persistAmisRecruitmentBoardMembersSnapshot(
+      response.amisRecruitmentId,
+      response.members,
+      response.sourceUrl,
+    );
   }
 
   async function refreshAmisRecruitmentContextFromActiveTab(options: { silent?: boolean; sourceTabId?: number } = {}) {
@@ -1613,6 +1767,13 @@ function SidePanel() {
 
       applyExtractionResult(capture);
       await selectExistingJobDescriptionForAmisCapture(capture, tokenRef.current, sourceTabId);
+      if (tokenRef.current) {
+        try {
+          await syncAmisRecruitmentBoardMembersFromTab(activeTab.id, capture.amisRecruitmentId);
+        } catch {
+          // The context refresh will retry the board snapshot after AMIS finishes saving the JD.
+        }
+      }
     } catch (err) {
       if (!(err instanceof ApiClientError && err.status === 401)) {
         setJobDescriptionError(toErrorMessage(err));
@@ -2139,22 +2300,6 @@ function SidePanel() {
     });
   }
 
-  function openCommitteeEvaluationInbox() {
-    if (!chrome.tabs?.create) {
-      showExtensionToast('ERROR', 'HĐCM', 'Không thể mở inbox đánh giá trên web.');
-      return;
-    }
-
-    void chrome.tabs.create({
-      url: `${FRONTEND_BASE_URL}/interview-evaluations`,
-      active: true,
-    }).then(() => {
-      showExtensionToast('SUCCESS', 'HĐCM', 'Đã mở danh sách phiếu đánh giá được giao.');
-    }).catch(() => {
-      showExtensionToast('ERROR', 'HĐCM', 'Không thể mở inbox đánh giá trên web.');
-    });
-  }
-
   async function selectAllJobQuestions(context: JobDescriptionQuestionSetContext) {
     const questionIds = context.questions.map((question) => question.id);
     setSelectedJobQuestionIds(new Set(questionIds));
@@ -2677,7 +2822,7 @@ function SidePanel() {
       if (response.facebookPublishPlan && shouldPublishFacebook) {
         const publishResult = await facebook.executeFacebookPublish(response.facebookPublishPlan);
         if (publishResult && publishResult.summary.successCount === 0) {
-          setError(publishResult.summary.message);
+          setError(null);
           setState('ERROR');
           return;
         }
@@ -2796,6 +2941,7 @@ function SidePanel() {
         {tab === 'cv' ? (
           <CvManagementPanel
             token={token}
+            isCommittee={user?.role === 'COMMITTEE'}
             amisRecruitmentId={amisRecruitmentId}
             applicationsContext={applicationsContext}
             applicationsState={applicationsState}
@@ -2912,22 +3058,7 @@ function SidePanel() {
           </section>
         ) : null}
 
-        {showAuthenticatedWorkspace && user?.role === 'COMMITTEE' && token ? (
-          <section className="extension-login-shell">
-            <div className="extension-login-card">
-              <p className="extension-login-brand">VCS Recruitment Posting</p>
-              <div className="extension-auth-heading-group">
-                <h1>HĐCM – Hội đồng chuyên môn</h1>
-              </div>
-              <p className="muted-text">
-                Tài khoản HĐCM không sử dụng luồng đăng tin. Hãy mở inbox trên web để xem các phiếu đánh giá được phân công.
-              </p>
-              <button type="button" className="primary-button" onClick={openCommitteeEvaluationInbox}>
-                Mở phiếu đánh giá được giao
-              </button>
-            </div>
-          </section>
-        ) : showAuthenticatedWorkspace && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
+        {showAuthenticatedWorkspace && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
           <section className="freelancer-extension-shell">
             {!isFreelancerPasswordFormOpen ? (
               <nav className="extension-tabs freelancer-extension-tabs" aria-label="Freelancer sections">
@@ -2949,7 +3080,7 @@ function SidePanel() {
         ) : showAuthenticatedWorkspace && user ? (
           <>
             <nav className="extension-tabs" aria-label="VCS Recruitment sections">
-              {WORKSPACE_TABS.map((tab) => {
+              {workspaceTabsForUser.map((tab) => {
                 const isActive = activeWorkspaceTab === tab.id;
 
                 return (

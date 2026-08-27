@@ -36,12 +36,20 @@ export enum InterviewEvaluationAuditAction {
   ROUND_CREATED = 'ROUND_CREATED',
   REVIEW_SAVED = 'REVIEW_SAVED',
   REVIEW_SUBMITTED = 'REVIEW_SUBMITTED',
+  AGGREGATION_DRAFT_SAVED = 'AGGREGATION_DRAFT_SAVED',
   AGGREGATION_SAVED = 'AGGREGATION_SAVED',
   ROUND_COMPLETED = 'ROUND_COMPLETED',
   NEXT_ROUND_CREATED = 'NEXT_ROUND_CREATED',
+  ROUND_CONTEXT_SYNCHRONIZED = 'ROUND_CONTEXT_SYNCHRONIZED',
 }
 
 export type InterviewEvaluationResult = 'PASS' | 'FAIL' | 'PENDING';
+
+export interface InterviewEvaluationCriterionData {
+  evidence?: string;
+  rating?: number;
+  note?: string;
+}
 
 export interface InterviewEvaluationFormData {
   overall?: {
@@ -61,6 +69,7 @@ export interface InterviewEvaluationFormData {
     /** Legacy fields retained so existing evaluation records remain readable. */
     level?: string;
     placement?: string;
+    cvSource?: string;
     salaryExpectation?: string;
     noticePeriod?: string;
     motivation?: string;
@@ -72,6 +81,8 @@ export interface InterviewEvaluationFormData {
     communicationRating?: number;
     teamworkRating?: number;
     leadershipRating?: number;
+    technicalCompetencies?: Record<string, InterviewEvaluationCriterionData[]>;
+    personalGrowth?: Record<string, InterviewEvaluationCriterionData[]>;
     notes?: string;
   };
   final?: {
@@ -80,5 +91,18 @@ export interface InterviewEvaluationFormData {
     proposedSalary?: string;
     nextAction?: string;
     notes?: string;
+    salaryDetails?: {
+      contract?: string;
+      rule?: string;
+      comparison?: string;
+      desired?: string;
+      notes?: {
+        contract?: string;
+        rule?: string;
+        comparison?: string;
+        desired?: string;
+        proposed?: string;
+      };
+    };
   };
 }

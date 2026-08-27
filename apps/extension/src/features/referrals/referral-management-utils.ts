@@ -2,6 +2,24 @@ export function buildFreelancerIdentifierCopyText(identifier: string) {
   return identifier.trim();
 }
 
+export function buildReferralPaginationPages(
+  currentPage: number,
+  totalPages: number,
+): Array<number | 'ellipsis'> {
+  const safeTotal = Math.max(1, totalPages);
+  const safeCurrent = Math.min(Math.max(1, currentPage), safeTotal);
+
+  if (safeTotal <= 7) {
+    return Array.from({ length: safeTotal }, (_, index) => index + 1);
+  }
+
+  if (safeCurrent <= 2) return [1, 2, 3, 'ellipsis', safeTotal - 1, safeTotal];
+  if (safeCurrent === 3) return [2, 3, 4, 'ellipsis', safeTotal - 1, safeTotal];
+  if (safeCurrent >= safeTotal - 2) return [1, 2, 'ellipsis', safeTotal - 2, safeTotal - 1, safeTotal];
+
+  return [1, 2, 'ellipsis', safeCurrent - 1, safeCurrent, safeCurrent + 1, 'ellipsis', safeTotal - 1, safeTotal];
+}
+
 export function usesDynamicReferralRounds(source: 'FREELANCER' | 'INTERNAL') {
   return source === 'FREELANCER' || source === 'INTERNAL';
 }

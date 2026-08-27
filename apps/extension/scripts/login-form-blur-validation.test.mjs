@@ -27,3 +27,11 @@ test('login blur handlers keep required errors without forcing focus back', asyn
   assert.match(passwordBlur, /password \? null : 'Mật khẩu là bắt buộc'/);
   assert.doesNotMatch(passwordBlur, /\.focus\(\)/);
 });
+
+test('auth links bypass login blur validation before navigation', async () => {
+  const source = await readFile(loginFormPath, 'utf8');
+
+  assert.match(source, /onAuthLinkMouseDown=\{\(\) => \{ skipLoginBlurValidationRef\.current = true; \}\}/);
+  assert.match(source, /onMouseDown=\{onAuthLinkMouseDown\}/);
+  assert.match(source, /setBlurErrors\(\{ login: null, password: null \}\)/);
+});

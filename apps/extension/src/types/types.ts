@@ -119,6 +119,7 @@ export interface FreelancerSelfApplication {
   jobPosting: {
     jobPostingId: string;
     title: string;
+    createdAt?: string | null;
     sourceSystem?: string | null;
     sourceJobId?: string | null;
     amisRecruitmentId?: string | null;
@@ -920,6 +921,16 @@ export interface AmisRecruitmentRound {
   color: string | null;
 }
 
+export interface AmisRecruitmentBoardMember {
+  amisBoardId: string | null;
+  amisUserId: string;
+  fullName: string;
+  email: string | null;
+  isAdmin: boolean;
+  isViewOffer: boolean;
+  isPushNotification: boolean;
+}
+
 export interface AmisApplicationsForRecruitment {
   amisRecruitmentId: string;
   jobPostingId: string;
@@ -1065,6 +1076,29 @@ export interface InterviewEvaluationSummary {
   canView: boolean;
 }
 
+export interface InterviewEvaluationAssignment {
+  applicationId: string;
+  caseId: string;
+  candidate: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  };
+  job: {
+    id: string;
+    title?: string | null;
+    jobDescriptionVersionId?: string | null;
+  };
+  round: InterviewEvaluationRoundSummary;
+  reviewer: {
+    id: string;
+    status: InterviewEvaluationReviewerStatus;
+    submittedAt?: string | null;
+  };
+  reviewerProgress: { total: number; submitted: number };
+}
+
 export interface InterviewCommitteeMember {
   id: string;
   name: string;
@@ -1129,6 +1163,7 @@ export type AmisDiagnosticEventType =
   | 'DEBUGGER_SAVE_RESPONSE_SEEN'
   | 'DEBUGGER_CAREER_RESPONSE_SEEN'
   | 'DEBUGGER_APPLICATIONS_RESPONSE_SEEN'
+  | 'DEBUGGER_CANDIDATE_STAGE_RESPONSE_SEEN'
   | 'DEBUGGER_GET_BODY_FAILED'
   | 'AMIS_API_REQUEST_STARTED'
   | 'AMIS_API_RESPONSE_SEEN'
@@ -1147,6 +1182,8 @@ export type AmisDiagnosticEventType =
   | 'CAREER_AUTO_SYNC_FAILED'
   | 'APPLICATIONS_RESPONSE_UNMAPPED'
   | 'APPLICATIONS_CAPTURE_PUBLISHED'
+  | 'CANDIDATE_STAGE_RESPONSE_UNMAPPED'
+  | 'CANDIDATE_STAGE_CAPTURE_PUBLISHED'
   | 'APPLICATIONS_AUTO_SYNC_SUCCESS'
   | 'APPLICATIONS_AUTO_SYNC_SKIPPED'
   | 'APPLICATIONS_AUTO_SYNC_FAILED'

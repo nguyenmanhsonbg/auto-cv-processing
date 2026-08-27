@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
+import type { ExtensionToastKind } from '@interview-assistant/shared';
 
-export type ExtensionToastKind = 'SUCCESS' | 'ERROR' | 'WARNING' | 'INFO';
+export type { ExtensionToastKind } from '@interview-assistant/shared';
 
 export type ExtensionToastState = {
   id: number;

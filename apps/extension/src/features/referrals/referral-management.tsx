@@ -20,16 +20,31 @@ import type {
 } from '@/types/types';
 import {
   buildFreelancerIdentifierCopyText,
+  buildReferralPaginationPages,
   filterReferralApplicationsByDateRange,
   isDateRangeComplete,
   usesDynamicReferralRounds,
 } from '@/features/referrals/referral-management-utils';
+import {
+  FREELANCER_EMAIL_INVALID_ERROR,
+  FREELANCER_EMAIL_MAX_LENGTH,
+  FREELANCER_EMAIL_REQUIRED_ERROR,
+  FREELANCER_NAME_MAX_LENGTH,
+  FREELANCER_PHONE_MAX_LENGTH,
+  limitFreelancerEmailInput,
+  limitFreelancerNameInput,
+  limitFreelancerPhoneInput,
+  normalizeFreelancerEmail,
+  normalizeFreelancerName,
+  validateFreelancerPhone,
+  validateFreelancerName,
+} from '@/features/referrals/referral-create-form-utils';
 import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
 import { formatDate, toErrorMessage } from '@/lib/utils';
 import { DateRangeFilter, FilterDropdown, MultiSelectFilter } from '@/components/filters';
 import { InputField } from '@/components/form/InputField';
 import {
-  ReferralWarningIcon as WarningIcon,
+  LockIcon as ConfirmationLockIcon,
   SearchClearIcon,
   PlusIcon,
 } from '@/components/svg';
@@ -41,7 +56,7 @@ type JdFilter = (string | number)[];
 type AccountStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 type ModalMode = 'CREATE' | 'CREDENTIALS' | 'STATUS' | null;
 type NotifyKind = 'SUCCESS' | 'ERROR';
-type ReferralRoundOptionKind = 'ROUND' | 'HIRED' | 'REJECTED' | 'LEGACY_STAGE';
+type ReferralRoundOptionKind = 'ROUND';
 
 interface ReferralRoundLoadTarget {
   jobPostingId: string;
@@ -102,22 +117,42 @@ function getCreateFormErrors(
   normalizedEmail: string,
   phone: string,
 ) {
-  if (!name.trim()) return { nameFieldError: 'Họ và tên là bắt buộc, không được để trống.' };
-  if (!isValidReferralEmail(normalizedEmail)) return { emailFieldError: 'Email không hợp lệ. Vui lòng kiểm tra lại.' };
+  if (source === 'FREELANCER') {
+    const nameError = validateFreelancerName(name);
+    if (nameError) return { nameFieldError: nameError };
+  } else if (!name.trim()) {
+    return { nameFieldError: 'Họ và tên là bắt buộc, không được để trống.' };
+  }
+  if (!normalizedEmail) {
+    return {
+      emailFieldError: source === 'FREELANCER'
+        ? FREELANCER_EMAIL_REQUIRED_ERROR
+        : 'Email không hợp lệ. Vui lòng kiểm tra lại.',
+    };
+  }
+  if (!isValidReferralEmail(normalizedEmail)) {
+    return {
+      emailFieldError: source === 'FREELANCER'
+        ? FREELANCER_EMAIL_INVALID_ERROR
+        : 'Email không hợp lệ. Vui lòng kiểm tra lại.',
+    };
+  }
   if (source === 'INTERNAL' && !isInternalReferralEmail(normalizedEmail)) {
     return { emailFieldError: 'Email Nội bộ phải có đuôi @viettel.com.vn.' };
   }
-  if (!phone.trim()) {
+  if (source === 'FREELANCER') {
+    const phoneError = validateFreelancerPhone(phone);
+    if (phoneError) return { phoneFieldError: phoneError };
+  } else if (!phone.trim()) {
     return {
-      formError: source === 'FREELANCER'
-        ? 'Vui lòng nhập số điện thoại Freelancer.'
-        : 'Vui lòng nhập số điện thoại nhân sự nội bộ.',
+      formError: 'Vui lòng nhập số điện thoại nhân sự nội bộ.',
     };
   }
   return null;
 }
 
 const REFERRAL_PAGE_SIZE = 5;
+const INTERNAL_REFERRAL_SEARCH_MAX_LENGTH = 255;
 const REFERRAL_ALL_ROUNDS_OPTION: ReferralRoundOption = {
   value: 'ALL',
   label: 'Tất cả các vòng',
@@ -126,6 +161,10 @@ const REFERRAL_ALL_ROUNDS_OPTION: ReferralRoundOption = {
   normalizedName: '',
   sortOrder: -1,
 };
+
+function limitInternalReferralSearchInput(value: string): string {
+  return Array.from(value).slice(0, INTERNAL_REFERRAL_SEARCH_MAX_LENGTH).join('');
+}
 
 function ReferralFilterDropdown({
   label,
@@ -409,7 +448,7 @@ export function ReferralManagementPanel({
   const [search, setSearch] = useState('');
   const [cvStatusFilter, setCvStatusFilter] = useState<string>('ALL');
   const [cvRoundOptions, setCvRoundOptions] = useState<ReferralRoundOption[]>(() => (
-    buildReferralRoundOptions([], !usesDynamicReferralRounds(source))
+    buildReferralRoundOptions([])
   ));
   const [roundsLoading, setRoundsLoading] = useState(false);
   const [jdFilter, setJdFilter] = useState<JdFilter>([]);
@@ -614,7 +653,7 @@ export function ReferralManagementPanel({
     && isDateRangeComplete(dateRangeFilter);
   useEffect(() => {
     if (!usesDynamicReferralRounds(source)) {
-      setCvRoundOptions(buildReferralRoundOptions([], true));
+      setCvRoundOptions(buildReferralRoundOptions([]));
       setRoundsLoading(false);
       return undefined;
     }
@@ -660,7 +699,7 @@ export function ReferralManagementPanel({
         name: round.name,
         sortOrder: round.sortOrder,
       })));
-      const options = buildReferralRoundOptions([...configuredEntries, ...fallbackEntries], false);
+      const options = buildReferralRoundOptions([...configuredEntries, ...fallbackEntries]);
 
       if (!cancelled) {
         setCvRoundOptions(options);
@@ -769,12 +808,18 @@ export function ReferralManagementPanel({
     setNameFieldError(null);
     setEmailFieldError(null);
     setPhoneFieldError(null);
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedName = source === 'FREELANCER'
+      ? normalizeFreelancerName(limitFreelancerNameInput(name))
+      : name;
+    if (source === 'FREELANCER') setName(normalizedName);
+    const normalizedEmail = normalizeFreelancerEmail(email);
+    setEmail(normalizedEmail);
 
-    const validationErrors = getCreateFormErrors(source, name, normalizedEmail, phone);
+    const validationErrors = getCreateFormErrors(source, normalizedName, normalizedEmail, phone);
     if (validationErrors) {
       setNameFieldError(validationErrors.nameFieldError ?? null);
       setEmailFieldError(validationErrors.emailFieldError ?? null);
+      setPhoneFieldError(validationErrors.phoneFieldError ?? null);
       setFormError(validationErrors.formError ?? null);
       return;
     }
@@ -783,7 +828,7 @@ export function ReferralManagementPanel({
     try {
       if (source === 'FREELANCER') {
         await createFreelancer(accessToken, {
-          name: name.trim(),
+          name: normalizedName,
           email: normalizedEmail,
           phone: phone.trim() || undefined,
         });
@@ -846,7 +891,7 @@ export function ReferralManagementPanel({
 
   const title = source === 'FREELANCER' ? 'Freelancer' : 'Nội bộ';
   const emptyText = source === 'FREELANCER'
-    ? 'Chưa có Freelancer nào.'
+    ? 'Chưa có nhân sự Freelancer nào'
     : 'Chưa có người Nội bộ nào.';
   const hasActiveFilter = Boolean(search.trim())
     || cvStatusFilter !== 'ALL'
@@ -869,14 +914,21 @@ export function ReferralManagementPanel({
   }
 
   return (
-    <div className="referral-management-panel">
+    <div className={`referral-management-panel ${source === 'FREELANCER' ? 'is-freelancer' : 'is-internal'}`}>
       <ReferralFilters
         source={source}
         search={search}
         onSearchChange={(value) => {
-          setSearch(value.slice(0, 64));
+          setSearch(source === 'INTERNAL' ? limitInternalReferralSearchInput(value) : value.slice(0, 64));
           setPage(1);
         }}
+        onKeyDown={source === 'INTERNAL' ? (event) => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          const normalizedSearch = search.trim();
+          if (normalizedSearch !== search) setSearch(normalizedSearch);
+          setPage(1);
+        } : undefined}
         placeholder={source === 'FREELANCER' ? 'Tìm kiếm theo tên, mã Freelancer' : 'Tìm kiếm theo tên, email, số điện thoại'}
         ariaLabel={`Tìm kiếm ${title}`}
         clearButton={search ? (
@@ -1040,9 +1092,9 @@ export function ReferralManagementPanel({
                     label="HỌ VÀ TÊN"
                     required
                     value={name}
-                    maxLength={255}
+                    maxLength={FREELANCER_NAME_MAX_LENGTH}
                     onChange={(event) => {
-                      setName(event.target.value);
+                      setName(limitFreelancerNameInput(event.target.value));
                       setNameFieldError(null);
                     }}
                     placeholder="Nhập tên Freelancer mới"
@@ -1067,12 +1119,22 @@ export function ReferralManagementPanel({
                     label="EMAIL"
                     required
                     type="email"
-                    stripWhitespace
                     value={email}
-                    maxLength={255}
+                    maxLength={FREELANCER_EMAIL_MAX_LENGTH}
                     onChange={(event) => {
-                      setEmail(event.target.value);
+                      setEmail(limitFreelancerEmailInput(event.target.value));
                       setEmailFieldError(null);
+                    }}
+                    onBlur={() => {
+                      const normalizedEmail = normalizeFreelancerEmail(email);
+                      setEmail(normalizedEmail);
+                      setEmailFieldError(
+                        !normalizedEmail
+                          ? FREELANCER_EMAIL_REQUIRED_ERROR
+                          : isValidReferralEmail(normalizedEmail)
+                            ? null
+                            : FREELANCER_EMAIL_INVALID_ERROR,
+                      );
                     }}
                     placeholder="Nhập email Freelancer"
                     error={emailFieldError ?? undefined}
@@ -1096,11 +1158,13 @@ export function ReferralManagementPanel({
                     label="SỐ ĐIỆN THOẠI"
                     required
                     value={phone}
-                    maxLength={50}
+                    maxLength={FREELANCER_PHONE_MAX_LENGTH}
                     onChange={(event) => {
-                      const digitsOnly = event.target.value.replace(/\D/g, '');
-                      setPhone(digitsOnly);
+                      setPhone(limitFreelancerPhoneInput(event.target.value));
                       setPhoneFieldError(null);
+                    }}
+                    onBlur={() => {
+                      setPhoneFieldError(validateFreelancerPhone(phone));
                     }}
                     placeholder="Nhập SĐT Freelancer"
                     error={phoneFieldError ?? undefined}
@@ -1258,10 +1322,15 @@ export function ReferralManagementPanel({
 
       {modal === 'STATUS' && selectedPerson ? (
         <div className="referral-modal-backdrop" role="presentation">
-          <section className="referral-modal referral-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="referral-status-title">
+          <section
+            className={`referral-modal referral-confirm-modal${selectedPerson.isActive ? ' is-lock-confirmation' : ' is-unlock-confirmation'}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="referral-status-title"
+          >
             <div className="referral-modal-header">
               <h2 id="referral-status-title">
-                {selectedPerson.isActive ? 'Xác nhận khoá tài khoản Freelancer' : 'Xác nhận mở khoá tài khoản Freelancer'}
+                {selectedPerson.isActive ? 'Xác nhận khóa tài khoản Freelancer' : 'Xác nhận mở khóa tài khoản Freelancer'}
               </h2>
               <button type="button" className="referral-modal-close-btn" onClick={closeModal} aria-label="Đóng">
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.67" strokeLinecap="round" strokeLinejoin="round">
@@ -1269,19 +1338,46 @@ export function ReferralManagementPanel({
                 </svg>
               </button>
             </div>
-            <div className="referral-confirm-body">
-              <WarningIcon />
-              <h3>{selectedPerson.isActive ? 'Bạn có chắc muốn vô hiệu hóa nhân sự này không?' : 'Bạn có muốn kích hoạt lại nhân sự này không?'}</h3>
-              <p>
-                {selectedPerson.isActive ? (
-                  <>
-                    <strong className="referral-status-subject">{source === 'FREELANCER' ? 'Freelancer' : 'Nhân sự nội bộ'}</strong>{' '}
-                    bị khóa tài khoản, không thể đăng nhập vào hệ thống.
-                  </>
-                ) : 'Nhân sự này sẽ có thể tiếp tục được chọn làm nguồn giới thiệu.'}
-              </p>
-              <strong className="referral-confirm-person">{selectedPerson.name || selectedPerson.email}</strong>
-            </div>
+            {selectedPerson.isActive ? (
+              <div className="referral-account-confirmation-body">
+                <div className="referral-account-confirmation-content">
+                  <div className="referral-account-icon-wrap">
+                    <ConfirmationLockIcon className="referral-confirm-lock-icon" />
+                  </div>
+                  <h3>Bạn có chắc chắn muốn khóa tài khoản Freelancer này không?</h3>
+                  <p>
+                    <strong>Freelancer</strong>{' '}bị khóa tài khoản không thể đăng nhập vào hệ thống
+                  </p>
+                  <div className="referral-account-person">
+                    <span>Freelancer SẼ BỊ khóa tài khoản:</span>
+                    <strong>
+                      {selectedPerson.name || selectedPerson.email}
+                      {selectedPerson.identifier ? <><br />{selectedPerson.identifier}</> : null}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="referral-account-confirmation-body">
+                <div className="referral-account-confirmation-content">
+                  <div className="referral-account-icon-wrap">
+                    <ConfirmationLockIcon className="referral-confirm-lock-icon" />
+                  </div>
+                  <h3>
+                    Bạn có chắc chắn muốn mở khóa<br />
+                    tài khoản Freelancer này không?
+                  </h3>
+                  <p>Freelancer được mở khóa tài khoản có thể đăng nhập vào hệ thống</p>
+                  <div className="referral-account-person">
+                    <span>Freelancer SẼ được mở khóa tài khoản:</span>
+                    <strong>
+                      {selectedPerson.name || selectedPerson.email}
+                      {selectedPerson.identifier ? <><br />{selectedPerson.identifier}</> : null}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            )}
             {formError ? <p className="referral-form-error">{formError}</p> : null}
             <div className="referral-modal-actions">
               <button type="button" className="referral-modal-cancel-btn" onClick={closeModal}>HỦY</button>
@@ -1336,7 +1432,8 @@ function ApplicationTable({ applications, source }: { applications: ReferralMana
 
   function handleWheel(e: React.WheelEvent<HTMLDivElement>) {
     if (!tableWrapRef.current) return;
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && scrollState.canScroll) {
+    const canScrollVertically = tableWrapRef.current.scrollHeight > tableWrapRef.current.clientHeight + 2;
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && scrollState.canScroll && !canScrollVertically) {
       tableWrapRef.current.scrollLeft += e.deltaY;
     }
   }
@@ -1491,77 +1588,22 @@ function addReferralRoundEntry(
     return;
   }
 
-  let kind: ReferralRoundOptionKind = 'ROUND';
-  if (normalizedName === 'DA TUYEN') {
-    kind = 'HIRED';
-  } else if (normalizedName === 'LOAI') {
-    kind = 'REJECTED';
-  }
-
   groupedRounds.set(normalizedName, {
     value: 'ROUND:' + normalizedName,
     label,
-    kind,
+    kind: 'ROUND',
     roundIds: roundId ? [roundId] : [],
     normalizedName,
     sortOrder,
   });
 }
 
-function addLegacyReferralRoundOptions(groupedRounds: Map<string, ReferralRoundOption>) {
-  [
-    { name: '\u1ee8ng tuy\u1ec3n', normalizedName: 'UNG TUYEN' },
-    { name: 'Thi tuy\u1ec3n', normalizedName: 'THI TUYEN' },
-    { name: 'Ph\u1ecfng v\u1ea5n', normalizedName: 'PHONG VAN' },
-    { name: 'Offer', normalizedName: 'OFFER' },
-  ].forEach((entry, index) => {
-    groupedRounds.set(entry.normalizedName, {
-      value: 'ROUND:' + entry.normalizedName,
-      label: entry.name,
-      kind: 'LEGACY_STAGE',
-      roundIds: [],
-      normalizedName: entry.normalizedName,
-      sortOrder: index,
-    });
-  });
-}
-
-function addRequiredReferralStatusOptions(groupedRounds: Map<string, ReferralRoundOption>) {
-  if (!groupedRounds.has('DA TUYEN')) {
-    groupedRounds.set('DA TUYEN', {
-      value: 'STATUS:HIRED',
-      label: 'Đã tuyển',
-      kind: 'HIRED',
-      roundIds: [],
-      normalizedName: 'DA TUYEN',
-      sortOrder: Number.MAX_SAFE_INTEGER - 1,
-    });
-  }
-  if (!groupedRounds.has('LOAI')) {
-    groupedRounds.set('LOAI', {
-      value: 'STATUS:REJECTED',
-      label: 'Loại',
-      kind: 'REJECTED',
-      roundIds: [],
-      normalizedName: 'LOAI',
-      sortOrder: Number.MAX_SAFE_INTEGER,
-    });
-  }
-}
-
 function buildReferralRoundOptions(
   entries: Array<{ id?: string | null; name: string; sortOrder?: number | null }>,
-  includeLegacyStageOptions: boolean,
 ): ReferralRoundOption[] {
   const groupedRounds = new Map<string, ReferralRoundOption>();
 
   entries.forEach((entry) => addReferralRoundEntry(groupedRounds, entry));
-
-  if (groupedRounds.size === 0 && includeLegacyStageOptions) {
-    addLegacyReferralRoundOptions(groupedRounds);
-  }
-
-  addRequiredReferralStatusOptions(groupedRounds);
 
   return [
     REFERRAL_ALL_ROUNDS_OPTION,
@@ -1596,26 +1638,7 @@ function matchesCvStatus(
   const stageId = application.currentAmisStage?.recruitmentRoundId?.trim();
   if (stageId && option.roundIds.includes(stageId)) return true;
   if (option.normalizedName && option.normalizedName === stageName) return true;
-  if (option.kind === 'REJECTED') {
-    return application.statusCategory === 'REJECTED' || application.currentAmisStage?.amisStatus === 0;
-  }
-  if (option.kind === 'HIRED') return application.statusCategory === 'PASSED';
   return false;
-}
-
-function buildReferralPaginationPages(currentPage: number, totalPages: number): Array<number | 'ellipsis'> {
-  const safeTotal = Math.max(1, totalPages);
-  const safeCurrent = Math.min(Math.max(1, currentPage), safeTotal);
-
-  if (safeTotal <= 7) {
-    return Array.from({ length: safeTotal }, (_, index) => index + 1);
-  }
-
-  if (safeCurrent <= 2) return [1, 2, 3, 'ellipsis', safeTotal - 1, safeTotal];
-  if (safeCurrent === 3) return [2, 3, 4, 'ellipsis', safeTotal - 1, safeTotal];
-  if (safeCurrent >= safeTotal - 2) return [1, 2, 'ellipsis', safeTotal - 2, safeTotal - 1, safeTotal];
-
-  return [1, 2, 'ellipsis', safeCurrent - 1, safeCurrent, safeCurrent + 1, 'ellipsis', safeTotal - 1, safeTotal];
 }
 
 function getErrorMessage(error: unknown): string {

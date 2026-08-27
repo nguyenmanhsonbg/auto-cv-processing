@@ -1,4 +1,4 @@
-import type { AmisApplicationItem, AmisCandidateStageChangedPayload, AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisRecruitmentRound, AmisSelectedCareerResult } from '@/types/types';
+import type { AmisApplicationItem, AmisCandidateStageChangedPayload, AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisRecruitmentBoardMember, AmisRecruitmentRound, AmisSelectedCareerResult } from '@/types/types';
 import {
   extractAmisCandidateRows,
   extractAmisRows,
@@ -23,12 +23,14 @@ const SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE = 'VCS_SELECT_AMIS_CANDIDATE_SOU
 const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 const GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_ROUNDS';
+const GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_BOARD_MEMBERS';
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
 const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_ROUNDS_CHANGED';
 const AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE = 'VCS_AMIS_JOB_STATUS_UPDATED';
 const AMIS_CAREER_DATA_PAGING_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/Career/data_paging';
 const AMIS_RECRUITMENT_ROUNDS_DETAIL_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-round-info/';
+const AMIS_RECRUITMENT_BOARD_MEMBERS_DETAIL_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-board-info/';
 const AMIS_CAREER_SORT = 'W3sic2VsZWN0b3IiOiAiVXNhZ2VTdGF0dXMiLCAiZGVzYyI6ICJmYWxzZSJ9LHsic2VsZWN0b3IiOiAiQ2FyZWVyTmFtZSIsICJkZXNjIjogImZhbHNlIn1d';
 const RECRUITMENT_CONTEXT_CACHE_TTL_MS = 10 * 60 * 1000;
 const BRIDGE_WINDOW_MESSAGE_LISTENER_KEY = '__VCS_AMIS_BRIDGE_WINDOW_MESSAGE_LISTENER__';
@@ -42,6 +44,12 @@ let lastRecruitmentContextCache: {
 let lastRecruitmentRoundsCache: {
   amisRecruitmentId: string;
   rounds: AmisRecruitmentRound[];
+  sourceUrl: string;
+  capturedAt: number;
+} | null = null;
+let lastRecruitmentBoardMembersCache: {
+  amisRecruitmentId: string;
+  members: AmisRecruitmentBoardMember[];
   sourceUrl: string;
   capturedAt: number;
 } | null = null;
@@ -266,6 +274,24 @@ const runtimeMessageListener = (
             rounds: [],
             sourceUrl: window.location.href,
             error: error instanceof Error ? error.message : 'Could not read AMIS recruitment rounds.',
+          });
+        });
+      return true;
+    }
+
+    if (isGetRecruitmentBoardMembersMessage(message)) {
+      void getRecruitmentBoardMembers(
+        message.payload?.amisRecruitmentId,
+        message.payload?.force === true,
+      )
+        .then((response) => sendResponse(response))
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            amisRecruitmentId: message.payload?.amisRecruitmentId ?? null,
+            members: [],
+            sourceUrl: window.location.href,
+            error: error instanceof Error ? error.message : 'Could not read AMIS recruitment board members.',
           });
         });
       return true;
@@ -514,6 +540,88 @@ async function getRecruitmentRounds(recruitmentId?: string) {
     rounds,
     sourceUrl,
   };
+}
+
+async function getRecruitmentBoardMembers(recruitmentId?: string, force = false) {
+  const normalizedRecruitmentId = cleanText(recruitmentId);
+  if (!normalizedRecruitmentId) {
+    return {
+      ok: false,
+      amisRecruitmentId: null,
+      members: [],
+      sourceUrl: window.location.href,
+      error: 'No AMIS recruitment id was provided.',
+    };
+  }
+
+  if (
+    !force
+    && lastRecruitmentBoardMembersCache
+    && lastRecruitmentBoardMembersCache.amisRecruitmentId === normalizedRecruitmentId
+    && Date.now() - lastRecruitmentBoardMembersCache.capturedAt <= RECRUITMENT_CONTEXT_CACHE_TTL_MS
+  ) {
+    return {
+      ok: true,
+      amisRecruitmentId: normalizedRecruitmentId,
+      members: lastRecruitmentBoardMembersCache.members,
+      sourceUrl: lastRecruitmentBoardMembersCache.sourceUrl,
+    };
+  }
+
+  const sourceUrl = `${AMIS_RECRUITMENT_BOARD_MEMBERS_DETAIL_URL}${encodeURIComponent(normalizedRecruitmentId)}`;
+  const response = await window.fetch(sourceUrl, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`AMIS recruitment board request failed with HTTP ${response.status}.`);
+  }
+
+  const members = mapAmisRecruitmentBoardMembersResponse(await response.json() as unknown);
+  lastRecruitmentBoardMembersCache = {
+    amisRecruitmentId: normalizedRecruitmentId,
+    members,
+    sourceUrl,
+    capturedAt: Date.now(),
+  };
+
+  return {
+    ok: true,
+    amisRecruitmentId: normalizedRecruitmentId,
+    members,
+    sourceUrl,
+  };
+}
+
+function mapAmisRecruitmentBoardMembersResponse(response: unknown): AmisRecruitmentBoardMember[] {
+  if (!isObject(response) || (response.Success ?? response.success) === false) return [];
+  const responseData = response.Data ?? response.data;
+  if (!isObject(responseData)) return [];
+  let rows: unknown[] = [];
+  if (Array.isArray(responseData.RecruitmentBoards)) {
+    rows = responseData.RecruitmentBoards;
+  } else if (Array.isArray(responseData.recruitmentBoards)) {
+    rows = responseData.recruitmentBoards;
+  }
+
+  return rows
+    .filter(isObject)
+    .map((row) => {
+      const amisUserId = cleanText(readFirst(row, ['UserID', 'UserId', 'userId']));
+      const fullName = cleanText(readFirst(row, ['FullName', 'fullName', 'UserName', 'userName']));
+      if (!amisUserId || !fullName) return null;
+
+      return {
+        amisBoardId: cleanText(readFirst(row, ['RecruitmentBoardID', 'RecruitmentBoardId', 'recruitmentBoardId'])) || null,
+        amisUserId,
+        fullName,
+        email: cleanText(readFirst(row, ['Email', 'email'])) || null,
+        isAdmin: readBoolean(row, ['IsAdmin', 'isAdmin'], false),
+        isViewOffer: readBoolean(row, ['IsViewOffer', 'isViewOffer'], false),
+        isPushNotification: readBoolean(row, ['IsPushNotification', 'isPushNotification'], false),
+      } satisfies AmisRecruitmentBoardMember;
+    })
+    .filter((member): member is AmisRecruitmentBoardMember => Boolean(member));
 }
 
 function mapAmisRecruitmentRoundsResponse(response: unknown): AmisRecruitmentRound[] {
@@ -2809,6 +2917,22 @@ function isGetRecruitmentRoundsMessage(value: unknown): value is {
       && payload !== null
       && ((payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === undefined
         || typeof (payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string'));
+}
+
+function isGetRecruitmentBoardMembersMessage(value: unknown): value is {
+  type: typeof GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE;
+  payload?: { amisRecruitmentId?: string; force?: boolean };
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { type?: unknown }).type !== GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE) return false;
+  const payload = (value as { payload?: unknown }).payload;
+  return payload === undefined
+    || (typeof payload === 'object'
+      && payload !== null
+      && ((payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === undefined
+        || typeof (payload as { amisRecruitmentId?: unknown }).amisRecruitmentId === 'string')
+      && ((payload as { force?: unknown }).force === undefined
+        || typeof (payload as { force?: unknown }).force === 'boolean'));
 }
 
 function isGetAmisCandidateFormStateMessage(value: unknown): value is {

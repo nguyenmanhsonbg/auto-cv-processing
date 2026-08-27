@@ -1,4 +1,4 @@
-import type { PropsWithChildren, ReactNode } from 'react';
+import type { KeyboardEventHandler, PropsWithChildren, ReactNode } from 'react';
 import { SearchField } from '@/components/filters';
 import { SearchIcon } from '@/components/icons';
 
@@ -10,9 +10,10 @@ type ReferralFiltersProps = PropsWithChildren<{
   ariaLabel: string;
   action?: ReactNode;
   clearButton?: ReactNode;
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>;
 }>;
 
-export function ReferralFilters({ source, search, onSearchChange, placeholder, ariaLabel, action, clearButton, children }: ReferralFiltersProps) {
+export function ReferralFilters({ source, search, onSearchChange, placeholder, ariaLabel, action, clearButton, onKeyDown, children }: ReferralFiltersProps) {
   return (
     <div className={`referral-toolbar ${source === 'INTERNAL' ? 'is-internal' : ''}`.trim()}>
       <div className="referral-search-action-row">
@@ -24,6 +25,7 @@ export function ReferralFilters({ source, search, onSearchChange, placeholder, a
           ariaLabel={ariaLabel}
           leading={<SearchIcon />}
           clearButton={clearButton}
+          onKeyDown={onKeyDown}
         />
         {action}
       </div>

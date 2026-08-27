@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { UserRole } from '@interview-assistant/shared';
 import {
   InterviewEvaluationAuditAction,
+  InterviewEvaluationCriterionData,
   InterviewEvaluationFormData,
   InterviewEvaluationReviewerSection,
   InterviewEvaluationReviewerStatus,
@@ -9,7 +10,7 @@ import {
   InterviewEvaluationRoundStatus,
   InterviewEvaluationTemplate,
 } from '@interview-assistant/shared';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
 import { ApplicationEntity } from '../applications/entities/application.entity';
@@ -21,8 +22,13 @@ import { InterviewEvaluationAuditEntity } from './entities/interview-evaluation-
 import { InterviewEvaluationCaseEntity } from './entities/interview-evaluation-case.entity';
 import { InterviewEvaluationReviewerEntity } from './entities/interview-evaluation-reviewer.entity';
 import { InterviewEvaluationRoundEntity } from './entities/interview-evaluation-round.entity';
-import { InterviewCommitteeMemberEntity } from './entities/interview-committee-member.entity';
-import { InterviewCommitteeEntity } from './entities/interview-committee.entity';
+import { AmisRecruitmentBoardMemberEntity } from '../extension-integration/entities/amis-recruitment-board-member.entity';
+import { RecruitmentExternalReferenceEntity } from '../extension-integration/entities/recruitment-external-reference.entity';
+import {
+  ExtensionExternalEntityType,
+  ExtensionInternalEntityType,
+  ExtensionSourceSystem,
+} from '../extension-integration/enums';
 
 export interface InterviewEvaluationActor {
   id: string;
@@ -59,10 +65,10 @@ export class InterviewEvaluationsService {
     private readonly reviewersRepo: Repository<InterviewEvaluationReviewerEntity>,
     @InjectRepository(InterviewEvaluationAuditEntity)
     private readonly auditsRepo: Repository<InterviewEvaluationAuditEntity>,
-    @InjectRepository(InterviewCommitteeEntity)
-    private readonly committeesRepo: Repository<InterviewCommitteeEntity>,
-    @InjectRepository(InterviewCommitteeMemberEntity)
-    private readonly committeeMembersRepo: Repository<InterviewCommitteeMemberEntity>,
+    @InjectRepository(AmisRecruitmentBoardMemberEntity)
+    private readonly amisBoardMembersRepo: Repository<AmisRecruitmentBoardMemberEntity>,
+    @InjectRepository(RecruitmentExternalReferenceEntity)
+    private readonly externalReferencesRepo: Repository<RecruitmentExternalReferenceEntity>,
   ) {}
 
   async getSummary(applicationId: string, actor: InterviewEvaluationActor) {
@@ -129,14 +135,20 @@ export class InterviewEvaluationsService {
       (reviewer) => reviewer.section === InterviewEvaluationReviewerSection.HRBP,
     );
     if (!canManage) {
-      visibleRound.committeeData = {};
       visibleRound.aggregateData = {};
       if (actor.role === UserRole.COMMITTEE) {
-        if (Object.keys(visibleRound.hrbpData).length === 0) {
-          visibleRound.hrbpData = hrbpReviewer?.formData ?? {};
-        }
+        visibleRound.hrbpData = hrbpReviewer?.formData ?? visibleRound.hrbpData;
+        const ownCommitteeReviewer = reviewers.find(
+          (reviewer) => reviewer.userId === actor.id
+            && reviewer.section === InterviewEvaluationReviewerSection.COMMITTEE,
+        );
+        visibleRound.committeeData = this.mergeFormData(
+          visibleRound.committeeData,
+          ownCommitteeReviewer?.formData,
+        );
       } else {
         visibleRound.hrbpData = {};
+        visibleRound.committeeData = {};
       }
     }
     const audits = await this.auditsRepo.find({
@@ -152,6 +164,8 @@ export class InterviewEvaluationsService {
         candidate: this.candidateSummary(application),
         job: this.jobSummary(application),
         template: evaluationCase.template,
+        source: application.source,
+        sourceChannel: application.sourceChannel,
       },
       currentRound: visibleRound,
       rounds: rounds.map((round) => this.roundSummary(round)),
@@ -195,17 +209,6 @@ export class InterviewEvaluationsService {
     const currentRounds = rounds.filter(
       (round) => caseMap.get(round.caseId)?.currentRoundId === round.id,
     );
-    const committeeIds = [...new Set(
-      currentRounds
-        .map((round) => round.committeeId)
-        .filter((committeeId): committeeId is string => Boolean(committeeId)),
-    )];
-    const memberships = committeeIds.length > 0
-      ? await this.committeeMembersRepo.find({
-        where: { userId: actor.id, committeeId: In(committeeIds) },
-      })
-      : [];
-    const memberCommitteeIds = new Set(memberships.map((membership) => membership.committeeId));
     const currentCaseIds = new Set(currentRounds.map((round) => round.caseId));
     const applicationIds = evaluationCases
       .filter((evaluationCase) => currentCaseIds.has(evaluationCase.id))
@@ -238,8 +241,6 @@ export class InterviewEvaluationsService {
         || !evaluationCase
         || evaluationCase.currentRoundId !== round.id
         || !application
-        || !round.committeeId
-        || !memberCommitteeIds.has(round.committeeId)
       ) return [];
 
       return [{
@@ -282,72 +283,54 @@ export class InterviewEvaluationsService {
 
     await this.dataSource.transaction(async (manager) => {
       const roundRepo = manager.getRepository(InterviewEvaluationRoundEntity);
-      const reviewerRepo = manager.getRepository(InterviewEvaluationReviewerEntity);
       const rounds = await roundRepo.find({
         where: { caseId: evaluationCase.id },
         order: { sortOrder: 'ASC' },
       });
-      const currentRound = this.selectCurrentRound(rounds, evaluationCase.currentRoundId);
-      const existingRound = rounds.find((round) => round.amisRoundId === dto.amisRoundId)
-        ?? rounds.find((round) => !round.amisRoundId && this.normalizeRoundName(round.roundName) === this.normalizeRoundName(dto.amisRoundName));
-
-      if (existingRound) {
-        existingRound.amisRoundId = dto.amisRoundId;
-        existingRound.amisRoundType = dto.amisRoundType;
-        existingRound.amisSortOrder = dto.amisSortOrder;
-        existingRound.roundName = dto.amisRoundName;
-        await roundRepo.save(existingRound);
-        evaluationCase.currentRoundId = existingRound.id;
-        await manager.getRepository(InterviewEvaluationCaseEntity).save(evaluationCase);
-        return;
+      if (rounds.length === 0) {
+        throw new BadRequestException('Interview evaluation round not found');
       }
 
-      const nextRound = await roundRepo.save(roundRepo.create({
-        caseId: evaluationCase.id,
-        committeeId: currentRound.committeeId,
-        roundKey: `AMIS_${dto.amisRoundId}`,
-        roundName: dto.amisRoundName,
-        amisRoundId: dto.amisRoundId,
-        amisRoundType: dto.amisRoundType,
-        amisSortOrder: dto.amisSortOrder,
-        sortOrder: dto.amisSortOrder,
-        status: InterviewEvaluationRoundStatus.DRAFT,
-        version: 1,
-        hrbpData: this.cloneFormData(currentRound.hrbpData),
-        committeeData: this.cloneFormData(currentRound.committeeData),
-        aggregateData: this.cloneFormData(currentRound.aggregateData),
-        completedById: null,
-        completedAt: null,
-      }));
-      const currentReviewers = await reviewerRepo.find({ where: { roundId: currentRound.id } });
-      if (currentReviewers.length > 0) {
-        await reviewerRepo.save(currentReviewers.map((reviewer) => reviewerRepo.create({
-          roundId: nextRound.id,
-          userId: reviewer.userId,
-          section: reviewer.section,
-          status: Object.keys(reviewer.formData ?? {}).length > 0
-            ? InterviewEvaluationReviewerStatus.DRAFT
-            : InterviewEvaluationReviewerStatus.PENDING,
-          formData: this.cloneFormData(reviewer.formData),
-          submittedAt: null,
-        })));
+      const previousRound = this.selectCurrentRound(rounds, evaluationCase.currentRoundId);
+      const canonicalRound = await this.consolidateRounds(manager, evaluationCase.id, rounds);
+      const stageChanged = canonicalRound.amisRoundId !== dto.amisRoundId;
+      const contextChanged = stageChanged
+        || canonicalRound.roundName !== dto.amisRoundName
+        || canonicalRound.amisSortOrder !== dto.amisSortOrder;
+
+      canonicalRound.amisRoundId = dto.amisRoundId;
+      canonicalRound.amisRoundType = dto.amisRoundType;
+      canonicalRound.amisSortOrder = dto.amisSortOrder;
+      canonicalRound.roundName = dto.amisRoundName;
+      canonicalRound.sortOrder = dto.amisSortOrder;
+      if (stageChanged) {
+        canonicalRound.status = InterviewEvaluationRoundStatus.READY_TO_EVALUATE;
+        canonicalRound.completedById = null;
+        canonicalRound.completedAt = null;
       }
-      evaluationCase.currentRoundId = nextRound.id;
+      if (contextChanged || rounds.length > 1) {
+        canonicalRound.version = Math.max(...rounds.map((round) => round.version)) + 1;
+      }
+      await roundRepo.save(canonicalRound);
+      evaluationCase.currentRoundId = canonicalRound.id;
       await manager.getRepository(InterviewEvaluationCaseEntity).save(evaluationCase);
-      await this.recordAudit(manager, {
-        caseId: evaluationCase.id,
-        roundId: nextRound.id,
-        actorId: actor.id,
-        action: InterviewEvaluationAuditAction.ROUND_CREATED,
-        fromStatus: currentRound.status,
-        toStatus: nextRound.status,
-        metadata: {
-          source: 'AMIS_STAGE_TRANSITION',
-          fromRoundId: currentRound.amisRoundId,
-          toRoundId: dto.amisRoundId,
-          roundName: dto.amisRoundName,
-        },
-      });
+      if (contextChanged || rounds.length > 1) {
+        await this.recordAudit(manager, {
+          caseId: evaluationCase.id,
+          roundId: canonicalRound.id,
+          actorId: actor.id,
+          action: InterviewEvaluationAuditAction.ROUND_CONTEXT_SYNCHRONIZED,
+          fromStatus: previousRound.status,
+          toStatus: canonicalRound.status,
+          metadata: {
+            source: 'AMIS_STAGE_TRANSITION',
+            fromRoundId: previousRound.amisRoundId,
+            toRoundId: dto.amisRoundId,
+            roundName: dto.amisRoundName,
+            consolidatedRoundCount: rounds.length,
+          },
+        });
+      }
     });
 
     const summary = await this.getSummary(applicationId, actor);
@@ -365,12 +348,20 @@ export class InterviewEvaluationsService {
     const legacyRoundKey = dto.roundKey ?? InterviewEvaluationRoundKey.ECC;
     const roundKey = dto.amisRoundId ? `AMIS_${dto.amisRoundId}` : legacyRoundKey;
     const roundName = dto.roundName?.trim() || ROUND_NAMES[legacyRoundKey];
-    const committeeUserIds = await this.resolveCommitteeUserIds(dto.committeeId, dto.committeeUserIds);
+    const reviewerAssignments = await this.resolveAmisReviewerAssignments(application, actor);
 
     await this.dataSource.transaction(async (manager) => {
       const caseRepo = manager.getRepository(InterviewEvaluationCaseEntity);
       const existing = await caseRepo.findOne({ where: { applicationId } });
       if (existing) {
+        const currentRound = existing.currentRoundId
+          ? await manager.getRepository(InterviewEvaluationRoundEntity).findOne({
+            where: { id: existing.currentRoundId, caseId: existing.id },
+          })
+          : null;
+        if (currentRound) {
+          await this.appendReviewers(manager, currentRound.id, reviewerAssignments);
+        }
         return;
       }
 
@@ -386,7 +377,7 @@ export class InterviewEvaluationsService {
       const round = await manager.getRepository(InterviewEvaluationRoundEntity).save(
         manager.getRepository(InterviewEvaluationRoundEntity).create({
           caseId: evaluationCase.id,
-          committeeId: dto.committeeId ?? null,
+          committeeId: null,
           roundKey,
           roundName,
           amisRoundId: dto.amisRoundId ?? null,
@@ -405,25 +396,7 @@ export class InterviewEvaluationsService {
       evaluationCase.currentRoundId = round.id;
       await caseRepo.save(evaluationCase);
 
-      const reviewerRepo = manager.getRepository(InterviewEvaluationReviewerEntity);
-      await reviewerRepo.save(reviewerRepo.create({
-        roundId: round.id,
-        userId: actor.id,
-        section: InterviewEvaluationReviewerSection.HRBP,
-        status: InterviewEvaluationReviewerStatus.PENDING,
-        formData: {},
-        submittedAt: null,
-      }));
-      if (committeeUserIds.length > 0) {
-        await reviewerRepo.save(committeeUserIds.map((userId) => reviewerRepo.create({
-          roundId: round.id,
-          userId,
-          section: InterviewEvaluationReviewerSection.COMMITTEE,
-          status: InterviewEvaluationReviewerStatus.PENDING,
-          formData: {},
-          submittedAt: null,
-        })));
-      }
+      await this.appendReviewers(manager, round.id, reviewerAssignments);
 
       await this.recordAudit(manager, {
         caseId: evaluationCase.id,
@@ -432,7 +405,15 @@ export class InterviewEvaluationsService {
         action: InterviewEvaluationAuditAction.CASE_CREATED,
         fromStatus: null,
         toStatus: round.status,
-        metadata: { template, roundKey, roundName, committeeId: dto.committeeId ?? null, committeeUserIds },
+        metadata: {
+          template,
+          roundKey,
+          roundName,
+          reviewerUserIds: [
+            ...reviewerAssignments.hrbpUserIds,
+            ...reviewerAssignments.committeeUserIds,
+          ],
+        },
       });
       await this.recordAudit(manager, {
         caseId: evaluationCase.id,
@@ -510,6 +491,34 @@ export class InterviewEvaluationsService {
     return this.getDetail(applicationId, actor, roundId);
   }
 
+  async saveAggregateDraft(
+    applicationId: string,
+    roundId: string,
+    dto: AggregateInterviewEvaluationDto,
+    actor: InterviewEvaluationActor,
+  ) {
+    this.assertManager(actor);
+    const evaluationCase = await this.findCaseForRound(applicationId, roundId);
+    const round = await this.roundsRepo.findOne({ where: { id: roundId, caseId: evaluationCase.id } });
+    if (!round) throw new BadRequestException('Interview evaluation round not found');
+    this.assertVersion(round, dto.expectedVersion);
+
+    const previousStatus = round.status;
+    round.aggregateData = dto.formData;
+    round.version += 1;
+    await this.roundsRepo.save(round);
+    await this.recordAudit(this.dataSource.manager, {
+      caseId: evaluationCase.id,
+      roundId,
+      actorId: actor.id,
+      action: InterviewEvaluationAuditAction.AGGREGATION_DRAFT_SAVED,
+      fromStatus: previousStatus,
+      toStatus: round.status,
+      metadata: { version: round.version },
+    });
+    return this.getDetail(applicationId, actor, roundId);
+  }
+
   async complete(applicationId: string, roundId: string, actor: InterviewEvaluationActor) {
     this.assertManager(actor);
     const evaluationCase = await this.findCaseForRound(applicationId, roundId);
@@ -547,52 +556,29 @@ export class InterviewEvaluationsService {
     }
     const nextKey = ROUND_ORDER[currentRound.sortOrder];
     if (!nextKey) throw new BadRequestException('There is no next round');
-    const existingNext = await this.roundsRepo.findOne({ where: { caseId: evaluationCase.id, roundKey: nextKey } });
-    if (existingNext) throw new BadRequestException('The next round already exists');
 
     await this.dataSource.transaction(async (manager) => {
       const roundRepo = manager.getRepository(InterviewEvaluationRoundEntity);
-      const nextRound = await roundRepo.save(roundRepo.create({
-        caseId: evaluationCase.id,
-        committeeId: currentRound.committeeId,
-        roundKey: nextKey,
-        roundName: ROUND_NAMES[nextKey],
-        amisRoundId: null,
-        amisRoundType: null,
-        amisSortOrder: null,
-        sortOrder: currentRound.sortOrder + 1,
-        status: InterviewEvaluationRoundStatus.DRAFT,
-        version: 1,
-        hrbpData: this.cloneFormData(currentRound.hrbpData),
-        committeeData: this.cloneFormData(currentRound.committeeData),
-        aggregateData: this.cloneFormData(currentRound.aggregateData),
-        completedById: null,
-        completedAt: null,
-      }));
-      const currentReviewers = await manager.getRepository(InterviewEvaluationReviewerEntity).find({
-        where: { roundId: currentRound.id },
-      });
-      const reviewerRepo = manager.getRepository(InterviewEvaluationReviewerEntity);
-      await reviewerRepo.save(currentReviewers.map((reviewer) => reviewerRepo.create({
-        roundId: nextRound.id,
-        userId: reviewer.userId,
-        section: reviewer.section,
-        status: Object.keys(reviewer.formData ?? {}).length > 0
-          ? InterviewEvaluationReviewerStatus.DRAFT
-          : InterviewEvaluationReviewerStatus.PENDING,
-        formData: this.cloneFormData(reviewer.formData),
-        submittedAt: null,
-      })));
-      evaluationCase.currentRoundId = nextRound.id;
+      const previousStatus = currentRound.status;
+      const previousRoundKey = currentRound.roundKey;
+      currentRound.roundKey = nextKey;
+      currentRound.roundName = ROUND_NAMES[nextKey];
+      currentRound.sortOrder += 1;
+      currentRound.status = InterviewEvaluationRoundStatus.READY_TO_EVALUATE;
+      currentRound.completedById = null;
+      currentRound.completedAt = null;
+      currentRound.version += 1;
+      await roundRepo.save(currentRound);
+      evaluationCase.currentRoundId = currentRound.id;
       await manager.getRepository(InterviewEvaluationCaseEntity).save(evaluationCase);
       await this.recordAudit(manager, {
         caseId: evaluationCase.id,
-        roundId: nextRound.id,
+        roundId: currentRound.id,
         actorId: actor.id,
-        action: InterviewEvaluationAuditAction.NEXT_ROUND_CREATED,
-        fromStatus: currentRound.status,
-        toStatus: nextRound.status,
-        metadata: { fromRoundKey: currentRound.roundKey, toRoundKey: nextKey },
+        action: InterviewEvaluationAuditAction.ROUND_CONTEXT_SYNCHRONIZED,
+        fromStatus: previousStatus,
+        toStatus: currentRound.status,
+        metadata: { source: 'MANUAL_STAGE_TRANSITION', fromRoundKey: previousRoundKey, toRoundKey: nextKey },
       });
     });
     return this.getDetail(applicationId, actor);
@@ -612,23 +598,26 @@ export class InterviewEvaluationsService {
     this.assertVersion(round, dto.expectedVersion);
     const reviewer = await this.reviewersRepo.findOne({ where: { roundId, userId: actor.id, section } });
     if (!reviewer) throw new BadRequestException('You are not assigned to this evaluation section');
-    if (section === InterviewEvaluationReviewerSection.COMMITTEE) {
-      await this.assertCommitteeMembership(round, actor.id);
-    }
+    this.assertSectionRole(section, actor);
     const previousStatus = round.status;
-    reviewer.formData = dto.formData;
+    reviewer.formData = this.scopeReviewFormData(reviewer.formData, dto.formData, section);
     reviewer.status = submit
       ? InterviewEvaluationReviewerStatus.SUBMITTED
       : InterviewEvaluationReviewerStatus.DRAFT;
     reviewer.submittedAt = submit ? new Date() : null;
     await this.reviewersRepo.save(reviewer);
     round.version += 1;
-    round.status = submit
-      ? await this.statusAfterSubmission(round)
-      : InterviewEvaluationRoundStatus.DRAFT;
     if (section === InterviewEvaluationReviewerSection.HRBP) {
-      round.hrbpData = dto.formData;
+      round.hrbpData = this.scopeReviewFormData(round.hrbpData, dto.formData, section);
+    } else {
+      round.committeeData = this.scopeReviewFormData(round.committeeData, dto.formData, section);
     }
+    const reviewers = await this.reviewersRepo.find({ where: { roundId } });
+    round.status = reviewers.some(
+      (roundReviewer) => roundReviewer.status === InterviewEvaluationReviewerStatus.SUBMITTED,
+    )
+      ? await this.statusAfterReviewerChange(round)
+      : InterviewEvaluationRoundStatus.DRAFT;
     await this.roundsRepo.save(round);
     await this.recordAudit(this.dataSource.manager, {
       caseId: evaluationCase.id,
@@ -642,7 +631,7 @@ export class InterviewEvaluationsService {
     return this.getDetail(applicationId, actor, roundId);
   }
 
-  private async statusAfterSubmission(round: InterviewEvaluationRoundEntity) {
+  private async statusAfterReviewerChange(round: InterviewEvaluationRoundEntity) {
     const reviewers = await this.reviewersRepo.find({ where: { roundId: round.id } });
     const hrbpSubmitted = reviewers.some(
       (reviewer) => reviewer.section === InterviewEvaluationReviewerSection.HRBP
@@ -651,12 +640,55 @@ export class InterviewEvaluationsService {
     const committeeReviewers = await this.reviewersRepo.find({
       where: { roundId: round.id, section: InterviewEvaluationReviewerSection.COMMITTEE },
     });
-    const allSubmitted = committeeReviewers.length > 0 && committeeReviewers.every(
+    const allSubmitted = committeeReviewers.every(
       (reviewer) => reviewer.status === InterviewEvaluationReviewerStatus.SUBMITTED,
     );
     if (hrbpSubmitted && allSubmitted) return InterviewEvaluationRoundStatus.WAITING_AGGREGATION;
     if (hrbpSubmitted) return InterviewEvaluationRoundStatus.WAITING_COMMITTEE;
     return InterviewEvaluationRoundStatus.IN_REVIEW;
+  }
+
+  private scopeReviewFormData(
+    existing: InterviewEvaluationFormData | null | undefined,
+    incoming: InterviewEvaluationFormData,
+    section: InterviewEvaluationReviewerSection,
+  ) {
+    const scoped = this.cloneFormData(existing);
+    if (section === InterviewEvaluationReviewerSection.HRBP) {
+      if (incoming.hrbp) scoped.hrbp = { ...scoped.hrbp, ...incoming.hrbp };
+      if (incoming.final) {
+        const currentSalaryDetails = scoped.final?.salaryDetails;
+        const incomingSalaryDetails = incoming.final.salaryDetails;
+        scoped.final = {
+          ...scoped.final,
+          ...incoming.final,
+          ...(incomingSalaryDetails ? {
+            salaryDetails: {
+              ...currentSalaryDetails,
+              ...incomingSalaryDetails,
+              notes: { ...currentSalaryDetails?.notes, ...incomingSalaryDetails.notes },
+            },
+          } : {}),
+        };
+      }
+      return scoped;
+    }
+
+    if (!incoming.committee) return scoped;
+    scoped.committee = { ...scoped.committee, ...incoming.committee };
+    if (incoming.committee.technicalCompetencies) {
+      scoped.committee.technicalCompetencies = this.cloneCriterionMatrix(incoming.committee.technicalCompetencies);
+    }
+    if (incoming.committee.personalGrowth) {
+      scoped.committee.personalGrowth = this.cloneCriterionMatrix(incoming.committee.personalGrowth);
+    }
+    return scoped;
+  }
+
+  private cloneCriterionMatrix(matrix?: Record<string, InterviewEvaluationCriterionData[]>) {
+    return Object.fromEntries(
+      Object.entries(matrix ?? {}).map(([key, rows]) => [key, rows.map((row) => ({ ...row }))]),
+    );
   }
 
   private async findApplication(applicationId: string) {
@@ -712,54 +744,89 @@ export class InterviewEvaluationsService {
       where: { roundId: currentRound.id, userId: actor.id },
     });
     if (!reviewer) throw new BadRequestException('You are not assigned to this interview evaluation');
-    if (reviewer.section === InterviewEvaluationReviewerSection.COMMITTEE) {
-      await this.assertCommitteeMembership(currentRound, actor.id);
-    }
+    this.assertSectionRole(reviewer.section, actor);
   }
 
-  private async assertCommitteeMembership(round: InterviewEvaluationRoundEntity, userId: string) {
-    if (!round.committeeId) {
-      throw new BadRequestException('This interview evaluation has no assigned committee');
-    }
-    const membership = await this.committeeMembersRepo.findOne({
-      where: { committeeId: round.committeeId, userId },
+  private async resolveAmisReviewerAssignments(
+    application: ApplicationEntity,
+    actor: InterviewEvaluationActor,
+  ) {
+    const hrbpUserIds = new Set<string>();
+    const committeeUserIds = new Set<string>();
+    if (this.canManage(actor)) hrbpUserIds.add(actor.id);
+
+    const reference = await this.externalReferencesRepo.findOne({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+        internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
+        internalEntityId: application.jobPostingId,
+      },
     });
-    if (!membership) {
-      throw new BadRequestException('You are not a member of the committee assigned to this evaluation');
-    }
-  }
-
-  private async resolveCommitteeUserIds(committeeId?: string, legacyUserIds?: string[]) {
-    if (committeeId) {
-      const committee = await this.committeesRepo.findOne({ where: { id: committeeId, isActive: true } });
-      if (!committee) throw new BadRequestException('Active interview committee not found');
-      const members = await this.committeeMembersRepo.find({ where: { committeeId } });
-      const committeeMemberIds = new Set(members.map((member) => member.userId));
-      const requestedUserIds = legacyUserIds === undefined
-        ? [...committeeMemberIds]
-        : [...new Set(legacyUserIds)];
-      if (requestedUserIds.length === 0) {
-        throw new BadRequestException('Select at least one HĐCM member');
-      }
-      if (requestedUserIds.some((userId) => !committeeMemberIds.has(userId))) {
-        throw new BadRequestException('Every selected reviewer must belong to the selected committee');
-      }
-      const userIds = requestedUserIds;
-      await this.assertAssignableUsers(userIds);
-      if (userIds.length === 0) throw new BadRequestException('The selected committee has no HĐCM members');
-      return userIds;
+    if (!reference) {
+      return { hrbpUserIds: [...hrbpUserIds], committeeUserIds: [...committeeUserIds] };
     }
 
-    const userIds = [...new Set(legacyUserIds ?? [])];
-    await this.assertAssignableUsers(userIds);
-    return userIds;
+    const boardMembers = await this.amisBoardMembersRepo.find({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        amisRecruitmentId: reference.externalId,
+        isActive: true,
+      },
+    });
+    const amisUserIds = [...new Set(boardMembers.map((member) => member.amisUserId))];
+    if (amisUserIds.length === 0) {
+      return { hrbpUserIds: [...hrbpUserIds], committeeUserIds: [...committeeUserIds] };
+    }
+
+    const users = await this.usersRepo.find({ where: { amisUserId: In(amisUserIds) } });
+    for (const user of users) {
+      if (user.role === UserRole.HR) hrbpUserIds.add(user.id);
+      if (user.role === UserRole.COMMITTEE) committeeUserIds.add(user.id);
+    }
+
+    return { hrbpUserIds: [...hrbpUserIds], committeeUserIds: [...committeeUserIds] };
   }
 
-  private async assertAssignableUsers(userIds: string[]) {
-    if (userIds.length === 0) return;
-    const users = await this.usersRepo.findByIds(userIds);
-    if (users.length !== userIds.length || users.some((user) => user.role !== UserRole.COMMITTEE)) {
-      throw new BadRequestException('Every committee member must have the HĐCM role');
+  private async appendReviewers(
+    manager: EntityManager,
+    roundId: string,
+    assignments: { hrbpUserIds: string[]; committeeUserIds: string[] },
+  ) {
+    const reviewerRepo = manager.getRepository(InterviewEvaluationReviewerEntity);
+    const existing = await reviewerRepo.find({ where: { roundId } });
+    const existingKeys = new Set(existing.map((reviewer) => this.reviewerKey(reviewer)));
+    const reviewerInputs = [
+      ...assignments.hrbpUserIds.map((userId) => ({
+        userId,
+        section: InterviewEvaluationReviewerSection.HRBP,
+      })),
+      ...assignments.committeeUserIds.map((userId) => ({
+        userId,
+        section: InterviewEvaluationReviewerSection.COMMITTEE,
+      })),
+    ].filter((input) => !existingKeys.has(`${input.userId}:${input.section}`));
+
+    if (reviewerInputs.length === 0) return;
+    await reviewerRepo.save(reviewerInputs.map((input) => reviewerRepo.create({
+      roundId,
+      userId: input.userId,
+      section: input.section,
+      status: InterviewEvaluationReviewerStatus.PENDING,
+      formData: {},
+      submittedAt: null,
+    })));
+  }
+
+  private assertSectionRole(
+    section: InterviewEvaluationReviewerSection,
+    actor: InterviewEvaluationActor,
+  ) {
+    if (section === InterviewEvaluationReviewerSection.COMMITTEE && actor.role !== UserRole.COMMITTEE) {
+      throw new BadRequestException('Only HĐCM accounts can edit the HĐCM evaluation section');
+    }
+    if (section === InterviewEvaluationReviewerSection.HRBP && !this.canManage(actor)) {
+      throw new BadRequestException('Only HR or Admin accounts can edit the HRBP evaluation section');
     }
   }
 
@@ -777,12 +844,135 @@ export class InterviewEvaluationsService {
     }
   }
 
-  private normalizeRoundName(value: string) {
-    return value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '');
+  private async consolidateRounds(
+    manager: EntityManager,
+    caseId: string,
+    rounds: InterviewEvaluationRoundEntity[],
+  ) {
+    const canonicalRound = rounds[0];
+    if (!canonicalRound) throw new BadRequestException('Interview evaluation round not found');
+    if (rounds.length === 1) return canonicalRound;
+
+    const roundRepo = manager.getRepository(InterviewEvaluationRoundEntity);
+    const reviewerRepo = manager.getRepository(InterviewEvaluationReviewerEntity);
+    const auditRepo = manager.getRepository(InterviewEvaluationAuditEntity);
+    const roundIds = rounds.map((round) => round.id);
+    const reviewers = await reviewerRepo.find({
+      where: { roundId: In(roundIds) },
+      order: { createdAt: 'ASC' },
+    });
+    const canonicalReviewers = new Map<string, InterviewEvaluationReviewerEntity>();
+    for (const reviewer of reviewers) {
+      if (reviewer.roundId === canonicalRound.id) {
+        canonicalReviewers.set(this.reviewerKey(reviewer), reviewer);
+      }
+    }
+
+    for (const sourceRound of rounds.slice(1)) {
+      canonicalRound.hrbpData = this.mergeFormData(canonicalRound.hrbpData, sourceRound.hrbpData);
+      canonicalRound.committeeData = this.mergeFormData(canonicalRound.committeeData, sourceRound.committeeData);
+      canonicalRound.aggregateData = this.mergeFormData(canonicalRound.aggregateData, sourceRound.aggregateData);
+      canonicalRound.committeeId ??= sourceRound.committeeId;
+    }
+
+    for (const reviewer of reviewers) {
+      if (reviewer.roundId === canonicalRound.id) {
+        this.mergeReviewerIntoRound(canonicalRound, reviewer);
+        continue;
+      }
+
+      const key = this.reviewerKey(reviewer);
+      const canonicalReviewer = canonicalReviewers.get(key);
+      if (!canonicalReviewer) {
+        const copiedReviewer = reviewerRepo.create({
+          roundId: canonicalRound.id,
+          userId: reviewer.userId,
+          section: reviewer.section,
+          status: reviewer.status,
+          formData: this.cloneFormData(reviewer.formData),
+          submittedAt: reviewer.submittedAt,
+        });
+        const savedReviewer = await reviewerRepo.save(copiedReviewer);
+        canonicalReviewers.set(key, savedReviewer);
+        this.mergeReviewerIntoRound(canonicalRound, savedReviewer);
+        continue;
+      }
+
+      canonicalReviewer.formData = this.mergeFormData(canonicalReviewer.formData, reviewer.formData);
+      if (this.shouldUseReviewerState(reviewer, canonicalReviewer)) {
+        canonicalReviewer.status = reviewer.status;
+        canonicalReviewer.submittedAt = reviewer.submittedAt;
+      }
+      await reviewerRepo.save(canonicalReviewer);
+      this.mergeReviewerIntoRound(canonicalRound, canonicalReviewer);
+    }
+
+    for (const duplicateRound of rounds.slice(1)) {
+      await auditRepo.update(
+        { caseId, roundId: duplicateRound.id },
+        { roundId: canonicalRound.id },
+      );
+      await reviewerRepo.delete({ roundId: duplicateRound.id });
+      await roundRepo.delete({ id: duplicateRound.id });
+    }
+    await roundRepo.save(canonicalRound);
+    return canonicalRound;
+  }
+
+  private reviewerKey(reviewer: InterviewEvaluationReviewerEntity) {
+    return `${reviewer.userId}:${reviewer.section}`;
+  }
+
+  private mergeReviewerIntoRound(
+    round: InterviewEvaluationRoundEntity,
+    reviewer: InterviewEvaluationReviewerEntity,
+  ) {
+    if (reviewer.section === InterviewEvaluationReviewerSection.HRBP) {
+      round.hrbpData = this.mergeFormData(round.hrbpData, reviewer.formData);
+      return;
+    }
+    round.committeeData = this.mergeFormData(round.committeeData, reviewer.formData);
+  }
+
+  private shouldUseReviewerState(
+    source: InterviewEvaluationReviewerEntity,
+    target: InterviewEvaluationReviewerEntity,
+  ) {
+    const sourceRank = this.reviewerStatusRank(source.status);
+    const targetRank = this.reviewerStatusRank(target.status);
+    return sourceRank > targetRank || (source.submittedAt !== null && target.submittedAt === null);
+  }
+
+  private reviewerStatusRank(status: InterviewEvaluationReviewerStatus) {
+    if (status === InterviewEvaluationReviewerStatus.SUBMITTED) return 2;
+    if (status === InterviewEvaluationReviewerStatus.DRAFT) return 1;
+    return 0;
+  }
+
+  private mergeFormData(
+    base: InterviewEvaluationFormData | null | undefined,
+    source: InterviewEvaluationFormData | null | undefined,
+  ) {
+    const merged = this.cloneFormData(base);
+    const sections: Array<keyof InterviewEvaluationFormData> = ['overall', 'hrbp', 'committee', 'final'];
+    for (const section of sections) {
+      const sourceSection = source?.[section];
+      if (!sourceSection) continue;
+      const mergedSection = { ...(merged[section] ?? {}) } as Record<string, unknown>;
+      for (const [key, value] of Object.entries(sourceSection)) {
+        if (!this.hasMeaningfulFormValue(mergedSection[key]) && this.hasMeaningfulFormValue(value)) {
+          mergedSection[key] = value;
+        }
+      }
+      (merged as Record<string, unknown>)[section] = mergedSection;
+    }
+    return merged;
+  }
+
+  private hasMeaningfulFormValue(value: unknown) {
+    if (typeof value === 'string') return value.trim().length > 0 && value !== 'PENDING';
+    if (typeof value === 'number') return value > 0;
+    return value !== null && value !== undefined;
   }
 
   private cloneFormData(data: InterviewEvaluationFormData | null | undefined): InterviewEvaluationFormData {
@@ -866,8 +1056,9 @@ export class InterviewEvaluationsService {
     canManage: boolean,
   ) {
     if (canManage || reviewer.userId === actor.id) return true;
-    return actor.role === UserRole.COMMITTEE
-      && reviewer.section === InterviewEvaluationReviewerSection.COMMITTEE
+    if (actor.role !== UserRole.COMMITTEE) return false;
+    if (reviewer.section === InterviewEvaluationReviewerSection.HRBP) return true;
+    return reviewer.section === InterviewEvaluationReviewerSection.COMMITTEE
       && reviewer.status === InterviewEvaluationReviewerStatus.SUBMITTED;
   }
 
@@ -875,12 +1066,13 @@ export class InterviewEvaluationsService {
     if (canManage) return audits;
     return audits.filter(
       (audit) => audit.action !== InterviewEvaluationAuditAction.AGGREGATION_SAVED
+        && audit.action !== InterviewEvaluationAuditAction.AGGREGATION_DRAFT_SAVED
         && audit.action !== InterviewEvaluationAuditAction.ROUND_COMPLETED,
     );
   }
 
   private async recordAudit(
-    manager: ReturnType<DataSource['createEntityManager']>,
+    manager: EntityManager,
     input: {
       caseId: string;
       roundId: string;

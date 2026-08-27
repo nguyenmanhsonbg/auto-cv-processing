@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { apiClient, ApiError } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { AuthProvider, useAuthContext } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -21,7 +21,6 @@ import {
   UserCog,
   Bot,
   Cpu,
-  ClipboardCheck,
 } from 'lucide-react';
 import type { User } from '@interview-assistant/shared';
 import { UserRole } from '@interview-assistant/shared';
@@ -43,10 +42,6 @@ const recruitmentNavItems = [
   { label: 'Job Descriptions', href: '/recruitment/job-descriptions', icon: FileText },
   { label: 'Job Postings', href: '/recruitment/job-postings', icon: Briefcase },
   { label: 'Applications', href: '/recruitment/applications', icon: Users },
-];
-
-const committeeNavItems = [
-  { label: 'Phiếu được giao', href: '/interview-evaluations', icon: ClipboardCheck },
 ];
 
 const settingsNavItems = [
@@ -280,19 +275,18 @@ function SidebarNavigation({
 }>) {
   const isAdmin = user?.role === UserRole.ADMIN;
   const isFreelancerUser = user?.role === UserRole.FREELANCER;
-  const isCommitteeUser = user?.role === UserRole.COMMITTEE;
   const isRecruitmentUser = isAdmin || user?.role === UserRole.HR;
   const primaryNavItems: SidebarNavItem[] = isFreelancerUser
     ? [{ label: 'Freelancer', href: freelancerWorkspacePath, icon: Users }]
-    : isCommitteeUser ? committeeNavItems : defaultNavItems;
+    : defaultNavItems;
 
   return (
     <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
       <SidebarNavLinks items={primaryNavItems} pathname={pathname} collapsed={collapsed} />
-      {!isFreelancerUser && !isCommitteeUser && isRecruitmentUser && (
+      {!isFreelancerUser && isRecruitmentUser && (
         <SidebarNavLinks items={hrAdminNavItems} pathname={pathname} collapsed={collapsed} />
       )}
-      {!isFreelancerUser && !isCommitteeUser && isRecruitmentUser && (
+      {!isFreelancerUser && isRecruitmentUser && (
         <RecruitmentNavSection
           pathname={pathname}
           collapsed={collapsed}
@@ -300,7 +294,7 @@ function SidebarNavigation({
           onToggle={onToggleRecruitment}
         />
       )}
-      {!isFreelancerUser && !isCommitteeUser && isAdmin && (
+      {!isFreelancerUser && isAdmin && (
         <SettingsNavSection
           pathname={pathname}
           collapsed={collapsed}
@@ -436,49 +430,7 @@ function SidebarContent() {
 
 function LayoutInner() {
   const location = useLocation();
-  const { user, setUser } = useAuthContext();
-  const [authState, setAuthState] = useState<'loading' | 'ready' | 'unauthenticated' | 'error'>('loading');
-
-  useEffect(() => {
-    let isActive = true;
-    const token = localStorage.getItem('token');
-    const refreshToken = localStorage.getItem('refreshToken');
-
-    if (!token && !refreshToken) {
-      apiClient.clearTokens();
-      setUser(null);
-      setAuthState('unauthenticated');
-      return () => {
-        isActive = false;
-      };
-    }
-
-    apiClient.setToken(token);
-    apiClient.setRefreshToken(refreshToken);
-    apiClient.get<User>('/auth/me')
-      .then((resolvedUser) => {
-        if (!isActive) return;
-        setUser(resolvedUser);
-        setAuthState('ready');
-      })
-      .catch((err) => {
-        if (!isActive) return;
-
-        // Only logout on 401 - network errors (e.g. backend restarting) should not clear the session
-        if (err instanceof ApiError && err.status === 401) {
-          apiClient.clearTokens();
-          setUser(null);
-          setAuthState('unauthenticated');
-          return;
-        }
-
-        setAuthState('error');
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [setUser]);
+  const { user, authState } = useAuthContext();
 
   if (authState === 'loading') {
     return (
@@ -512,9 +464,8 @@ function LayoutInner() {
     return <Navigate to={freelancerWorkspacePath} replace />;
   }
 
-  if (user.role === UserRole.COMMITTEE
-    && !location.pathname.startsWith('/interview-evaluations')) {
-    return <Navigate to="/interview-evaluations" replace />;
+  if (user.role === UserRole.COMMITTEE) {
+    return <Navigate to="/login" replace />;
   }
 
   return (

@@ -10,3 +10,4 @@ export * from './types/pagination';
 export * from './email-validation';
 export * from './profile-payload';
 export * from './secure-random';
+export * from './types/extension-toast';

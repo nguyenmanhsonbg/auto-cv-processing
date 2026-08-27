@@ -564,15 +564,12 @@ export function useFacebookManager({
     if (files.length === 0) return;
 
     const availableSlots = FACEBOOK_MAX_IMAGE_ATTACHMENTS - facebookImageAttachments.length;
-    if (availableSlots <= 0 || files.length > availableSlots) {
-      setFacebookImageAttachmentState('ERROR');
-      setFacebookImageAttachmentError(`Bài đăng chỉ được tối đa ${FACEBOOK_MAX_IMAGE_ATTACHMENTS} ảnh.`);
-      return;
-    }
+    if (availableSlots <= 0) return;
+    const filesToProcess = files.slice(0, availableSlots);
 
     const readSeq = facebookImageReadSeqRef.current + 1;
     facebookImageReadSeqRef.current = readSeq;
-    const validationError = files
+    const validationError = filesToProcess
       .map((file) => getFacebookImageFileValidationError(file))
       .find(Boolean) ?? null;
     if (validationError) {
@@ -584,7 +581,7 @@ export function useFacebookManager({
     setFacebookImageAttachmentState('READING');
     setFacebookImageAttachmentError(null);
     try {
-      const dataUrls = await Promise.all(files.map((file) => readFileAsDataUrl(file)));
+      const dataUrls = await Promise.all(filesToProcess.map((file) => readFileAsDataUrl(file)));
       if (facebookImageReadSeqRef.current !== readSeq) return;
       const existingContentKeys = new Set(
         facebookImageAttachments.map((attachment) => getFacebookImageContentKey(attachment.dataUrl)),
@@ -604,7 +601,7 @@ export function useFacebookManager({
         return;
       }
 
-      const newAttachments = files.map((file, index): FacebookPublishAttachment => ({
+      const newAttachments = filesToProcess.map((file, index): FacebookPublishAttachment => ({
         type: 'IMAGE',
         source: 'LOCAL_UPLOAD',
         fileName: file.name || 'facebook-image',
@@ -882,6 +879,35 @@ export function useFacebookManager({
       setFacebookGroupMessage(toErrorMessage(err));
     }
   }, [facebookGroupLoadState, onAuthRequired, syncFacebookGroupsFromBrowser, token]);
+
+  const refreshFacebookGroupsAfterPublish = useCallback(async () => {
+    const accessToken = tokenRef.current;
+    const accountId = facebookAccount?.id;
+    if (!accessToken || !accountId) return;
+
+    try {
+      const groups = sortFacebookGroupsByDiscovery(await getFacebookGroups(accessToken, accountId));
+      facebookGroupsRef.current = groups;
+      setFacebookGroups(groups);
+      const selectedIds = await reconcileSelectedFacebookGroups(
+        groups,
+        selectedFacebookGroupIdsRef.current,
+        accountId,
+      );
+
+      if (channelsRef.current.includes('FACEBOOK')) {
+        setFacebookGroupLoadState('READY');
+        setFacebookGroupMessage(
+          groups.length > 0
+            ? buildFacebookGroupSelectionMessage(selectedIds, groups)
+            : 'Đã quét được 0 nhóm',
+        );
+      }
+    } catch (error) {
+      // A quota refresh must not turn an already accepted Facebook publish into a failed publish.
+      console.warn('[FB_QUOTA_REFRESH] Failed to refresh Facebook group quotas after publish.', error);
+    }
+  }, [facebookAccount?.id, reconcileSelectedFacebookGroups]);
 
   const refreshFacebookGroupsForSettings = useCallback(async (accessToken = token) => {
     if (!accessToken) return;
@@ -1506,12 +1532,13 @@ export function useFacebookManager({
           jobDescriptionId: draftScope.jobDescriptionId ?? previousDraftScope.jobDescriptionId,
           snapshot,
         });
+        await refreshFacebookGroupsAfterPublish();
       }
       return { facebookResults, summary };
     } finally {
       setFacebookRunning(false);
     }
-  }, [amisRecruitmentId, clearFacebookImageViewIfReleased, getFacebookContentDraftScope, getFacebookImageAttachmentScope, requestFacebookImageAttachDecision, setSyncResult, snapshot, token]);
+  }, [amisRecruitmentId, clearFacebookImageViewIfReleased, getFacebookContentDraftScope, getFacebookImageAttachmentScope, refreshFacebookGroupsAfterPublish, requestFacebookImageAttachDecision, setSyncResult, snapshot, token]);
 
   const facebookConfig = useMemo(() => ({
     selectedPostingChannels,

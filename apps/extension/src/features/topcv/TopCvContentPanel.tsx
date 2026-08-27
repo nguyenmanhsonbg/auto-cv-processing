@@ -138,7 +138,3 @@ export function TopCvContentPanel({
     </div>
   );
 }
-
-
-
-

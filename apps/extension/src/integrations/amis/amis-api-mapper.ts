@@ -1,4 +1,10 @@
-import type { AmisApplicationItem, AmisCareerItem, AmisExtractionResult, AmisJobSnapshot } from '@/types/types';
+import type {
+  AmisApplicationItem,
+  AmisCandidateStageChangedPayload,
+  AmisCareerItem,
+  AmisExtractionResult,
+  AmisJobSnapshot,
+} from '@/types/types';
 import {
   removeHorizontalWhitespaceBeforeNewlines,
   stripHtmlTags,
@@ -52,12 +58,24 @@ export const AMIS_SAVE_RECRUITMENT_PATH =
   '/RecruitmentAPI/api/recruitment/SaveRecruitment';
 export const AMIS_CAREER_DATA_PAGING_PATH =
   '/RecruitmentAPI/api/Career/data_paging';
+export const AMIS_CANDIDATE_ADDITIONAL_INFO_PATH =
+  '/RecruitmentAPI/api/Candidate/candidate-additional-infor/';
+export const AMIS_CANDIDATE_UPDATE_ROUND_PATH =
+  '/RecruitmentAPI/api/RecruitmentDetail/updateRound';
 export function isAmisSaveRecruitmentUrl(url: string) {
   return url.toLowerCase().includes(AMIS_SAVE_RECRUITMENT_PATH.toLowerCase());
 }
 
 export function isAmisCareerDataPagingUrl(url: string) {
   return url.toLowerCase().includes(AMIS_CAREER_DATA_PAGING_PATH.toLowerCase());
+}
+
+export function isAmisCandidateAdditionalInfoUrl(url: string) {
+  return url.toLowerCase().includes(AMIS_CANDIDATE_ADDITIONAL_INFO_PATH.toLowerCase());
+}
+
+export function isAmisCandidateUpdateRoundUrl(url: string) {
+  return url.toLowerCase().includes(AMIS_CANDIDATE_UPDATE_ROUND_PATH.toLowerCase());
 }
 
 export function isLikelyAmisApplicationListUrl(url: string) {
@@ -240,6 +258,67 @@ export function mapAmisApplicationsResponse(response: unknown): AmisApplicationI
     `${item.recruitmentId}:${item.recruitmentRoundId}:${getAmisApplicationIdentityId(item)}`,
     item,
   ])).values()];
+}
+
+export function mapAmisCandidateStageResponse(
+  response: unknown,
+  sourceUrl: string,
+  pageUrl: string,
+): AmisCandidateStageChangedPayload | null {
+  if (!isObject(response)) return null;
+  if ((response.Success ?? response.success) === false) return null;
+
+  const responseData = response.Data ?? response.data;
+  if (!isObject(responseData)) return null;
+
+  const details = responseData.ListRecruitmentDetails ?? responseData.listRecruitmentDetails;
+  if (!Array.isArray(details)) return null;
+
+  const current = details.find(isObject);
+  if (!current) return null;
+
+  const amisRecruitmentId = cleanText(readFirst(current, [
+    'RecruitmentID',
+    'RecruitmentId',
+    'recruitmentId',
+    'recruitmentID',
+  ]));
+  const amisCandidateId = cleanText(readFirst(current, [
+    'CandidateID',
+    'CandidateId',
+    'candidateId',
+  ]));
+  const amisRecruitmentRoundId = cleanText(readFirst(current, [
+    'RecruitmentRoundID',
+    'RecruitmentRoundId',
+    'recruitmentRoundId',
+  ]));
+  const amisRecruitmentRoundName = cleanText(readFirst(current, [
+    'RecruitmentRoundName',
+    'RecruitmentRound',
+    'recruitmentRoundName',
+  ]));
+  const reasonRemoved = cleanText(readFirst(current, [
+    'ReasonRemoved',
+    'ReasonRemovedName',
+    'reasonRemoved',
+    'reasonRemovedName',
+  ]));
+
+  if (!amisRecruitmentId || !amisCandidateId || !amisRecruitmentRoundId) return null;
+
+  return {
+    amisRecruitmentId,
+    amisCandidateId,
+    amisRecruitmentRoundId,
+    amisRecruitmentRoundName: amisRecruitmentRoundName || null,
+    reasonRemoved: reasonRemoved || null,
+    amisStatus: readNumber(current, ['Status', 'status']) ?? null,
+    sourceUrl,
+    pageUrl,
+    changedAt: new Date().toISOString(),
+    isTransitionEvent: false,
+  };
 }
 
 function getAmisApplicationIdentityId(item: AmisApplicationItem) {

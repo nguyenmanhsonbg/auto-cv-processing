@@ -14,6 +14,7 @@ export * from './update-facebook-group.dto';
 export * from './discover-facebook-groups.dto';
 export * from './sync-amis-applications.dto';
 export * from './sync-amis-recruitment-rounds.dto';
+export * from './sync-amis-recruitment-board-members.dto';
 export * from './verify-facebook-group.dto';
 export * from './sync-vcs-portal-jds.dto';
 export * from './generate-facebook-preview-content.dto';

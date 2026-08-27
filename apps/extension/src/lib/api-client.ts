@@ -17,6 +17,7 @@ import type {
   AmisApplicationsForRecruitment,
   AmisRecruitmentJobDescriptionMapping,
   AmisRecruitmentRound,
+  AmisRecruitmentBoardMember,
   AmisCandidateStageChangedPayload,
   AmisCareerCatalogItem,
   AmisCareerQuestionContext,
@@ -63,6 +64,7 @@ import type {
   InterviewEvaluationFormData,
   InterviewEvaluationReviewerSection,
   InterviewEvaluationSummary,
+  InterviewEvaluationAssignment,
   InterviewEvaluationRoundKey,
   InterviewEvaluationTemplate,
   InterviewCommittee,
@@ -640,6 +642,39 @@ export async function syncAmisRecruitmentRounds(
   );
 }
 
+export async function syncAmisRecruitmentBoardMembers(
+  accessToken: string,
+  amisRecruitmentId: string,
+  payload: { members: AmisRecruitmentBoardMember[]; sourceUrl?: string | null },
+) {
+  return request<{
+    amisRecruitmentId: string;
+    syncedCount: number;
+    revokedCount: number;
+    matchedCount: number;
+    unmatchedCount: number;
+    lastSyncedAt: string;
+  }>(
+    `/extension/amis/recruitments/${encodeURIComponent(amisRecruitmentId)}/board-members/sync`,
+    {
+      method: 'POST',
+      accessToken,
+      body: {
+        sourceUrl: payload.sourceUrl ?? undefined,
+        members: payload.members.map((member) => ({
+          amisBoardId: member.amisBoardId,
+          amisUserId: member.amisUserId,
+          fullName: member.fullName,
+          email: member.email,
+          isAdmin: member.isAdmin,
+          isViewOffer: member.isViewOffer,
+          isPushNotification: member.isPushNotification,
+        })),
+      },
+    },
+  );
+}
+
 export async function updateAmisApplicationStage(
   accessToken: string,
   payload: AmisCandidateStageChangedPayload,
@@ -777,6 +812,27 @@ export async function getInterviewEvaluationSummary(
     `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/summary`,
     { method: 'GET', accessToken },
   );
+}
+
+export async function createInterviewEvaluationHandoff(
+  accessToken: string,
+  applicationId: string,
+) {
+  return request<{ handoffToken: string; expiresAt: string }>(
+    '/auth/evaluation-handoffs',
+    {
+      method: 'POST',
+      accessToken,
+      body: { applicationId },
+    },
+  );
+}
+
+export async function listAssignedInterviewEvaluations(accessToken: string) {
+  return request<InterviewEvaluationAssignment[]>('/interview-evaluations/assigned', {
+    method: 'GET',
+    accessToken,
+  });
 }
 
 export async function listAssignableRecruitmentUsers(accessToken: string) {

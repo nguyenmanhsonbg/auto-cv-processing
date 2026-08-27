@@ -2087,6 +2087,14 @@ dd {
   background: #ecfdf5;
 }
 
+.channel-group-info-button:disabled,
+.channel-group-info-button:disabled:hover {
+  color: #9ca3af;
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .channel-group-info-button svg {
   width: 15px;
   height: 15px;
@@ -8471,6 +8479,65 @@ dd {
   min-width: 0;
 }
 
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option {
+  min-height: 44px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 12px;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-label {
+  align-items: center;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-content {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-meta {
+  flex: none;
+}
+
+.freelancer-cv-toolbar .freelancer-cv-jd-filter {
+  container-type: inline-size;
+}
+
+@container (max-width: 240px) {
+  .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta {
+    min-height: 56px;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 8px 12px;
+  }
+
+  .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-label {
+    align-items: flex-start;
+  }
+
+  .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-content {
+    display: grid;
+    align-items: start;
+    justify-content: initial;
+    gap: 2px;
+  }
+
+  .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta .referral-jd-option-meta {
+    display: block;
+  }
+}
+
 .freelancer-cv-list {
   display: grid;
   gap: 12px;
@@ -8487,9 +8554,7 @@ dd {
 }
 
 .freelancer-cv-card>header,
-.freelancer-cv-card>footer,
-.freelancer-cv-pagination,
-.freelancer-cv-pagination>div {
+.freelancer-cv-card>footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -8498,17 +8563,35 @@ dd {
 
 .freelancer-cv-card-heading {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
   gap: 10px;
 }
 
 .freelancer-cv-card-heading>div {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
 }
 
-.freelancer-cv-card h3 {
+.freelancer-cv-card h3,
+.freelancer-cv-candidate-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 16px;
+}
+
+.freelancer-cv-card-heading .cv-avatar {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  overflow: hidden;
+  border-radius: 50%;
 }
 
 .freelancer-cv-card header p,
@@ -8578,8 +8661,12 @@ dd {
 }
 
 .freelancer-cv-note textarea {
-  min-height: 58px;
-  resize: vertical;
+  height: 80px;
+  min-height: 80px;
+  max-height: 80px;
+  line-height: 20px;
+  overflow-y: auto;
+  resize: none;
 }
 
 .freelancer-cv-empty {
@@ -8622,16 +8709,63 @@ dd {
 }
 
 .freelancer-cv-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   border-top: 1px solid #e5e7eb;
   padding-top: 12px;
   color: #5b6677;
   font-size: 12px;
 }
 
-.freelancer-cv-pagination .secondary-button {
-  min-width: 34px;
-  min-height: 32px;
-  padding: 5px 9px;
+.freelancer-cv-pagination>span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.freelancer-cv-pagination>div {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.freelancer-cv-page-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 6px;
+  color: #2f2b3d;
+  background: rgba(47, 43, 61, .08);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16.8px;
+  cursor: pointer;
+}
+
+.freelancer-cv-page-button:disabled {
+  color: rgba(47, 43, 61, .4);
+  cursor: not-allowed;
+}
+
+.freelancer-cv-page-button.is-active {
+  color: #f0fdf4;
+  background: #15803d;
+}
+
+.freelancer-cv-pagination-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 30px;
 }
 
 .freelancer-cv-save-button {
@@ -8675,8 +8809,7 @@ dd {
   }
 
   .freelancer-cv-pagination {
-    align-items: flex-start;
-    flex-direction: column;
+    gap: 6px;
   }
 }
 
@@ -9230,6 +9363,8 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .referral-jd-option {
   display: flex;
+  width: 100%;
+  box-sizing: border-box;
   min-height: 44px;
   align-items: center;
   justify-content: space-between;
@@ -9247,6 +9382,19 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   cursor: pointer;
 }
 
+.referral-jd-option-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.referral-jd-option:focus-within {
+  outline: 2px solid #15803D;
+  outline-offset: -2px;
+}
+
 .referral-jd-option:hover,
 .referral-jd-option.is-selected {
   color: #15803D;
@@ -9260,9 +9408,38 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   gap: 8px;
 }
 
-.referral-jd-option-label>span:last-child {
-  overflow: visible;
+.referral-jd-option.has-meta {
+  min-height: 56px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 8px 12px;
+}
+
+.referral-jd-option.has-meta .referral-jd-option-label {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+}
+
+.referral-jd-option.has-meta .referral-jd-option-content {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.referral-jd-option.has-meta .referral-jd-option-title {
+  overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.referral-jd-option.has-meta .referral-jd-option-meta {
+  display: block;
+  color: #A3A3A3;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 15px;
+  white-space: nowrap;
 }
 
 .referral-jd-checkbox {
@@ -9286,13 +9463,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   background: #15803D;
 }
 
-.referral-jd-option>time {
-  flex: none;
-  color: #737373;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .referral-filter-row .referral-jd-options {
   width: max(100%, 300px);
   min-width: 0;
@@ -9305,15 +9475,12 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   flex: 1 1 auto;
 }
 
-.referral-filter-row .referral-jd-option-label>span:last-child {
+.referral-filter-row .referral-jd-option.has-meta .referral-jd-option-content {
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
-.referral-filter-row .referral-jd-option>time {
-  width: 108px;
-  flex: 0 0 108px;
-  text-align: right;
+.referral-filter-row .referral-jd-option.has-meta .referral-jd-option-title {
+  overflow-wrap: anywhere;
 }
 
 .referral-state {
@@ -9343,6 +9510,27 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   text-align: left;
 }
 
+.referral-management-panel.is-freelancer .referral-empty-state {
+  display: flex;
+  min-height: 0;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 1px solid rgba(189, 201, 194, 0.4);
+  border-radius: 16px;
+  padding: 16px;
+  color: #64696E;
+  background: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  font-family: Inter, sans-serif;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: left;
+  box-sizing: border-box;
+}
+
 .referral-people-list {
   display: flex;
   flex-direction: column;
@@ -9366,7 +9554,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-person-card.is-inactive {
-  opacity: 0.85;
+  opacity: 1;
 }
 
 .referral-person-heading {
@@ -9379,6 +9567,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-person-identity {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -9388,11 +9577,16 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .referral-person-name-row {
   display: flex;
   align-items: center;
+  width: 100%;
   min-width: 0;
   gap: 8px;
 }
 
 .referral-person-identity h3 {
+  flex: 0 1 150px;
+  width: 150px;
+  min-width: 0;
+  max-width: min(150px, 24ch);
   margin: 0;
   color: #262626;
   font-family: Inter, sans-serif;
@@ -9474,11 +9668,13 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: none;
+  flex: 0 0 auto;
 }
 
 .referral-active-badge {
   flex: none;
+  min-width: 32px;
+  box-sizing: border-box;
   border-radius: 999px;
   padding: 2px 12px;
   color: #15803D;
@@ -9518,18 +9714,20 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
   width: 100%;
-  padding: 0 4px;
+  padding: 0;
   box-sizing: border-box;
 }
 
 .referral-metrics-grid .stats-metric-card {
-  min-width: 0;
+  flex: 0 0 110px;
+  width: 110px;
   height: 60px;
-  padding: 6px 4px;
+  padding: 8px 10px;
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 12px;
@@ -9543,10 +9741,10 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .referral-metrics-grid .stats-metric-card span {
   font-family: Inter, sans-serif;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
-  line-height: 12px;
-  letter-spacing: 0.02em;
+  line-height: 15px;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
   color: #737373;
   text-align: center;
@@ -9556,9 +9754,9 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 
 .referral-metrics-grid .stats-metric-card strong {
   font-family: Inter, sans-serif;
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 700;
-  line-height: 26px;
+  line-height: 32px;
   color: #262626;
   text-align: center;
 }
@@ -9627,17 +9825,72 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-table-wrap {
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  /* Keep the expanded Freelancer CV list compact while preserving all rows through vertical scroll. */
+  max-height: 360px;
+  /* The custom scrollbar below the table remains the horizontal scroll control. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* Keep the WebKit scrollbar styling active so Chrome does not re-add native arrow buttons. */
+  scrollbar-width: auto;
+  scrollbar-color: auto;
   background: #FFFFFF;
   border: 0;
   cursor: grab;
 }
 
 .referral-table-wrap::-webkit-scrollbar {
-  display: none;
+  width: 6px;
   height: 0;
+}
+
+.referral-table-wrap::-webkit-scrollbar:horizontal {
+  height: 0;
+}
+
+.referral-table-wrap::-webkit-scrollbar:vertical {
+  width: 6px;
+}
+
+.referral-table-wrap::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  -webkit-appearance: none;
+}
+
+.referral-table-wrap::-webkit-scrollbar-button:vertical,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:increment,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:decrement,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:start:increment,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:start:decrement,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:end:increment,
+.referral-table-wrap::-webkit-scrollbar-button:vertical:end:decrement,
+.referral-table-wrap::-webkit-scrollbar-button:single-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  -webkit-appearance: none !important;
+}
+
+.referral-table-wrap::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+.referral-table-wrap::-webkit-scrollbar-thumb {
+  background: #737373;
+  border-radius: 8px;
 }
 
 .referral-table-wrap:active {
@@ -9685,8 +9938,9 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .referral-application-table {
-  width: 100%;
-  min-width: 1180px;
+  width: 1200px;
+  min-width: 1200px;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
   background: #FFFFFF;
@@ -9702,7 +9956,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-weight: 600;
   line-height: 18px;
   letter-spacing: 0.02em;
-  text-align: left;
+  text-align: center;
   white-space: nowrap;
   height: 60px;
   box-sizing: border-box;
@@ -9712,44 +9966,57 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .referral-application-table td:first-child {
   width: 50px;
   min-width: 50px;
+  max-width: 50px;
   text-align: center;
   padding: 12px 8px;
 }
 
 .referral-application-table th:nth-child(2),
 .referral-application-table td:nth-child(2) {
-  min-width: 120px;
-  text-align: left;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  text-align: center;
 }
 
 .referral-application-table th:nth-child(3),
 .referral-application-table td:nth-child(3) {
-  min-width: 120px;
-  text-align: left;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  text-align: center;
 }
 
 .referral-application-table th:nth-child(4),
 .referral-application-table td:nth-child(4) {
-  min-width: 120px;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
   text-align: center;
 }
 
 .referral-application-table th:nth-child(5),
 .referral-application-table td:nth-child(5) {
-  min-width: 120px;
-  text-align: left;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  text-align: center;
 }
 
 .referral-application-table th:nth-child(6),
 .referral-application-table td:nth-child(6) {
+  width: 180px;
   min-width: 180px;
-  text-align: left;
+  max-width: 180px;
+  text-align: center;
 }
 
 .referral-application-table th:nth-child(7),
 .referral-application-table td:nth-child(7) {
-  min-width: 200px;
-  text-align: left;
+  width: 250px;
+  min-width: 250px;
+  max-width: 250px;
+  text-align: center;
 }
 
 .referral-application-table td {
@@ -10266,6 +10533,109 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   width: 38px;
   height: 38px;
   color: #344258;
+}
+
+.referral-confirm-modal.is-lock-confirmation .referral-modal-header h2,
+.referral-confirm-modal.is-unlock-confirmation .referral-modal-header h2 {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.referral-confirm-modal.is-lock-confirmation,
+.referral-confirm-modal.is-unlock-confirmation {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.referral-confirm-modal.is-lock-confirmation .referral-modal-close-btn,
+.referral-confirm-modal.is-unlock-confirmation .referral-modal-close-btn {
+  color: #262626;
+}
+
+.referral-account-confirmation-body {
+  padding: 16px;
+  font-family: Inter, sans-serif;
+}
+
+.referral-account-confirmation-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 16px 0;
+}
+
+.referral-account-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 72px;
+  padding-bottom: 8px;
+  margin: 0 auto;
+}
+
+.referral-confirm-lock-icon {
+  width: 36.67px;
+  height: 31.67px;
+  color: #262626;
+}
+
+.referral-account-confirmation-content h3 {
+  margin: 0;
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 24px;
+  text-align: center;
+}
+
+.referral-account-confirmation-content p {
+  margin: 4px 0;
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 24px;
+  text-align: center;
+}
+
+.referral-account-confirmation-content p strong {
+  font-weight: 700;
+}
+
+.referral-confirm-modal.is-unlock-confirmation .referral-account-confirmation-content p {
+  font-weight: 700;
+}
+
+.referral-account-person {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px;
+  margin-top: 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  color: #262626;
+  text-align: center;
+}
+
+.referral-account-person span {
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.referral-account-person strong {
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
 }
 
 
@@ -11648,7 +12018,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #525252;
+  color: #404040;
   font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
@@ -11662,7 +12032,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #525252;
+  color: #404040;
   font-family: Inter, sans-serif;
   font-size: 11px;
   font-style: normal;
@@ -11727,7 +12097,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-size: 14px;
   font-style: normal;
   font-weight: 500;
-  line-height: 1.4em;
+  line-height: 19.6px;
   text-align: center;
   transition: color 350ms ease-out;
 }
@@ -11736,7 +12106,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-family: Inter, sans-serif;
   font-size: 14px;
   font-weight: 500;
-  line-height: 1.4em;
+  line-height: 19.6px;
   color: rgba(47, 43, 61, 0.9);
   white-space: normal;
   word-break: break-word;
@@ -11950,7 +12320,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-size: 12px;
   font-style: normal;
   font-weight: 500;
-  line-height: 1.4em;
+  line-height: 16.8px;
 }
 
 .cv-source-chip.is-facebook {
@@ -11988,76 +12358,60 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   width: 100%;
 }
 
-.cv-candidate-evaluation {
-  display: grid;
-  gap: 7px;
-  width: 100%;
-  border: 1px solid #bfe7d4;
-  border-radius: 9px;
-  padding: 10px;
-  background: #f3fff9;
-}
-
-.cv-candidate-evaluation-heading {
+.cv-candidate-evaluation-action {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
 }
 
-.cv-candidate-evaluation-heading>div {
-  display: grid;
-  gap: 3px;
-}
-
-.cv-candidate-evaluation-heading small,
-.interview-evaluation-confirm-header small {
-  color: #15803d;
-  font-size: 10px;
+.cv-evaluation-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 35px;
+  padding: 8px 20px;
+  border: 1px solid #4ADE80;
+  border-radius: 12px;
+  background: #DCFCE7;
+  color: #3E4943;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-style: normal;
   font-weight: 700;
-  letter-spacing: 0.03em;
-}
-
-.cv-candidate-evaluation-heading strong {
-  color: #0b1c30;
-  font-size: 13px;
-}
-
-.cv-evaluation-status {
-  border-radius: 999px;
-  padding: 3px 8px;
-  font-size: 10px;
-  font-weight: 700;
+  line-height: 16.5px;
+  text-transform: uppercase;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+  box-sizing: border-box;
 }
 
-.cv-evaluation-status.is-success {
-  color: #166534;
-  background: #dcfce7;
+.cv-evaluation-button:hover:not(:disabled) {
+  border-color: #22C55E;
+  background: #BBF7D0;
 }
 
-.cv-evaluation-status.is-warning {
-  color: #92400e;
-  background: #fef3c7;
+.cv-evaluation-button:focus-visible {
+  outline: 2px solid #3F81EA;
+  outline-offset: 2px;
 }
 
-.cv-evaluation-status.is-active {
-  color: #075985;
-  background: #e0f2fe;
+.cv-evaluation-button:disabled {
+  border-color: #A3A3A3;
+  background: #F5F5F5;
+  color: #737373;
+  cursor: not-allowed;
 }
 
-.cv-candidate-evaluation-meta,
 .cv-evaluation-error {
-  color: #53645b;
+  color: #B91C1C;
+  font-family: Inter, sans-serif;
   font-size: 11px;
   line-height: 16px;
 }
 
-.cv-evaluation-error {
-  color: #b91c1c;
-}
-
-.cv-evaluation-button,
 .interview-evaluation-primary-button,
 .interview-evaluation-secondary-button {
   min-height: 32px;
@@ -12067,13 +12421,11 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   font-weight: 700;
 }
 
-.cv-evaluation-button,
 .interview-evaluation-primary-button {
   color: #ffffff;
   background: #16a34a;
 }
 
-.cv-evaluation-button:hover:not(:disabled),
 .interview-evaluation-primary-button:hover:not(:disabled) {
   background: #15803d;
 }
@@ -12324,38 +12676,14 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   color: #262626;
 }
 
-.cv-candidate-note-box {
-  display: flex;
-  align-items: center;
-  min-height: 40px;
-  border: 1px solid #E5E5E5;
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: #ffffff;
-  box-sizing: border-box;
-}
-
-.cv-candidate-note-text {
-  font-family: Inter, sans-serif;
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 400;
-  line-height: 20px;
-  color: #262626;
-  overflow-wrap: anywhere;
-}
-
-.cv-candidate-note-text.is-empty {
-  color: rgba(0, 0, 0, 0.5);
-}
-
 .cv-candidate-note>span:not(.cv-candidate-note-label) {
   font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
   line-height: 20px;
-  color: #000000;
+  color: #262626;
+  padding: 0 10px;
 }
 
 .cv-candidate-footer {

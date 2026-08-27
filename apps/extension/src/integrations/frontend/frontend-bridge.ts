@@ -12,6 +12,18 @@ const BACKGROUND_PUBLISH_REQUEST = 'FRONTEND_FACEBOOK_PUBLISH_REQUEST';
 const BACKGROUND_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
 const BACKGROUND_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const BACKGROUND_PORT = 'frontend-facebook-publish';
+// Content scripts are loaded as classic scripts by Chrome, so these values
+// must remain local instead of becoming an ESM runtime import in the bundle.
+const EXTENSION_TOAST_SOURCE = 'vcs-recruitment-frontend';
+const EXTENSION_TOAST_REQUEST = 'VCS_FRONTEND_EXTENSION_TOAST';
+const EXTENSION_TOAST_MESSAGE = 'VCS_EXTENSION_TOAST_MESSAGE';
+const EXTENSION_CLOSE_TAB_REQUEST = 'VCS_FRONTEND_CLOSE_TAB_REQUEST';
+const EXTENSION_CLOSE_TAB_MESSAGE = 'VCS_EXTENSION_CLOSE_TAB_MESSAGE';
+type ExtensionToastPayload = Readonly<{
+  kind: 'SUCCESS' | 'ERROR' | 'WARNING' | 'INFO';
+  title?: string;
+  message: string;
+}>;
 const activeRequestPorts = new Map<string, ChromePort>();
 
 window.addEventListener('message', (event) => {
@@ -42,6 +54,22 @@ window.addEventListener('message', (event) => {
       requestId: event.data.requestId,
       target: event.data.payload.target,
     });
+    return;
+  }
+
+  if (isExtensionToastRequest(event.data)) {
+    void chrome.runtime?.sendMessage?.({
+      type: EXTENSION_TOAST_MESSAGE,
+      payload: event.data.payload,
+    }).catch(() => undefined);
+    return;
+  }
+
+  if (isExtensionCloseTabRequest(event.data)) {
+    void chrome.runtime?.sendMessage?.({
+      type: EXTENSION_CLOSE_TAB_MESSAGE,
+      payload: event.data.payload,
+    }).catch(() => undefined);
     return;
   }
 
@@ -191,6 +219,43 @@ function isImageAttachDecisionMessage(value: unknown): value is {
     && (value as { type?: unknown }).type === IMAGE_ATTACH_DECISION
     && typeof (value as { requestId?: unknown }).requestId === 'string'
     && (payload?.decision === 'SKIP' || payload?.decision === 'POST_TEXT_ONLY');
+}
+
+function isExtensionToastRequest(value: unknown): value is {
+  source: typeof EXTENSION_TOAST_SOURCE;
+  type: typeof EXTENSION_TOAST_REQUEST;
+  payload: ExtensionToastPayload;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { source?: unknown; type?: unknown; payload?: unknown };
+  return candidate.source === EXTENSION_TOAST_SOURCE
+    && candidate.type === EXTENSION_TOAST_REQUEST
+    && isExtensionToastPayload(candidate.payload);
+}
+
+function isExtensionToastPayload(value: unknown): value is ExtensionToastPayload {
+  if (typeof value !== 'object' || value === null) return false;
+  const payload = value as { kind?: unknown; title?: unknown; message?: unknown };
+  return isExtensionToastKind(payload.kind)
+    && typeof payload.message === 'string'
+    && payload.message.trim().length > 0
+    && (payload.title === undefined || typeof payload.title === 'string');
+}
+
+function isExtensionCloseTabRequest(value: unknown): value is {
+  source: typeof EXTENSION_TOAST_SOURCE;
+  type: typeof EXTENSION_CLOSE_TAB_REQUEST;
+  payload: ExtensionToastPayload;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { source?: unknown; type?: unknown; payload?: unknown };
+  return candidate.source === EXTENSION_TOAST_SOURCE
+    && candidate.type === EXTENSION_CLOSE_TAB_REQUEST
+    && isExtensionToastPayload(candidate.payload);
+}
+
+function isExtensionToastKind(value: unknown): value is ExtensionToastPayload['kind'] {
+  return value === 'SUCCESS' || value === 'ERROR' || value === 'WARNING' || value === 'INFO';
 }
 
 function isBackgroundEvent(value: unknown): value is {

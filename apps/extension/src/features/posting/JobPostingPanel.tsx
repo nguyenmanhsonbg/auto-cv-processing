@@ -316,7 +316,7 @@ export function JobPostingPanel({
       <button
         type="button"
         className="primary-button sync-button"
-        disabled={syncDisabled}
+        disabled={syncDisabled || selectedPostingChannels.length === 0}
         onClick={onSync}
       >
         {facebookRunning
@@ -810,42 +810,52 @@ export function JobPostingPanel({
                           </details>
                         ) : null}
                         {filteredFacebookGroups.length > 0 ? (
-                          filteredFacebookGroups.map((group, index) => (
-                            <div
-                              key={`${group.key}-${index}`}
-                              className={`channel-group-item${!group.selectable ? ' is-disabled' : ''}`}
-                              title={!group.selectable ? group.disabledReason ?? undefined : undefined}
-                            >
-                              <label className="channel-group-select">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
-                                  disabled={!group.id || !group.selectable}
-                                  onChange={() => onToggleFacebookGroupSelection(group.id)}
-                                />
-                                <span className="channel-group-copy">
-                                  <span className="channel-group-name">{group.name}</span>
-                                  <span className="channel-group-meta">
-                                    {getFacebookEligibilityLabel(group.eligibilityStatus)}
-                                    {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
-                                  </span>
-                                </span>
-                              </label>
-                              <button
-                                type="button"
-                                className="channel-group-info-button"
-                                title="Lịch sử đăng bài"
-                                aria-label={`Lịch sử đăng bài ${group.name}`}
-                                onClick={() => onOpenFacebookPostHistory({
-                                  id: group.id,
-                                  name: group.name,
-                                  url: group.url,
-                                })}
+                          filteredFacebookGroups.map((group, index) => {
+                            const canOpenPostHistory = group.eligibilityStatus === 'CAN_POST' && Boolean(group.id);
+
+                            return (
+                              <div
+                                key={`${group.key}-${index}`}
+                                className={`channel-group-item${!group.selectable ? ' is-disabled' : ''}`}
+                                title={!group.selectable ? group.disabledReason ?? undefined : undefined}
                               >
-                                <HistoryIcon />
-                              </button>
-                            </div>
-                          ))
+                                <label className="channel-group-select">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(group.id && selectedFacebookGroupIds.includes(group.id))}
+                                    disabled={!group.id || !group.selectable}
+                                    onChange={() => onToggleFacebookGroupSelection(group.id)}
+                                  />
+                                  <span className="channel-group-copy">
+                                    <span className="channel-group-name">{group.name}</span>
+                                    <span className="channel-group-meta">
+                                      {getFacebookEligibilityLabel(group.eligibilityStatus)}
+                                      {` - Hôm nay đã đăng ${group.quotaLabel ?? '0/10'} bài`}
+                                    </span>
+                                  </span>
+                                </label>
+                                <button
+                                  type="button"
+                                  className="channel-group-info-button"
+                                  disabled={!canOpenPostHistory}
+                                  title={canOpenPostHistory
+                                    ? 'Lịch sử đăng bài'
+                                    : 'Lịch sử đăng bài chỉ khả dụng khi nhóm có thể đăng'}
+                                  aria-label={`Lịch sử đăng bài ${group.name}`}
+                                  onClick={() => {
+                                    if (!canOpenPostHistory) return;
+                                    onOpenFacebookPostHistory({
+                                      id: group.id,
+                                      name: group.name,
+                                      url: group.url,
+                                    });
+                                  }}
+                                >
+                                  <HistoryIcon />
+                                </button>
+                              </div>
+                            );
+                          })
                         ) : facebookGroupSearchQuery ? (
                           <p className="channel-subselection-empty">Không tìm thấy nhóm Facebook phù hợp.</p>
                         ) : (

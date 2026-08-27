@@ -322,6 +322,7 @@ export class FreelancersController {
       jobPosting: {
         jobPostingId: data.jobPosting.jobPostingId,
         title: data.jobPosting.title,
+        createdAt: data.jobPosting.createdAt?.toISOString(),
         sourceSystem: data.jobPosting.sourceSystem,
         sourceJobId: data.jobPosting.sourceJobId,
         amisRecruitmentId: data.jobPosting.amisRecruitmentId,

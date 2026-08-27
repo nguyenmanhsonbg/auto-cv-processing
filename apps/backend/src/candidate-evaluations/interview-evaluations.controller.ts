@@ -115,6 +115,18 @@ export class InterviewEvaluationsController {
     return this.evaluationsService.aggregate(applicationId, roundId, dto, request.user);
   }
 
+  @Patch('rounds/:roundId/aggregate/draft')
+  @Roles(UserRole.ADMIN, UserRole.HR)
+  @ApiOperation({ summary: 'Save the HR or chair aggregation as a draft' })
+  async saveAggregateDraft(
+    @Param('applicationId', ParseUUIDPipe) applicationId: string,
+    @Param('roundId', ParseUUIDPipe) roundId: string,
+    @Body() dto: AggregateInterviewEvaluationDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.evaluationsService.saveAggregateDraft(applicationId, roundId, dto, request.user);
+  }
+
   @Post('rounds/:roundId/complete')
   @Roles(UserRole.ADMIN, UserRole.HR)
   @ApiOperation({ summary: 'Complete and lock the current interview round' })
@@ -128,7 +140,7 @@ export class InterviewEvaluationsController {
 
   @Post('rounds/:roundId/next')
   @Roles(UserRole.ADMIN, UserRole.HR)
-  @ApiOperation({ summary: 'Create the next evaluation round from a completed round' })
+  @ApiOperation({ summary: 'Advance the single evaluation form to the next round' })
   async nextRound(
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
     @Param('roundId', ParseUUIDPipe) roundId: string,

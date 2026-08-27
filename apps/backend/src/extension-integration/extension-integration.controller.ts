@@ -28,10 +28,12 @@ import {
   ListExtensionReferralSourcesQueryDto,
   GetJobDescriptionQuestionSetQueryDto,
   SyncAmisRecruitmentRoundsDto,
+  SyncAmisRecruitmentBoardMembersDto,
 } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { ExtensionInstancesService } from './extension-instances.service';
 import { AmisRecruitmentRoundsService } from './amis-recruitment-rounds.service';
+import { AmisRecruitmentBoardMembersService } from './amis-recruitment-board-members.service';
 
 type HeaderValue = string | string[] | undefined;
 
@@ -54,6 +56,7 @@ export class ExtensionIntegrationController {
     private readonly extensionIntegrationService: ExtensionIntegrationService,
     private readonly extensionInstancesService: ExtensionInstancesService,
     private readonly amisRecruitmentRoundsService: AmisRecruitmentRoundsService,
+    private readonly amisRecruitmentBoardMembersService: AmisRecruitmentBoardMembersService,
   ) {}
 
   @Post('job-postings/sync-and-publish')
@@ -252,17 +255,22 @@ export class ExtensionIntegrationController {
   }
 
   @Get('recruitments/:amisRecruitmentId/applications')
+  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
   @ApiOperation({ summary: 'List synced applications for an AMIS recruitment id' })
   @ApiResponse({
     status: 200,
     description: 'Synced application list for the mapped AMIS recruitment.',
     type: AmisApplicationsForRecruitmentDto,
   })
-  async listApplicationsForRecruitment(@Param('amisRecruitmentId') amisRecruitmentId: string) {
-    return this.extensionIntegrationService.listAmisApplicationsForRecruitment(amisRecruitmentId);
+  async listApplicationsForRecruitment(
+    @Param('amisRecruitmentId') amisRecruitmentId: string,
+    @Request() req: ExtensionAuthenticatedRequest,
+  ) {
+    return this.extensionIntegrationService.listAmisApplicationsForRecruitment(amisRecruitmentId, req.user);
   }
 
   @Post('recruitments/:amisRecruitmentId/rounds/sync')
+  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
   @ApiOperation({ summary: 'Persist the AMIS recruitment process captured by the browser extension' })
   @ApiBody({ type: SyncAmisRecruitmentRoundsDto })
   async syncRecruitmentRounds(
@@ -274,13 +282,35 @@ export class ExtensionIntegrationController {
   }
 
   @Get('recruitments/:amisRecruitmentId/rounds')
+  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
   @ApiOperation({ summary: 'List the persisted active rounds for an AMIS recruitment' })
   async listRecruitmentRounds(@Param('amisRecruitmentId') amisRecruitmentId: string) {
     const data = await this.amisRecruitmentRoundsService.list(amisRecruitmentId);
     return this.successResponse(data);
   }
 
+  @Post('recruitments/:amisRecruitmentId/board-members/sync')
+  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
+  @ApiOperation({ summary: 'Persist the AMIS recruitment board members captured by the browser extension' })
+  @ApiBody({ type: SyncAmisRecruitmentBoardMembersDto })
+  async syncRecruitmentBoardMembers(
+    @Param('amisRecruitmentId') amisRecruitmentId: string,
+    @Body() dto: SyncAmisRecruitmentBoardMembersDto,
+  ) {
+    const data = await this.amisRecruitmentBoardMembersService.sync(amisRecruitmentId, dto);
+    return this.successResponse(data);
+  }
+
+  @Get('recruitments/:amisRecruitmentId/board-members')
+  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
+  @ApiOperation({ summary: 'List active AMIS recruitment board members and their VCS mappings' })
+  async listRecruitmentBoardMembers(@Param('amisRecruitmentId') amisRecruitmentId: string) {
+    const data = await this.amisRecruitmentBoardMembersService.listActive(amisRecruitmentId);
+    return this.successResponse(data);
+  }
+
   @Get('recruitments/:amisRecruitmentId/job-description')
+  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
   @ApiOperation({ summary: 'Resolve the VCS job description mapped to an AMIS recruitment' })
   @ApiResponse({
     status: 200,
@@ -418,6 +448,7 @@ export class ExtensionIntegrationController {
   }
 
   @Get('job-descriptions/:jobDescriptionId/question-set')
+  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
   @ApiOperation({ summary: 'List active question set items for a selected job description' })
   async getJobDescriptionQuestionSet(
     @Param('jobDescriptionId') jobDescriptionId: string,

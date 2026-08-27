@@ -9,12 +9,14 @@ import {
 import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
 import { CandidateAvatar } from '@/components/candidates/CandidateAvatar';
 import { AppliedDateIcon, JobDescriptionIcon, SaveNoteIcon } from '@/components/icons';
-import { Pagination } from '@/components/pagination/Pagination';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
+import { formatDate } from '@/lib/utils';
 import { FreelancerCvFilters } from './components/FreelancerCvFilters';
 import type { FreelancerCvFilterValues } from './components/FreelancerCvFilters';
 import {
+  buildFreelancerCvPaginationPages,
   buildFreelancerCvStatusOptions,
+  isFreelancerCvFormSent,
   matchesFreelancerCvStatus,
 } from './freelancer-cv-filter-utils';
 import type {
@@ -45,6 +47,8 @@ type FreelancerCvPanelProps = {
 };
 
 type StatusCategory = 'PROCESSING' | 'PASSED' | 'REJECTED';
+
+const FREELANCER_CV_PAGE_SIZE = 5;
 
 const STATUS_LABELS: Record<StatusCategory, string> = {
   PROCESSING: 'Đang xử lý',
@@ -87,12 +91,12 @@ export function FreelancerCvPanel({
   onPasswordChanged,
 }: FreelancerCvPanelProps) {
   const [summary, setSummary] = useState<FreelancerSelfSummary | null>(null);
-  const [applications, setApplications] = useState<FreelancerSelfApplication[]>([]);
   const [catalogApplications, setCatalogApplications] = useState<FreelancerSelfApplication[]>([]);
   const [roundsByJobPostingId, setRoundsByJobPostingId] = useState<Record<string, AmisRecruitmentRound[]>>({});
   const [roundsLoading, setRoundsLoading] = useState(false);
   const [pagination, setPagination] = useState<ApiPagination | null>(null);
-  const [filters, setFilters] = useState<FreelancerCvFilterValues>({ search: '', status: 'ALL', jd: 'ALL', dateRange: { from: '', to: '' } });
+  const [applicationPage, setApplicationPage] = useState(1);
+  const [filters, setFilters] = useState<FreelancerCvFilterValues>({ search: '', status: 'ALL', jd: [], dateRange: { from: '', to: '' } });
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [savingReferralId, setSavingReferralId] = useState<string | null>(null);
@@ -104,13 +108,13 @@ export function FreelancerCvPanel({
   async function loadData(page = 1, query = filters.search) {
     setLoading(true);
     setError(null);
+    setApplicationPage(1);
     try {
       const [nextSummary, nextApplications] = await Promise.all([
         getFreelancerSummary(accessToken),
-        listFreelancerApplications(accessToken, { page, limit: 20, search: query, sortOrder: 'DESC' }),
+        listFreelancerApplications(accessToken, { page, limit: 5, search: query, sortOrder: 'DESC' }),
       ]);
       setSummary(nextSummary);
-      setApplications(nextApplications.data);
       if ((nextApplications.pagination?.total ?? nextApplications.data.length) > nextApplications.data.length) {
         try {
           setCatalogApplications(await loadAllFreelancerApplicationsForCatalog(accessToken, query));
@@ -145,8 +149,11 @@ export function FreelancerCvPanel({
   }, [filters.search]);
 
   const jdOptions = useMemo(() => {
-    const values = new Map<string, string>();
-    catalogApplications.forEach((application) => values.set(application.jobPosting.jobPostingId, application.jobPosting.title));
+    const values = new Map<string, { title: string; createdAt?: string | null }>();
+    catalogApplications.forEach((application) => values.set(application.jobPosting.jobPostingId, {
+      title: application.jobPosting.title,
+      createdAt: application.jobPosting.createdAt,
+    }));
     return Array.from(values.entries());
   }, [catalogApplications]);
 
@@ -158,7 +165,7 @@ export function FreelancerCvPanel({
         catalogApplications
           .filter((application) => (
             Boolean((application.jobPosting.amisRecruitmentId ?? application.jobPosting.sourceJobId)?.trim())
-            && (filters.jd === 'ALL' || application.jobPosting.jobPostingId === filters.jd)
+            && (filters.jd.length === 0 || filters.jd.includes(application.jobPosting.jobPostingId))
           ))
           .map((application) => [application.jobPosting.jobPostingId, {
             jobPostingId: application.jobPosting.jobPostingId,
@@ -191,9 +198,9 @@ export function FreelancerCvPanel({
   }, [catalogApplications, filters.jd, loadRecruitmentRounds]);
 
   const scopedApplications = useMemo(
-    () => filters.jd === 'ALL'
+    () => filters.jd.length === 0
       ? catalogApplications
-      : catalogApplications.filter((application) => application.jobPosting.jobPostingId === filters.jd),
+      : catalogApplications.filter((application) => filters.jd.includes(application.jobPosting.jobPostingId)),
     [catalogApplications, filters.jd],
   );
   const statusOptions = useMemo(() => {
@@ -216,19 +223,26 @@ export function FreelancerCvPanel({
     setFilters((current) => ({ ...current, status: 'ALL' }));
   }, [filters.status, statusOptions]);
 
-  const visibleApplications = useMemo(() => applications.filter((application) => {
+  const visibleApplications = useMemo(() => catalogApplications.filter((application) => {
     if (!matchesFreelancerCvStatus(application, filters.status, statusOptions)) return false;
-    if (filters.jd !== 'ALL' && application.jobPosting.jobPostingId !== filters.jd) return false;
+    if (filters.jd.length > 0 && !filters.jd.includes(application.jobPosting.jobPostingId)) return false;
 
     const appliedAt = new Date(application.appliedAt).getTime();
     if (filters.dateRange.from && appliedAt < new Date(`${filters.dateRange.from}T00:00:00`).getTime()) return false;
     if (filters.dateRange.to && appliedAt > new Date(`${filters.dateRange.to}T23:59:59`).getTime()) return false;
     return true;
-  }), [applications, filters, statusOptions]);
+  }), [catalogApplications, filters, statusOptions]);
+
+  const totalApplicationPages = Math.max(1, Math.ceil(visibleApplications.length / FREELANCER_CV_PAGE_SIZE));
+  const currentApplicationPage = Math.min(applicationPage, totalApplicationPages);
+  const pagedApplications = useMemo(() => {
+    const start = (currentApplicationPage - 1) * FREELANCER_CV_PAGE_SIZE;
+    return visibleApplications.slice(start, start + FREELANCER_CV_PAGE_SIZE);
+  }, [currentApplicationPage, visibleApplications]);
 
   const pageMetrics = useMemo(() => {
-    const passed = applications.filter((application) => getStatusCategory(application) === 'PASSED').length;
-    const rejected = applications.filter((application) => getStatusCategory(application) === 'REJECTED').length;
+    const passed = catalogApplications.filter((application) => getStatusCategory(application) === 'PASSED').length;
+    const rejected = catalogApplications.filter((application) => getStatusCategory(application) === 'REJECTED').length;
     const total = summary?.applicationCount ?? pagination?.total ?? 0;
     return {
       total,
@@ -236,7 +250,7 @@ export function FreelancerCvPanel({
       passed,
       passRate: total ? Math.round((passed / total) * 100) : 0,
     };
-  }, [applications, pagination?.total, summary?.applicationCount]);
+  }, [catalogApplications, pagination?.total, summary?.applicationCount]);
 
   async function saveNote(application: FreelancerSelfApplication) {
     setSavingReferralId(application.referralId);
@@ -246,7 +260,6 @@ export function FreelancerCvPanel({
         application.referralId,
         draftNotes[application.referralId]?.trim() || null,
       );
-      setApplications((current) => current.map((item) => item.referralId === updated.referralId ? updated : item));
       setDraftNotes((current) => ({ ...current, [updated.referralId]: updated.evaluation ?? '' }));
       setEditingNoteReferralId(null);
       onNotify?.('SUCCESS', 'Thành công', 'Đã lưu ghi chú');
@@ -319,9 +332,19 @@ export function FreelancerCvPanel({
         statusOptions={[
           ...statusOptions.map((option) => ({ value: option.value, label: option.label })),
         ]}
-        jdOptions={[{ value: 'ALL', label: 'Tất cả các vòng' }, ...jdOptions.map(([value, label]) => ({ value, label }))]}
+        jdOptions={[
+          { value: 'ALL', label: 'Tất cả các vòng' },
+          ...jdOptions.map(([value, jd]) => ({
+            value,
+            label: jd.title,
+            meta: jd.createdAt ? (formatDate(jd.createdAt) ?? undefined) : undefined,
+          })),
+        ]}
         statusDisabled={roundsLoading}
-        onChange={setFilters}
+        onChange={(nextFilters) => {
+          setApplicationPage(1);
+          setFilters(nextFilters);
+        }}
       />
 
       {loading ? <p className="muted-text">Đang tải danh sách CV...</p> : null}
@@ -331,11 +354,11 @@ export function FreelancerCvPanel({
         </div>
       ) : null}
       {!loading && !error && visibleApplications.length === 0 ? (
-        <div className="freelancer-cv-empty"><span>{applications.length === 0 ? 'Chưa tải lên CV nào' : 'Chưa có CV phù hợp'}</span></div>
+        <div className="freelancer-cv-empty"><span>{catalogApplications.length === 0 ? 'Chưa tải lên CV nào' : 'Chưa có CV phù hợp'}</span></div>
       ) : null}
 
       <div className="freelancer-cv-list">
-        {visibleApplications.map((application) => {
+        {pagedApplications.map((application) => {
           const note = draftNotes[application.referralId] ?? application.evaluation ?? '';
           const isEditingNote = editingNoteReferralId === application.referralId;
           const category = getStatusCategory(application);
@@ -345,7 +368,9 @@ export function FreelancerCvPanel({
                 <div className="freelancer-cv-card-heading">
                   <CandidateAvatar name={application.candidate.fullName} />
                   <div>
-                    <h3>{application.candidate.fullName}</h3>
+                    <h3 className="freelancer-cv-candidate-name" title={application.candidate.fullName}>
+                      {application.candidate.fullName}
+                    </h3>
                     <p><JobDescriptionIcon />{application.jobPosting.title}</p>
                     <span className="freelancer-cv-applied-at"><AppliedDateIcon />Ngày ứng tuyển: <strong>{formatDateTime(application.appliedAt)}</strong></span>
                   </div>
@@ -372,6 +397,7 @@ export function FreelancerCvPanel({
                   onChange={(event) => setDraftNotes((current) => ({ ...current, [application.referralId]: event.target.value }))}
                   placeholder="Nhập ghi chú của bạn tại đây"
                   maxLength={255}
+                  rows={3}
                 />
               </div>
               {isEditingNote ? (
@@ -397,17 +423,71 @@ export function FreelancerCvPanel({
         })}
       </div>
 
-      {pagination && pagination.total > 0 ? (
-        <Pagination
-          className="freelancer-cv-pagination"
-          page={pagination.page}
-          limit={pagination.limit}
-          total={pagination.total}
-          totalPages={pagination.totalPages}
-          onPageChange={(page) => void loadData(page)}
+      {totalApplicationPages > 1 ? (
+        <FreelancerCvPagination
+          page={currentApplicationPage}
+          total={visibleApplications.length}
+          totalPages={totalApplicationPages}
+          onPageChange={setApplicationPage}
         />
       ) : null}
     </section>
+  );
+}
+
+function FreelancerCvPagination({
+  page,
+  total,
+  totalPages,
+  onPageChange,
+}: {
+  page: number;
+  total: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  const start = (page - 1) * FREELANCER_CV_PAGE_SIZE + 1;
+  const end = Math.min(page * FREELANCER_CV_PAGE_SIZE, total);
+
+  return (
+    <nav className="freelancer-cv-pagination" aria-label="Phân trang danh sách CV">
+      <span>Hiển thị từ {start} - {end} của {total} kết quả</span>
+      <div>
+        <button
+          type="button"
+          className="freelancer-cv-page-button"
+          aria-label="Trang trước"
+          disabled={page <= 1}
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+        >
+          ‹
+        </button>
+        {buildFreelancerCvPaginationPages(page, totalPages).map((paginationPage, index) => (
+          paginationPage === 'ellipsis' ? (
+            <span key={`ellipsis-${index}`} className="freelancer-cv-pagination-ellipsis" aria-hidden="true">…</span>
+          ) : (
+            <button
+              key={paginationPage}
+              type="button"
+              className={`freelancer-cv-page-button${paginationPage === page ? ' is-active' : ''}`}
+              aria-current={paginationPage === page ? 'page' : undefined}
+              onClick={() => onPageChange(paginationPage)}
+            >
+              {paginationPage}
+            </button>
+          )
+        ))}
+        <button
+          type="button"
+          className="freelancer-cv-page-button"
+          aria-label="Trang sau"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+        >
+          ›
+        </button>
+      </div>
+    </nav>
   );
 }
 
@@ -420,6 +500,7 @@ function getStatusCategory(application: FreelancerSelfApplication): StatusCatego
 }
 
 function getStatusLabel(application: FreelancerSelfApplication) {
+  if (isFreelancerCvFormSent(application)) return 'Screening CV';
   const currentStageName = application.currentAmisStage?.recruitmentRoundName?.trim();
   if (currentStageName) return currentStageName;
   const status = application.hrReceptionStatus || application.processStatus;

@@ -444,6 +444,8 @@ export interface InterviewEvaluationDetail {
     candidate: InterviewEvaluationSummary['candidate'];
     job: InterviewEvaluationSummary['job'];
     template: InterviewEvaluationTemplate;
+    source?: string | null;
+    sourceChannel?: string | null;
   };
   currentRound: InterviewEvaluationRoundSummary & {
     hrbpData: InterviewEvaluationFormData;
@@ -1055,6 +1057,19 @@ export function aggregateInterviewEvaluation(
   return apiClient
     .patch<InterviewEvaluationDetail>(
       `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/aggregate`,
+      payload,
+    )
+      .then(unwrapEnvelope);
+}
+
+export function saveInterviewEvaluationAggregateDraft(
+  applicationId: string,
+  roundId: string,
+  payload: { formData: InterviewEvaluationFormData; expectedVersion?: number },
+) {
+  return apiClient
+    .patch<InterviewEvaluationDetail>(
+      `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/aggregate/draft`,
       payload,
     )
     .then(unwrapEnvelope);
