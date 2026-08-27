@@ -65,17 +65,24 @@ export function transformTopCvPayload(formData: TopCvFormData): Record<string, u
     // Location & working time
     locations,
     working_time: {
-      working_time_settings: formData.workingHours.fromDay ? [{
-        date_from: parseInt(formData.workingHours.fromDay) || 1,
-        date_to: parseInt(formData.workingHours.toDay) || 5,
-        start_time: formData.workingHours.fromTime || '08:30',
-        end_time: formData.workingHours.toTime || '18:00',
-      }] : [{
-        date_from: 1,
-        date_to: 5,
-        start_time: '08:30',
-        end_time: '18:00',
-      }],
+      working_time_settings: (formData.workingHours.schedules && formData.workingHours.schedules.length > 0)
+        ? formData.workingHours.schedules.map((s) => ({
+            date_from: parseInt(s.fromDay, 10) || 1,
+            date_to: parseInt(s.toDay, 10) || 5,
+            start_time: s.fromTime || '08:30',
+            end_time: s.toTime || '18:00',
+          }))
+        : formData.workingHours.fromDay ? [{
+            date_from: parseInt(formData.workingHours.fromDay, 10) || 1,
+            date_to: parseInt(formData.workingHours.toDay, 10) || 5,
+            start_time: formData.workingHours.fromTime || '08:30',
+            end_time: formData.workingHours.toTime || '18:00',
+          }] : [{
+            date_from: 1,
+            date_to: 5,
+            start_time: '08:30',
+            end_time: '18:00',
+          }],
       working_time_text: formData.workingHours.lunchBreak || '',
       category: 2,
       shift: null,

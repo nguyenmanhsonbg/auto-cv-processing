@@ -8,7 +8,7 @@ import {
 import { InputField, RichTextEditor } from '@/components/form';
 import { MultiSelectFilter, SelectFilter } from '@/components/filters';
 import { ComboboxFilter } from '@/components/filters/ComboboxFilter';
-import { hasTopCvRichTextContent, type TopCvFormData } from './topcv-form.types';
+import { hasTopCvRichTextContent, type TopCvFormData, type WorkingHourSchedule } from './topcv-form.types';
 import { TopCvJobFamilyPicker } from './TopCvJobFamilyPicker';
 import { TopCvLocationPicker } from './TopCvLocationPicker';
 import { TopCvDatePicker } from './TopCvDatePicker';
@@ -18,13 +18,13 @@ import type { TopCvOptionsResponse } from './topcv-options.service';
 import { fetchTopCvSkills, type TopCvSkill } from './topcv-api';
 
 const DAY_OPTIONS = [
-  { value: 1, label: 'Thứ 2' },
-  { value: 2, label: 'Thứ 3' },
-  { value: 3, label: 'Thứ 4' },
-  { value: 4, label: 'Thứ 5' },
-  { value: 5, label: 'Thứ 6' },
-  { value: 6, label: 'Thứ 7' },
-  { value: 7, label: 'Chủ Nhật' },
+  { value: '1', label: 'Thứ 2' },
+  { value: '2', label: 'Thứ 3' },
+  { value: '3', label: 'Thứ 4' },
+  { value: '4', label: 'Thứ 5' },
+  { value: '5', label: 'Thứ 6' },
+  { value: '6', label: 'Thứ 7' },
+  { value: '7', label: 'Chủ Nhật' },
 ];
 
 function TopCvWarningIcon() {
@@ -165,6 +165,74 @@ export function TopCvEditModal({
 
   const removeEmail = (index: number) => {
     update({ contactEmails: form.contactEmails.filter((_, i) => i !== index) });
+  };
+
+  const worktimeSchedules: WorkingHourSchedule[] =
+    form.workingHours.schedules && form.workingHours.schedules.length > 0
+      ? form.workingHours.schedules
+      : [
+          {
+            fromDay: form.workingHours.fromDay || '1',
+            toDay: form.workingHours.toDay || '5',
+            fromTime: form.workingHours.fromTime || '08:30',
+            toTime: form.workingHours.toTime || '18:00',
+          },
+        ];
+
+  const updateWorktimeSchedules = (nextSchedules: WorkingHourSchedule[]) => {
+    const first = nextSchedules[0] ?? {
+      fromDay: '1',
+      toDay: '5',
+      fromTime: '08:30',
+      toTime: '18:00',
+    };
+    update({
+      workingHours: {
+        ...form.workingHours,
+        fromDay: first.fromDay,
+        toDay: first.toDay,
+        fromTime: first.fromTime,
+        toTime: first.toTime,
+        schedules: nextSchedules,
+      },
+    });
+  };
+
+  const handleAddWorktime = () => {
+    updateWorktimeSchedules([
+      ...worktimeSchedules,
+      {
+        fromDay: '6',
+        toDay: '6',
+        fromTime: '08:30',
+        toTime: '12:00',
+      },
+    ]);
+  };
+
+  const handleRemoveWorktime = (index: number) => {
+    if (worktimeSchedules.length <= 1) {
+      updateWorktimeSchedules([
+        {
+          fromDay: '1',
+          toDay: '5',
+          fromTime: '08:30',
+          toTime: '18:00',
+        },
+      ]);
+      return;
+    }
+    updateWorktimeSchedules(worktimeSchedules.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateWorktimeSchedule = (
+    index: number,
+    field: keyof WorkingHourSchedule,
+    val: string,
+  ) => {
+    updateWorktimeSchedules(
+      worktimeSchedules.map((item, i) => (i === index ? { ...item, [field]: val } : item)),
+    );
   };
 
   return (
@@ -421,69 +489,80 @@ export function TopCvEditModal({
                 <label className="topcv-form-label">
                   Thời gian làm việc <span className="req">*</span>
                 </label>
-                <div className="topcv-worktime-row">
-                  <SelectFilter
-                    label=""
-                    value={form.workingHours.fromDay}
-                    options={DAY_OPTIONS}
-                    onChange={(val) => {
-                      update({ workingHours: { ...form.workingHours, fromDay: String(val) } });
-                    }}
-                  />
+                <div className="topcv-worktime-list">
+                  {worktimeSchedules.map((schedule, idx) => (
+                    <div key={idx} className="topcv-worktime-row">
+                      <SelectFilter
+                        label=""
+                        ariaLabel="Từ thứ"
+                        value={schedule.fromDay}
+                        options={DAY_OPTIONS}
+                        onChange={(val) =>
+                          handleUpdateWorktimeSchedule(idx, 'fromDay', String(val))
+                        }
+                      />
 
-                  <span className="topcv-dash">—</span>
+                      <span className="topcv-dash">—</span>
 
-                  <SelectFilter
-                    label=""
-                    value={form.workingHours.toDay}
-                    options={DAY_OPTIONS}
-                    onChange={(val) => {
-                      update({ workingHours: { ...form.workingHours, toDay: String(val) } });
-                    }}
-                  />
+                      <SelectFilter
+                        label=""
+                        ariaLabel="Đến thứ"
+                        value={schedule.toDay}
+                        options={DAY_OPTIONS}
+                        onChange={(val) =>
+                          handleUpdateWorktimeSchedule(idx, 'toDay', String(val))
+                        }
+                      />
 
-                  <TopCvTimePicker
-                    value={form.workingHours.fromTime}
-                    onChange={(val) => {
-                      update({ workingHours: { ...form.workingHours, fromTime: val } });
-                    }}
-                    placeholder="08:30"
-                  />
+                      <TopCvTimePicker
+                        value={schedule.fromTime}
+                        onChange={(val) =>
+                          handleUpdateWorktimeSchedule(idx, 'fromTime', val)
+                        }
+                        placeholder="08:30"
+                      />
 
-                  <TopCvTimePicker
-                    value={form.workingHours.toTime}
-                    onChange={(val) => {
-                      update({ workingHours: { ...form.workingHours, toTime: val } });
-                    }}
-                    placeholder="18:00"
-                    align="right"
-                  />
+                      <TopCvTimePicker
+                        value={schedule.toTime}
+                        onChange={(val) =>
+                          handleUpdateWorktimeSchedule(idx, 'toTime', val)
+                        }
+                        placeholder="18:00"
+                        align="right"
+                      />
 
-                  <button
-                    type="button"
-                    className="topcv-remove-icon-btn"
-                    onClick={() => { }}
-                    title="Xóa"
-                  >
-                    <CloseIcon />
-                  </button>
+                      <button
+                        type="button"
+                        className="topcv-remove-icon-btn"
+                        onClick={() => handleRemoveWorktime(idx)}
+                        title="Xóa thời gian làm việc"
+                        aria-label="Xóa thời gian làm việc"
+                      >
+                        <CloseIcon />
+                      </button>
+                    </div>
+                  ))}
                 </div>
 
-                <button type="button" className="topcv-action-link" style={{ marginTop: 6 }}>
+                <button
+                  type="button"
+                  className="topcv-add-worktime-btn"
+                  onClick={handleAddWorktime}
+                >
                   + Thêm thời gian
                 </button>
 
-                <div style={{ marginTop: 8 }}>
-                  <input
-                    type="text"
-                    className="topcv-input"
-                    value={form.workingHours.lunchBreak}
-                    onChange={(e) => {
-                      update({ workingHours: { ...form.workingHours, lunchBreak: e.target.value } });
-                    }}
-                    placeholder="Nghỉ trưa 12h-13h30"
-                  />
-                </div>
+                <input
+                  type="text"
+                  className="topcv-worktime-lunch-input"
+                  value={form.workingHours.lunchBreak}
+                  onChange={(e) => {
+                    update({
+                      workingHours: { ...form.workingHours, lunchBreak: e.target.value },
+                    });
+                  }}
+                  placeholder="Nghỉ trưa 12h-13h30"
+                />
               </div>
             </div>
           )}

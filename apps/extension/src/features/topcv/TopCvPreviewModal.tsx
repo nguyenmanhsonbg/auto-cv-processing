@@ -143,13 +143,28 @@ export function TopCvPreviewModal({
                 7: 'Chủ Nhật',
               };
               const formatDay = (val: string | number) => DAY_MAP[val] || val;
-              return (
-                <p>
-                  {formData.workingHours.fromDay && formData.workingHours.toDay
-                    ? `${formatDay(formData.workingHours.fromDay)} - ${formatDay(formData.workingHours.toDay)} (${formData.workingHours.fromTime || ''} đến ${formData.workingHours.toTime || ''})`
+              const schedules = (formData.workingHours.schedules && formData.workingHours.schedules.length > 0)
+                ? formData.workingHours.schedules
+                : (formData.workingHours.fromDay && formData.workingHours.toDay)
+                  ? [{
+                      fromDay: formData.workingHours.fromDay,
+                      toDay: formData.workingHours.toDay,
+                      fromTime: formData.workingHours.fromTime,
+                      toTime: formData.workingHours.toTime,
+                    }]
+                  : [];
+
+              if (schedules.length === 0) {
+                return <p>Chưa cập nhật</p>;
+              }
+
+              return schedules.map((item, idx) => (
+                <p key={idx}>
+                  {item.fromDay && item.toDay
+                    ? `${formatDay(item.fromDay)} - ${formatDay(item.toDay)} (${item.fromTime || '08:30'} đến ${item.toTime || '18:00'})`
                     : 'Chưa cập nhật'}
                 </p>
-              );
+              ));
             })()}
             {formData.workingHours.lunchBreak && <p>{formData.workingHours.lunchBreak}</p>}
           </div>

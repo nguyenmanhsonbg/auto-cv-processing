@@ -6,6 +6,13 @@ export interface JobFamilySelection {
   level3Name: string;
 }
 
+export interface WorkingHourSchedule {
+  fromDay: string;
+  toDay: string;
+  fromTime: string;
+  toTime: string;
+}
+
 export interface TopCvFormData {
   // 1. Thông tin chung
   title: string;
@@ -45,6 +52,7 @@ export interface TopCvFormData {
     fromTime: string;
     toTime: string;
     lunchBreak: string;
+    schedules?: WorkingHourSchedule[];
   };
 
   // 3. Kỳ vọng về ứng viên
@@ -93,11 +101,19 @@ export const DEFAULT_TOPCV_FORM: TopCvFormData = {
   jobBenefit: '',
   locations: [],
   workingHours: {
-    fromDay: '',
-    toDay: '',
-    fromTime: '',
-    toTime: '',
+    fromDay: '1',
+    toDay: '5',
+    fromTime: '08:30',
+    toTime: '18:00',
     lunchBreak: '',
+    schedules: [
+      {
+        fromDay: '1',
+        toDay: '5',
+        fromTime: '08:30',
+        toTime: '18:00',
+      },
+    ],
   },
 
   education: '',
