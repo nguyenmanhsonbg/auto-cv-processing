@@ -65,6 +65,18 @@ export interface FacebookGroupUiItem {
   disabledReason?: string | null;
 }
 
+function getFacebookGroupDisplayMessage(
+  loadState: FacebookGroupLoadState,
+  message: string | null,
+  diagnostic: string | null,
+) {
+  if (diagnostic && loadState !== 'READY') {
+    return 'Mạng không ổn định, đang tải lại group.';
+  }
+
+  return message;
+}
+
 export { POSTING_CHANNELS };
 export const FACEBOOK_IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
 export const JOB_DESCRIPTION_STATUS_OPTIONS = [
@@ -188,7 +200,6 @@ export function JobPostingPanel({
     result,
     syncDisabled,
     onSync,
-    autoSyncState,
   } = syncConfig;
 
   const {
@@ -241,6 +252,12 @@ export function JobPostingPanel({
     facebookProgress,
     facebookRunning,
   } = facebookConfig;
+
+  const facebookGroupDisplayMessage = getFacebookGroupDisplayMessage(
+    facebookGroupLoadState,
+    facebookGroupMessage,
+    facebookGroupDiagnostic,
+  );
 
   const {
     topCvAuth,
@@ -788,18 +805,12 @@ export function JobPostingPanel({
                         </div>
                       ) : null}
                       <div className="channel-inner-card-list">
-                        {facebookGroupMessage
+                        {facebookGroupDisplayMessage
                           && !facebookGroupSearchQuery
                           && facebookGroupLoadState !== 'READY' ? (
                           <p className={`channel-subselection-empty${facebookGroupLoadState === 'ERROR' ? ' is-error' : ''}`}>
-                            {facebookGroupMessage}
+                            {facebookGroupDisplayMessage}
                           </p>
-                        ) : null}
-                        {facebookGroupDiagnostic ? (
-                          <details className="channel-subselection-debug">
-                            <summary>Chi tiết lỗi GraphQL để báo</summary>
-                            <code>{facebookGroupDiagnostic}</code>
-                          </details>
                         ) : null}
                         {filteredFacebookGroups.length > 0 ? (
                           filteredFacebookGroups.map((group, index) => {
@@ -1115,33 +1126,7 @@ export function JobPostingPanel({
   }
 
   function renderRuntimePanels() {
-    return (
-      <>
-        {autoSyncState ? (
-          <section className="capture-panel">
-            <div className="status-row">
-              <span>Auto sync</span>
-              <strong>{autoSyncState.status}</strong>
-            </div>
-            <dl>
-              <div>
-                <dt>Updated</dt>
-                <dd>{autoSyncState.updatedAt}</dd>
-              </div>
-              {autoSyncState.channels ? (
-                <div>
-                  <dt>Channels</dt>
-                  <dd>{autoSyncState.channels.join(', ')}</dd>
-                </div>
-              ) : null}
-            </dl>
-            {autoSyncState.error ? (
-              <p className="error-text">{autoSyncState.error.code}: {autoSyncState.error.message}</p>
-            ) : null}
-          </section>
-        ) : null}
-      </>
-    );
+    return null;
   }
 }
 
