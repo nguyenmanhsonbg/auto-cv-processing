@@ -199,6 +199,7 @@ export function TopCvEditModal({
   };
 
   const handleAddWorktime = () => {
+    if (worktimeSchedules.length >= 3) return;
     updateWorktimeSchedules([
       ...worktimeSchedules,
       {
@@ -544,13 +545,15 @@ export function TopCvEditModal({
                   ))}
                 </div>
 
-                <button
-                  type="button"
-                  className="topcv-add-worktime-btn"
-                  onClick={handleAddWorktime}
-                >
-                  + Thêm thời gian
-                </button>
+                {worktimeSchedules.length < 3 && (
+                  <button
+                    type="button"
+                    className="topcv-add-worktime-btn"
+                    onClick={handleAddWorktime}
+                  >
+                    + Thêm thời gian
+                  </button>
+                )}
 
                 <input
                   type="text"

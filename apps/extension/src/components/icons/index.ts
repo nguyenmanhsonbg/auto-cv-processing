@@ -9,6 +9,7 @@ export {
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronUpIcon,
+  ClockIcon,
   CloseIcon,
   CvIcon,
   DoubleBackIcon,
