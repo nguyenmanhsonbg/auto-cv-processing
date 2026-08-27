@@ -148,7 +148,6 @@ export function ComboboxFilter({
                   className={`shared-filter-option${selected ? ' is-selected' : ''}`}
                   onClick={() => toggleValue(option)}
                 >
-                  <span className="shared-filter-checkbox">{selected ? '✓' : ''}</span>
                   <span>{option.label}</span>
                 </button>
               );

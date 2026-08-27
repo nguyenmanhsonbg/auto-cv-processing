@@ -8413,6 +8413,23 @@ dd {
   background: #F0FDF4;
 }
 
+.shared-filter-multi-select .referral-jd-option.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.shared-filter-max-notice {
+  padding: 8px 10px;
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-left: 3px solid #F59E0B;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
 .shared-filter-multi-select .referral-jd-checkbox {
   width: 16px;
   height: 16px;

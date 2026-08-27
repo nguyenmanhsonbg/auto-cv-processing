@@ -329,6 +329,7 @@ export function TopCvEditModal({
                   values={form.industryKnowledge}
                   options={domainKnowledgeOptions.map((option) => ({ value: option.id, label: option.name }))}
                   placeholder="Chọn kiến thức ngành"
+                  maxValues={3}
                   isOpen={isDomainKnowledgeSelectOpen}
                   onToggle={() => setIsDomainKnowledgeSelectOpen((open) => !open)}
                   onClose={() => setIsDomainKnowledgeSelectOpen(false)}

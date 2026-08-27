@@ -23,13 +23,14 @@ type MultiSelectFilterProps = {
   readonly className?: string;
   readonly required?: boolean;
   readonly error?: string | null;
+  readonly maxValues?: number;
+  readonly maxValuesNotice?: string;
 };
 
 export function MultiSelectFilter({
   label,
   values,
   options,
-  allLabel = 'Tất cả',
   placeholder,
   isOpen,
   onToggle,
@@ -38,10 +39,11 @@ export function MultiSelectFilter({
   className = '',
   required = false,
   error = null,
+  maxValues,
+  maxValuesNotice,
 }: MultiSelectFilterProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const allSelected = values.length === 0;
-  const placeholderText = placeholder ?? allLabel;
+  const placeholderText = placeholder;
 
   useEffect(() => {
     if (!isOpen || !onClose) return undefined;
@@ -53,7 +55,12 @@ export function MultiSelectFilter({
   }, [isOpen, onClose]);
 
   function toggleValue(value: string | number) {
-    onChange(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
+    if (values.includes(value)) {
+      onChange(values.filter((item) => item !== value));
+    } else {
+      if (maxValues != null && values.length >= maxValues) return;
+      onChange([...values, value]);
+    }
   }
 
   function removeValue(e: MouseEvent | KeyboardEvent, value: string | number) {
@@ -128,27 +135,27 @@ export function MultiSelectFilter({
       </div>
       {isOpen ? (
         <div className="referral-jd-options" role="group" aria-label={label}>
-          <label className={`referral-jd-option${allSelected ? ' is-selected' : ''}`}>
-            <input
-              type="checkbox"
-              className="referral-jd-option-input"
-              checked={allSelected}
-              onChange={() => onChange([])}
-            />
-            <span className="referral-jd-option-label"><span className={`referral-jd-checkbox${allSelected ? ' is-checked' : ''}`} aria-hidden="true">✓</span><span>{allLabel}</span></span>
-          </label>
+          {maxValues != null && values.length >= maxValues ? (
+            <div className="shared-filter-max-notice">
+              {maxValuesNotice || `Chọn tối đa ${maxValues} lựa chọn, xóa bớt và chọn lại lựa chọn bạn muốn`}
+            </div>
+          ) : null}
           {options.map((option) => {
             const selected = values.includes(option.value);
+            const isDisabled = !selected && maxValues != null && values.length >= maxValues;
             return (
-              <label key={option.value} className={`referral-jd-option${selected ? ' is-selected' : ''}${option.meta ? ' has-meta' : ''}`}>
+              <label
+                key={option.value}
+                className={`referral-jd-option${selected ? ' is-selected' : ''}${option.meta ? ' has-meta' : ''}${isDisabled ? ' is-disabled' : ''}`}
+              >
                 <input
                   type="checkbox"
                   className="referral-jd-option-input"
                   checked={selected}
+                  disabled={isDisabled}
                   onChange={() => toggleValue(option.value)}
                 />
                 <span className="referral-jd-option-label">
-                  <span className={`referral-jd-checkbox${selected ? ' is-checked' : ''}`} aria-hidden="true">✓</span>
                   <span className="referral-jd-option-content">
                     <span className="referral-jd-option-title">{option.label}</span>
                     {option.meta ? <time className="referral-jd-option-meta">{option.meta}</time> : null}
