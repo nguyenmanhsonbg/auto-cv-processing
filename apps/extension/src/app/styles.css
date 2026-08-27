@@ -13246,8 +13246,28 @@ textarea:focus {
   padding: 0 10px;
 }
 
-/* Editor Toolbar */
-.topcv-editor-box {
+/* Shared rich text editor */
+.rich-text-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.rich-text-editor-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  line-height: 1.4;
+}
+
+.rich-text-editor-label .req {
+  color: #ef4444;
+}
+
+.rich-text-editor-box {
   border: 1px solid #d4d4d4;
   border-radius: 6px;
   overflow: hidden;
@@ -13257,7 +13277,7 @@ textarea:focus {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.topcv-editor-toolbar {
+.rich-text-editor-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -13269,7 +13289,7 @@ textarea:focus {
   box-sizing: border-box;
 }
 
-.topcv-editor-toolbar button {
+.rich-text-editor-toolbar button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -13287,32 +13307,32 @@ textarea:focus {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.topcv-editor-toolbar button:hover {
+.rich-text-editor-toolbar button:hover {
   background: #f5f5f5;
   color: #171717;
 }
 
-.topcv-editor-toolbar button:focus-visible {
+.rich-text-editor-toolbar button:focus-visible {
   outline: 2px solid #0b805f;
   outline-offset: 1px;
 }
 
-.topcv-editor-toolbar button:disabled {
+.rich-text-editor-toolbar button:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 
-.topcv-editor-toolbar button.is-active {
+.rich-text-editor-toolbar button.is-active {
   background: #e6f5ef;
   color: #087653;
 }
 
-.topcv-editor-toolbar button svg {
+.rich-text-editor-toolbar button svg {
   display: block;
   flex-shrink: 0;
 }
 
-.topcv-toolbar-divider {
+.rich-text-editor-divider {
   width: 1px;
   height: 20px;
   background: #d4d4d4;
@@ -13320,25 +13340,25 @@ textarea:focus {
   flex-shrink: 0;
 }
 
-.topcv-toolbar-text-bold {
+.rich-text-editor-text-bold {
   font-weight: 700;
   width: 20px;
   text-align: center;
 }
 
-.topcv-toolbar-text-italic {
+.rich-text-editor-text-italic {
   font-style: italic;
   width: 20px;
   text-align: center;
 }
 
-.topcv-toolbar-text-underline {
+.rich-text-editor-text-underline {
   text-decoration: underline;
   width: 20px;
   text-align: center;
 }
 
-.topcv-editor-content {
+.rich-text-editor-content {
   width: 100%;
   border: none;
   min-height: 96px;
@@ -13351,36 +13371,36 @@ textarea:focus {
   box-sizing: border-box;
 }
 
-.topcv-editor-box:focus-within {
+.rich-text-editor-box:focus-within {
   border-color: #0b805f;
   box-shadow: 0 0 0 2px rgba(11, 128, 95, 0.12);
 }
 
-.topcv-editor-content p {
+.rich-text-editor-content p {
   margin: 0 0 8px;
 }
 
-.topcv-editor-content p:last-child {
+.rich-text-editor-content p:last-child {
   margin-bottom: 0;
 }
 
-.topcv-editor-content ul {
+.rich-text-editor-content ul {
   list-style-type: disc;
   margin: 0 0 8px;
   padding-left: 20px;
 }
 
-.topcv-editor-content ol {
+.rich-text-editor-content ol {
   list-style-type: decimal;
   margin: 0 0 8px;
   padding-left: 20px;
 }
 
-.topcv-editor-content li p {
+.rich-text-editor-content li p {
   margin: 0;
 }
 
-.topcv-editor-content.ProseMirror p.is-editor-empty:first-child::before {
+.rich-text-editor-content.ProseMirror p.is-editor-empty:first-child::before {
   float: left;
   height: 0;
   color: #a3a3a3;

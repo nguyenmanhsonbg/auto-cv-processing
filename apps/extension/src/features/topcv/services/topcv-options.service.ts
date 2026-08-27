@@ -1,4 +1,4 @@
-import { readTopCvTokens } from './topcv-api';
+import { readTopCvTokens } from './topcv-api.service';
 
 const TOPCV_API_BASE_URL = 'https://tuyendung-api.topcv.vn/api/v1';
 

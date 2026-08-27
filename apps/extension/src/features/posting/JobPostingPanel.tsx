@@ -33,8 +33,8 @@ import { TopCvEditModal } from '@/features/topcv/TopCvEditModal';
 import { TopCvPreviewModal } from '@/features/topcv/TopCvPreviewModal';
 import { TopCvContentPanel } from '@/features/topcv/TopCvContentPanel';
 import type { TopCvFormData } from '@/features/topcv/topcv-form.types';
-import type { TopCvAuthState } from '@/features/topcv/topcv-auth';
-import type { TopCvOptionsResponse } from '@/features/topcv/topcv-options.service';
+import type { TopCvAuthState } from '@/features/topcv/services/topcv-auth.service';
+import type { TopCvOptionsResponse } from '@/features/topcv/services/topcv-options.service';
 import { isFacebookResultPendingReview } from '@/features/facebook/facebook-channel-status';
 
 export type JobDescriptionState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';

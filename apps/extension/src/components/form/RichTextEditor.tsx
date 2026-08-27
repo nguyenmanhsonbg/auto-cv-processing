@@ -3,6 +3,12 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Placeholder from '@tiptap/extension-placeholder';
+import {
+  BulletListIcon,
+  NumberedListIcon,
+  RedoIcon,
+  UndoIcon,
+} from '@/components/svg';
 
 interface RichTextEditorProps {
   label: string;
@@ -11,13 +17,6 @@ interface RichTextEditorProps {
   placeholder?: string;
   required?: boolean;
 }
-
-import {
-  BulletListIcon,
-  NumberedListIcon,
-  RedoIcon,
-  UndoIcon,
-} from '@/components/svg';
 
 function ToolbarButton({
   label,
@@ -67,7 +66,7 @@ export function RichTextEditor({
     editorProps: {
       attributes: {
         id: editorId,
-        class: 'topcv-editor-content',
+        class: 'rich-text-editor-content',
         'aria-label': label,
         'aria-required': String(required),
       },
@@ -83,12 +82,12 @@ export function RichTextEditor({
   }, [editor, value]);
 
   return (
-    <div className="topcv-form-group">
-      <label className="topcv-form-label" htmlFor={editorId}>
+    <div className="rich-text-editor">
+      <label className="rich-text-editor-label" htmlFor={editorId}>
         {label} {required ? <span className="req" aria-hidden="true">*</span> : null}
       </label>
-      <div className="topcv-editor-box">
-        <div className="topcv-editor-toolbar" role="toolbar" aria-label={`${label} formatting`}>
+      <div className="rich-text-editor-box">
+        <div className="rich-text-editor-toolbar" role="toolbar" aria-label={`${label} formatting`}>
           <ToolbarButton
             label="Hoàn tác"
             disabled={!editor?.can().undo()}
@@ -103,29 +102,29 @@ export function RichTextEditor({
           >
             <RedoIcon />
           </ToolbarButton>
-          <span className="topcv-toolbar-divider" aria-hidden="true" />
+          <span className="rich-text-editor-divider" aria-hidden="true" />
           <ToolbarButton
             label="In đậm"
             active={Boolean(editor?.isActive('bold'))}
             onClick={() => editor?.chain().focus().toggleBold().run()}
           >
-            <span className="topcv-toolbar-text-bold">B</span>
+            <span className="rich-text-editor-text-bold">B</span>
           </ToolbarButton>
           <ToolbarButton
             label="In nghiêng"
             active={Boolean(editor?.isActive('italic'))}
             onClick={() => editor?.chain().focus().toggleItalic().run()}
           >
-            <span className="topcv-toolbar-text-italic">I</span>
+            <span className="rich-text-editor-text-italic">I</span>
           </ToolbarButton>
           <ToolbarButton
             label="Gạch chân"
             active={Boolean(editor?.isActive('underline'))}
             onClick={() => editor?.chain().focus().toggleUnderline().run()}
           >
-            <span className="topcv-toolbar-text-underline">U</span>
+            <span className="rich-text-editor-text-underline">U</span>
           </ToolbarButton>
-          <span className="topcv-toolbar-divider" aria-hidden="true" />
+          <span className="rich-text-editor-divider" aria-hidden="true" />
           <ToolbarButton
             label="Danh sách dấu đầu dòng"
             active={Boolean(editor?.isActive('bulletList'))}
@@ -139,6 +138,21 @@ export function RichTextEditor({
             onClick={() => editor?.chain().focus().toggleOrderedList().run()}
           >
             <NumberedListIcon />
+          </ToolbarButton>
+          <span className="rich-text-editor-divider" aria-hidden="true" />
+          <ToolbarButton
+            label="Giảm lề"
+            disabled={!editor?.can().liftListItem('listItem')}
+            onClick={() => editor?.chain().focus().liftListItem('listItem').run()}
+          >
+            ⇤
+          </ToolbarButton>
+          <ToolbarButton
+            label="Tăng lề"
+            disabled={!editor?.can().sinkListItem('listItem')}
+            onClick={() => editor?.chain().focus().sinkListItem('listItem').run()}
+          >
+            ⇥
           </ToolbarButton>
         </div>
         <EditorContent editor={editor} />

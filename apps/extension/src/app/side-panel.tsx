@@ -59,13 +59,14 @@ import { ReferralManagementPanel } from '@/features/referrals/referral-managemen
 import { FreelancerCvPanel } from '@/features/freelancer/freelancer-cv-panel';
 import { LoginForm } from '@/features/auth/LoginForm';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
-import { checkTopCvAuth, type TopCvAuthState } from '@/features/topcv/topcv-auth';
+import { checkTopCvAuth, type TopCvAuthState } from '@/features/topcv/services/topcv-auth.service';
 import { logoutTopCv } from '@/features/topcv/topcv-login.service';
 import { DEFAULT_TOPCV_FORM, hasTopCvRichTextContent, type TopCvFormData } from '@/features/topcv/topcv-form.types';
-import { type TopCvOptionsResponse } from '@/features/topcv/topcv-options.service';
+import { type TopCvOptionsResponse } from '@/features/topcv/services/topcv-options.service';
 
 import { prepareChannelForm } from '@/lib/api-client';
-import { publishTopCvJob, transformTopCvPayload } from '@/features/topcv/topcv-api';
+import { publishTopCvJob } from '@/features/topcv/services/topcv-api.service';
+import { transformTopCvPayload } from '@/features/topcv/utils/topcv-payload';
 import {
   CvIcon,
   HomeIcon,

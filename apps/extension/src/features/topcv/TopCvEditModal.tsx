@@ -13,9 +13,9 @@ import { TopCvJobFamilyPicker } from './TopCvJobFamilyPicker';
 import { TopCvLocationPicker } from './TopCvLocationPicker';
 import { TopCvDatePicker } from './TopCvDatePicker';
 import { TopCvTimePicker } from './TopCvTimePicker';
-import { fetchTopCvDomainKnowledge, fetchTopCvOptions, type TopCvDomainKnowledge, type TopCvOption } from './topcv-options.service';
-import type { TopCvOptionsResponse } from './topcv-options.service';
-import { fetchTopCvSkills, type TopCvSkill } from './topcv-api';
+import { fetchTopCvDomainKnowledge, fetchTopCvOptions, type TopCvDomainKnowledge, type TopCvOption } from './services/topcv-options.service';
+import type { TopCvOptionsResponse } from './services/topcv-options.service';
+import { fetchTopCvSkills, type TopCvSkill } from './services/topcv-api.service';
 
 const DAY_OPTIONS = [
   { value: '1', label: 'Thứ 2' },

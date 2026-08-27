@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { TopCvLoginResult } from './topcv-login.service';
-import { checkTopCvAuth } from './topcv-auth';
+import { checkTopCvAuth } from './services/topcv-auth.service';
 
 interface TopCvLoginFormProps {
   onSuccess: (result: TopCvLoginResult) => void;
@@ -60,4 +60,3 @@ export function TopCvLoginForm({ onSuccess }: TopCvLoginFormProps) {
     </div>
   );
 }
-

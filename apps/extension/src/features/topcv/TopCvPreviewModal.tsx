@@ -1,6 +1,6 @@
 import { BackIcon, EditIcon } from '@/components/icons';
 import { formatTopCvSalary, type TopCvFormData } from './topcv-form.types';
-import { getLanguageDisplay, type TopCvOptionsResponse } from './topcv-options.service';
+import { getLanguageDisplay, type TopCvOptionsResponse } from './services/topcv-options.service';
 
 interface TopCvPreviewModalProps {
   formData: TopCvFormData;
