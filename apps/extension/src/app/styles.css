@@ -13443,10 +13443,10 @@ textarea:focus {
 
 .topcv-action-link {
   background: transparent;
+  color: #00B14F;
   border: none;
-  color: #008b3d;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 400;
   cursor: pointer;
   padding: 0;
   display: inline-flex;
@@ -14811,7 +14811,6 @@ textarea:focus {
   border-radius: 20px;
   background-color: #ffffff;
   font-size: 14px;
-  font-weight: 500;
   color: #111827;
   appearance: none;
   -webkit-appearance: none;
@@ -14946,9 +14945,9 @@ textarea:focus {
   margin-top: 12px;
   background: transparent;
   border: none;
-  color: #00B14F;
-  font-size: 13px;
-  font-weight: 500;
+  color: #16A34A;
+  font-size: 14px;
+  font-weight: 400;
   cursor: pointer;
   padding: 4px 0;
   transition: color 0.15s;
@@ -14965,9 +14964,9 @@ textarea:focus {
   margin-top: 12px;
   background: transparent;
   border: none;
-  color: #00B14F;
+  color: #16A34A;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   cursor: pointer;
   padding: 4px 0;
   transition: color 0.15s;
