@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchProvinces, fetchDistricts, type Province, type District } from './location.service';
-import { TrashIcon, ChevronDownIcon, ChevronUpIcon } from '@/components/icons';
+import { TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, PlusIcon } from '@/components/icons';
 
 export interface LocationEntry {
   id: string;
@@ -61,31 +61,6 @@ export function TopCvLocationPicker({ value, onChange }: TopCvLocationPickerProp
 
   const handleClearAll = () => {
     onChange([]);
-  };
-
-  const addArea = () => {
-    const defaultProvince = provinces.find((p) => p.id === 1) || provinces[0];
-    const provinceId = defaultProvince?.id || 1;
-    const provinceName = defaultProvince?.name || 'Hà Nội';
-
-    const newArea: LocationEntry = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      province_id: provinceId,
-      province_name: provinceName,
-      addresses: [
-        {
-          district_id: 0,
-          district_name: '',
-          working_address: '',
-        },
-      ],
-    };
-
-    if (provinceId && !districts[provinceId]) {
-      void loadDistrictsForProvince(provinceId);
-    }
-
-    onChange([...value, newArea]);
   };
 
   const removeArea = (areaIdx: number) => {
@@ -238,7 +213,7 @@ export function TopCvLocationPicker({ value, onChange }: TopCvLocationPickerProp
                       value={loc.province_id || ''}
                       onChange={(e) => handleProvinceChange(areaIdx, Number(e.target.value))}
                     >
-                      <option value="">Chọn Tỉnh/Thành phố</option>
+                      <option value="" disabled selected>Lựa chọn khu vực</option>
                       {provinces.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.name}
@@ -272,7 +247,7 @@ export function TopCvLocationPicker({ value, onChange }: TopCvLocationPickerProp
                               value={addr.district_id || ''}
                               onChange={(e) => handleDistrictChange(areaIdx, addrIdx, Number(e.target.value))}
                             >
-                              <option value="">Chọn Phường/Xã</option>
+                              <option value="" disabled selected>Lựa chọn phường/xã</option>
                               {currentDistricts.map((d) => (
                                 <option key={d.id} value={d.id}>
                                   {d.title || d.name}
@@ -298,8 +273,9 @@ export function TopCvLocationPicker({ value, onChange }: TopCvLocationPickerProp
                               className="topcv-location-remove-address-btn"
                               onClick={() => removeAddress(areaIdx, addrIdx)}
                               title="Xóa địa chỉ"
+                              aria-label="Xóa địa chỉ"
                             >
-                              ✕
+                              <CloseIcon />
                             </button>
                           )}
                         </div>
@@ -311,7 +287,7 @@ export function TopCvLocationPicker({ value, onChange }: TopCvLocationPickerProp
                       className="topcv-location-add-sub-btn"
                       onClick={() => addAddress(areaIdx)}
                     >
-                      <span className="topcv-location-plus-icon">+</span>
+                      <span className="topcv-location-plus-icon"><PlusIcon /></span>
                       <span>Thêm Phường/Xã</span>
                     </button>
                   </div>
@@ -326,9 +302,8 @@ export function TopCvLocationPicker({ value, onChange }: TopCvLocationPickerProp
       <button
         type="button"
         className="topcv-location-add-area-btn"
-        onClick={addArea}
       >
-        <span className="topcv-location-plus-icon">+</span>
+        <span className="topcv-location-plus-icon"><PlusIcon /></span>
         <span>Thêm khu vực</span>
       </button>
     </div>

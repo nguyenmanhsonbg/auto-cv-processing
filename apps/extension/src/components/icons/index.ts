@@ -25,6 +25,7 @@ export {
   MoreVerticalIcon,
   PeopleIcon,
   PinIcon,
+  PlusIcon,
   PostingIcon,
   RefreshIcon,
   SourceIcon,
