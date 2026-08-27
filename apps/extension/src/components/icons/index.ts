@@ -36,3 +36,9 @@ export { ExternalLinkIcon } from '../svg/ExternalLinkIcon';
 export { GearIcon } from '../svg/GearIcon';
 export { SaveIcon } from '../svg/SaveIcon';
 export { SparklesIcon } from '../svg/SparklesIcon';
+export {
+  UndoIcon,
+  RedoIcon,
+  BulletListIcon,
+  NumberedListIcon,
+} from '../svg/EditorIcons';

@@ -13248,37 +13248,48 @@ textarea:focus {
 
 /* Editor Toolbar */
 .topcv-editor-box {
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4d4d4;
   border-radius: 6px;
   overflow: hidden;
   background: #ffffff;
   width: 100%;
   box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .topcv-editor-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
-  padding: 4px 6px;
+  gap: 4px;
+  padding: 5px 14px;
+  min-height: 35px;
   background: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #d4d4d4;
+  box-sizing: border-box;
 }
 
 .topcv-editor-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
-  font-size: 13px;
-  color: #4b5563;
-  padding: 4px 6px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  line-height: 1.4em;
+  color: #262626;
+  min-width: 20px;
+  height: 24px;
+  padding: 0 2px;
   border-radius: 4px;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .topcv-editor-toolbar button:hover {
-  background: #f3f4f6;
-  color: #111827;
+  background: #f5f5f5;
+  color: #171717;
 }
 
 .topcv-editor-toolbar button:focus-visible {
@@ -13287,7 +13298,7 @@ textarea:focus {
 }
 
 .topcv-editor-toolbar button:disabled {
-  color: #c5cdd9;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
@@ -13296,23 +13307,47 @@ textarea:focus {
   color: #087653;
 }
 
+.topcv-editor-toolbar button svg {
+  display: block;
+  flex-shrink: 0;
+}
+
 .topcv-toolbar-divider {
   width: 1px;
-  height: 16px;
-  background: #e5e7eb;
-  margin: 0 2px;
+  height: 20px;
+  background: #d4d4d4;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.topcv-toolbar-text-bold {
+  font-weight: 700;
+  width: 20px;
+  text-align: center;
+}
+
+.topcv-toolbar-text-italic {
+  font-style: italic;
+  width: 20px;
+  text-align: center;
+}
+
+.topcv-toolbar-text-underline {
+  text-decoration: underline;
+  width: 20px;
+  text-align: center;
 }
 
 .topcv-editor-content {
   width: 100%;
   border: none;
   min-height: 96px;
-  padding: 8px 10px;
-  font-size: 13px;
-  color: #1f2937;
+  padding: 7px 14px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  line-height: 1.4em;
+  color: #262626;
   outline: none;
-  line-height: 1.5;
-  font-family: inherit;
   box-sizing: border-box;
 }
 
@@ -13329,10 +13364,16 @@ textarea:focus {
   margin-bottom: 0;
 }
 
-.topcv-editor-content ul,
-.topcv-editor-content ol {
+.topcv-editor-content ul {
+  list-style-type: disc;
   margin: 0 0 8px;
-  padding-left: 24px;
+  padding-left: 20px;
+}
+
+.topcv-editor-content ol {
+  list-style-type: decimal;
+  margin: 0 0 8px;
+  padding-left: 20px;
 }
 
 .topcv-editor-content li p {
@@ -13342,9 +13383,11 @@ textarea:focus {
 .topcv-editor-content.ProseMirror p.is-editor-empty:first-child::before {
   float: left;
   height: 0;
-  color: #9ca3af;
+  color: #a3a3a3;
   content: attr(data-placeholder);
   pointer-events: none;
+  font-size: 14px;
+  line-height: 1.4em;
 }
 
 /* Sub-cards (Locations, Languages) */

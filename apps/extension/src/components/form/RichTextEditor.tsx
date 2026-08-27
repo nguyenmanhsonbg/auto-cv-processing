@@ -12,6 +12,13 @@ interface RichTextEditorProps {
   required?: boolean;
 }
 
+import {
+  BulletListIcon,
+  NumberedListIcon,
+  RedoIcon,
+  UndoIcon,
+} from '@/components/svg';
+
 function ToolbarButton({
   label,
   active = false,
@@ -83,70 +90,55 @@ export function RichTextEditor({
       <div className="topcv-editor-box">
         <div className="topcv-editor-toolbar" role="toolbar" aria-label={`${label} formatting`}>
           <ToolbarButton
-            label="Undo"
+            label="Hoàn tác"
             disabled={!editor?.can().undo()}
             onClick={() => editor?.chain().focus().undo().run()}
           >
-            ↶
+            <UndoIcon />
           </ToolbarButton>
           <ToolbarButton
-            label="Redo"
+            label="Làm lại"
             disabled={!editor?.can().redo()}
             onClick={() => editor?.chain().focus().redo().run()}
           >
-            ↷
+            <RedoIcon />
           </ToolbarButton>
           <span className="topcv-toolbar-divider" aria-hidden="true" />
           <ToolbarButton
-            label="Bold"
+            label="In đậm"
             active={Boolean(editor?.isActive('bold'))}
             onClick={() => editor?.chain().focus().toggleBold().run()}
           >
-            <strong>B</strong>
+            <span className="topcv-toolbar-text-bold">B</span>
           </ToolbarButton>
           <ToolbarButton
-            label="Italic"
+            label="In nghiêng"
             active={Boolean(editor?.isActive('italic'))}
             onClick={() => editor?.chain().focus().toggleItalic().run()}
           >
-            <em>I</em>
+            <span className="topcv-toolbar-text-italic">I</span>
           </ToolbarButton>
           <ToolbarButton
-            label="Underline"
+            label="Gạch chân"
             active={Boolean(editor?.isActive('underline'))}
             onClick={() => editor?.chain().focus().toggleUnderline().run()}
           >
-            <u>U</u>
+            <span className="topcv-toolbar-text-underline">U</span>
           </ToolbarButton>
           <span className="topcv-toolbar-divider" aria-hidden="true" />
           <ToolbarButton
-            label="Bullet list"
+            label="Danh sách dấu đầu dòng"
             active={Boolean(editor?.isActive('bulletList'))}
             onClick={() => editor?.chain().focus().toggleBulletList().run()}
           >
-            ≡
+            <BulletListIcon />
           </ToolbarButton>
           <ToolbarButton
-            label="Numbered list"
+            label="Danh sách đánh số"
             active={Boolean(editor?.isActive('orderedList'))}
             onClick={() => editor?.chain().focus().toggleOrderedList().run()}
           >
-            ⁝
-          </ToolbarButton>
-          <span className="topcv-toolbar-divider" aria-hidden="true" />
-          <ToolbarButton
-            label="Decrease indent"
-            disabled={!editor?.can().liftListItem('listItem')}
-            onClick={() => editor?.chain().focus().liftListItem('listItem').run()}
-          >
-            ⇤
-          </ToolbarButton>
-          <ToolbarButton
-            label="Increase indent"
-            disabled={!editor?.can().sinkListItem('listItem')}
-            onClick={() => editor?.chain().focus().sinkListItem('listItem').run()}
-          >
-            ⇥
+            <NumberedListIcon />
           </ToolbarButton>
         </div>
         <EditorContent editor={editor} />
