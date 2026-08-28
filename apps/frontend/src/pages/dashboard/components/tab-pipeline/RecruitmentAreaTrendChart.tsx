@@ -25,6 +25,8 @@ export const RecruitmentAreaTrendChart: React.FC<RecruitmentAreaTrendChartProps>
 
   const totalApps = chartData.reduce((sum, item) => sum + item.newApplications, 0);
   const totalItv = chartData.reduce((sum, item) => sum + (item.interviewed || 0), 0);
+  const totalFinal = chartData.reduce((sum, item) => sum + item.finalInterviews, 0);
+  const totalOffer = chartData.reduce((sum, item) => sum + item.totalOffer, 0);
   const totalHired = chartData.reduce((sum, item) => sum + item.hired, 0);
   return (
     <div className="bg-[#111827] border border-[#1f293d] rounded-xl p-5 shadow-xl flex flex-col justify-between h-full">
@@ -33,7 +35,7 @@ export const RecruitmentAreaTrendChart: React.FC<RecruitmentAreaTrendChartProps>
         <div>
           <h3 className="text-xs font-bold uppercase text-white flex items-center gap-1.5">
             <span className="w-2 h-3.5 bg-rose-500 rounded-sm"></span>
-            BIỂU ĐỒ LINE XU HƯỚNG TUYỂN DỤNG THEO THÁNG
+            XU HƯỚNG TUYỂN DỤNG
           </h3>
           <p className="text-[11px] text-slate-400 mt-0.5">{subtitle}</p>
         </div>
@@ -51,6 +53,14 @@ export const RecruitmentAreaTrendChart: React.FC<RecruitmentAreaTrendChartProps>
           <div className="bg-purple-950/40 border border-purple-800/40 rounded-lg px-2.5 py-1 text-center">
             <div className="text-[10px] text-purple-300 font-medium">Tham gia PV</div>
             <div className="text-xs font-bold text-purple-400">{totalItv}</div>
+          </div>
+          <div className="bg-amber-950/40 border border-amber-800/40 rounded-lg px-2.5 py-1 text-center">
+            <div className="text-[10px] text-amber-300 font-medium">Final ITV</div>
+            <div className="text-xs font-bold text-amber-400">{totalFinal}</div>
+          </div>
+          <div className="bg-orange-950/40 border border-orange-800/40 rounded-lg px-2.5 py-1 text-center">
+            <div className="text-[10px] text-orange-300 font-medium">Vòng Offer</div>
+            <div className="text-xs font-bold text-orange-400">{totalOffer}</div>
           </div>
           <div className="bg-emerald-950/40 border border-emerald-800/40 rounded-lg px-2.5 py-1 text-center">
             <div className="text-[10px] text-emerald-300 font-medium">Đã tuyển</div>
@@ -110,7 +120,14 @@ export const RecruitmentAreaTrendChart: React.FC<RecruitmentAreaTrendChartProps>
                       {[
                         { color: '#3b82f6', name: 'Ứng viên mới', value: payload.find(p => p.dataKey === 'newApplications')?.value },
                         { color: '#a855f7', name: 'Tham gia phỏng vấn', value: payload.find(p => p.dataKey === 'interviewed')?.value },
-                        { color: '#10b981', name: 'Đã tuyển', value: payload.find(p => p.dataKey === 'hired')?.value },
+                        { color: '#f59e0b', name: 'Final ITV', value: payload.find(p => p.dataKey === 'finalInterviews')?.value },
+                        { color: '#f97316', name: 'Vòng Offer', value: payload.find(p => p.dataKey === 'totalOffer')?.value },
+                        { color: '#22c55e', name: 'Hired', value: payload.find(p => p.dataKey === 'hired')?.value },
+                        { color: '#ef4444', name: 'Fail ITV', value: payload.find(p => p.dataKey === 'failItv')?.value },
+                        { color: '#84cc16', name: 'Passed', value: payload.find(p => p.dataKey === 'passed')?.value },
+                        { color: '#06b6d4', name: 'Offer Accept', value: payload.find(p => p.dataKey === 'offerAccepted')?.value },
+                        { color: '#e11d48', name: 'Offer Reject', value: payload.find(p => p.dataKey === 'offerRejected')?.value },
+                        { color: '#64748b', name: 'Reject Onboard', value: payload.find(p => p.dataKey === 'onboardRejected')?.value },
                         { color: '#f43f5e', name: 'Chỉ tiêu (Target)', value: payload.find(p => p.dataKey === 'target')?.value },
                       ].map(item => (
                         <div key={item.name} className="flex items-center justify-between gap-6">
@@ -152,6 +169,24 @@ export const RecruitmentAreaTrendChart: React.FC<RecruitmentAreaTrendChartProps>
               strokeWidth={1.5}
               dot={{ fill: 'rgba(192, 132, 252, 0.5)', r: 3.5, stroke: '#c084fc', strokeWidth: 1.5 }}
               activeDot={{ fill: '#c084fc', r: 5, stroke: '#c084fc', strokeWidth: 2 }}
+            />
+
+            <Line
+              type="monotone"
+              dataKey="finalInterviews"
+              name="Final ITV"
+              stroke="#f59e0b"
+              strokeWidth={2}
+              dot={{ fill: '#fbbf24', r: 3 }}
+            />
+
+            <Line
+              type="monotone"
+              dataKey="totalOffer"
+              name="Vòng Offer"
+              stroke="#f97316"
+              strokeWidth={2}
+              dot={{ fill: '#fb923c', r: 3 }}
             />
 
             {/* Hired Area (Đã tuyển - Miền màu xanh lá) */}

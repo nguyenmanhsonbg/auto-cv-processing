@@ -35,6 +35,9 @@ import { ApplicationTimelineQueryDto } from './dto/application-timeline-query.dt
 import { ListApplicationAuditLogsQueryDto } from './dto/list-application-audit-logs-query.dto';
 import { ListApplicationsQueryDto } from './dto/list-applications-query.dto';
 import { UpdateApplicationStatusDto } from './dto/update-application-status.dto';
+import { ConfirmOnboardingDto } from './dto/confirm-onboarding.dto';
+import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
+import { RejectOnboardingDto } from './dto/reject-onboarding.dto';
 
 const parsedProfileSchema = {
   type: 'object',
@@ -201,6 +204,51 @@ export class ApplicationsController {
     };
   }
 
+  @Post(':id/onboarding/confirm')
+  @Roles(UserRole.ADMIN, UserRole.HR)
+  @ApiOperation({ summary: 'Confirm HR onboarding and move the application to waiting-onboard' })
+  async confirmOnboarding(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ConfirmOnboardingDto,
+    @Request() req: any,
+  ) {
+    const data = await this.applicationsService.confirmOnboarding(id, {
+      actorId: req?.user?.id,
+      plannedOnboardAt: dto.plannedOnboardAt,
+    });
+    return { success: true, data: this.toDetail(data), meta: this.meta() };
+  }
+
+  @Post(':id/onboarding/complete')
+  @Roles(UserRole.ADMIN, UserRole.HR)
+  @ApiOperation({ summary: 'Mark onboarding as successfully completed and mark the application hired' })
+  async completeOnboarding(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompleteOnboardingDto,
+    @Request() req: any,
+  ) {
+    const data = await this.applicationsService.completeOnboarding(id, {
+      actorId: req?.user?.id,
+      onboardedAt: dto.onboardedAt,
+    });
+    return { success: true, data: this.toDetail(data), meta: this.meta() };
+  }
+
+  @Post(':id/onboarding/reject')
+  @Roles(UserRole.ADMIN, UserRole.HR)
+  @ApiOperation({ summary: 'Record that the candidate did not onboard' })
+  async rejectOnboarding(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectOnboardingDto,
+    @Request() req: any,
+  ) {
+    const data = await this.applicationsService.rejectOnboarding(id, {
+      actorId: req?.user?.id,
+      reason: dto.reason,
+    });
+    return { success: true, data: this.toDetail(data), meta: this.meta() };
+  }
+
   @Post(':id/ai-screening/run')
   @Roles(UserRole.ADMIN, UserRole.HR)
   @ApiOperation({ summary: 'Run CV-JD mapping and AI screening for an application' })
@@ -291,6 +339,15 @@ export class ApplicationsController {
       referralSource: this.getReferralSourceType(application),
       referralEvaluation: application.freelancerReferral?.evaluation ?? null,
       status: application.status,
+      currentStage: application.currentStage,
+      offerStatus: application.offerStatus,
+      onboardingStatus: application.onboardingStatus,
+      onboardingConfirmedAt: application.onboardingConfirmedAt?.toISOString() ?? null,
+      onboardingConfirmedById: application.onboardingConfirmedById,
+      plannedOnboardAt: application.plannedOnboardAt?.toISOString() ?? null,
+      onboardingRejectedAt: application.onboardingRejectedAt?.toISOString() ?? null,
+      onboardingRejectedReason: application.onboardingRejectedReason,
+      hiredAt: application.hiredAt?.toISOString() ?? null,
       hrReceptionStatus: application.hrReviewStatus,
       sourceChannel: application.sourceChannel,
       mappingScore: null,
@@ -309,6 +366,15 @@ export class ApplicationsController {
     return {
       applicationId: application.id,
       status: application.status,
+      currentStage: application.currentStage,
+      offerStatus: application.offerStatus,
+      onboardingStatus: application.onboardingStatus,
+      onboardingConfirmedAt: application.onboardingConfirmedAt?.toISOString() ?? null,
+      onboardingConfirmedById: application.onboardingConfirmedById,
+      plannedOnboardAt: application.plannedOnboardAt?.toISOString() ?? null,
+      onboardingRejectedAt: application.onboardingRejectedAt?.toISOString() ?? null,
+      onboardingRejectedReason: application.onboardingRejectedReason,
+      hiredAt: application.hiredAt?.toISOString() ?? null,
       source: application.source,
       sourceChannel: application.sourceChannel,
       externalApplicationId: application.externalApplicationId,

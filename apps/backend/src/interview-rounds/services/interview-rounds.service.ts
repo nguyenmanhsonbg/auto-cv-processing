@@ -48,8 +48,12 @@ export class InterviewRoundsService {
 
     const savedRound = await this.interviewRoundRepo.save(round);
 
-    // Update application stage
-    await this.updateApplicationStage(applicationId, dto.roundType, InterviewResult.PENDING);
+    // Scheduling a round is the event that moves the application into that interview stage.
+    await this.applicationRepo.update(applicationId, {
+      currentStage: dto.roundType === InterviewRoundType.INTERVIEW_1
+        ? ApplicationStage.INTERVIEW_1
+        : ApplicationStage.INTERVIEW_2,
+    });
 
     return savedRound;
   }

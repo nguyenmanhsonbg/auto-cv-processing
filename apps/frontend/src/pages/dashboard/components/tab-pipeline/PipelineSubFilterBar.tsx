@@ -1,6 +1,6 @@
 import React from 'react';
 import { CHANNEL_LABELS, SubFilterKey } from '../../types';
-import type { DashboardOwnerOption } from '@/lib/dashboard-api';
+import type { DashboardOwnerOption, DashboardPositionOption } from '@/lib/dashboard-api';
 
 const RECRUITMENT_CHANNELS = ['VCS_PORTAL', 'FACEBOOK', 'TOPCV', 'ITVIEC', 'VIETNAMWORKS', 'LINKEDIN', 'MANUAL', 'OTHER'];
 
@@ -13,6 +13,12 @@ export interface PipelineSubFilterBarProps {
   ownerOptions?: DashboardOwnerOption[];
   selectedOwnerId?: string;
   onOwnerChange?: (owner?: DashboardOwnerOption) => void;
+  positionOptions?: DashboardPositionOption[];
+  selectedPositionId?: string;
+  onPositionChange?: (positionId?: string) => void;
+  startDate?: string;
+  endDate?: string;
+  onDateChange?: (field: 'startDate' | 'endDate', value?: string) => void;
 }
 
 const SUB_FILTERS: { key: SubFilterKey; label: string }[] = [
@@ -31,6 +37,12 @@ export const PipelineSubFilterBar: React.FC<PipelineSubFilterBarProps> = ({
   ownerOptions = [],
   selectedOwnerId,
   onOwnerChange,
+  positionOptions = [],
+  selectedPositionId,
+  onPositionChange,
+  startDate,
+  endDate,
+  onDateChange,
 }) => {
   return (
     <div className="sticky top-0 z-30 bg-[#0b0f19]/95 backdrop-blur-md py-3 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8 border-b border-slate-800/80 shadow-xl shadow-[#0b0f19]/90">
@@ -85,6 +97,40 @@ export const PipelineSubFilterBar: React.FC<PipelineSubFilterBarProps> = ({
                 <option key={`${owner.type}-${owner.id}`} value={owner.id}>{owner.label}</option>
               ))}
             </select>
+          )}
+          {activeFilter === 'vitri' && onPositionChange && (
+            <select
+              aria-label="Lọc theo vị trí tuyển dụng"
+              value={selectedPositionId || ''}
+              onChange={(event) => onPositionChange(event.target.value || undefined)}
+              className="ml-1 max-w-[260px] rounded bg-slate-800 px-2 py-1 text-slate-200 outline-none"
+            >
+              <option value="">Tất cả vị trí</option>
+              {positionOptions.map((position) => (
+                <option key={position.id} value={position.id}>{position.label}</option>
+              ))}
+            </select>
+          )}
+          {activeFilter === 'thoigian' && onDateChange && (
+            <div className="ml-1 flex flex-wrap items-center gap-1.5">
+              <label className="sr-only" htmlFor="dashboard-start-date">Từ ngày</label>
+              <input
+                id="dashboard-start-date"
+                type="date"
+                value={startDate || ''}
+                onChange={(event) => onDateChange('startDate', event.target.value || undefined)}
+                className="rounded bg-slate-800 px-2 py-1 text-slate-200 outline-none"
+              />
+              <span className="text-slate-500">→</span>
+              <label className="sr-only" htmlFor="dashboard-end-date">Đến ngày</label>
+              <input
+                id="dashboard-end-date"
+                type="date"
+                value={endDate || ''}
+                onChange={(event) => onDateChange('endDate', event.target.value || undefined)}
+                className="rounded bg-slate-800 px-2 py-1 text-slate-200 outline-none"
+              />
+            </div>
           )}
         </div>
       </div>

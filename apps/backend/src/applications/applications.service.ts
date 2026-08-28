@@ -45,6 +45,9 @@ import {
   MappingRecommendation,
   MappingStatus,
   RecruitmentChannel,
+  ApplicationStage,
+  OnboardingStatus,
+  OfferStatus,
 } from '../recruitment-common';
 import { WorkflowStateService } from '../workflow-state/workflow-state.service';
 import { ApplicationSourcesService } from './application-sources.service';
@@ -125,6 +128,13 @@ export interface OverrideApplicationStatusResult {
 
 export interface RunApplicationAiScreeningInput {
   actorId?: string | null;
+}
+
+export interface OnboardingActionInput {
+  actorId?: string | null;
+  plannedOnboardAt?: string | null;
+  onboardedAt?: string | null;
+  reason?: string | null;
 }
 
 export interface PublicApplyRateLimitInput {
@@ -456,6 +466,116 @@ export class ApplicationsService {
         workflowEventId: workflowEvent.id,
       };
     });
+  }
+
+  async confirmOnboarding(
+    id: string,
+    input: OnboardingActionInput = {},
+  ): Promise<ApplicationEntity> {
+    const applicationId = this.requireText(id, 'Application id');
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(ApplicationEntity);
+      const application = await repo.findOne({ where: { id: applicationId } });
+      if (!application) throw new BadRequestException('Application not found');
+      if (application.offerStatus !== OfferStatus.ACCEPTED) {
+        throw new BadRequestException('Onboarding can only be confirmed after the candidate accepts the offer');
+      }
+      if (application.currentStage === ApplicationStage.HIRED) {
+        throw new BadRequestException('Application has already been onboarded');
+      }
+
+      application.currentStage = ApplicationStage.ONBOARDING;
+      application.onboardingStatus = OnboardingStatus.PENDING;
+      application.onboardingConfirmedAt = new Date();
+      application.onboardingConfirmedById = this.optionalText(input.actorId);
+      application.plannedOnboardAt = input.plannedOnboardAt
+        ? new Date(input.plannedOnboardAt)
+        : null;
+      application.onboardingRejectedAt = null;
+      application.onboardingRejectedReason = null;
+      await repo.save(application);
+
+      await this.recordApplicationAuditLog(manager, {
+        applicationId,
+        actorType: input.actorId ? 'USER' : 'SYSTEM',
+        actorId: input.actorId,
+        action: 'ONBOARDING_CONFIRMED',
+        objectType: 'APPLICATION',
+        objectId: applicationId,
+        metadata: {
+          onboardingStatus: OnboardingStatus.PENDING,
+          plannedOnboardAt: application.plannedOnboardAt?.toISOString() ?? null,
+        },
+      });
+    });
+
+    return this.findDetail(applicationId);
+  }
+
+  async completeOnboarding(
+    id: string,
+    input: OnboardingActionInput = {},
+  ): Promise<ApplicationEntity> {
+    const applicationId = this.requireText(id, 'Application id');
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(ApplicationEntity);
+      const application = await repo.findOne({ where: { id: applicationId } });
+      if (!application) throw new BadRequestException('Application not found');
+      if (application.currentStage !== ApplicationStage.ONBOARDING
+        || application.onboardingStatus !== OnboardingStatus.PENDING) {
+        throw new BadRequestException('Application must be waiting for onboarding confirmation');
+      }
+
+      application.currentStage = ApplicationStage.HIRED;
+      application.onboardingStatus = OnboardingStatus.COMPLETED;
+      application.hiredAt = input.onboardedAt ? new Date(input.onboardedAt) : new Date();
+      await repo.save(application);
+
+      await this.recordApplicationAuditLog(manager, {
+        applicationId,
+        actorType: input.actorId ? 'USER' : 'SYSTEM',
+        actorId: input.actorId,
+        action: 'ONBOARDING_COMPLETED',
+        objectType: 'APPLICATION',
+        objectId: applicationId,
+        metadata: { hiredAt: application.hiredAt.toISOString() },
+      });
+    });
+
+    return this.findDetail(applicationId);
+  }
+
+  async rejectOnboarding(
+    id: string,
+    input: OnboardingActionInput = {},
+  ): Promise<ApplicationEntity> {
+    const applicationId = this.requireText(id, 'Application id');
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(ApplicationEntity);
+      const application = await repo.findOne({ where: { id: applicationId } });
+      if (!application) throw new BadRequestException('Application not found');
+      if (application.currentStage !== ApplicationStage.ONBOARDING
+        || application.onboardingStatus !== OnboardingStatus.PENDING) {
+        throw new BadRequestException('Application must be waiting for onboarding confirmation');
+      }
+
+      application.onboardingStatus = OnboardingStatus.REJECTED;
+      application.onboardingRejectedAt = new Date();
+      application.onboardingRejectedReason = this.optionalText(input.reason);
+      await repo.save(application);
+
+      await this.recordApplicationAuditLog(manager, {
+        applicationId,
+        actorType: input.actorId ? 'USER' : 'SYSTEM',
+        actorId: input.actorId,
+        action: 'ONBOARDING_REJECTED',
+        objectType: 'APPLICATION',
+        objectId: applicationId,
+        metadata: { reason: application.onboardingRejectedReason },
+      });
+    });
+
+    return this.findDetail(applicationId);
   }
 
   async runAiScreening(
@@ -852,11 +972,18 @@ export class ApplicationsService {
         sourceChannel,
         externalApplicationId,
         status: ApplicationStatus.APPLICATION_CREATED,
+        currentStage: ApplicationStage.APPLIED,
         currentCvDocumentId: null,
         mappingStatus: null,
         formStatus: null,
         aiScreeningStatus: null,
         hrReviewStatus: null,
+        onboardingStatus: null,
+        onboardingConfirmedAt: null,
+        onboardingConfirmedById: null,
+        plannedOnboardAt: null,
+        onboardingRejectedAt: null,
+        onboardingRejectedReason: null,
       });
       const savedApplication = await manager.getRepository(ApplicationEntity).save(application);
       const applicationSource = await this.createApplicationSource(
@@ -1415,6 +1542,7 @@ export class ApplicationsService {
       application.mappingStatus = MappingStatus.DONE;
       application.aiScreeningStatus = AiScreeningStatus.DONE;
       application.status = ApplicationStatus.AI_SCREENING_DONE;
+      application.currentStage = ApplicationStage.SCREEN_CV;
       await applicationRepo.save(application);
 
       await this.workflowStateService.recordEvent(

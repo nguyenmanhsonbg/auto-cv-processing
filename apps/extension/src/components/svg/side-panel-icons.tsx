@@ -140,6 +140,23 @@ export function ChevronUpIcon({ className }: IconProps = {}) {
   );
 }
 
+export function ClockIcon({ className }: IconProps = {}) {
+  return (
+    <svg className={className} width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M12 7V12L15.5 14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function PlusIcon({ className }: IconProps = {}) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M6 2.5V9.5M2.5 6H9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function SourceIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">

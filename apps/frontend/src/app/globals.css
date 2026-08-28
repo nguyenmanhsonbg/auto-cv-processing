@@ -41,6 +41,28 @@
   z-index: 9999 !important;
 }
 
+.trend-table-scroll {
+  scrollbar-color: #475569 #0f172a;
+  scrollbar-width: thin;
+}
+
+.trend-table-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.trend-table-scroll::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.trend-table-scroll::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 9999px;
+}
+
+.trend-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
 @keyframes donutSliceZoom {
   0% {
     transform: scale(1);
@@ -51,5 +73,4 @@
     filter: brightness(1.15) drop-shadow(0 6px 16px rgba(0, 0, 0, 0.55));
   }
 }
-
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Globe, FileDown, Upload } from 'lucide-react';
 import {
   Select,
@@ -7,40 +7,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import type { DashboardScope } from '@/lib/dashboard-api';
+import { DASHBOARD_SCOPE_LABELS } from '@/lib/dashboard-api';
 
 export interface DashboardHeaderProps {
   onExportClick?: () => void;
   onImportClick?: () => void;
   asOfDate?: string;
-  selectedScope?: string;
-  onScopeChange?: (scope: string) => void;
+  selectedScope?: DashboardScope;
+  onScopeChange?: (scope: DashboardScope) => void;
   totalApplications?: number;
   totalHired?: number;
   totalFinalItv?: number;
 }
 
-const SCOPES = [
-  'Toàn Công ty',
-  'Khối Công nghệ & Sản phẩm (Tech)',
-  'Khối An ninh mạng (Cyber)',
-  'Khối Kinh doanh & Giải pháp (Biz)',
-  'Khối Vận hành & Hỗ trợ (Backoffice)',
-];
+const SCOPES: DashboardScope[] = ['company', 'owner', 'position', 'channel', 'time'];
 
 export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onExportClick,
   onImportClick,
   asOfDate = '01/01/2026 – 11/08/2026',
-  selectedScope = 'Toàn Công ty',
+  selectedScope = 'company',
   onScopeChange,
   totalApplications: _totalApplications = 0,
   totalHired: _totalHired = 0,
   totalFinalItv: _totalFinalItv = 0,
 }) => {
-  const [currentScope, setCurrentScope] = useState(selectedScope);
-
-  const handleScopeChange = (value: string) => {
-    setCurrentScope(value);
+  const handleScopeChange = (value: DashboardScope) => {
     if (onScopeChange) onScopeChange(value);
   };
 
@@ -74,7 +67,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       {/* Right Scope & Export Buttons */}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <div className="w-[180px]">
-          <Select value={currentScope} onValueChange={handleScopeChange}>
+            <Select value={selectedScope} onValueChange={(value) => handleScopeChange(value as DashboardScope)}>
             <SelectTrigger className="bg-[#161f30] hover:bg-slate-800 border-slate-700 text-slate-200 h-9 text-xs focus:ring-0 focus:ring-offset-0">
               <div className="flex items-center gap-1.5 truncate">
                 <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -84,7 +77,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             <SelectContent className="bg-[#111827] border-slate-800 text-slate-200 text-xs">
               {SCOPES.map((scope) => (
                 <SelectItem key={scope} value={scope} className="cursor-pointer hover:bg-slate-800 text-xs">
-                  {scope}
+                  {DASHBOARD_SCOPE_LABELS[scope]}
                 </SelectItem>
               ))}
             </SelectContent>

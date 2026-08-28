@@ -16,6 +16,7 @@ import {
   InterviewResult,
   InterviewRoundType,
   OfferStatus,
+  OnboardingStatus,
   RecruitmentChannel,
 } from '../recruitment-common';
 import { RecruitmentImportParser } from './recruitment-import.parser';
@@ -122,11 +123,15 @@ export class RecruitmentImportService {
       this.optionalEnum(row, 'source_channel', RecruitmentChannel, 'applications');
       const stage = this.optionalEnum(row, 'current_stage', ApplicationStage, 'applications');
       this.optionalEnum(row, 'offer_status', OfferStatus, 'applications');
+      this.optionalEnum(row, 'onboarding_status', OnboardingStatus, 'applications');
       const hiredAt = this.date(row, 'hired_at', 'applications');
       if (stage === ApplicationStage.HIRED && !hiredAt) {
         throw this.rowError('applications', row, 'hired_at', 'is required when current_stage is HIRED');
       }
       this.date(row, 'created_at', 'applications');
+      this.date(row, 'onboarding_confirmed_at', 'applications');
+      this.date(row, 'planned_onboard_at', 'applications');
+      this.date(row, 'onboarding_rejected_at', 'applications');
     }
 
     for (const row of workbook.interviewRounds) {
@@ -221,6 +226,12 @@ export class RecruitmentImportService {
     entity.assignedRecruiterId = this.optional(row, 'assigned_recruiter_id');
     entity.offerStatus = (this.optionalEnum(row, 'offer_status', OfferStatus, 'applications') ?? null) as OfferStatus | null;
     entity.hiredAt = this.date(row, 'hired_at', 'applications');
+    entity.onboardingStatus = (this.optionalEnum(row, 'onboarding_status', OnboardingStatus, 'applications')
+      ?? (entity.currentStage === ApplicationStage.HIRED ? OnboardingStatus.COMPLETED : null)) as OnboardingStatus | null;
+    entity.onboardingConfirmedAt = this.date(row, 'onboarding_confirmed_at', 'applications');
+    entity.plannedOnboardAt = this.date(row, 'planned_onboard_at', 'applications');
+    entity.onboardingRejectedAt = this.date(row, 'onboarding_rejected_at', 'applications');
+    entity.onboardingRejectedReason = this.optional(row, 'onboarding_rejected_reason');
     const createdAt = this.date(row, 'created_at', 'applications');
     if (createdAt) entity.createdAt = createdAt;
     const saved = await repo.save(entity);
@@ -281,16 +292,16 @@ export class RecruitmentImportService {
       currentStage?: ApplicationStage;
       offerStatus?: OfferStatus;
       hiredAt?: Date | null;
+      onboardingStatus?: OnboardingStatus | null;
     } = { offerStatus: status };
     if (status === OfferStatus.PENDING) update.currentStage = ApplicationStage.OFFER_PENDING;
     if (status === OfferStatus.SENT) update.currentStage = ApplicationStage.OFFER_SENT;
     if (status === OfferStatus.REVISED) update.currentStage = ApplicationStage.OFFER_REVISED;
     if (status === OfferStatus.ACCEPTED) {
-      update.currentStage = ApplicationStage.HIRED;
-      update.hiredAt = application.hiredAt ?? entity.respondedAt;
-      if (!update.hiredAt) {
-        throw this.rowError('offers', row, 'responded_at', 'is required for ACCEPTED offer when application has no hired_at');
-      }
+      // Acceptance is separate from HR confirmation and successful onboarding.
+      update.currentStage = application.currentStage ?? ApplicationStage.OFFER_SENT;
+      update.hiredAt = application.hiredAt ?? null;
+      update.onboardingStatus = application.onboardingStatus ?? null;
     }
     if ([OfferStatus.REJECTED_BY_CANDIDATE, OfferStatus.CANCELLED, OfferStatus.EXPIRED].includes(status)) {
       update.currentStage = ApplicationStage.REJECTED;

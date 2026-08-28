@@ -6,14 +6,21 @@ export interface JobFamilySelection {
   level3Name: string;
 }
 
+export interface WorkingHourSchedule {
+  fromDay: string;
+  toDay: string;
+  fromTime: string;
+  toTime: string;
+}
+
 export interface TopCvFormData {
   // 1. Thông tin chung
   title: string;
   position: string;
-  industryKnowledge: string;
-  employeeLevel: string;
-  jobType: string;
-  workingType: string;
+  industryKnowledge: number[];
+  employeeLevel: number | '';
+  jobType: number | '';
+  workingType: number[];
   salaryType: 'negotiable' | 'range';
   salaryFrom: number | null;
   salaryTo: number | null;
@@ -45,19 +52,20 @@ export interface TopCvFormData {
     fromTime: string;
     toTime: string;
     lunchBreak: string;
+    schedules?: WorkingHourSchedule[];
   };
 
   // 3. Kỳ vọng về ứng viên
-  education: string;
+  education: string | number; // '' = unselected, number = from TopCV options API
   experience: string;
-  gender: string;
+  gender: string | number; // '' = unselected, number = from TopCV options
   ageFrom: number | null;
   ageTo: number | null;
-  requiredSkills: string[];
-  preferredSkills: string[];
+  requiredSkills: Array<{ value: number; label: string }>;
+  preferredSkills: Array<{ value: number; label: string }>;
   languages: Array<{
-    language: string;
-    certificate: string;
+    language: number; // value from certificate_foreign_languages
+    certificate: number | ''; // certificate value (number), empty string = unselected
   }>;
 
   // 4. Thông tin nhận hồ sơ
@@ -68,13 +76,19 @@ export interface TopCvFormData {
   contactEmails: string[];
 }
 
+export function hasTopCvRichTextContent(value: string): boolean {
+  const document = new DOMParser().parseFromString(value, 'text/html');
+  const textContent = document.body.textContent?.replaceAll('\u00a0', ' ') ?? '';
+  return Boolean(textContent.trim());
+}
+
 export const DEFAULT_TOPCV_FORM: TopCvFormData = {
   title: '',
   position: '',
-  industryKnowledge: '',
+  industryKnowledge: [],
   employeeLevel: '',
   jobType: '',
-  workingType: '',
+  workingType: [],
   salaryType: 'range',
   salaryFrom: null,
   salaryTo: null,
@@ -87,11 +101,19 @@ export const DEFAULT_TOPCV_FORM: TopCvFormData = {
   jobBenefit: '',
   locations: [],
   workingHours: {
-    fromDay: '',
-    toDay: '',
-    fromTime: '',
-    toTime: '',
+    fromDay: '1',
+    toDay: '5',
+    fromTime: '08:30',
+    toTime: '18:00',
     lunchBreak: '',
+    schedules: [
+      {
+        fromDay: '1',
+        toDay: '5',
+        fromTime: '08:30',
+        toTime: '18:00',
+      },
+    ],
   },
 
   education: '',

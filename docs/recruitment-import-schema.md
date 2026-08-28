@@ -15,7 +15,8 @@ Optional columns: `email`, `phone`, `birth_year`, `position`, `level`.
 Required columns: `application_key`, `candidate_key`, `job_posting_id`.
 
 Optional columns: `external_application_id`, `source_channel`, `current_stage`,
-`assigned_recruiter_id`, `offer_status`, `hired_at`, `created_at`.
+`assigned_recruiter_id`, `offer_status`, `onboarding_status`, `onboarding_confirmed_at`,
+`planned_onboard_at`, `onboarding_rejected_at`, `onboarding_rejected_reason`, `hired_at`, `created_at`.
 
 ## interview_rounds
 
@@ -36,7 +37,8 @@ Optional columns: `version`, `external_offer_id`, `department`, `level`,
 
 - `level`: `ENTRY`, `EXPERIENCED`, `SENIOR`, `SPECIALIST`
 - `source_channel`: `VCS_PORTAL`, `FACEBOOK`, `TOPCV`, `ITVIEC`, `VIETNAMWORKS`, `LINKEDIN`, `MANUAL`, `OTHER`
-- `current_stage`: `APPLIED`, `PRE_TEST_1`, `SCREEN_CV`, `INTERVIEW_1`, `PRE_TEST_2`, `INTERVIEW_2`, `OFFER_PENDING`, `OFFER_SENT`, `OFFER_REVISED`, `HIRED`, `REJECTED`, `TALENT_POOL`
+- `current_stage`: `APPLIED`, `SCREEN_CV`, `PRE_TEST_1`, `INTERVIEW_1`, `PRE_TEST_2`, `INTERVIEW_2`, `OFFER_PENDING`, `OFFER_SENT`, `OFFER_REVISED`, `ONBOARDING`, `HIRED`, `REJECTED`, `TALENT_POOL`
+- `onboarding_status`: `PENDING`, `COMPLETED`, or `REJECTED`; optional because legacy applications may not have reached onboarding.
 - `round_type`: `INTERVIEW_1`, `INTERVIEW_2`
 - `result`: `PASS`, `FAIL`, `NO_SHOW`, `PENDING`
 - `overall_grade`: `EXCELLENT`, `GOOD`, `AVERAGE`, `POOR`

@@ -203,11 +203,9 @@ export class OffersService {
 
     const savedOffer = await this.offerRepo.save(offer);
 
-    // Update application - mark as HIRED
+    // Offer acceptance is not onboarding success. HR must confirm onboarding first.
     await this.applicationRepo.update(offer.applicationId, {
-      currentStage: ApplicationStage.HIRED,
       offerStatus: OfferStatus.ACCEPTED,
-      hiredAt: new Date(),
     });
 
     return savedOffer;
@@ -263,7 +261,8 @@ export class OffersService {
         stage = ApplicationStage.OFFER_REVISED;
         break;
       case OfferStatus.ACCEPTED:
-        stage = ApplicationStage.HIRED;
+        // Keep the current offer substage until HR confirms onboarding.
+        stage = null;
         break;
       case OfferStatus.REJECTED_BY_CANDIDATE:
       case OfferStatus.CANCELLED:

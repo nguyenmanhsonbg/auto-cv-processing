@@ -322,6 +322,15 @@ export interface ApplicationListRecord {
   referralEvaluation?: string | null;
   freelancerEvaluation?: string | null;
   status?: string | null;
+  currentStage?: string | null;
+  offerStatus?: string | null;
+  onboardingStatus?: 'PENDING' | 'COMPLETED' | 'REJECTED' | null;
+  onboardingConfirmedAt?: string | null;
+  onboardingConfirmedById?: string | null;
+  plannedOnboardAt?: string | null;
+  onboardingRejectedAt?: string | null;
+  onboardingRejectedReason?: string | null;
+  hiredAt?: string | null;
   hrReceptionStatus?: string | null;
   sourceChannel?: string | null;
   mappingScore?: number | null;
@@ -932,6 +941,33 @@ export function getApplication(applicationId: string) {
   return apiClient
     .get<ApiEnvelope<ApplicationDetailRecord> | ApplicationDetailRecord>(
       `/applications/${encodeURIComponent(applicationId)}`,
+    )
+    .then(unwrapEnvelope);
+}
+
+export function confirmApplicationOnboarding(applicationId: string, plannedOnboardAt?: string) {
+  return apiClient
+    .post<ApiEnvelope<ApplicationDetailRecord> | ApplicationDetailRecord>(
+      `/applications/${encodeURIComponent(applicationId)}/onboarding/confirm`,
+      plannedOnboardAt ? { plannedOnboardAt } : {},
+    )
+    .then(unwrapEnvelope);
+}
+
+export function completeApplicationOnboarding(applicationId: string, onboardedAt?: string) {
+  return apiClient
+    .post<ApiEnvelope<ApplicationDetailRecord> | ApplicationDetailRecord>(
+      `/applications/${encodeURIComponent(applicationId)}/onboarding/complete`,
+      onboardedAt ? { onboardedAt } : {},
+    )
+    .then(unwrapEnvelope);
+}
+
+export function rejectApplicationOnboarding(applicationId: string, reason?: string) {
+  return apiClient
+    .post<ApiEnvelope<ApplicationDetailRecord> | ApplicationDetailRecord>(
+      `/applications/${encodeURIComponent(applicationId)}/onboarding/reject`,
+      reason ? { reason } : {},
     )
     .then(unwrapEnvelope);
 }

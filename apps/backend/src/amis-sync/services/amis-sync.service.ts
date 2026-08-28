@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApplicationEntity } from '../../applications/entities/application.entity';
-import { ApplicationStage } from '../../recruitment-common';
+import { ApplicationStage, OnboardingStatus } from '../../recruitment-common';
 import { AmisWebhookPayloadDto, AmisRecruitmentRoundTime } from '../dto/amis-webhook.dto';
 
 @Injectable()
@@ -156,6 +156,7 @@ export class AmisSyncService {
       // Nếu là HIRED, set hiredAt
       if (currentStage === ApplicationStage.HIRED && !application.hiredAt) {
         application.hiredAt = new Date();
+        application.onboardingStatus = OnboardingStatus.COMPLETED;
       }
 
       await this.applicationRepo.save(application);
@@ -223,8 +224,8 @@ export class AmisSyncService {
   private mapBySortOrder(sortOrder: number): ApplicationStage | null {
     switch (sortOrder) {
       case 1: return ApplicationStage.APPLIED;
-      case 2: return ApplicationStage.PRE_TEST_1;
-      case 3: return ApplicationStage.SCREEN_CV;
+      case 2: return ApplicationStage.SCREEN_CV;
+      case 3: return ApplicationStage.PRE_TEST_1;
       case 4: return ApplicationStage.INTERVIEW_1;
       case 5: return ApplicationStage.PRE_TEST_2;
       case 6: return ApplicationStage.INTERVIEW_2;

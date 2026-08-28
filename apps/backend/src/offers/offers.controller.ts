@@ -80,7 +80,7 @@ export class OffersController {
   }
 
   @Post(':id/accept')
-  @ApiOperation({ summary: 'Accept an offer (marks application as HIRED)' })
+  @ApiOperation({ summary: 'Accept an offer (requires HR onboarding confirmation before Hired)' })
   async acceptOffer(@Param('id', ParseUUIDPipe) id: string): Promise<OfferEntity> {
     return this.service.acceptOffer(id);
   }

@@ -1,4 +1,4 @@
-import { exchangeTopCvToken } from './topcv-api';
+import { exchangeTopCvToken } from './topcv-api.service';
 
 const TOPCV_API_BASE_URL = 'https://tuyendung-api.topcv.vn/api/v1';
 
@@ -17,6 +17,7 @@ const ACCESS_TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 export interface TopCvAuthData {
   accessToken?: string;
   refreshToken?: string;
+  cookieSession?: boolean;
   userEmail?: string;
   companyName?: string;
   updatedAt?: number;
@@ -68,8 +69,28 @@ export async function checkTopCvAuth(options?: { allowProbeTab?: boolean }): Pro
             companyName: auth.companyName || undefined,
           };
         }
-        // Refresh fail → xóa token cũ
-        if (result.reason === 'invalid_token' || result.reason === 'session_timeout') {
+        // Refresh fail → thử đọc lại token tươi từ tab TopCV đang mở trước khi xóa
+        if (result.reason === 'session_timeout') {
+          const freshFromTab = await tryExtractFreshTokensFromTab();
+          if (freshFromTab.accessToken || freshFromTab.refreshToken) {
+            await saveTopCvAuthToStorage({
+              accessToken: freshFromTab.accessToken || '',
+              refreshToken: freshFromTab.refreshToken,
+              userEmail: auth.userEmail,
+              companyName: auth.companyName,
+              taFp: freshFromTab.taFp,
+              taId: freshFromTab.taId,
+              taJr: freshFromTab.taJr,
+            });
+            return {
+              ok: true,
+              reason: 'READY',
+              userEmail: auth.userEmail || auth.companyName || undefined,
+              companyName: auth.companyName || undefined,
+            };
+          }
+          await chrome.storage.local.remove(TOPCV_STORAGE_KEY_AUTH);
+        } else if (result.reason === 'invalid_token') {
           await chrome.storage.local.remove(TOPCV_STORAGE_KEY_AUTH);
         }
       } else if (auth?.accessToken) {
@@ -130,6 +151,22 @@ export async function checkTopCvAuth(options?: { allowProbeTab?: boolean }): Pro
                 companyName: authFromTab.companyName,
               };
             }
+          }
+
+          const cookieSession = await checkTopCvCookieSession(topCvTab.id);
+          if (cookieSession) {
+            await saveTopCvAuthToStorage({
+              accessToken: '',
+              userEmail: cookieSession.userEmail,
+              companyName: cookieSession.companyName,
+              cookieSession: true,
+            });
+            return {
+              ok: true,
+              reason: 'READY',
+              userEmail: cookieSession.userEmail,
+              companyName: cookieSession.companyName,
+            };
           }
         }
       }
@@ -224,6 +261,45 @@ async function readResponseBody(response: Response) {
   if (!text) return null;
   try {
     return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+async function checkTopCvCookieSession(tabId: number): Promise<{
+  userEmail?: string;
+  companyName?: string;
+} | null> {
+  if (!chrome.scripting) return null;
+
+  try {
+    const [result] = await chrome.scripting.executeScript<[], {
+      ok: boolean;
+      userEmail?: string;
+      companyName?: string;
+    }>({
+      target: { tabId },
+      world: 'MAIN',
+      func: async () => {
+        try {
+          const response = await fetch('https://tuyendung-api.topcv.vn/api/v1/auth/me', {
+            credentials: 'include',
+            headers: { Accept: 'application/json' },
+          });
+          if (!response.ok) return { ok: false };
+          const body = await response.json() as { data?: { email?: string; company_name?: string } };
+          return {
+            ok: true,
+            userEmail: body.data?.email,
+            companyName: body.data?.company_name,
+          };
+        } catch {
+          return { ok: false };
+        }
+      },
+    });
+
+    return result?.result?.ok ? result.result : null;
   } catch {
     return null;
   }
@@ -386,6 +462,7 @@ async function waitForTabComplete(tabId: number, maxWaitMs = 3500): Promise<void
 async function saveTopCvAuthToStorage(auth: {
   accessToken: string;
   refreshToken?: string;
+  cookieSession?: boolean;
   userEmail?: string;
   companyName?: string;
   taFp?: string;
@@ -401,6 +478,7 @@ async function saveTopCvAuthToStorage(auth: {
       [TOPCV_STORAGE_KEY_AUTH]: {
         accessToken: auth.accessToken,
         refreshToken: auth.refreshToken,
+        cookieSession: auth.cookieSession,
         userEmail: auth.userEmail || currentAuth?.userEmail,
         companyName: auth.companyName || currentAuth?.companyName,
         updatedAt: Date.now(),
@@ -411,6 +489,69 @@ async function saveTopCvAuthToStorage(auth: {
       },
     });
   }
+}
+
+// Thử đọc token tươi từ tab TopCV đang mở (dùng khi refresh thất bại)
+async function tryExtractFreshTokensFromTab(): Promise<{
+  accessToken?: string;
+  refreshToken?: string;
+  taFp?: string;
+  taId?: string;
+  taJr?: string;
+}> {
+  if (!chrome.tabs || !chrome.scripting) return {};
+
+  try {
+    const allTabs = await chrome.tabs.query({});
+    const topCvTab = allTabs.find(
+      (t) =>
+        t.id !== undefined &&
+        t.url &&
+        (t.url.includes('tuyendung.topcv.vn') || t.url.includes('topcv.vn'))
+    );
+    if (!topCvTab?.id) return {};
+
+    // Bỏ qua tab login
+    if (topCvTab.url?.includes('/app/login')) return {};
+
+    // Lấy token từ tab
+    for (const world of ['ISOLATED', 'MAIN'] as const) {
+      try {
+        const [result] = await chrome.scripting.executeScript<
+          [],
+          { accessToken: string | null; refreshToken: string | null; taFp: string | null; taId: string | null; taJr: string | null }
+        >({
+          target: { tabId: topCvTab.id },
+          world,
+          func: () => ({
+            accessToken: localStorage.getItem('local_storage__token.refresh')
+              ?? localStorage.getItem('local_storage__token.local')
+              ?? localStorage.getItem('auth._token.local'),
+            refreshToken: localStorage.getItem('local_storage__refresh_token.refresh'),
+            taFp: localStorage.getItem('_tafp'),
+            taId: localStorage.getItem('_taid'),
+            taJr: localStorage.getItem('_tajr'),
+          }),
+        });
+
+        const r = result?.result;
+        if (r?.accessToken || r?.refreshToken) {
+          return {
+            accessToken: r.accessToken ?? undefined,
+            refreshToken: r.refreshToken ?? undefined,
+            taFp: r.taFp ?? undefined,
+            taId: r.taId ?? undefined,
+            taJr: r.taJr ?? undefined,
+          };
+        }
+      } catch {
+        // continue to next world
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return {};
 }
 
 function inspectTopCvLocalStorage(): {
@@ -583,6 +724,3 @@ function shouldRefreshAccessToken(accessToken: string): boolean {
     return false;
   }
 }
-
-
-

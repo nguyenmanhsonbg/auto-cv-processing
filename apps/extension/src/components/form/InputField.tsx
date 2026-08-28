@@ -1,7 +1,7 @@
 import { useId, useState, type ChangeEventHandler, type FocusEvent, type InputHTMLAttributes, type ReactNode } from 'react';
 
 type InputFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'onChange' | 'required'> & {
-  label: string;
+  label?: string;
   value: string;
   onChange: ChangeEventHandler<HTMLInputElement>;
   required?: boolean;
@@ -18,9 +18,9 @@ function joinClassNames(...classNames: Array<string | undefined | false>) {
   return classNames.filter(Boolean).join(' ');
 }
 
-function getInputValidationError(label: string, value: string, touched: boolean, required: boolean, maxLength?: number) {
+function getInputValidationError(label: string = 'Trường này', value: string, touched: boolean, required: boolean, maxLength?: number) {
   if (!touched) return undefined;
-  if (required && !value.trim()) return `${label} là bắt buộc, không được để trống`;
+  if (required && !value.trim()) return `${label} không được để trống`;
   if (maxLength !== undefined && value.length > maxLength) return `Vui lòng nhập tối đa ${maxLength} ký tự`;
   return undefined;
 }
@@ -44,7 +44,7 @@ export function InputField({
   const generatedId = useId();
   const [touched, setTouched] = useState(false);
   const inputId = inputProps.name ? `${inputProps.name}-${generatedId}` : generatedId;
-  const internalError = getInputValidationError(label, value, touched, required, maxLength);
+  const internalError = getInputValidationError(label || 'Trường này', value, touched, required, maxLength);
   const displayedError = error || internalError;
 
   const handleChange: ChangeEventHandler<HTMLInputElement> = (event) => {
@@ -61,10 +61,12 @@ export function InputField({
 
   return (
     <div className={joinClassNames('input-field', containerClassName)}>
-      <label className="input-field-label" htmlFor={inputId}>
-        {label}
-        {required ? <span className="input-field-required" aria-hidden="true">*</span> : null}
-      </label>
+      {label ? (
+        <label className="input-field-label" htmlFor={inputId}>
+          {label}
+          {required ? <span className="input-field-required" aria-hidden="true">*</span> : null}
+        </label>
+      ) : null}
       <span className={joinClassNames(
         'input-field-control-wrap',
         inputWrapperClassName,

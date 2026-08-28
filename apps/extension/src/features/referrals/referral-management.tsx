@@ -52,7 +52,7 @@ import { ReferralFilters } from './components/ReferralFilters';
 import { ReferralPersonCard } from './components/ReferralPersonCard';
 
 type CvStatusFilter = string;
-type JdFilter = string[];
+type JdFilter = (string | number)[];
 type AccountStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 type ModalMode = 'CREATE' | 'CREDENTIALS' | 'STATUS' | null;
 type NotifyKind = 'SUCCESS' | 'ERROR';

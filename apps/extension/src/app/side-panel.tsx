@@ -68,12 +68,14 @@ import { ReferralManagementPanel } from '@/features/referrals/referral-managemen
 import { FreelancerCvPanel } from '@/features/freelancer/freelancer-cv-panel';
 import { LoginForm } from '@/features/auth/LoginForm';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
-import { checkTopCvAuth, type TopCvAuthState } from '@/features/topcv/topcv-auth';
+import { checkTopCvAuth, type TopCvAuthState } from '@/features/topcv/services/topcv-auth.service';
 import { logoutTopCv } from '@/features/topcv/topcv-login.service';
-import { DEFAULT_TOPCV_FORM, type TopCvFormData } from '@/features/topcv/topcv-form.types';
+import { DEFAULT_TOPCV_FORM, hasTopCvRichTextContent, type TopCvFormData } from '@/features/topcv/topcv-form.types';
+import { type TopCvOptionsResponse } from '@/features/topcv/services/topcv-options.service';
 
 import { prepareChannelForm } from '@/lib/api-client';
-import { publishTopCvJob, transformTopCvPayload } from '@/features/topcv/topcv-api';
+import { publishTopCvJob } from '@/features/topcv/services/topcv-api.service';
+import { transformTopCvPayload } from '@/features/topcv/utils/topcv-payload';
 import {
   CvIcon,
   HomeIcon,
@@ -499,6 +501,7 @@ function SidePanel() {
   const [topCvAuth, setTopCvAuth] = useState<TopCvAuthState | null>(null);
   const [isCheckingTopCvAuth, setIsCheckingTopCvAuth] = useState(false);
   const [topCvModalMode, setTopCvModalMode] = useState<'EDIT' | 'PREVIEW' | null>(null);
+  const [foreignLanguageOptions, setForeignLanguageOptions] = useState<TopCvOptionsResponse['data']['certificate_foreign_languages']>([]);
   const [topCvLoadingFromBe, setTopCvLoadingFromBe] = useState(false);
   const [topCvPublishing, setTopCvPublishing] = useState(false);
 
@@ -817,6 +820,10 @@ function SidePanel() {
     setToken(accessToken);
     if (!accessToken) {
       setUser(null);
+      setTopCvFormData(DEFAULT_TOPCV_FORM);
+      setTopCvAuth(null);
+      setTopCvModalMode(null);
+      setForeignLanguageOptions([]);
       setState('AUTH_REQUIRED');
     }
   }), []);
@@ -1156,20 +1163,25 @@ function SidePanel() {
   }
 
   async function logout() {
-    // Clear the iframe UI immediately. A slow/hanging revoke request must not
-    // make the logout button look unresponsive to the user.
-    void getRefreshToken()
-      .catch(() => null)
-      .then((refreshToken) => logoutAuthSession(refreshToken).catch(() => undefined));
-    void clearAccessToken().catch(() => undefined);
-
-    setToken(null);
-    setUser(null);
-    setIsFreelancerPasswordFormOpen(false);
-    setJobDescriptions([]);
-    setJobDescriptionPagination(null);
-    setJobDescriptionStatus('IDLE');
-    setState('AUTH_REQUIRED');
+    try {
+      const refreshToken = await getRefreshToken();
+      await logoutAuthSession(refreshToken);
+    } catch {
+      // Logout remains local even when the API is unavailable.
+    } finally {
+      await clearAccessToken();
+      setToken(null);
+      setUser(null);
+      setIsFreelancerPasswordFormOpen(false);
+      setJobDescriptions([]);
+      setJobDescriptionPagination(null);
+      setJobDescriptionStatus('IDLE');
+      setTopCvFormData(DEFAULT_TOPCV_FORM);
+      setTopCvAuth(null);
+      setTopCvModalMode(null);
+      setForeignLanguageOptions([]);
+      setState('AUTH_REQUIRED');
+    }
   }
 
   function closeOverlay() {
@@ -3045,12 +3057,14 @@ function SidePanel() {
         setState('ERROR');
         return;
       }
-      if (!topCvFormData.position?.trim() || !topCvFormData.employeeLevel?.trim()) {
+      if (!topCvFormData.position?.trim() || !String(topCvFormData.employeeLevel).trim()) {
         setError('TopCV: Vui lòng chọn vị trí chuyên môn và cấp bậc (chọn "Chỉnh sửa" ở mục TopCV).');
         setState('ERROR');
         return;
       }
-      if (!topCvFormData.jobDescription?.trim() || !topCvFormData.jobRequirement?.trim() || !topCvFormData.jobBenefit?.trim()) {
+      if (!hasTopCvRichTextContent(topCvFormData.jobDescription)
+        || !hasTopCvRichTextContent(topCvFormData.jobRequirement)
+        || !hasTopCvRichTextContent(topCvFormData.jobBenefit)) {
         setError('TopCV: Vui lòng nhập đầy đủ mô tả, yêu cầu và quyền lợi (chọn "Chỉnh sửa" ở mục TopCV).');
         setState('ERROR');
         return;
@@ -3241,6 +3255,8 @@ function SidePanel() {
               topCvPublishing,
               topCvModalMode,
               setTopCvModalMode,
+              foreignLanguageOptions,
+              setForeignLanguageOptions,
               onShowExtensionToast: showExtensionToast,
               onLogoutTopCv: logoutTopCv,
               onFetchTopCvFromBackend: fetchTopCvFromBackend,

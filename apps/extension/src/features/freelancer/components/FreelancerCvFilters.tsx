@@ -61,7 +61,7 @@ export function FreelancerCvFilters({ value, statusOptions, jdOptions, statusDis
         isOpen={isJdFilterOpen}
         onToggle={() => setIsJdFilterOpen((current) => !current)}
         onClose={() => setIsJdFilterOpen(false)}
-        onChange={(values) => onChange({ ...value, jd: values })}
+        onChange={(values) => onChange({ ...value, jd: values.filter((item): item is string => typeof item === 'string') })}
       />
       <DateRangeFilter value={value.dateRange} onChange={(dateRange) => onChange({ ...value, dateRange })} />
     </FilterBar>

@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { adaptPipelineDashboard, CHANNEL_LABELS, PipelineDashboard, SubFilterKey } from '../../types';
-import { PIPELINE_FILTER_DATASETS } from '../../data/dashboard-data';
 import { PipelineSubFilterBar } from './PipelineSubFilterBar';
 // import { KPICard } from '../common/KPICard';
 import { RecruitmentFunnelCard } from './RecruitmentFunnelCard';
@@ -17,7 +16,7 @@ import { NormRadarCompareChart } from './NormRadarCompareChart';
 import { OfferStatusDistributionChart } from './OfferStatusDistributionChart';
 import { TthByDepartmentChart } from './TthByDepartmentChart';
 import { ChannelHiringRateChart } from './ChannelHiringRateChart';
-import type { DashboardOwnerOption } from '@/lib/dashboard-api';
+import type { DashboardOwnerOption, DashboardPositionOption } from '@/lib/dashboard-api';
 
 export interface PipelineTabProps {
   dashboard: PipelineDashboard;
@@ -27,11 +26,26 @@ export interface PipelineTabProps {
   ownerOptions?: DashboardOwnerOption[];
   selectedOwnerId?: string;
   onOwnerChange?: (owner?: DashboardOwnerOption) => void;
+  positionOptions?: DashboardPositionOption[];
+  selectedPositionId?: string;
+  onPositionChange?: (positionId?: string) => void;
+  startDate?: string;
+  endDate?: string;
+  onDateChange?: (field: 'startDate' | 'endDate', value?: string) => void;
+  activeFilter?: SubFilterKey;
+  onFilterChange?: (key: SubFilterKey) => void;
 }
 
-export const PipelineTab: React.FC<PipelineTabProps> = ({ dashboard, asOfDate, selectedChannel, onChannelChange, ownerOptions, selectedOwnerId, onOwnerChange }) => {
-  const [subFilter, setSubFilter] = useState<SubFilterKey>('hrbp');
-  const currentDataset = PIPELINE_FILTER_DATASETS[subFilter] || PIPELINE_FILTER_DATASETS.hrbp;
+const FILTER_COPY: Record<SubFilterKey, { title: string; subtitle: string }> = {
+  hrbp: { title: 'PHỄU TUYỂN DỤNG (THEO HRBP & TA)', subtitle: 'Kết quả theo người phụ trách hồ sơ' },
+  vitri: { title: 'PHỄU TUYỂN DỤNG (THEO VỊ TRÍ)', subtitle: 'Kết quả theo vị trí tuyển dụng đang chọn' },
+  kenh: { title: 'PHỄU TUYỂN DỤNG (THEO KÊNH)', subtitle: 'Kết quả theo nguồn/kênh tuyển dụng đang chọn' },
+  thoigian: { title: 'PHỄU TUYỂN DỤNG (THEO THỜI GIAN)', subtitle: 'Kết quả theo ngày phát sinh trong kỳ báo cáo' },
+};
+
+export const PipelineTab: React.FC<PipelineTabProps> = ({ dashboard, asOfDate, selectedChannel, onChannelChange, ownerOptions, selectedOwnerId, onOwnerChange, positionOptions, selectedPositionId, onPositionChange, startDate, endDate, onDateChange, activeFilter = 'hrbp', onFilterChange }) => {
+  const subFilter = activeFilter;
+  const currentFilterCopy = FILTER_COPY[subFilter];
   const chartData = adaptPipelineDashboard(dashboard);
 
   return (
@@ -39,13 +53,19 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({ dashboard, asOfDate, s
       {/* Sub-Filter Bar */}
       <PipelineSubFilterBar
         activeFilter={subFilter}
-        onFilterChange={setSubFilter}
+        onFilterChange={onFilterChange ?? (() => undefined)}
         asOfDate={asOfDate || '11/08/2026'}
         selectedChannel={selectedChannel}
         onChannelChange={onChannelChange}
         ownerOptions={ownerOptions}
         selectedOwnerId={selectedOwnerId}
         onOwnerChange={onOwnerChange}
+        positionOptions={positionOptions}
+        selectedPositionId={selectedPositionId}
+        onPositionChange={onPositionChange}
+        startDate={startDate}
+        endDate={endDate}
+        onDateChange={onDateChange}
       />
 
       {/* Top 4 Funnel KPI Cards */}
@@ -92,7 +112,7 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({ dashboard, asOfDate, s
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
         <div className="lg:col-span-5 flex flex-col">
           <RecruitmentFunnelCard
-            title={currentDataset.title}
+            title={currentFilterCopy.title}
             funnel={dashboard.funnel}
             totalApplications={dashboard.totalApplications}
             timeMetrics={dashboard.timeMetrics}
@@ -102,7 +122,7 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({ dashboard, asOfDate, s
         <div className="lg:col-span-7 flex flex-col gap-5 justify-between">
           <RecruitmentAreaTrendChart
             data={dashboard.monthlyTrend}
-            subtitle={selectedChannel ? `Kênh: ${CHANNEL_LABELS[selectedChannel] || selectedChannel} · ${currentDataset.subtitle}` : currentDataset.subtitle}
+            subtitle={selectedChannel ? `Kênh: ${CHANNEL_LABELS[selectedChannel] || selectedChannel} · ${currentFilterCopy.subtitle}` : currentFilterCopy.subtitle}
           />
           <PositionProgressChart data={chartData.positions} />
         </div>

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { ChevronDownIcon, ChevronUpIcon, ClockIcon } from '@/components/icons';
 
 interface TopCvTimePickerProps {
   value?: string; // Format: 'HH:mm' e.g. '08:30'
@@ -7,31 +8,6 @@ interface TopCvTimePickerProps {
   disabled?: boolean;
   className?: string;
   align?: 'left' | 'right';
-}
-
-function ClockIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75" />
-      <path d="M12 7V12L15.5 14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronUpIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M6 15L12 9L18 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
 }
 
 function parseTime(val?: string): { hour: number; minute: number } {
@@ -98,13 +74,13 @@ export function TopCvTimePicker({
 
   const incrementMinute = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const nextMinute = (Math.floor(minute / 5) * 5 + 5) % 60;
+    const nextMinute = (minute + 1) % 60;
     onChange(formatTime(hour, nextMinute));
   };
 
   const decrementMinute = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const nextMinute = (Math.ceil(minute / 5) * 5 - 5 + 60) % 60;
+    const nextMinute = (minute - 1 + 60) % 60;
     onChange(formatTime(hour, nextMinute));
   };
 
