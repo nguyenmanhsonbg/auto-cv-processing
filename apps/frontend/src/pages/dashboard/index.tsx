@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { DashboardTab, PipelineDashboard, DashboardFilters } from './types';
+import { DashboardTab, PipelineDashboard, DashboardFilters, SubFilterKey } from './types';
 import { DashboardHeader } from './components/common/DashboardHeader';
 import { DashboardTabNav } from './components/common/DashboardTabNav';
 import { ExportReportModal } from './components/common/ExportReportModal';
@@ -7,22 +7,45 @@ import { RecruitmentImportModal } from './components/common/RecruitmentImportMod
 import { GrowthTab } from './components/tab-growth';
 import { PipelineTab } from './components/tab-pipeline';
 import { QuotaTab } from './components/tab-quota';
-import { DashboardOwnerOption, getDashboardOwnerOptions, getPipelineDashboard } from '@/lib/dashboard-api';
+import { TrendTab } from './components/tab-trends';
+import {
+  DashboardOwnerOption,
+  DashboardScope,
+  DashboardTrends,
+  DASHBOARD_SCOPE_LABELS,
+  getDashboardOwnerOptions,
+  getDashboardPositionOptions,
+  getPipelineDashboard,
+  getDashboardTrends,
+} from '@/lib/dashboard-api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+
+function getInitialDashboardFilters(): DashboardFilters {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return { startDate: `${year}-01-01`, endDate: `${year}-${month}-${day}` };
+}
 
 export function AnalystDashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('tab-pipeline');
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [selectedScope, setSelectedScope] = useState('Toàn Công ty');
+  const [selectedScope, setSelectedScope] = useState<DashboardScope>('company');
+  const [activeFilter, setActiveFilter] = useState<SubFilterKey>('hrbp');
 
   const [dashboard, setDashboard] = useState<PipelineDashboard | null>(null);
+  const [trends, setTrends] = useState<DashboardTrends | null>(null);
+  const [trendsLoading, setTrendsLoading] = useState(false);
+  const [trendsError, setTrendsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<DashboardFilters>({});
+  const [filters, setFilters] = useState<DashboardFilters>(getInitialDashboardFilters);
   const [ownerOptions, setOwnerOptions] = useState<DashboardOwnerOption[]>([]);
+  const [positionOptions, setPositionOptions] = useState<{ id: string; label: string }[]>([]);
 
   const loadDashboard = async () => {
     setLoading(true);
@@ -43,10 +66,63 @@ export function AnalystDashboard() {
   }, [filters]);
 
   useEffect(() => {
+    if (activeTab !== 'tab-xu-huong') return undefined;
+
+    let cancelled = false;
+    setTrendsLoading(true);
+    setTrendsError(null);
+    getDashboardTrends(filters)
+      .then((data) => {
+        if (!cancelled) setTrends(data);
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load recruitment trends from backend:', err);
+        if (!cancelled) setTrendsError('Không thể tải dữ liệu xu hướng tuyển dụng từ máy chủ.');
+      })
+      .finally(() => {
+        if (!cancelled) setTrendsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, filters]);
+
+  useEffect(() => {
     getDashboardOwnerOptions().then(setOwnerOptions).catch((err) => {
       console.error('Failed to load dashboard owner options:', err);
     });
+    getDashboardPositionOptions().then(setPositionOptions).catch((err) => {
+      console.error('Failed to load dashboard position options:', err);
+    });
   }, []);
+
+  const handleScopeChange = (scope: DashboardScope) => {
+    setSelectedScope(scope);
+    if (scope === 'company') {
+      setActiveFilter('hrbp');
+      setFilters(getInitialDashboardFilters());
+      return;
+    }
+    const filterByScope: Record<Exclude<DashboardScope, 'company'>, SubFilterKey> = {
+      owner: 'hrbp',
+      position: 'vitri',
+      channel: 'kenh',
+      time: 'thoigian',
+    };
+    setActiveFilter(filterByScope[scope]);
+  };
+
+  const handleFilterChange = (key: SubFilterKey) => {
+    setActiveFilter(key);
+    const scopeByFilter: Record<SubFilterKey, DashboardScope> = {
+      hrbp: 'owner',
+      vitri: 'position',
+      kenh: 'channel',
+      thoigian: 'time',
+    };
+    setSelectedScope(scopeByFilter[key]);
+  };
 
   const formatDate = (date: string | Date | undefined): string => {
     if (!date) return '11/08/2026';
@@ -91,7 +167,7 @@ export function AnalystDashboard() {
           onImportClick={() => setImportModalOpen(true)}
           asOfDate={formatDate(dashboard?.asOf)}
           selectedScope={selectedScope}
-          onScopeChange={setSelectedScope}
+          onScopeChange={handleScopeChange}
           totalApplications={dashboard?.totalApplications}
           totalHired={dashboard?.totalHired}
           totalFinalItv={dashboard?.funnel.totalFinalItv}
@@ -110,6 +186,8 @@ export function AnalystDashboard() {
         {activeTab === 'tab-pipeline' && dashboard && (
           <PipelineTab
             dashboard={dashboard}
+            activeFilter={activeFilter}
+            onFilterChange={handleFilterChange}
             asOfDate={formatDate(dashboard.asOf)}
             selectedChannel={filters.channel}
             onChannelChange={(channel) => setFilters((current) => ({ ...current, channel: channel || undefined }))}
@@ -120,10 +198,24 @@ export function AnalystDashboard() {
               ownerType: owner?.type,
               ownerId: owner?.id,
             }))}
+            positionOptions={positionOptions}
+            selectedPositionId={filters.positionId}
+            onPositionChange={(positionId) => setFilters((current) => ({ ...current, positionId }))}
+            startDate={filters.startDate}
+            endDate={filters.endDate}
+            onDateChange={(field, value) => setFilters((current) => ({ ...current, [field]: value }))}
           />
         )}
 
-        {/* TAB 3: Quản lý Nhu cầu & Định biên 2026 */}
+        {activeTab === 'tab-xu-huong' && (
+          <TrendTab
+            trends={trends}
+            loading={trendsLoading}
+            error={trendsError}
+          />
+        )}
+
+        {/* TAB 4: Quản lý Nhu cầu & Định biên 2026 */}
         {activeTab === 'tab-dinhbien' && <QuotaTab />}
       </div>
 
@@ -132,7 +224,9 @@ export function AnalystDashboard() {
         open={exportModalOpen}
         onOpenChange={setExportModalOpen}
         asOfDate={formatDate(dashboard?.asOf)}
-        scope={selectedScope}
+        scope={DASHBOARD_SCOPE_LABELS[selectedScope]}
+        dashboard={dashboard}
+        filters={filters}
       />
       <RecruitmentImportModal
         open={importModalOpen}

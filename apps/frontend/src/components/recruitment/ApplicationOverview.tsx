@@ -59,6 +59,28 @@ const STATUS_LABELS: Record<string, string> = {
   TALENT_POOL: 'Talent pool',
 };
 
+const PIPELINE_STAGE_LABELS: Record<string, string> = {
+  APPLIED: 'Ứng tuyển',
+  SCREEN_CV: 'Screen CV',
+  PRE_TEST_1: 'Test trước vòng 1',
+  INTERVIEW_1: 'Phỏng vấn vòng 1',
+  PRE_TEST_2: 'Test trước vòng 2',
+  INTERVIEW_2: 'Phỏng vấn vòng 2 / Final',
+  OFFER_PENDING: 'Đề xuất / Offer',
+  OFFER_SENT: 'Đề xuất / Offer',
+  OFFER_REVISED: 'Đề xuất / Offer',
+  ONBOARDING: 'Chờ Onboard',
+  HIRED: 'Đi làm / Hired',
+  REJECTED: 'Từ chối',
+  TALENT_POOL: 'Talent Pool',
+};
+
+const ONBOARDING_LABELS: Record<string, string> = {
+  PENDING: 'Chờ onboard',
+  COMPLETED: 'Onboard thành công',
+  REJECTED: 'Không onboard',
+};
+
 function statusLabel(status?: string | null) {
   if (!status) return 'Unknown';
   return STATUS_LABELS[status] ?? status;
@@ -137,6 +159,9 @@ export function ApplicationOverview({ application }: ApplicationOverviewProps) {
         <CardContent className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <ApplicationDetailField label="Application ID" value={application.applicationId} />
+            <ApplicationDetailField label="Pipeline stage" value={PIPELINE_STAGE_LABELS[application.currentStage ?? ''] ?? valueOrDash(application.currentStage)} />
+            <ApplicationDetailField label="Offer status" value={valueOrDash(application.offerStatus)} />
+            <ApplicationDetailField label="Onboarding" value={application.onboardingStatus ? ONBOARDING_LABELS[application.onboardingStatus] : 'Chưa xác nhận'} />
             <ApplicationDetailField label="Source" value={valueOrDash(application.source)} />
             <ApplicationDetailField label="Source channel" value={valueOrDash(application.sourceChannel)} />
             <ApplicationDetailField label="External ID" value={valueOrDash(application.externalApplicationId)} />
@@ -147,6 +172,8 @@ export function ApplicationOverview({ application }: ApplicationOverviewProps) {
             <ApplicationDetailField label="Updated" value={formatRecruitmentDateTime(application.updatedAt)} />
             <ApplicationDetailField label="Mapping score" value={scoreLabel(application.mapping?.score)} />
             <ApplicationDetailField label="AI score" value={scoreLabel(application.aiScreening?.score)} />
+            <ApplicationDetailField label="Planned onboard" value={formatRecruitmentDateTime(application.plannedOnboardAt)} />
+            <ApplicationDetailField label="Hired at" value={formatRecruitmentDateTime(application.hiredAt)} />
           </div>
         </CardContent>
       </Card>

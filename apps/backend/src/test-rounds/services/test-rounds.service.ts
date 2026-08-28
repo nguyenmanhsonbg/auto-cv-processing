@@ -46,8 +46,12 @@ export class TestRoundsService {
 
     const savedRound = await this.testRoundRepo.save(round);
 
-    // Update application stage
-    await this.updateApplicationStage(applicationId, dto.roundType, TestResult.PENDING);
+    // Assigning a test is the event that moves the application into that test stage.
+    await this.applicationRepo.update(applicationId, {
+      currentStage: dto.roundType === TestRoundType.PRE_TEST_1
+        ? ApplicationStage.PRE_TEST_1
+        : ApplicationStage.PRE_TEST_2,
+    });
 
     return savedRound;
   }
@@ -97,7 +101,9 @@ export class TestRoundsService {
     // Auto-evaluate based on score if passingScore is set
     if (dto.result === undefined && round.passingScore !== null && dto.score !== undefined) {
       round.result = dto.score >= (round.passingScore ?? 0) ? TestResult.PASS : TestResult.FAIL;
-      await this.testRoundRepo.save(round);
+      const evaluatedRound = await this.testRoundRepo.save(round);
+      await this.updateApplicationStage(round.applicationId, round.roundType, evaluatedRound.result as TestResult);
+      return evaluatedRound;
     }
 
     // Update application stage if result changed
@@ -119,7 +125,11 @@ export class TestRoundsService {
       }
     }
 
-    return this.testRoundRepo.save(round);
+    const savedRound = await this.testRoundRepo.save(round);
+    if (savedRound.result && savedRound.result !== TestResult.PENDING) {
+      await this.updateApplicationStage(savedRound.applicationId, savedRound.roundType, savedRound.result);
+    }
+    return savedRound;
   }
 
   async evaluateTest(id: string, score: number, result: TestResult, comment?: string): Promise<TestRoundEntity> {
@@ -153,10 +163,9 @@ export class TestRoundsService {
     switch (roundType) {
       case TestRoundType.PRE_TEST_1:
         if (result === TestResult.PASS) {
-          newStage = ApplicationStage.SCREEN_CV;
+          newStage = ApplicationStage.INTERVIEW_1;
         } else if (result === TestResult.FAIL || result === TestResult.NO_SUBMIT) {
-          // Form failed - could remain in APPLIED or move to REJECTED
-          // Keep as APPLIED for now, HR can manually reject
+          newStage = ApplicationStage.REJECTED;
         }
         break;
 

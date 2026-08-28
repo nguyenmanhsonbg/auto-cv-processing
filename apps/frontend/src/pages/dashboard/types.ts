@@ -9,21 +9,20 @@ import {
   DashboardFilters,
 } from '@/lib/dashboard-api';
 
-export type DashboardTab = 'tab-tangmoi' | 'tab-pipeline' | 'tab-dinhbien';
+export type DashboardTab = 'tab-tangmoi' | 'tab-pipeline' | 'tab-xu-huong' | 'tab-dinhbien';
 
 export type SubFilterKey = 'hrbp' | 'vitri' | 'kenh' | 'thoigian';
 
 export const STAGE_LABELS: Record<string, string> = {
   APPLIED: 'Ứng tuyển',
-  PRE_TEST_1: 'Test trước PV1',
   SCREEN_CV: 'Screen CV',
+  PRE_TEST_1: 'Test trước vòng 1',
   INTERVIEW_1: 'Phỏng vấn V1',
-  PRE_TEST_2: 'Test trước PV2',
-  INTERVIEW_2: 'Phỏng vấn V2',
-  OFFER_PENDING: 'Chờ Offer',
-  OFFER_SENT: 'Đã gửi Offer',
-  OFFER_REVISED: 'Offer',
-  HIRED: 'Đã tuyển',
+  PRE_TEST_2: 'Test trước vòng 2',
+  INTERVIEW_2: 'Phỏng vấn V2 / Final',
+  OFFER_PENDING: 'Đề xuất / Offer',
+  ONBOARDING: 'Chờ Onboard',
+  HIRED: 'Đi làm / Onboard',
   REJECTED: 'Từ chối',
   TALENT_POOL: 'Talent Pool',
 };
@@ -42,17 +41,22 @@ export const CHANNEL_LABELS: Record<string, string> = {
 };
 
 export const FINAL_QUALITY_LABELS: Record<string, string> = {
-  GOOD: 'Đạt yêu cầu (Good)',
-  POOR: 'Chưa đạt (Poor)',
-  AVERAGE: 'Trung bình (Average)',
-  EXCELLENT: 'Xuất sắc (Excellent)',
+  PASSED_AVERAGE: 'Passed - Đạt',
+  PASSED_GOOD: 'Passed - Tốt',
+  PASSED_EXCELLENT: 'Passed - Xuất sắc',
+  FAIL_ITV: 'Fail ITV',
 };
 
 export const OFFER_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Chờ duyệt',
-  SENT: 'Đã gửi',
-  REVISED: 'Đã sửa',
-  ACCEPTED: 'Đã nhận việc',
+  OFFERING: 'Đang Offer',
+  PENDING: 'Đang Offer',
+  SENT: 'Đang Offer',
+  REVISED: 'Đang Offer',
+  ACCEPTED: 'Ứng viên đã accept',
+  ONBOARDING: 'Chờ Onboard',
+  ONBOARDING_REJECTED: 'Reject Onboard',
+  HIRED: 'Hired',
+  PASSED_NO_OFFER: 'Passed - Không Offer',
   REJECTED_BY_CANDIDATE: 'Ứng viên từ chối',
   REJECTED: 'Từ chối',
   CANCELLED: 'Đã hủy',
@@ -68,13 +72,17 @@ export const SOURCING_STAGE_LABELS: Record<string, string> = {
 };
 
 export const SLA_STAGE_LABELS: Record<string, string> = {
-  APPLY_TO_INTERVIEW_1: 'Apply ➔ PV1',
-  INTERVIEW_1_TO_2: 'PV1 ➔ PV2',
-  INTERVIEW_2_TO_OFFER: 'PV2 ➔ Offer',
-  OFFER_TO_HIRED: 'Offer ➔ Hired',
+  APPLY_TO_SCREEN_CV: 'Apply ➔ Screen CV',
+  SCREEN_CV_TO_INTERVIEW_1: 'Screen CV ➔ PV1',
+  INTERVIEW_1_TO_INTERVIEW_2: 'PV1 ➔ Final',
+  INTERVIEW_2_TO_OFFER: 'Final ➔ Offer',
 };
 
 export const NORM_METRIC_LABELS: Record<string, string> = {
+  APPLICATION: 'Ứng tuyển (10)',
+  INTERVIEW_1: 'PV1 (6)',
+  INTERVIEW_2: 'Final (3)',
+  HIRED: 'Hired (1)',
   'Apply -> Screen': 'Apply ➔ Sàng lọc',
   'Screen -> ITV': 'Sàng lọc ➔ PV',
   'ITV -> Offer': 'PV ➔ Offer',
@@ -90,6 +98,7 @@ export const LEVEL_LABELS: Record<string, string> = {
   MIDDLE: 'Middle',
   JUNIOR: '≤ Junior',
   FRESHER: 'Fresher / Intern',
+  UNKNOWN: 'Chưa mapping',
 };
 
 export const STAGE_COLORS: Record<string, string> = {
@@ -102,6 +111,7 @@ export const STAGE_COLORS: Record<string, string> = {
   OFFER_PENDING: '#f59e0b',
   OFFER_SENT: '#eab308',
   OFFER_REVISED: '#f97316',
+  ONBOARDING: '#14b8a6',
   HIRED: '#22c55e',
   REJECTED: '#ef4444',
   TALENT_POOL: '#6366f1',

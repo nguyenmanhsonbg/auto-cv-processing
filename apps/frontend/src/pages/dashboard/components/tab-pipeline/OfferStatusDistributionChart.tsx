@@ -31,7 +31,7 @@ export const OfferStatusDistributionChart: React.FC<OfferStatusDistributionChart
     <div className="bg-[#111827] border border-[#1f293d] rounded-xl p-4 shadow-xl flex flex-col justify-between h-full">
       <h3 className="text-xs font-bold uppercase text-white mb-1 flex items-center gap-1.5">
         <span className="w-1.5 h-3 bg-teal-500 rounded-sm"></span>
-        6. PHÂN BỔ TRẠNG THÁI OFFER
+        6. HIỆU QUẢ OFFER → ONBOARD
       </h3>
       <div className="h-64 w-full flex items-center justify-center">
         <ResponsiveContainer width="100%" height="100%">
@@ -61,7 +61,7 @@ export const OfferStatusDistributionChart: React.FC<OfferStatusDistributionChart
                   hideLabel
                   total={total}
                   valueFormatter={(value) =>
-                    `${value} offer (${total > 0 ? ((Number(value) / total) * 100).toFixed(1) : 0}%)`
+                    `${value} ứng viên (${total > 0 ? ((Number(value) / total) * 100).toFixed(1) : 0}%)`
                   }
                 />
               }

@@ -20,6 +20,7 @@ import {
   MappingStatus,
   RecruitmentChannel,
   OfferStatus,
+  OnboardingStatus,
 } from '../../recruitment-common';
 import { AuditLogEntity } from '../../audit-logs/entities/audit-log.entity';
 import { AiScreeningResultEntity } from '../../ai-screening/entities/ai-screening-result.entity';
@@ -54,6 +55,7 @@ import { UserEntity } from '../../auth/entities/user.entity';
 })
 @Index('IDX_applications_current_stage', ['currentStage'])
 @Index('IDX_applications_hired_at', ['hiredAt'])
+@Index('IDX_applications_onboarding_status', ['onboardingStatus'])
 export class ApplicationEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -116,6 +118,28 @@ export class ApplicationEntity {
 
   @Column({ name: 'offer_status', type: 'varchar', nullable: true })
   offerStatus: OfferStatus | null;
+
+  @Column({ name: 'onboarding_status', type: 'varchar', nullable: true })
+  onboardingStatus: OnboardingStatus | null;
+
+  @Column({ name: 'onboarding_confirmed_at', type: 'timestamptz', nullable: true })
+  onboardingConfirmedAt: Date | null;
+
+  @Column({ name: 'onboarding_confirmed_by_id', type: 'uuid', nullable: true })
+  onboardingConfirmedById: string | null;
+
+  @ManyToOne(() => UserEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'onboarding_confirmed_by_id' })
+  onboardingConfirmedBy: UserEntity | null;
+
+  @Column({ name: 'planned_onboard_at', type: 'timestamptz', nullable: true })
+  plannedOnboardAt: Date | null;
+
+  @Column({ name: 'onboarding_rejected_at', type: 'timestamptz', nullable: true })
+  onboardingRejectedAt: Date | null;
+
+  @Column({ name: 'onboarding_rejected_reason', type: 'text', nullable: true })
+  onboardingRejectedReason: string | null;
 
   // ========================================
   // Existing fields

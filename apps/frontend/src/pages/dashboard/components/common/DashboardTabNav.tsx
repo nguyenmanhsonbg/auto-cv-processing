@@ -9,7 +9,8 @@ export interface DashboardTabNavProps {
 const TABS: { id: DashboardTab; label: string }[] = [
   { id: 'tab-tangmoi', label: '1. Theo dõi Tăng mới' },
   { id: 'tab-pipeline', label: '2. Pipeline Tuyển dụng' },
-  { id: 'tab-dinhbien', label: '3. Quản lý Nhu cầu & Định biên 2026' },
+  { id: 'tab-xu-huong', label: '3. Xu hướng tuyển dụng' },
+  { id: 'tab-dinhbien', label: '4. Quản lý Nhu cầu & Định biên 2026' },
 ];
 
 export const DashboardTabNav: React.FC<DashboardTabNavProps> = ({

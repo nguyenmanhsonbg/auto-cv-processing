@@ -9,12 +9,16 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { FileText, FileSpreadsheet, Download, CheckCircle2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import type { DashboardFilters, PipelineDashboard } from '@/lib/dashboard-api';
 
 export interface ExportReportModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   asOfDate?: string;
   scope?: string;
+  dashboard?: PipelineDashboard | null;
+  filters?: DashboardFilters;
 }
 
 export const ExportReportModal: React.FC<ExportReportModalProps> = ({
@@ -22,21 +26,70 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({
   onOpenChange,
   asOfDate = '01/01/2026 – 11/08/2026',
   scope = 'Toàn Công ty',
+  dashboard,
+  filters = {},
 }) => {
   const [format, setFormat] = useState<'excel' | 'pdf'>('excel');
   const [isExporting, setIsExporting] = useState(false);
   const [exported, setExported] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleExport = () => {
+    if (!dashboard) {
+      setError('Chưa có dữ liệu dashboard để xuất.');
+      return;
+    }
     setIsExporting(true);
-    setTimeout(() => {
+    setError(null);
+    try {
+      if (format === 'excel') {
+        const rows = [
+          ['Báo cáo tuyển dụng', scope],
+          ['Kỳ báo cáo', filters.startDate && filters.endDate ? `${filters.startDate} - ${filters.endDate}` : '12 tháng gần nhất'],
+          [],
+          ['Final / Offer / Onboard', 'Số lượng'],
+          ['Tổng Final ITV', dashboard.postFinal.totalFinalItv],
+          ['Fail ITV', dashboard.postFinal.failItv],
+          ['Passed - Đạt', dashboard.postFinal.passedDat],
+          ['Passed - Tốt', dashboard.postFinal.passedTot],
+          ['Passed - Xuất sắc', dashboard.postFinal.passedXuatSac],
+          ['Passed - Không Offer', dashboard.postFinal.passedKhongOffer],
+          ['Tổng Offer', dashboard.postFinal.totalOffer],
+          ['Đang Offer', dashboard.postFinal.offering],
+          ['Offer Accepted', dashboard.postFinal.offerAccepted],
+          ['Offer Rejected', dashboard.postFinal.offerRejected],
+          ['Chờ Onboard', dashboard.postFinal.onboardingPending],
+          ['Reject Onboard', dashboard.postFinal.onboardRejected],
+          ['Hired', dashboard.postFinal.hired],
+          [],
+          ['Xu hướng theo tháng', 'Ứng viên mới', 'Final ITV', 'Fail ITV', 'Passed', 'Vòng Offer', 'Offer Accept', 'Offer Reject', 'Reject Onboard', 'Hired'],
+          ...dashboard.monthlyTrend.map((item) => [
+            item.month,
+            item.newApplications,
+            item.finalInterviews,
+            item.failItv,
+            item.passed,
+            item.totalOffer,
+            item.offerAccepted,
+            item.offerRejected,
+            item.onboardRejected,
+            item.hired,
+          ]),
+        ];
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Dashboard');
+        XLSX.writeFile(workbook, `recruitment-dashboard-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      } else {
+        window.print();
+      }
       setIsExporting(false);
       setExported(true);
-      setTimeout(() => {
-        setExported(false);
-        onOpenChange(false);
-      }, 1200);
-    }, 800);
+    } catch (exportError) {
+      console.error('Failed to export recruitment dashboard:', exportError);
+      setIsExporting(false);
+      setError('Không thể xuất báo cáo. Vui lòng thử lại.');
+    }
   };
 
   return (
@@ -63,6 +116,7 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({
               <span className="text-rose-400 font-medium">YTD {asOfDate}</span>
             </div>
           </div>
+          {error && <p className="text-rose-400 text-xs">{error}</p>}
 
           <div className="space-y-2">
             <label className="text-slate-300 font-semibold block">Định dạng xuất:</label>
@@ -77,7 +131,7 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({
                 }`}
               >
                 <FileSpreadsheet className="w-6 h-6 text-emerald-400" />
-                <span className="font-semibold">Excel (.xlsx / BM04)</span>
+                <span className="font-semibold">Excel (.xlsx)</span>
                 <span className="text-[10px] text-slate-400">Bảng tính chi tiết</span>
               </button>
 

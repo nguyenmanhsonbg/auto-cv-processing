@@ -55,11 +55,14 @@ import { getInternalSafeErrorMessage } from '@/lib/api-errors';
 import { createAiMatchPreviewPdfBlob, exportAiMatchPreviewToPdf, pdfBlobToBase64 } from '@/lib/print-ai-match-preview';
 import {
   getApplication,
+  confirmApplicationOnboarding,
+  completeApplicationOnboarding,
   getParsedProfile,
   listApplicationAuditLogs,
   listApplicationTimeline,
   listCvVersions,
   parseApplicationCv,
+  rejectApplicationOnboarding,
   runApplicationAiScreening,
   type ApplicationAiScreeningInsight,
   type ApplicationAuditLogRecord,
@@ -207,6 +210,7 @@ export function ApplicationDetailPage() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [screeningLoading, setScreeningLoading] = useState(false);
   const [parseLoading, setParseLoading] = useState(false);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [matchResultOpen, setMatchResultOpen] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
   const aiMatchPreviewDialogRef = useRef<HTMLDivElement>(null);
@@ -375,6 +379,51 @@ export function ApplicationDetailPage() {
       setScreeningLoading(false);
     }
   }, [applicationId, loadAuditLogs, loadParsedProfile, loadTimeline, toast]);
+
+  const confirmOnboarding = useCallback(async () => {
+    if (!applicationId) return;
+    setOnboardingLoading(true);
+    try {
+      const updated = await confirmApplicationOnboarding(applicationId);
+      setApplication(updated);
+      await Promise.all([loadTimeline(), loadAuditLogs()]);
+      toast({ title: 'Đã xác nhận onboarding', description: 'Ứng viên đang ở trạng thái chờ onboard.' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Không thể xác nhận onboarding', description: getInternalSafeErrorMessage(err) });
+    } finally {
+      setOnboardingLoading(false);
+    }
+  }, [applicationId, loadAuditLogs, loadTimeline, toast]);
+
+  const completeOnboarding = useCallback(async () => {
+    if (!applicationId) return;
+    setOnboardingLoading(true);
+    try {
+      const updated = await completeApplicationOnboarding(applicationId);
+      setApplication(updated);
+      await Promise.all([loadTimeline(), loadAuditLogs()]);
+      toast({ title: 'Onboard thành công', description: 'Ứng viên đã được ghi nhận là Hired.' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Không thể hoàn tất onboard', description: getInternalSafeErrorMessage(err) });
+    } finally {
+      setOnboardingLoading(false);
+    }
+  }, [applicationId, loadAuditLogs, loadTimeline, toast]);
+
+  const rejectOnboarding = useCallback(async () => {
+    if (!applicationId) return;
+    setOnboardingLoading(true);
+    try {
+      const updated = await rejectApplicationOnboarding(applicationId);
+      setApplication(updated);
+      await Promise.all([loadTimeline(), loadAuditLogs()]);
+      toast({ title: 'Đã ghi nhận không onboard', description: 'Ứng viên vẫn được lưu ở stage chờ onboard với trạng thái rejected.' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Không thể ghi nhận trạng thái onboard', description: getInternalSafeErrorMessage(err) });
+    } finally {
+      setOnboardingLoading(false);
+    }
+  }, [applicationId, loadAuditLogs, loadTimeline, toast]);
 
   const reparseCurrentCv = useCallback(async () => {
     const cvDocumentId = application?.cv?.currentCvDocumentId;
@@ -631,6 +680,39 @@ export function ApplicationDetailPage() {
                 <ApplicationDetailField label="Mapping recommendation" value={valueOrDash(mapping?.recommendation)} />
                 <ApplicationDetailField label="Form status" value={valueOrDash(form?.status)} />
                 <ApplicationDetailField label="AI status" value={valueOrDash(aiScreening?.status)} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Offer &amp; Onboarding</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <ApplicationDetailField label="Offer status" value={valueOrDash(application.offerStatus)} />
+                  <ApplicationDetailField label="Onboarding status" value={valueOrDash(application.onboardingStatus)} />
+                  <ApplicationDetailField label="Confirmed at" value={formatRecruitmentDateTime(application.onboardingConfirmedAt)} />
+                  <ApplicationDetailField label="Hired at" value={formatRecruitmentDateTime(application.hiredAt)} />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {application.offerStatus === 'ACCEPTED' && application.currentStage !== 'HIRED' && application.currentStage !== 'ONBOARDING' && (
+                    <Button onClick={() => void confirmOnboarding()} disabled={onboardingLoading}>
+                      Xác nhận HR, chờ Onboard
+                    </Button>
+                  )}
+                  {application.currentStage === 'ONBOARDING' && application.onboardingStatus === 'PENDING' && (
+                    <>
+                      <Button onClick={() => void completeOnboarding()} disabled={onboardingLoading}>
+                        Onboard thành công
+                      </Button>
+                      <Button variant="destructive" onClick={() => void rejectOnboarding()} disabled={onboardingLoading}>
+                        Không onboard
+                      </Button>
+                    </>
+                  )}
+                  {application.currentStage === 'HIRED' && (
+                    <span className="text-sm font-medium text-emerald-600">Đã onboard thành công.</span>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

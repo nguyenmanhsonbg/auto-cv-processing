@@ -44,11 +44,12 @@ export const RecruitmentFunnelCard: React.FC<RecruitmentFunnelCardProps> = ({
   // Render every known stage so an empty stage remains visible as 0.
   const stagesToRender = funnelStageKeys.map((stageKey) => {
     const stage = stageMap.get(stageKey);
+    const count = stage?.count ?? 0;
     return {
       stageKey,
       label: STAGE_LABELS[stageKey],
-      count: stage?.count ?? 0,
-      percentage: stage?.percentage ?? 0,
+      count,
+      percentage: totalApplications ? Math.round((count / totalApplications) * 100) : 0,
       color: STAGE_COLORS[stageKey] || '#3b82f6',
     };
   });
@@ -68,9 +69,10 @@ export const RecruitmentFunnelCard: React.FC<RecruitmentFunnelCardProps> = ({
   const displayTth1 = timeMetrics ? `${timeMetrics.avgTimeToHire}d` : tth1 ?? '—';
   const displayTth2 = timeMetrics ? `${timeMetrics.avgTimeFromFinal}d` : tth2 ?? '—';
 
-  const hiredStageCount = stageMap.get('HIRED')?.count ?? funnel?.hired ?? 0;
+  const hiredStageCount = stageMap.get('HIRED')?.count ?? 0;
+  const displayHiredCount = hiredStageCount > 0 ? hiredStageCount : funnel?.hired ?? 0;
   const totalAppsCount = totalApplications ?? 0;
-  const conversionRate = cr ?? `Tỷ lệ: ${totalAppsCount > 0 ? Math.round((hiredStageCount / totalAppsCount) * 100) : 0}%`;
+  const conversionRate = cr ?? `Tỷ lệ: ${totalAppsCount > 0 ? Math.round((displayHiredCount / totalAppsCount) * 100) : 0}%`;
 
   return (
     <div className="bg-[#111827] border border-[#1f293d] rounded-xl p-5 shadow-xl flex flex-col justify-between h-full">

@@ -3,23 +3,24 @@
  * 
  * This represents the real-world hiring funnel stages:
  * - APPLIED: New application, not started any process yet
- * - PRE_TEST_1: Form sent, candidate working on it
- * - SCREEN_CV: Form submitted or AI screening done, waiting for HR review
- * - INTERVIEW_1: Passed screen, scheduled for first interview round
+ * - SCREEN_CV: AI analysis and HR/TA review of the CV and CV-JD mapping
+ * - PRE_TEST_1: Candidate taking the pre-first-interview test
+ * - INTERVIEW_1: Passed pre-first-interview test, scheduled for first interview round
  * - PRE_TEST_2: Passed INTERVIEW_1, doing pre-interview 2 test
  * - INTERVIEW_2: Passed test, scheduled for second interview round
  * - OFFER_PENDING: Passed INTERVIEW_2, waiting to send offer
  * - OFFER_SENT: Offer sent to candidate
  * - OFFER_REVISED: Offer revised (negotiation)
- * - HIRED: Candidate accepted and started
+ * - ONBOARDING: Candidate accepted the offer and is waiting for onboarding
+ * - HIRED: Candidate successfully onboarded
  * - REJECTED: Application rejected at any stage
  * - TALENT_POOL: Moved to talent pool for future consideration
  */
 export enum ApplicationStage {
   // Initial stages
   APPLIED = 'APPLIED',
-  PRE_TEST_1 = 'PRE_TEST_1',
   SCREEN_CV = 'SCREEN_CV',
+  PRE_TEST_1 = 'PRE_TEST_1',
   
   // Interview stages
   INTERVIEW_1 = 'INTERVIEW_1',
@@ -30,6 +31,7 @@ export enum ApplicationStage {
   OFFER_PENDING = 'OFFER_PENDING',
   OFFER_SENT = 'OFFER_SENT',
   OFFER_REVISED = 'OFFER_REVISED',
+  ONBOARDING = 'ONBOARDING',
   
   // Terminal stages
   HIRED = 'HIRED',

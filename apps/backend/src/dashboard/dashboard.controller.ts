@@ -5,7 +5,11 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { DashboardService } from './services/dashboard.service';
-import { PipelineDashboardDto, PipelineDashboardQueryDto } from './dto/pipeline-dashboard.dto';
+import {
+  DashboardTrendsDto,
+  PipelineDashboardDto,
+  PipelineDashboardQueryDto,
+} from './dto/pipeline-dashboard.dto';
 
 @ApiTags('Dashboard')
 @ApiBearerAuth()
@@ -21,6 +25,7 @@ export class DashboardController {
   @ApiQuery({ name: 'endDate', required: false, description: 'Filter end date (YYYY-MM-DD)' })
   @ApiQuery({ name: 'recruiterId', required: false, description: 'Filter by HRBP/Recruiter ID' })
   @ApiQuery({ name: 'jobPostingId', required: false, description: 'Filter by job posting ID' })
+  @ApiQuery({ name: 'positionId', required: false, description: 'Filter by position ID' })
   @ApiQuery({ name: 'channel', required: false, description: 'Filter by recruitment channel' })
   @ApiQuery({ name: 'ownerType', required: false, enum: ['HR', 'FREELANCER', 'INTERNAL'] })
   @ApiQuery({ name: 'ownerId', required: false, description: 'Filter by HR, freelancer, or internal owner ID' })
@@ -28,5 +33,21 @@ export class DashboardController {
     @Query() query: PipelineDashboardQueryDto,
   ): Promise<PipelineDashboardDto> {
     return this.dashboardService.getPipelineDashboard(query);
+  }
+
+  @Get('trends')
+  @ApiOperation({ summary: 'Get recruitment trend dashboard data' })
+  @ApiQuery({ name: 'startDate', required: false, description: 'Filter start date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'endDate', required: false, description: 'Filter end date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'recruiterId', required: false, description: 'Filter by HRBP/Recruiter ID' })
+  @ApiQuery({ name: 'jobPostingId', required: false, description: 'Filter by job posting ID' })
+  @ApiQuery({ name: 'positionId', required: false, description: 'Filter by position ID' })
+  @ApiQuery({ name: 'channel', required: false, description: 'Filter by recruitment channel' })
+  @ApiQuery({ name: 'ownerType', required: false, enum: ['HR', 'FREELANCER', 'INTERNAL'] })
+  @ApiQuery({ name: 'ownerId', required: false, description: 'Filter by HR, freelancer, or internal owner ID' })
+  async getDashboardTrends(
+    @Query() query: PipelineDashboardQueryDto,
+  ): Promise<DashboardTrendsDto> {
+    return this.dashboardService.getDashboardTrends(query);
   }
 }

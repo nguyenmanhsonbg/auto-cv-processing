@@ -17,6 +17,8 @@ export interface NormRadarCompareChartProps {
 }
 
 export const NormRadarCompareChart: React.FC<NormRadarCompareChartProps> = ({ data }) => {
+  const belowNorm = data.filter((item) => item.actual < item.norm);
+
   return (
     <div className="bg-[#111827] border border-[#1f293d] rounded-xl p-4 shadow-xl flex flex-col justify-between h-full">
       <h3 className="text-xs font-bold uppercase text-white mb-1 flex items-center gap-1.5">
@@ -66,6 +68,11 @@ export const NormRadarCompareChart: React.FC<NormRadarCompareChartProps> = ({ da
             />
           </RadarChart>
         </ResponsiveContainer>
+      </div>
+      <div className="min-h-5 text-[10px] text-amber-300">
+        {belowNorm.length > 0
+          ? `Cần chú ý: ${belowNorm.map((item) => NORM_METRIC_LABELS[item.metric] || item.metric).join(', ')}`
+          : 'Đang đạt hoặc vượt norm chuẩn'}
       </div>
     </div>
   );
