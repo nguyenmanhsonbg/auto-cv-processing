@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { UserEntity } from './entities/user.entity';
+import { UserRoleMembershipEntity } from './entities/user-role-membership.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { FreelancerEntity } from '../freelancers/entities/freelancer.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -24,6 +25,7 @@ import { LocalAuthGuard } from './guards/local-auth.guard';
     CommonModule,
     TypeOrmModule.forFeature([
       UserEntity,
+      UserRoleMembershipEntity,
       RefreshTokenEntity,
       FreelancerEntity,
       InternalEntity,

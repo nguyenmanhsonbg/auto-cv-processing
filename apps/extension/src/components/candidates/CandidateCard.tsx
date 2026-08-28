@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import type React from 'react';
-import type { AmisApplicationsForRecruitment, AmisRecruitmentRound } from '@/types/types';
+import type {
+  AmisApplicationsForRecruitment,
+  AmisRecruitmentRound,
+} from '@/types/types';
 import type {
   InterviewEvaluationSummary,
 } from '@/types/types';
@@ -35,6 +38,8 @@ export type CandidateCardProps = Readonly<{
   aiScreeningApplicationId: string | null;
   aiEvaluationApplicationId: string | null;
   cvUploadApplicationId: string | null;
+  amisRecruitmentId: string | null;
+  currentAmisUserId: string | null;
   amisRecruitmentRounds: AmisRecruitmentRound[];
   onUploadApplicationCvToAmisForm: (application: ExtensionApplication) => void;
   onRunAiScreeningForApplication: (application: ExtensionApplication) => void;
@@ -54,6 +59,8 @@ export function CandidateCard({
   aiScreeningApplicationId,
   aiEvaluationApplicationId,
   cvUploadApplicationId,
+  amisRecruitmentId,
+  currentAmisUserId,
   amisRecruitmentRounds,
   onUploadApplicationCvToAmisForm,
   onRunAiScreeningForApplication,
@@ -71,10 +78,20 @@ export function CandidateCard({
   );
   const currentAmisRound = candidateStages[currentStageIndex];
   const isInterviewRound = isAmisInterviewRound(currentAmisRound);
-  const evaluationStartRound = getEvaluationStartRound(application, currentAmisRound, isInterviewRound);
+  const firstInterviewRoundIndex = candidateStages.findIndex(isAmisInterviewRound);
+  const hasReachedInterviewStage = Boolean(application.interviewEvaluationStartedAt)
+    || (firstInterviewRoundIndex >= 0 && currentStageIndex >= firstInterviewRoundIndex);
+  const evaluationStartRound = getEvaluationStartRound(
+    application,
+    candidateStages,
+    currentAmisRound,
+    isInterviewRound,
+    hasReachedInterviewStage,
+  );
   const canInitializeEvaluation = Boolean(evaluationStartRound);
+  const canReviewEvaluation = evaluationSummary?.canReview ?? evaluationSummary?.canView;
   const evaluationVisible = isCommittee
-    ? Boolean(evaluationSummary?.hasCase)
+    ? Boolean(canReviewEvaluation && hasReachedInterviewStage)
     : isInterviewRound
       || Boolean(application.interviewEvaluationStartedAt)
       || Boolean(evaluationSummary?.hasCase);
@@ -89,7 +106,10 @@ export function CandidateCard({
 
     setEvaluationLoading(true);
     setEvaluationError(null);
-    getInterviewEvaluationSummary(token, application.applicationId)
+    getInterviewEvaluationSummary(token, application.applicationId, {
+      amisUserId: currentAmisUserId,
+      amisRecruitmentId,
+    })
       .then((summary) => {
         if (!disposed) setEvaluationSummary(summary);
       })
@@ -108,11 +128,16 @@ export function CandidateCard({
     application.amisRecruitmentRoundId,
     application.amisRecruitmentRoundName,
     application.interviewEvaluationStartedAt,
+    amisRecruitmentId,
+    currentAmisUserId,
     token,
   ]);
 
   async function openEvaluationPage(accessToken: string) {
-    const handoff = await createInterviewEvaluationHandoff(accessToken, application.applicationId);
+    const handoff = await createInterviewEvaluationHandoff(accessToken, application.applicationId, {
+      amisUserId: currentAmisUserId,
+      amisRecruitmentId,
+    });
     const evaluationUrl = `${FRONTEND_BASE_URL}/interview-evaluations/${encodeURIComponent(application.applicationId)}?handoff=${encodeURIComponent(handoff.handoffToken)}`;
     if (chrome.tabs?.create) {
       await chrome.tabs.create({ url: evaluationUrl });
@@ -135,8 +160,14 @@ export function CandidateCard({
           amisRoundType: evaluationStartRound.roundType ?? undefined,
           amisSortOrder: evaluationStartRound.sortOrder,
           template: 'BM04.1_KNL',
+        }, {
+          amisUserId: currentAmisUserId,
+          amisRecruitmentId,
         });
-        const summary = await getInterviewEvaluationSummary(token, application.applicationId);
+        const summary = await getInterviewEvaluationSummary(token, application.applicationId, {
+          amisUserId: currentAmisUserId,
+          amisRecruitmentId,
+        });
         setEvaluationSummary(summary);
       }
       await openEvaluationPage(token);
@@ -242,7 +273,8 @@ export function CandidateCard({
               <span className={`cv-source-chip ${sourceToneClass}`.trim()}>{getCvSourceLabel(application)}</span>
             </span>
             <span className="cv-candidate-recruiter">
-              Nhân sự khai thác: <strong>{recruiterName}</strong>
+              <span>Nhân sự khai thác: </span>
+              <strong>{recruiterName}</strong>
             </span>
           </div>
           <div className="cv-candidate-details">
@@ -271,7 +303,7 @@ export function CandidateCard({
               className="cv-evaluation-button"
               aria-busy={evaluationLoading || evaluationCreating}
               aria-label="Đánh giá sau phỏng vấn"
-              disabled={evaluationLoading || evaluationCreating || !evaluationSummary || !evaluationSummary.canView
+              disabled={evaluationLoading || evaluationCreating || !evaluationSummary || !canReviewEvaluation
                 || (!evaluationSummary.hasCase && !canInitializeEvaluation)}
               onClick={() => void handleEvaluationAction()}
             >
@@ -333,8 +365,10 @@ function isAmisInterviewRound(round?: AmisRecruitmentRound) {
 
 function getEvaluationStartRound(
   application: ExtensionApplication,
+  candidateStages: AmisRecruitmentRound[],
   currentAmisRound: AmisRecruitmentRound | undefined,
   isInterviewRound: boolean,
+  hasReachedInterviewStage: boolean,
 ) {
   if (application.interviewEvaluationStartedAt && application.interviewEvaluationRoundId) {
     return {
@@ -347,7 +381,9 @@ function getEvaluationStartRound(
     } satisfies AmisRecruitmentRound;
   }
 
-  return isInterviewRound ? currentAmisRound : undefined;
+  if (isInterviewRound) return currentAmisRound;
+  if (hasReachedInterviewStage) return candidateStages.find(isAmisInterviewRound);
+  return undefined;
 }
 
 export function truncateCandidateName(value: string) {

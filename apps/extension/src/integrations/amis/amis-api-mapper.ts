@@ -1,5 +1,6 @@
 import type {
   AmisApplicationItem,
+  AmisCandidateAttractivePersonnelChangedPayload,
   AmisCandidateStageChangedPayload,
   AmisCareerItem,
   AmisExtractionResult,
@@ -62,6 +63,8 @@ export const AMIS_CANDIDATE_ADDITIONAL_INFO_PATH =
   '/RecruitmentAPI/api/Candidate/candidate-additional-infor/';
 export const AMIS_CANDIDATE_UPDATE_ROUND_PATH =
   '/RecruitmentAPI/api/RecruitmentDetail/updateRound';
+export const AMIS_CANDIDATE_SAVE_PATH =
+  '/RecruitmentAPI/api/Candidate/save';
 export function isAmisSaveRecruitmentUrl(url: string) {
   return url.toLowerCase().includes(AMIS_SAVE_RECRUITMENT_PATH.toLowerCase());
 }
@@ -76,6 +79,10 @@ export function isAmisCandidateAdditionalInfoUrl(url: string) {
 
 export function isAmisCandidateUpdateRoundUrl(url: string) {
   return url.toLowerCase().includes(AMIS_CANDIDATE_UPDATE_ROUND_PATH.toLowerCase());
+}
+
+export function isAmisCandidateSaveUrl(url: string) {
+  return url.toLowerCase().includes(AMIS_CANDIDATE_SAVE_PATH.toLowerCase());
 }
 
 export function isLikelyAmisApplicationListUrl(url: string) {
@@ -319,6 +326,102 @@ export function mapAmisCandidateStageResponse(
     changedAt: new Date().toISOString(),
     isTransitionEvent: false,
   };
+}
+
+export function mapAmisCandidateAttractivePersonnelResponse(
+  response: unknown,
+  requestPayload: unknown,
+  sourceUrl: string,
+  pageUrl: string,
+): AmisCandidateAttractivePersonnelChangedPayload | null {
+  if (!isObject(response) || !isSuccessfulAmisResponse(response)) return null;
+
+  const responseData = readCandidateSaveData(response);
+  const requestData = isObject(requestPayload) ? requestPayload : null;
+  const readMergedText = (keys: string[]) => cleanText(
+    readFromObjects([...responseData, requestData], keys),
+  );
+
+  const amisRecruitmentId = readMergedText([
+    'RecruitmentID',
+    'RecruitmentId',
+    'recruitmentId',
+    'recruitmentID',
+  ]) || extractAmisRecruitmentIdFromPageUrl(pageUrl);
+  const amisCandidateId = readMergedText([
+    'CandidateID',
+    'CandidateId',
+    'candidateId',
+    'candidateID',
+  ]);
+  const attractivePersonnelId = readMergedText([
+    'AttractivePersonnelID',
+    'AttractivePersonnelId',
+    'attractivePersonnelId',
+    'attractivePersonnelID',
+  ]);
+  const attractivePersonnelName = readMergedText([
+    'AttractivePersonnel',
+    'AttractivePersonnelName',
+    'attractivePersonnel',
+    'attractivePersonnelName',
+  ]);
+
+  if (!amisRecruitmentId || !amisCandidateId || !attractivePersonnelId || !attractivePersonnelName) {
+    return null;
+  }
+
+  const candidateName = readMergedText([
+    'CandidateName',
+    'candidateName',
+    'Name',
+    'name',
+  ]);
+
+  return {
+    amisRecruitmentId,
+    amisCandidateId,
+    attractivePersonnelId,
+    attractivePersonnelName,
+    sourceUrl,
+    pageUrl,
+    changedAt: new Date().toISOString(),
+    ...(candidateName ? { candidateName } : {}),
+  };
+}
+
+function isSuccessfulAmisResponse(response: Record<string, unknown>) {
+  const success = readFirstValue(response, ['Success', 'success']);
+  return success === true || success === 1 || success === 'true' || success === '1';
+}
+
+function readCandidateSaveData(response: Record<string, unknown>) {
+  const data = readFirstValue(response, ['Data', 'data']);
+  if (!isObject(data)) return [];
+
+  const nestedCandidate = readFirstValue(data, ['Candidate', 'candidate']);
+  return [nestedCandidate, data].filter(isObject);
+}
+
+function readFromObjects(objects: Array<Record<string, unknown> | null>, keys: string[]) {
+  for (const object of objects) {
+    if (!object) continue;
+    const value = readFirst(object, keys);
+    if (value) return value;
+  }
+
+  return '';
+}
+
+function extractAmisRecruitmentIdFromPageUrl(pageUrl: string) {
+  try {
+    const pathSegments = new URL(pageUrl).pathname.split('/').filter(Boolean);
+    const detailIndex = pathSegments.findIndex((segment) => segment.toLowerCase() === 'detail');
+    const recruitmentId = detailIndex >= 0 ? pathSegments[detailIndex + 1] : undefined;
+    return cleanText(recruitmentId);
+  } catch {
+    return '';
+  }
 }
 
 function getAmisApplicationIdentityId(item: AmisApplicationItem) {

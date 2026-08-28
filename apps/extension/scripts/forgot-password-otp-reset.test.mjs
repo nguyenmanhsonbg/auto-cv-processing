@@ -25,3 +25,16 @@ test('requesting a new recovery code starts with an empty OTP', () => {
   assert.ok(confirmMethodEnd > confirmMethodStart, 'method confirmation handler should be bounded');
   assert.match(confirmMethodSource, /setOtp\(''\)/);
 });
+
+test('an invalid OTP clears the entered code before showing the error', () => {
+  const confirmOtpStart = source.indexOf('async function confirmOtp()');
+  const confirmOtpEnd = source.indexOf('\n  async function resendOtp()', confirmOtpStart);
+  const confirmOtpSource = source.slice(confirmOtpStart, confirmOtpEnd);
+
+  assert.ok(confirmOtpStart >= 0, 'OTP confirmation handler should exist');
+  assert.ok(confirmOtpEnd > confirmOtpStart, 'OTP confirmation handler should be bounded');
+  assert.match(
+    confirmOtpSource,
+    /catch \(err\) \{\s*setOtp\(''\);[\s\S]*handleRequestError\(err, 'OTP không đúng\. Vui lòng kiểm tra lại\.'\)/,
+  );
+});

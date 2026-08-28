@@ -19,7 +19,6 @@ import {
   getApplicationDetail,
   getApplicationParsedProfile,
   getAmisApplicationsForRecruitment,
-  listAssignedInterviewEvaluations,
   getAmisRecruitmentJobDescription,
   getAmisRecruitmentRounds,
   getFreelancerRecruitmentRounds,
@@ -33,11 +32,13 @@ import {
   syncAmisApplications,
   syncAmisRecruitmentRounds,
   syncAmisRecruitmentBoardMembers,
+  syncAmisCurrentUserIdentity,
   syncAndPublishAmisJob,
   syncVcsPortalJobDescriptions,
   syncInterviewEvaluationContext,
   createInterviewEvaluationCase,
   updateAmisApplicationStage,
+  updateAmisApplicationAttractivePersonnel,
   changePassword,
 } from '@/lib/api-client';
 import { createAiMatchPreviewPdfBase64 } from '@/features/recruitment/ai-match-preview-pdf-export';
@@ -94,6 +95,7 @@ import {
   GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE,
   GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE,
   GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE,
+  isAmisTabRefreshedMessage,
   SELECT_AMIS_CANDIDATE_SOURCE_MESSAGE_TYPE,
   UPLOAD_AMIS_CV_FILE_MESSAGE_TYPE,
   buildAmisFormFillPayload,
@@ -106,6 +108,7 @@ import {
   getAmisSourceName,
   getAutoSyncStateRecruitmentId,
   isAmisApplicationsFetchResponse,
+  isAmisCandidateAttractivePersonnelChangedMessage,
   isAmisCandidateStageChangedMessage,
   isAmisCaptureUpdatedMessage,
   isAmisJobInitiationPage,
@@ -129,13 +132,14 @@ import {
 } from '@/integrations/amis/amis-helpers';
 import type {
   AmisAutoSyncState,
+  AmisCurrentUserIdentity,
   AmisApplicationsForRecruitment,
+  AmisCandidateAttractivePersonnelChangedPayload,
   AmisCandidateStageChangedPayload,
   AmisExtractionResult,
   AmisJobSnapshot,
   AmisRecruitmentRound,
   AmisRecruitmentBoardMember,
-  InterviewEvaluationAssignment,
   ApiPagination,
   ExtensionChannel,
   ExtensionSyncResponse,
@@ -145,6 +149,7 @@ import type {
   SyncAmisJobPostingRequest,
   SyncVcsPortalJdsResponse,
 } from '@/types/types';
+import { hasExtensionRole } from '@/types/types';
 import {
   EXTENSION_TOAST_EVENT,
   type ExtensionToastPayload,
@@ -253,26 +258,6 @@ const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'internal', label: 'Nội bộ' },
 ];
 const POSTING_CHANNEL_SET = new Set<ExtensionChannel>(POSTING_CHANNELS);
-
-function filterApplicationsForCommittee(
-  context: AmisApplicationsForRecruitment,
-  assignments: InterviewEvaluationAssignment[],
-) {
-  const assignedApplicationIds = new Set(
-    assignments
-      .filter((assignment) => assignment.job.id === context.jobPostingId)
-      .map((assignment) => assignment.applicationId),
-  );
-  const applications = context.applications.filter((application) =>
-    assignedApplicationIds.has(application.applicationId),
-  );
-
-  return {
-    ...context,
-    total: applications.length,
-    applications,
-  };
-}
 
 function normalizePostingChannels(channels: ExtensionChannel[]) {
   const seen = new Set<ExtensionChannel>();
@@ -406,7 +391,8 @@ function SidePanel() {
     targets: Array<{ jobPostingId: string; amisRecruitmentId: string }>,
   ) => {
     if (targets.length === 0) return [];
-    const isSelfServiceRoundsRole = user?.role === 'FREELANCER' || user?.role === 'INTERNAL';
+    const isSelfServiceRoundsRole = hasExtensionRole(user, 'FREELANCER')
+      || hasExtensionRole(user, 'INTERNAL');
 
     const loadRoundsFromAmis = async (
       activeTab: Awaited<ReturnType<typeof getActiveTab>>,
@@ -443,7 +429,7 @@ function SidePanel() {
     const persistedResults = await Promise.all(targets.map(async (target) => {
       if (!token) return null;
       try {
-        const rounds = user?.role === 'FREELANCER' || user?.role === 'INTERNAL'
+        const rounds = hasExtensionRole(user, 'FREELANCER') || hasExtensionRole(user, 'INTERNAL')
           ? await getFreelancerRecruitmentRounds(token, target.amisRecruitmentId)
           : await getAmisRecruitmentRounds(token, target.amisRecruitmentId);
         if (rounds.length > 0 && hasAmisRoundTypeMetadata(rounds)) return { ...target, rounds };
@@ -486,10 +472,11 @@ function SidePanel() {
       ?? fetchedByRecruitmentId.get(target.amisRecruitmentId)
       ?? { ...target, rounds: [] as AmisRecruitmentRound[] }
     ));
-  }, [token, user?.role]);
+  }, [token, user?.role, user?.roles]);
 
   const [snapshot, setSnapshot] = useState<AmisJobSnapshot | null>(null);
   const [amisRecruitmentId, setAmisRecruitmentId] = useState<string | null>(null);
+  const [currentAmisUserId, setCurrentAmisUserId] = useState<string | null>(null);
   const [amisRecruitmentRoundId, setAmisRecruitmentRoundId] = useState<string | null>(null);
   const [amisUrl, setAmisUrl] = useState<string | undefined>();
   const [channels, setChannels] = useState<ExtensionChannel[]>([...DEFAULT_POSTING_CHANNELS]);
@@ -539,6 +526,7 @@ function SidePanel() {
   const lastJobQuestionContextIdRef = useRef<string | null>(null);
   const lastApplicationsFallbackSyncUrlRef = useRef<string | null>(null);
   const activeAmisRecruitmentIdRef = useRef<string | null>(null);
+  const currentAmisUserIdRef = useRef<string | null>(null);
   const activeSnapshotRecruitmentIdRef = useRef<string | null>(null);
   const applicationsRequestSeqRef = useRef(0);
   const amisCandidateStageOverridesRef = useRef(new Map<string, {
@@ -548,8 +536,12 @@ function SidePanel() {
     reasonRemoved: string | null;
   }>());
   const processedAmisCandidateStageEventsRef = useRef(new Map<string, string>());
+  const processedAmisCandidateAttractivePersonnelEventsRef = useRef(new Map<string, number>());
   const amisCandidateStageChangeHandlerRef = useRef<
     (payload: AmisCandidateStageChangedPayload) => Promise<void>
+  >(async () => undefined);
+  const amisCandidateAttractivePersonnelChangeHandlerRef = useRef<
+    (payload: AmisCandidateAttractivePersonnelChangedPayload) => Promise<void>
   >(async () => undefined);
   const pendingAmisUploadApplicationIdsRef = useRef(new Set<string>());
   const pendingAmisUploadTimeoutsRef = useRef(new Map<string, number>());
@@ -558,11 +550,26 @@ function SidePanel() {
   const postingSnapshotRefreshAttemptsRef = useRef(new Map<string, number>());
   const missedRecruitmentContextCountRef = useRef(0);
   const lastAmisJobInitiationResetKeyRef = useRef<string | null>(null);
+  const lastAmisIdentitySyncRef = useRef<{
+    actorUserId: string;
+    amisUserId: string;
+    syncedAt: number;
+  } | null>(null);
+  const lastCommitteeRoleRefreshRef = useRef<{
+    userId: string;
+    checkedAt: number;
+  } | null>(null);
   const tokenRef = useRef<string | null>(null);
   const channelsRef = useRef<ExtensionChannel[]>(channels);
   const extensionToastSequenceRef = useRef(0);
   const extensionToastTimerRef = useRef<number | null>(null);
   const lastCtrlWheelZoomAtRef = useRef(0);
+
+  function setCurrentAmisUserIdentity(identity: AmisCurrentUserIdentity | null) {
+    const normalizedUserId = normalizeOptionalText(identity?.amisUserId);
+    currentAmisUserIdRef.current = normalizedUserId;
+    setCurrentAmisUserId(normalizedUserId);
+  }
 
   function dismissExtensionToast() {
     if (extensionToastTimerRef.current !== null) {
@@ -838,8 +845,18 @@ function SidePanel() {
         return;
       }
 
+      if (isAmisTabRefreshedMessage(message)) {
+        void handleAmisTabRefreshed(message.payload.tabId);
+        return;
+      }
+
       if (isAmisCandidateStageChangedMessage(message)) {
         void amisCandidateStageChangeHandlerRef.current(message.payload);
+        return;
+      }
+
+      if (isAmisCandidateAttractivePersonnelChangedMessage(message)) {
+        void amisCandidateAttractivePersonnelChangeHandlerRef.current(message.payload);
         return;
       }
 
@@ -904,13 +921,22 @@ function SidePanel() {
       return;
     }
 
+    // A refresh clears the previous AMIS identity first. Wait for the new
+    // identity before querying committee-scoped applications; otherwise the
+    // request has no AMIS user id and is rejected by the backend by design.
+    if (hasExtensionRole(user, 'COMMITTEE') && !currentAmisUserId) {
+      setApplicationsState('IDLE');
+      setApplicationsMessage(null);
+      return;
+    }
+
     void loadAmisApplications(token, amisRecruitmentId, { silent: true });
     const intervalId = window.setInterval(() => {
       void loadAmisApplications(token, amisRecruitmentId, { silent: true });
     }, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [token, amisRecruitmentId, user?.role]);
+  }, [token, amisRecruitmentId, currentAmisUserId, user?.role, user?.roles]);
 
   useEffect(() => {
     let cancelled = false;
@@ -918,7 +944,7 @@ function SidePanel() {
     const nextRecruitmentId = amisRecruitmentId;
 
     async function prepareFacebookContent() {
-      if (user?.role === 'COMMITTEE') return;
+      if (hasExtensionRole(user, 'COMMITTEE')) return;
       facebook.clearFacebookContent();
       await facebook.restoreFacebookImageAttachments(nextRecruitmentId, nextSnapshot, selectedJobDescription);
       if (!token || !nextRecruitmentId || !nextSnapshot) return;
@@ -951,6 +977,7 @@ function SidePanel() {
     snapshot?.deadline,
     selectedJobDescription?.id,
     user?.role,
+    user?.roles,
   ]);
   const missingFields = useMemo(() => {
     const missing: string[] = [];
@@ -964,19 +991,19 @@ function SidePanel() {
   }, [amisRecruitmentId, facebook.selectedFacebookGroupIds.length, selectedJobDescription?.id, selectedPostingChannels, snapshot]);
 
   const visibleWorkspaceTabs = useMemo<WorkspaceTab[]>(() => {
-    if (user?.role === 'COMMITTEE') return ['cv'];
+    if (hasExtensionRole(user, 'COMMITTEE')) return ['cv'];
     if (pinnedWorkspaceTab && pinnedWorkspaceTab !== activeWorkspaceTab) {
       return [pinnedWorkspaceTab, activeWorkspaceTab];
     }
 
     return [activeWorkspaceTab];
-  }, [activeWorkspaceTab, pinnedWorkspaceTab, user?.role]);
+  }, [activeWorkspaceTab, pinnedWorkspaceTab, user?.role, user?.roles]);
 
   const workspaceTabsForUser = useMemo(
-    () => user?.role === 'COMMITTEE'
+    () => hasExtensionRole(user, 'COMMITTEE')
       ? WORKSPACE_TABS.filter((tab) => tab.id === 'cv')
       : WORKSPACE_TABS,
-    [user?.role],
+    [user?.role, user?.roles],
   );
 
   const syncDisabled = state === 'EXTRACTING'
@@ -1006,14 +1033,14 @@ function SidePanel() {
         setState('PASSWORD_CHANGE_REQUIRED');
         return;
       }
-      if (currentUser.role === 'FREELANCER' || currentUser.role === 'INTERNAL') {
+      if (hasExtensionRole(currentUser, 'FREELANCER') || hasExtensionRole(currentUser, 'INTERNAL')) {
         setToken(storedToken);
         setUser(currentUser);
         setActiveWorkspaceTab('cv');
         setState('READY');
         return;
       }
-      if (currentUser.role === 'COMMITTEE') {
+      if (hasExtensionRole(currentUser, 'COMMITTEE')) {
         setToken(storedToken);
         setUser(currentUser);
         setActiveWorkspaceTab('cv');
@@ -1057,12 +1084,12 @@ function SidePanel() {
       setState('PASSWORD_CHANGE_REQUIRED');
       return;
     }
-    if (authenticatedUser.role === 'FREELANCER' || authenticatedUser.role === 'INTERNAL') {
+    if (hasExtensionRole(authenticatedUser, 'FREELANCER') || hasExtensionRole(authenticatedUser, 'INTERNAL')) {
       setActiveWorkspaceTab('cv');
       setState('READY');
       return;
     }
-    if (authenticatedUser.role === 'COMMITTEE') {
+    if (hasExtensionRole(authenticatedUser, 'COMMITTEE')) {
       setActiveWorkspaceTab('cv');
       setState('READY');
       return;
@@ -1082,12 +1109,12 @@ function SidePanel() {
       const response = await changePassword(token, input);
       showExtensionToast('SUCCESS', 'Đổi mật khẩu', response?.message || 'Đổi mật khẩu thành công.');
       setUser((current) => current ? { ...current, mustChangePassword: false } : current);
-      if (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') {
+      if (hasExtensionRole(user, 'FREELANCER') || hasExtensionRole(user, 'INTERNAL')) {
         setActiveWorkspaceTab('cv');
         setState('READY');
         return;
       }
-      if (user?.role === 'COMMITTEE') {
+      if (hasExtensionRole(user, 'COMMITTEE')) {
         setActiveWorkspaceTab('cv');
         setState('READY');
         return;
@@ -1227,7 +1254,7 @@ function SidePanel() {
   async function loadAmisApplications(
     accessToken = token,
     recruitmentId = amisRecruitmentId,
-    options: { silent?: boolean } = {},
+    options: { silent?: boolean; currentAmisUserId?: string | null } = {},
   ) {
     if (!accessToken || !recruitmentId) return;
 
@@ -1238,15 +1265,9 @@ function SidePanel() {
     }
 
     try {
-      const [context, assignedEvaluations] = await Promise.all([
-        getAmisApplicationsForRecruitment(accessToken, recruitmentId),
-        user?.role === 'COMMITTEE'
-          ? listAssignedInterviewEvaluations(accessToken)
-          : Promise.resolve(null),
-      ]);
-      const visibleContext = user?.role === 'COMMITTEE'
-        ? filterApplicationsForCommittee(context, assignedEvaluations ?? [])
-        : context;
+      const visibleContext = await getAmisApplicationsForRecruitment(accessToken, recruitmentId, {
+        currentAmisUserId: options.currentAmisUserId ?? currentAmisUserIdRef.current,
+      });
       if (
         requestSeq !== applicationsRequestSeqRef.current ||
         activeAmisRecruitmentIdRef.current !== recruitmentId
@@ -1406,10 +1427,61 @@ function SidePanel() {
     }
   }
 
+  async function applyAmisCandidateAttractivePersonnelChangedMessage(
+    payload: AmisCandidateAttractivePersonnelChangedPayload,
+  ) {
+    const accessToken = tokenRef.current;
+    if (!accessToken) return;
+
+    const eventKey = [
+      payload.amisRecruitmentId,
+      payload.amisCandidateId,
+      payload.attractivePersonnelId,
+      payload.attractivePersonnelName,
+    ].join(':');
+    const now = Date.now();
+    const previousEventAt = processedAmisCandidateAttractivePersonnelEventsRef.current.get(eventKey) ?? 0;
+    if (now - previousEventAt < 30_000) return;
+    processedAmisCandidateAttractivePersonnelEventsRef.current.set(eventKey, now);
+
+    try {
+      const updated = await updateAmisApplicationAttractivePersonnel(accessToken, payload);
+      if (activeAmisRecruitmentIdRef.current !== payload.amisRecruitmentId) return;
+
+      setApplicationsContext((current) => {
+        if (!current || current.amisRecruitmentId !== payload.amisRecruitmentId) return current;
+
+        return {
+          ...current,
+          applications: current.applications.map((application) => application.amisCandidateId === payload.amisCandidateId
+            ? {
+              ...application,
+              attractivePersonnelId: updated.attractivePersonnelId,
+              attractivePersonnelName: updated.attractivePersonnelName,
+            }
+            : application),
+        };
+      });
+      setApplicationsMessage('Đã cập nhật nhân sự khai thác từ AMIS.');
+      await loadAmisApplications(accessToken, payload.amisRecruitmentId, { silent: true });
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) {
+        await clearAccessToken();
+        setToken(null);
+        setUser(null);
+        setState('AUTH_REQUIRED');
+        return;
+      }
+
+      setApplicationsMessage(`Không thể lưu nhân sự khai thác từ AMIS: ${toErrorMessage(err)}`);
+    }
+  }
+
   // The runtime listener is intentionally installed once. Keep its handler
   // pointed at the latest render so stage changes use current applications,
   // rounds, and API callbacks while the AMIS popup remains open.
   amisCandidateStageChangeHandlerRef.current = applyAmisCandidateStageChangedMessage;
+  amisCandidateAttractivePersonnelChangeHandlerRef.current = applyAmisCandidateAttractivePersonnelChangedMessage;
 
   function mergeAmisCandidateStageOverrides(context: AmisApplicationsForRecruitment) {
     return {
@@ -1532,8 +1604,7 @@ function SidePanel() {
     });
 
     if (
-      user?.role !== 'COMMITTEE'
-      && tokenRef.current
+      tokenRef.current
       && context.sourceUrl
       && lastApplicationsFallbackSyncUrlRef.current !== context.sourceUrl
     ) {
@@ -1571,6 +1642,65 @@ function SidePanel() {
     }
   }
 
+  async function persistAmisCurrentUserIdentity(
+    identity: AmisCurrentUserIdentity | null,
+    sourceUrl?: string,
+    actorUser: ExtensionUser | null = user,
+  ) {
+    const accessToken = tokenRef.current;
+    if (!accessToken || !actorUser || !hasExtensionRole(actorUser, 'COMMITTEE') || !identity) return;
+
+    const normalizedAmisUserId = identity.amisUserId.trim().toLowerCase();
+    const previousSync = lastAmisIdentitySyncRef.current;
+    if (
+      previousSync
+      && previousSync.actorUserId === actorUser.id
+      && previousSync.amisUserId === normalizedAmisUserId
+      && Date.now() - previousSync.syncedAt < 60_000
+    ) {
+      return;
+    }
+
+    try {
+      await syncAmisCurrentUserIdentity(accessToken, identity, sourceUrl);
+      lastAmisIdentitySyncRef.current = {
+        actorUserId: actorUser.id,
+        amisUserId: normalizedAmisUserId,
+        syncedAt: Date.now(),
+      };
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 403) {
+        setApplicationsMessage(toErrorMessage(error));
+      }
+    }
+  }
+
+  async function resolveCurrentCommitteeUser() {
+    const accessToken = tokenRef.current;
+    if (!accessToken) return null;
+    if (hasExtensionRole(user, 'COMMITTEE')) return user;
+
+    if (
+      user
+      && lastCommitteeRoleRefreshRef.current?.userId === user.id
+      && Date.now() - lastCommitteeRoleRefreshRef.current.checkedAt < 60_000
+    ) {
+      return null;
+    }
+
+    try {
+      const latestUser = await getCurrentUser(accessToken);
+      lastCommitteeRoleRefreshRef.current = {
+        userId: latestUser.id,
+        checkedAt: Date.now(),
+      };
+      setUser(latestUser);
+      return hasExtensionRole(latestUser, 'COMMITTEE') ? latestUser : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function syncAmisRecruitmentBoardMembersFromTab(tabId: number, recruitmentId: string) {
     const response = await sendMessageToAmisTab(tabId, {
       type: GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE,
@@ -1578,9 +1708,22 @@ function SidePanel() {
     });
     if (
       !isAmisRecruitmentBoardMembersResponse(response)
-      || !response.ok
-      || response.amisRecruitmentId !== recruitmentId
     ) {
+      return;
+    }
+
+    const committeeUser = await resolveCurrentCommitteeUser();
+    setCurrentAmisUserIdentity(response.currentUser);
+
+    await persistAmisCurrentUserIdentity(response.currentUser, response.sourceUrl, committeeUser);
+    if (!response.ok || response.amisRecruitmentId !== recruitmentId) return;
+    if (committeeUser) {
+      if (tokenRef.current && currentAmisUserIdRef.current) {
+        await loadAmisApplications(tokenRef.current, recruitmentId, {
+          silent: true,
+          currentAmisUserId: currentAmisUserIdRef.current,
+        });
+      }
       return;
     }
 
@@ -1591,10 +1734,36 @@ function SidePanel() {
     );
   }
 
+  async function syncAmisCurrentUserIdentityFromTab(tabId: number) {
+    const committeeUser = await resolveCurrentCommitteeUser();
+    if (!committeeUser) return;
+
+    const response = await sendMessageToAmisTab(tabId, {
+      type: GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE,
+    });
+    if (!isAmisRecruitmentBoardMembersResponse(response)) return;
+
+    setCurrentAmisUserIdentity(response.currentUser);
+    await persistAmisCurrentUserIdentity(response.currentUser, response.sourceUrl, committeeUser);
+  }
+
+  async function handleAmisTabRefreshed(tabId: number) {
+    if (!tokenRef.current) return;
+    // Do not let an identity from the previous AMIS page/account leak into
+    // the first applications request after a hard browser refresh.
+    setCurrentAmisUserIdentity(null);
+    await syncAmisCurrentUserIdentityFromTab(tabId);
+    await refreshAmisRecruitmentContextFromActiveTab({ silent: true, sourceTabId: tabId });
+  }
+
   async function refreshAmisRecruitmentContextFromActiveTab(options: { silent?: boolean; sourceTabId?: number } = {}) {
     try {
       const activeTab = await getActiveTab();
       if (options.sourceTabId !== undefined && activeTab.id !== options.sourceTabId) return;
+
+      if (activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
+        await syncAmisCurrentUserIdentityFromTab(activeTab.id);
+      }
 
       const resolution = await resolveAmisTabContext(activeTab);
       if (resolution.kind === 'OUTSIDE') {
@@ -1647,6 +1816,7 @@ function SidePanel() {
     const result = await syncAmisApplications(accessToken, {
       items: response.items,
       sourceUrl: response.sourceUrl,
+      amisUserId: currentAmisUserIdRef.current ?? undefined,
       metadata: {
         autoSync: true,
         trigger: 'AMIS_APPLICATIONS_SIDE_PANEL_FALLBACK',
@@ -1972,6 +2142,7 @@ function SidePanel() {
     setAmisRecruitmentRoundId(normalizedRoundId);
 
     if (previousRecruitmentId !== normalizedRecruitmentId) {
+      setCurrentAmisUserIdentity(null);
       applicationsRequestSeqRef.current += 1;
       lastApplicationsFallbackSyncUrlRef.current = null;
       setAmisRecruitmentRounds([]);
@@ -2856,8 +3027,10 @@ function SidePanel() {
   function renderWorkspacePanel(tab: WorkspaceTab) {
     const isPinned = pinnedWorkspaceTab === tab;
     const isFlatTab = tab !== 'overview';
+    const isCommitteeWorkspacePanel = tab === 'cv'
+      && hasExtensionRole(user, 'COMMITTEE');
     return (
-      <section key={tab} className={`workspace-panel workspace-panel-${tab}${isPinned ? ' is-pinned' : ''}${isFlatTab ? ' is-flat' : ''}`}>
+      <section key={tab} className={`workspace-panel workspace-panel-${tab}${isPinned ? ' is-pinned' : ''}${isFlatTab ? ' is-flat' : ''}${isCommitteeWorkspacePanel ? ' is-committee' : ''}`}>
         {!isFlatTab ? (
           <div className="workspace-panel-heading">
             <div>
@@ -2937,8 +3110,11 @@ function SidePanel() {
         {tab === 'cv' ? (
           <CvManagementPanel
             token={token}
-            isCommittee={user?.role === 'COMMITTEE'}
+            isCommittee={hasExtensionRole(user, 'COMMITTEE')}
+            committeePersonnelName={isCommitteeWorkspacePanel ? user?.name?.trim() || null : null}
+            committeePersonnelEmail={isCommitteeWorkspacePanel ? user?.email ?? null : null}
             amisRecruitmentId={amisRecruitmentId}
+            currentAmisUserId={currentAmisUserId}
             applicationsContext={applicationsContext}
             applicationsState={applicationsState}
             applicationsMessage={applicationsMessage}
@@ -2991,7 +3167,7 @@ function SidePanel() {
 
 
   function renderExtensionHeader() {
-    const canChangePassword = user?.role === 'FREELANCER' || user?.role === 'INTERNAL';
+    const canChangePassword = hasExtensionRole(user, 'FREELANCER') || hasExtensionRole(user, 'INTERNAL');
     let passwordAction: React.ReactNode = null;
     if (canChangePassword && !isFreelancerPasswordFormOpen) {
       passwordAction = (
@@ -3031,6 +3207,19 @@ function SidePanel() {
       && state !== 'AUTH_LOADING'
       && state !== 'AUTH_REQUIRED'
       && state !== 'PASSWORD_CHANGE_REQUIRED';
+    const isCommitteeUser = hasExtensionRole(user, 'COMMITTEE');
+    const isCommitteeAmisWorkspace = showAuthenticatedWorkspace
+      && isCommitteeUser
+      && Boolean(amisRecruitmentId);
+    const showSelfServiceWorkspace = showAuthenticatedWorkspace
+      && (hasExtensionRole(user, 'FREELANCER') || hasExtensionRole(user, 'INTERNAL'))
+      && !isCommitteeUser;
+    const workspaceTabsForRender = isCommitteeAmisWorkspace
+      ? workspaceTabsForUser.filter((tab) => tab.id === 'cv')
+      : workspaceTabsForUser;
+    const visibleWorkspaceTabsForRender: WorkspaceTab[] = isCommitteeAmisWorkspace
+      ? ['cv']
+      : visibleWorkspaceTabs;
 
     return (
       <>
@@ -3054,7 +3243,7 @@ function SidePanel() {
           </section>
         ) : null}
 
-        {showAuthenticatedWorkspace && (user?.role === 'FREELANCER' || user?.role === 'INTERNAL') && token ? (
+        {showSelfServiceWorkspace && token ? (
           <section className="freelancer-extension-shell">
             {!isFreelancerPasswordFormOpen ? (
               <nav className="extension-tabs freelancer-extension-tabs" aria-label="Freelancer sections">
@@ -3076,8 +3265,9 @@ function SidePanel() {
         ) : showAuthenticatedWorkspace && user ? (
           <>
             <nav className="extension-tabs" aria-label="VCS Recruitment sections">
-              {workspaceTabsForUser.map((tab) => {
-                const isActive = activeWorkspaceTab === tab.id;
+              {workspaceTabsForRender.map((tab) => {
+                const isCommitteeTab = hasExtensionRole(user, 'COMMITTEE') && tab.id === 'cv';
+                const isActive = activeWorkspaceTab === tab.id || isCommitteeTab;
 
                 return (
                   <button
@@ -3092,14 +3282,14 @@ function SidePanel() {
                     {tab.id === 'cv' ? <CvIcon /> : null}
                     {tab.id === 'freelancer' ? <PeopleIcon /> : null}
                     {tab.id === 'internal' ? <PeopleIcon /> : null}
-                    <span>{tab.label}</span>
+                    <span>{hasExtensionRole(user, 'COMMITTEE') && tab.id === 'cv' ? 'Hội đồng chuyên môn' : tab.label}</span>
                   </button>
                 );
               })}
             </nav>
 
-            <section className={`workspace-grid is-${visibleWorkspaceTabs.length}-panel`}>
-              {visibleWorkspaceTabs.map((tab) => renderWorkspacePanel(tab))}
+            <section className={`workspace-grid is-${visibleWorkspaceTabsForRender.length}-panel`}>
+              {visibleWorkspaceTabsForRender.map((tab) => renderWorkspacePanel(tab))}
             </section>
           </>
         ) : null}

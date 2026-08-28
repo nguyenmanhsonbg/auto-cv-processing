@@ -1,7 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { DataSource, In } from 'typeorm';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { UserRole } from '@interview-assistant/shared';
+import { DataSource, In, Repository } from 'typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
+import { hasUserRole } from '../auth/role-utils';
+import { InternalEntity } from '../internals/entities/internal.entity';
 import { SyncAmisRecruitmentBoardMembersDto } from './dto/sync-amis-recruitment-board-members.dto';
+import { SyncAmisCurrentUserIdentityDto } from './dto/sync-amis-current-user-identity.dto';
 import { AmisRecruitmentBoardMemberEntity } from './entities/amis-recruitment-board-member.entity';
 import { ExtensionSourceSystem } from './enums';
 
@@ -22,6 +26,14 @@ export interface AmisRecruitmentBoardMemberResponse {
   localUserRole: string | null;
   lastSyncedAt: string;
 }
+
+export interface AmisRecruitmentAccessActor {
+  id: string;
+  role: UserRole;
+  roles?: readonly UserRole[];
+}
+
+export type AmisIdentityMatchMethod = 'EMAIL' | 'PHONE' | 'EMAIL_AND_PHONE';
 
 @Injectable()
 export class AmisRecruitmentBoardMembersService {
@@ -135,10 +147,211 @@ export class AmisRecruitmentBoardMembersService {
     return records.map((record) => this.toResponse(record, userByAmisId.get(record.amisUserId)));
   }
 
+  async syncCurrentIdentity(
+    actor: AmisRecruitmentAccessActor,
+    input: SyncAmisCurrentUserIdentityDto,
+  ) {
+    if (!hasUserRole(actor, UserRole.COMMITTEE)) {
+      throw new ForbiddenException({
+        code: 'EXTENSION_COMMITTEE_ROLE_REQUIRED',
+        message: 'Chỉ tài khoản HĐCM mới được xác minh mapping AMIS.',
+      });
+    }
+
+    const amisUserId = input.amisUserId.trim().toLowerCase();
+    const incomingEmail = this.normalizeEmail(input.email);
+    const incomingPhone = this.normalizePhone(input.phone);
+    if (!incomingEmail && !incomingPhone) {
+      throw new ForbiddenException({
+        code: 'AMIS_CONTACT_UNAVAILABLE',
+        message: 'AMIS không trả về email hoặc số điện thoại để xác minh tài khoản.',
+      });
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const userRepository = manager.getRepository(UserEntity);
+      const internalRepository = manager.getRepository(InternalEntity);
+      const localUser = await userRepository.findOne({
+        where: { id: actor.id },
+        relations: ['roleMemberships'],
+      });
+      if (!localUser || !hasUserRole({
+        role: localUser.role,
+        roles: localUser.roleMemberships?.map((membership) => membership.role),
+      }, UserRole.COMMITTEE)) {
+        throw new ForbiddenException({
+          code: 'EXTENSION_COMMITTEE_ACCOUNT_INVALID',
+          message: 'Tài khoản Extension không có quyền HĐCM hợp lệ.',
+        });
+      }
+
+      const internal = await this.findInternalAccountForUser(
+        internalRepository,
+        localUser,
+      );
+      if (!internal || !internal.isActive) {
+        throw new ForbiddenException({
+          code: 'INTERNAL_ACCOUNT_NOT_FOUND',
+          message: 'Không tìm thấy account nhân sự nội bộ đang hoạt động để mapping.',
+        });
+      }
+      if (internal.userId && internal.userId !== localUser.id) {
+        throw new ForbiddenException({
+          code: 'INTERNAL_ACCOUNT_ALREADY_LINKED',
+          message: 'Account nội bộ đã được liên kết với account Extension khác.',
+        });
+      }
+
+      const matchMethod = this.resolveIdentityMatchMethod(
+        internal,
+        incomingEmail,
+        incomingPhone,
+      );
+      if (!matchMethod) {
+        throw new ForbiddenException({
+          code: 'AMIS_CONTACT_MISMATCH',
+          message: 'Email hoặc số điện thoại AMIS không khớp account nội bộ.',
+        });
+      }
+
+      const mappedUser = await userRepository.findOne({ where: { amisUserId } });
+      if (mappedUser && mappedUser.id !== localUser.id) {
+        throw new ForbiddenException({
+          code: 'AMIS_USER_ALREADY_MAPPED',
+          message: 'Tài khoản AMIS này đã được mapping với account Extension khác.',
+        });
+      }
+      if (
+        localUser.amisUserId
+        && localUser.amisUserId.trim().toLowerCase() !== amisUserId
+      ) {
+        throw new ForbiddenException({
+          code: 'AMIS_EXTENSION_ACCOUNT_ALREADY_BOUND',
+          message: 'Account Extension đã được mapping với một tài khoản AMIS khác.',
+        });
+      }
+
+      if (!internal.userId) {
+        internal.userId = localUser.id;
+        await internalRepository.save(internal);
+      }
+
+      localUser.amisUserId = amisUserId;
+      localUser.amisFullName = this.normalizeOptionalValue(input.fullName) ?? localUser.amisFullName;
+      localUser.amisEmail = incomingEmail ?? localUser.amisEmail;
+      localUser.amisPhone = incomingPhone ?? localUser.amisPhone;
+      localUser.amisTenantId = this.normalizeOptionalValue(input.tenantId) ?? localUser.amisTenantId;
+      localUser.amisIdentityVerifiedAt = new Date();
+      await userRepository.save(localUser);
+
+      return {
+        matched: true,
+        userId: localUser.id,
+        amisUserId: localUser.amisUserId,
+        matchMethod,
+        verifiedAt: localUser.amisIdentityVerifiedAt.toISOString(),
+      };
+    });
+  }
+
+  async assertCurrentAmisAccountAccess(
+    amisRecruitmentId: string,
+    actor: AmisRecruitmentAccessActor,
+    currentAmisUserId?: string | null,
+  ) {
+    if (!hasUserRole(actor, UserRole.COMMITTEE)) return;
+
+    const normalizedRecruitmentId = amisRecruitmentId.trim();
+    const normalizedAmisUserId = currentAmisUserId?.trim().toLowerCase();
+    if (!normalizedAmisUserId) {
+      throw new ForbiddenException({
+        code: 'AMIS_SESSION_USER_UNAVAILABLE',
+        message: 'Không xác định được tài khoản AMIS hiện tại. Vui lòng mở lại JD trên AMIS.',
+      });
+    }
+
+    const localUser = await this.dataSource.getRepository(UserEntity).findOne({
+      where: { id: actor.id },
+      relations: ['roleMemberships'],
+    });
+    if (!localUser || !hasUserRole({
+      role: localUser.role,
+      roles: localUser.roleMemberships?.map((membership) => membership.role),
+    }, UserRole.COMMITTEE)) {
+      throw new ForbiddenException({
+        code: 'EXTENSION_COMMITTEE_ACCOUNT_INVALID',
+        message: 'Tài khoản Extension không có quyền HĐCM hợp lệ.',
+      });
+    }
+    if (!localUser.amisUserId || localUser.amisUserId.trim().toLowerCase() !== normalizedAmisUserId) {
+      throw new ForbiddenException({
+        code: 'AMIS_EXTENSION_ACCOUNT_MISMATCH',
+        message: 'Tài khoản AMIS hiện tại không khớp với tài khoản HĐCM Extension.',
+      });
+    }
+
+    const membership = await this.dataSource.getRepository(AmisRecruitmentBoardMemberEntity).findOne({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        amisRecruitmentId: normalizedRecruitmentId,
+        amisUserId: normalizedAmisUserId,
+        isActive: true,
+      },
+    });
+    if (!membership) {
+      throw new ForbiddenException({
+        code: 'AMIS_COMMITTEE_MEMBERSHIP_REQUIRED',
+        message: 'Tài khoản HĐCM này chưa được thêm vào Hội đồng tuyển dụng của JD.',
+      });
+    }
+  }
+
+  private async findInternalAccountForUser(
+    repository: Repository<InternalEntity>,
+    user: UserEntity,
+  ) {
+    const linkedInternal = await repository.findOne({ where: { userId: user.id } });
+    if (linkedInternal) return linkedInternal;
+    return repository.findOne({ where: { email: this.normalizeEmail(user.email) ?? user.email } });
+  }
+
+  private resolveIdentityMatchMethod(
+    internal: InternalEntity,
+    incomingEmail: string | null,
+    incomingPhone: string | null,
+  ): AmisIdentityMatchMethod | null {
+    const internalEmail = this.normalizeEmail(internal.email);
+    const internalPhone = this.normalizePhone(internal.phone);
+    const emailMatches = Boolean(incomingEmail && internalEmail && incomingEmail === internalEmail);
+    const phoneMatches = Boolean(incomingPhone && internalPhone && incomingPhone === internalPhone);
+    const emailConflicts = Boolean(incomingEmail && internalEmail && incomingEmail !== internalEmail);
+    const phoneConflicts = Boolean(incomingPhone && internalPhone && incomingPhone !== internalPhone);
+
+    if (emailConflicts || phoneConflicts || (!emailMatches && !phoneMatches)) return null;
+    if (emailMatches && phoneMatches) return 'EMAIL_AND_PHONE';
+    return emailMatches ? 'EMAIL' : 'PHONE';
+  }
+
+  private normalizeEmail(value?: string | null) {
+    const normalized = value?.trim().toLowerCase();
+    return normalized || null;
+  }
+
+  private normalizePhone(value?: string | null) {
+    const digits = value?.replace(/\D/g, '') ?? '';
+    if (digits.length === 11 && digits.startsWith('84')) return `0${digits.slice(2)}`;
+    return digits || null;
+  }
+
+  private normalizeOptionalValue(value?: string | null) {
+    const normalized = value?.trim();
+    return normalized || null;
+  }
+
   private normalizeMembers(input: SyncAmisRecruitmentBoardMembersDto['members']) {
     const uniqueMembers = new Map<string, SyncAmisRecruitmentBoardMembersDto['members'][number]>();
     for (const member of input ?? []) {
-      const amisUserId = member.amisUserId.trim();
+      const amisUserId = member.amisUserId.trim().toLowerCase();
       const fullName = member.fullName.trim();
       if (!amisUserId || !fullName || uniqueMembers.has(amisUserId)) continue;
       uniqueMembers.set(amisUserId, {

@@ -148,6 +148,7 @@ export function ForgotPasswordForm({
       setResetToken(response.resetToken);
       setStep('RESET');
     } catch (err) {
+      setOtp('');
       handleRequestError(err, 'OTP không đúng. Vui lòng kiểm tra lại.');
     } finally {
       setLoading(false);

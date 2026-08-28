@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReferralManagementApplication, ReferralManagementSource } from '@/types/types';
+import { truncateCandidateName } from '@/components/candidates/CandidateCard';
 import { formatDate } from '@/lib/utils';
 
 function normalizeAmisStageName(value?: string | null) {
@@ -185,7 +186,11 @@ export function ApplicationTable({ applications, source }: ApplicationTableProps
             {applications.map((application, index) => (
               <tr key={application.applicationId}>
                 <td>{String(index + 1).padStart(2, '0')}</td>
-                <td>{application.candidate.fullName}</td>
+                <td title={application.candidate.fullName}>
+                  {source === 'FREELANCER'
+                    ? truncateCandidateName(application.candidate.fullName)
+                    : application.candidate.fullName}
+                </td>
                 <td>{application.jobPosting.title}</td>
                 <td><StatusPill application={application} /></td>
                 <td>{formatDate(application.appliedAt)}</td>

@@ -8,6 +8,7 @@ import {
 } from '@/lib/api-client';
 import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
 import { CandidateAvatar } from '@/components/candidates/CandidateAvatar';
+import { truncateCandidateName } from '@/components/candidates/CandidateCard';
 import { AppliedDateIcon, JobDescriptionIcon, SaveNoteIcon } from '@/components/icons';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
 import { formatDate } from '@/lib/utils';
@@ -369,7 +370,7 @@ export function FreelancerCvPanel({
                   <CandidateAvatar name={application.candidate.fullName} />
                   <div>
                     <h3 className="freelancer-cv-candidate-name" title={application.candidate.fullName}>
-                      {application.candidate.fullName}
+                      {truncateCandidateName(application.candidate.fullName)}
                     </h3>
                     <p><JobDescriptionIcon />{application.jobPosting.title}</p>
                     <span className="freelancer-cv-applied-at"><AppliedDateIcon />Ngày ứng tuyển: <strong>{formatDateTime(application.appliedAt)}</strong></span>

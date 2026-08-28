@@ -20,6 +20,12 @@ export class RefreshTokenEntity {
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
+  @Column({ name: 'amis_user_id', type: 'varchar', length: 100, nullable: true })
+  amisUserId: string | null;
+
+  @Column({ name: 'amis_recruitment_id', type: 'varchar', length: 100, nullable: true })
+  amisRecruitmentId: string | null;
+
   @ManyToOne(() => UserEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: UserEntity;

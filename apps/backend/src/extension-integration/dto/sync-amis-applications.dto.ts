@@ -149,6 +149,11 @@ export class SyncAmisApplicationsDto {
   @IsUrl({ require_protocol: true })
   sourceUrl?: string;
 
+  @ApiPropertyOptional({ description: 'The AMIS account id captured from the active AMIS session.' })
+  @IsOptional()
+  @IsString()
+  amisUserId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()

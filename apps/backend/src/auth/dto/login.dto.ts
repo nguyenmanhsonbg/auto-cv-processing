@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsString, MinLength, IsOptional, IsEnum, IsUUID, Matches } from 'class-validator';
+import { ArrayNotEmpty, ArrayUnique, IsArray, IsEmail, IsString, MinLength, IsOptional, IsEnum, IsUUID, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '@interview-assistant/shared';
 
@@ -42,6 +42,16 @@ export class CreateEvaluationHandoffDto {
   @ApiProperty({ example: '296d2881-c294-4eb5-a30a-be781f843c99' })
   @IsUUID()
   applicationId: string;
+
+  @ApiPropertyOptional({ example: '9455dd32-4bef-4a80-ae10-fd225ee8c9d9' })
+  @IsOptional()
+  @IsString()
+  amisUserId?: string;
+
+  @ApiPropertyOptional({ example: '46350' })
+  @IsOptional()
+  @IsString()
+  amisRecruitmentId?: string;
 }
 
 export class ExchangeEvaluationHandoffDto {
@@ -133,6 +143,14 @@ export class CreateUserDto {
   @IsOptional()
   @IsEnum(UserRole)
   role?: UserRole;
+
+  @ApiPropertyOptional({ enum: UserRole, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsEnum(UserRole, { each: true })
+  roles?: UserRole[];
 }
 
 export class UpdateUserDto {
@@ -145,4 +163,12 @@ export class UpdateUserDto {
   @IsOptional()
   @IsEnum(UserRole)
   role?: UserRole;
+
+  @ApiPropertyOptional({ enum: UserRole, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsEnum(UserRole, { each: true })
+  roles?: UserRole[];
 }

@@ -23,12 +23,14 @@ import {
   SyncAmisJobStatusDto,
   SyncAmisJobStatusResponseDto,
   UpdateAmisApplicationStageDto,
+  UpdateAmisApplicationAttractivePersonnelDto,
   UpdateAmisCareerQuestionCategoriesDto,
   UpdateJobDescriptionQuestionSetItemDto,
   ListExtensionReferralSourcesQueryDto,
   GetJobDescriptionQuestionSetQueryDto,
   SyncAmisRecruitmentRoundsDto,
   SyncAmisRecruitmentBoardMembersDto,
+  SyncAmisCurrentUserIdentityDto,
 } from './dto';
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { ExtensionInstancesService } from './extension-instances.service';
@@ -42,6 +44,9 @@ interface ExtensionAuthenticatedRequest {
     id: string;
     email?: string;
     role: UserRole;
+    roles?: readonly UserRole[];
+    amisUserId?: string | null;
+    amisRecruitmentId?: string | null;
   };
 }
 
@@ -100,6 +105,7 @@ export class ExtensionIntegrationController {
     const data = await this.extensionIntegrationService.syncAndPublishFromAmis(dto, {
       actorUserId: req.user.id,
       actorRole: req.user.role,
+      actorRoles: req.user.roles,
       idempotencyKey: idempotencyKeyValue,
       requestId: this.optionalHeader(requestId),
       extensionVersion: this.optionalHeader(extensionVersion),
@@ -150,6 +156,7 @@ export class ExtensionIntegrationController {
     const data = await this.extensionIntegrationService.previewPublishPlanFromAmis(dto, {
       actorUserId: req.user.id,
       actorRole: req.user.role,
+      actorRoles: req.user.roles,
       requestId: this.optionalHeader(requestId),
       extensionVersion: this.optionalHeader(extensionVersion),
       extensionInstanceId: extensionInstance?.id ?? null,
@@ -196,6 +203,7 @@ export class ExtensionIntegrationController {
     const data = await this.extensionIntegrationService.syncAmisCareers(dto, {
       actorUserId: req.user.id,
       actorRole: req.user.role,
+      actorRoles: req.user.roles,
       requestId: this.optionalHeader(requestId),
       extensionVersion: this.optionalHeader(extensionVersion),
       extensionInstanceId: extensionInstance?.id ?? null,
@@ -209,6 +217,7 @@ export class ExtensionIntegrationController {
   }
 
   @Post('applications/sync')
+  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
   @ApiOperation({ summary: 'Sync AMIS candidate/application rows captured by the browser extension' })
   @ApiHeader({
     name: 'X-Request-Id',
@@ -242,6 +251,8 @@ export class ExtensionIntegrationController {
     const data = await this.extensionIntegrationService.syncAmisApplications(dto, {
       actorUserId: req.user.id,
       actorRole: req.user.role,
+      actorRoles: req.user.roles,
+      currentAmisUserId: dto.amisUserId ?? null,
       requestId: this.optionalHeader(requestId),
       extensionVersion: this.optionalHeader(extensionVersion),
       extensionInstanceId: extensionInstance?.id ?? null,
@@ -264,13 +275,18 @@ export class ExtensionIntegrationController {
   })
   async listApplicationsForRecruitment(
     @Param('amisRecruitmentId') amisRecruitmentId: string,
+    @Query('amisUserId') currentAmisUserId: string | undefined,
     @Request() req: ExtensionAuthenticatedRequest,
   ) {
-    return this.extensionIntegrationService.listAmisApplicationsForRecruitment(amisRecruitmentId, req.user);
+    return this.extensionIntegrationService.listAmisApplicationsForRecruitment(
+      amisRecruitmentId,
+      req.user,
+      currentAmisUserId,
+    );
   }
 
   @Post('recruitments/:amisRecruitmentId/rounds/sync')
-  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
+  @Roles(UserRole.ADMIN, UserRole.HR)
   @ApiOperation({ summary: 'Persist the AMIS recruitment process captured by the browser extension' })
   @ApiBody({ type: SyncAmisRecruitmentRoundsDto })
   async syncRecruitmentRounds(
@@ -290,7 +306,7 @@ export class ExtensionIntegrationController {
   }
 
   @Post('recruitments/:amisRecruitmentId/board-members/sync')
-  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
+  @Roles(UserRole.ADMIN, UserRole.HR)
   @ApiOperation({ summary: 'Persist the AMIS recruitment board members captured by the browser extension' })
   @ApiBody({ type: SyncAmisRecruitmentBoardMembersDto })
   async syncRecruitmentBoardMembers(
@@ -306,6 +322,18 @@ export class ExtensionIntegrationController {
   @ApiOperation({ summary: 'List active AMIS recruitment board members and their VCS mappings' })
   async listRecruitmentBoardMembers(@Param('amisRecruitmentId') amisRecruitmentId: string) {
     const data = await this.amisRecruitmentBoardMembersService.listActive(amisRecruitmentId);
+    return this.successResponse(data);
+  }
+
+  @Post('identity/sync')
+  @Roles(UserRole.COMMITTEE)
+  @ApiOperation({ summary: 'Verify and persist the current AMIS account mapping for a committee user' })
+  @ApiBody({ type: SyncAmisCurrentUserIdentityDto })
+  async syncCurrentAmisIdentity(
+    @Body() dto: SyncAmisCurrentUserIdentityDto,
+    @Request() req: ExtensionAuthenticatedRequest,
+  ) {
+    const data = await this.amisRecruitmentBoardMembersService.syncCurrentIdentity(req.user, dto);
     return this.successResponse(data);
   }
 
@@ -330,6 +358,23 @@ export class ExtensionIntegrationController {
     @Request() req: ExtensionAuthenticatedRequest,
   ) {
     return this.extensionIntegrationService.updateAmisApplicationStage(
+      amisRecruitmentId,
+      amisCandidateId,
+      dto,
+      { actorUserId: req.user.id },
+    );
+  }
+
+  @Patch('recruitments/:amisRecruitmentId/applications/:amisCandidateId/attractive-personnel')
+  @ApiOperation({ summary: 'Update the attractive personnel stored for an AMIS application' })
+  @ApiBody({ type: UpdateAmisApplicationAttractivePersonnelDto })
+  async updateApplicationAttractivePersonnel(
+    @Param('amisRecruitmentId') amisRecruitmentId: string,
+    @Param('amisCandidateId') amisCandidateId: string,
+    @Body() dto: UpdateAmisApplicationAttractivePersonnelDto,
+    @Request() req: ExtensionAuthenticatedRequest,
+  ) {
+    return this.extensionIntegrationService.updateAmisApplicationAttractivePersonnel(
       amisRecruitmentId,
       amisCandidateId,
       dto,

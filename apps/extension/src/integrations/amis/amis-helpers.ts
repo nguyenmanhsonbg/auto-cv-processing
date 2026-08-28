@@ -3,11 +3,13 @@ import type {
   AmisApplicationsForRecruitment,
   AmisAutoSyncState,
   AmisCandidateSourceSelectionResponse,
+  AmisCandidateAttractivePersonnelChangedPayload,
   AmisCandidateStageChangedPayload,
   AmisExtractionResult,
   AmisJobSnapshot,
   AmisRecruitmentRound,
   AmisRecruitmentBoardMember,
+  AmisCurrentUserIdentity,
   JobDescriptionSummary,
 } from '@/types/types';
 import { normalizeOptionalText, truncateForMaxLength, wait } from '@/lib/utils';
@@ -20,10 +22,26 @@ export const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITME
 export const GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_ROUNDS';
 export const GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_BOARD_MEMBERS';
 export const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
+export const AMIS_TAB_REFRESHED_MESSAGE_TYPE = 'AMIS_TAB_REFRESHED';
 export const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 export const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_STAGE_CHANGED';
+export const AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED';
 export const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_ROUNDS_CHANGED';
 export const GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE = 'VCS_GET_AMIS_CANDIDATE_FORM_STATE';
+
+export function isAmisTabRefreshedMessage(value: unknown): value is {
+  type: typeof AMIS_TAB_REFRESHED_MESSAGE_TYPE;
+  payload: { tabId: number; url: string };
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as {
+    type?: unknown;
+    payload?: { tabId?: unknown; url?: unknown };
+  };
+  return candidate.type === AMIS_TAB_REFRESHED_MESSAGE_TYPE
+    && typeof candidate.payload?.tabId === 'number'
+    && typeof candidate.payload?.url === 'string';
+}
 
 export const AMIS_SOURCE_NAME_BY_CHANNEL: Readonly<Record<string, string>> = {
   VCSPORTAL: 'VCS Portal',
@@ -573,6 +591,7 @@ export function isAmisRecruitmentBoardMembersResponse(value: unknown): value is 
   ok: boolean;
   amisRecruitmentId: string | null;
   members: AmisRecruitmentBoardMember[];
+  currentUser: AmisCurrentUserIdentity | null;
   sourceUrl: string;
   error?: string;
 } {
@@ -585,7 +604,47 @@ export function isAmisRecruitmentBoardMembersResponse(value: unknown): value is 
     && typeof (value as { sourceUrl?: unknown }).sourceUrl === 'string'
     && Array.isArray((value as { members?: unknown }).members)
     && (value as { members: unknown[] }).members.every(isAmisRecruitmentBoardMember)
+    && ((value as { currentUser?: unknown }).currentUser === null
+      || isAmisCurrentUserIdentity((value as { currentUser?: unknown }).currentUser))
   );
+}
+
+export function isAmisCandidateAttractivePersonnelChangedMessage(value: unknown): value is {
+  type: typeof AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE;
+  payload: AmisCandidateAttractivePersonnelChangedPayload;
+  sourceTabId?: number;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { type?: unknown }).type !== AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE) return false;
+
+  const payload = (value as { payload?: unknown }).payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  const candidate = payload as Partial<AmisCandidateAttractivePersonnelChangedPayload>;
+  return typeof candidate.amisRecruitmentId === 'string'
+    && candidate.amisRecruitmentId.trim().length > 0
+    && typeof candidate.amisCandidateId === 'string'
+    && candidate.amisCandidateId.trim().length > 0
+    && typeof candidate.attractivePersonnelId === 'string'
+    && candidate.attractivePersonnelId.trim().length > 0
+    && typeof candidate.attractivePersonnelName === 'string'
+    && candidate.attractivePersonnelName.trim().length > 0
+    && typeof candidate.sourceUrl === 'string'
+    && typeof candidate.pageUrl === 'string'
+    && typeof candidate.changedAt === 'string'
+    && (candidate.candidateName === undefined || typeof candidate.candidateName === 'string')
+    && (typeof (value as { sourceTabId?: unknown }).sourceTabId === 'undefined'
+      || typeof (value as { sourceTabId?: unknown }).sourceTabId === 'number');
+}
+
+export function isAmisCurrentUserIdentity(value: unknown): value is AmisCurrentUserIdentity {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { amisUserId?: unknown }).amisUserId === 'string'
+    && ((value as { fullName?: unknown }).fullName === null
+      || typeof (value as { fullName?: unknown }).fullName === 'string')
+    && ((value as { email?: unknown }).email === null
+      || typeof (value as { email?: unknown }).email === 'string');
 }
 
 export function isAmisRecruitmentBoardMember(value: unknown): value is AmisRecruitmentBoardMember {

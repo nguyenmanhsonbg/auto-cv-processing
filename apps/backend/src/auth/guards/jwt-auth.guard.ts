@@ -6,12 +6,13 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { UserRole } from '@interview-assistant/shared';
+import { RoleAwareUser, hasUserRole } from '../role-utils';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   handleRequest<TUser = any>(
     err: unknown,
-    user: TUser & { role?: UserRole } | undefined,
+    user: TUser & RoleAwareUser | undefined,
     _info: unknown,
     context: ExecutionContext,
   ): TUser {
@@ -20,7 +21,8 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     }
 
     if (
-      (user.role === UserRole.FREELANCER || user.role === UserRole.INTERNAL)
+      (hasUserRole(user, UserRole.FREELANCER)
+        || (hasUserRole(user, UserRole.INTERNAL) && !hasUserRole(user, UserRole.COMMITTEE)))
       && !this.isAllowedFreelancerPath(context)
     ) {
       throw new ForbiddenException(

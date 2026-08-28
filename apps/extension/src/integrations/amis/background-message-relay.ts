@@ -1,6 +1,10 @@
-import type { AmisCandidateStageChangedPayload } from '@/types/types';
+import type {
+  AmisCandidateAttractivePersonnelChangedPayload,
+  AmisCandidateStageChangedPayload,
+} from '@/types/types';
 
 export const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_STAGE_CHANGED' as const;
+export const AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED' as const;
 
 export interface AmisCandidateStageRuntimeMessage {
   type: typeof AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE;
@@ -61,6 +65,53 @@ export function isAmisCandidateStageRuntimeMessage(
     && (stage.previousAmisRecruitmentRoundSortOrder === undefined
       || stage.previousAmisRecruitmentRoundSortOrder === null
       || typeof stage.previousAmisRecruitmentRoundSortOrder === 'number')
+    && ((value as { sourceTabId?: unknown }).sourceTabId === undefined
+      || typeof (value as { sourceTabId?: unknown }).sourceTabId === 'number')
+    && ((value as { relayed?: unknown }).relayed === undefined
+      || typeof (value as { relayed?: unknown }).relayed === 'boolean');
+}
+
+export interface AmisCandidateAttractivePersonnelRuntimeMessage {
+  type: typeof AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE;
+  payload: AmisCandidateAttractivePersonnelChangedPayload;
+  sourceTabId?: number;
+  relayed?: boolean;
+}
+
+export function createAmisCandidateAttractivePersonnelRelayMessage(
+  payload: AmisCandidateAttractivePersonnelChangedPayload,
+  sourceTabId?: number,
+): AmisCandidateAttractivePersonnelRuntimeMessage {
+  return {
+    type: AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE,
+    payload,
+    ...(sourceTabId === undefined ? {} : { sourceTabId }),
+    relayed: true,
+  };
+}
+
+export function isAmisCandidateAttractivePersonnelRuntimeMessage(
+  value: unknown,
+): value is AmisCandidateAttractivePersonnelRuntimeMessage {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { type?: unknown }).type !== AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE) return false;
+
+  const payload = (value as { payload?: unknown }).payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  const candidate = payload as Partial<AmisCandidateAttractivePersonnelChangedPayload>;
+  return typeof candidate.amisRecruitmentId === 'string'
+    && candidate.amisRecruitmentId.trim().length > 0
+    && typeof candidate.amisCandidateId === 'string'
+    && candidate.amisCandidateId.trim().length > 0
+    && typeof candidate.attractivePersonnelId === 'string'
+    && candidate.attractivePersonnelId.trim().length > 0
+    && typeof candidate.attractivePersonnelName === 'string'
+    && candidate.attractivePersonnelName.trim().length > 0
+    && typeof candidate.sourceUrl === 'string'
+    && typeof candidate.pageUrl === 'string'
+    && typeof candidate.changedAt === 'string'
+    && (candidate.candidateName === undefined || typeof candidate.candidateName === 'string')
     && ((value as { sourceTabId?: unknown }).sourceTabId === undefined
       || typeof (value as { sourceTabId?: unknown }).sourceTabId === 'number')
     && ((value as { relayed?: unknown }).relayed === undefined

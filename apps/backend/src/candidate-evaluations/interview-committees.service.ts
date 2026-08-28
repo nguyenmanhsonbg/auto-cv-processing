@@ -3,6 +3,7 @@ import { UserRole } from '@interview-assistant/shared';
 import { DataSource, In, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
+import { getUserRoles, hasUserRole } from '../auth/role-utils';
 import { CreateInterviewCommitteeDto } from './dto/create-interview-committee.dto';
 import { UpdateInterviewCommitteeDto } from './dto/update-interview-committee.dto';
 import { UpdateInterviewCommitteeMembersDto } from './dto/update-interview-committee-members.dto';
@@ -35,10 +36,15 @@ export class InterviewCommitteesService {
 
   async listAssignableUsers() {
     const users = await this.usersRepo.find({
-      where: { role: UserRole.COMMITTEE },
+      relations: ['roleMemberships'],
       order: { name: 'ASC' },
     });
-    return users.map((user) => this.userSummary(user));
+    return users
+      .filter((user) => hasUserRole({
+        role: user.role,
+        roles: user.roleMemberships?.map((membership) => membership.role),
+      }, UserRole.COMMITTEE))
+      .map((user) => this.userSummary(user));
   }
 
   async create(dto: CreateInterviewCommitteeDto, actor: CommitteeActor) {
@@ -70,9 +76,12 @@ export class InterviewCommitteesService {
     await this.findCommittee(id);
     const userIds = [...new Set(dto.userIds)];
     const users = userIds.length > 0
-      ? await this.usersRepo.find({ where: { id: In(userIds) } })
+      ? await this.usersRepo.find({ where: { id: In(userIds) }, relations: ['roleMemberships'] })
       : [];
-    if (users.length !== userIds.length || users.some((user) => user.role !== UserRole.COMMITTEE)) {
+    if (users.length !== userIds.length || users.some((user) => !hasUserRole({
+      role: user.role,
+      roles: user.roleMemberships?.map((membership) => membership.role),
+    }, UserRole.COMMITTEE))) {
       throw new BadRequestException('Every committee member must have the HĐCM role');
     }
 
@@ -106,7 +115,9 @@ export class InterviewCommitteesService {
       ? await this.membersRepo.find({ where: { committeeId: In(committeeIds) }, order: { createdAt: 'ASC' } })
       : [];
     const userIds = [...new Set(members.map((member) => member.userId))];
-    const users = userIds.length > 0 ? await this.usersRepo.find({ where: { id: In(userIds) } }) : [];
+    const users = userIds.length > 0
+      ? await this.usersRepo.find({ where: { id: In(userIds) }, relations: ['roleMemberships'] })
+      : [];
     const userMap = new Map(users.map((user) => [user.id, user]));
     const membersMap = new Map<string, InterviewCommitteeMemberEntity[]>();
     for (const member of members) {
@@ -133,7 +144,16 @@ export class InterviewCommitteesService {
   }
 
   private userSummary(user: UserEntity) {
-    return { id: user.id, name: user.name, email: user.email, role: user.role };
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      roles: getUserRoles({
+        role: user.role,
+        roles: user.roleMemberships?.map((membership) => membership.role),
+      }),
+    };
   }
 
   private normalizeName(name: string) {

@@ -18,7 +18,9 @@ import type {
   AmisRecruitmentJobDescriptionMapping,
   AmisRecruitmentRound,
   AmisRecruitmentBoardMember,
+  AmisCurrentUserIdentity,
   AmisCandidateStageChangedPayload,
+  AmisCandidateAttractivePersonnelChangedPayload,
   AmisCareerCatalogItem,
   AmisCareerQuestionContext,
   AmisJobSnapshot,
@@ -581,9 +583,14 @@ export async function syncVcsPortalJobDescriptions(accessToken: string) {
 export async function getAmisApplicationsForRecruitment(
   accessToken: string,
   amisRecruitmentId: string,
+  options: { currentAmisUserId?: string | null } = {},
 ) {
+  const currentAmisUserId = options.currentAmisUserId?.trim();
+  const query = currentAmisUserId
+    ? `?amisUserId=${encodeURIComponent(currentAmisUserId)}`
+    : '';
   return request<AmisApplicationsForRecruitment>(
-    `/extension/amis/recruitments/${encodeURIComponent(amisRecruitmentId)}/applications`,
+    `/extension/amis/recruitments/${encodeURIComponent(amisRecruitmentId)}/applications${query}`,
     {
       method: 'GET',
       accessToken,
@@ -673,6 +680,33 @@ export async function syncAmisRecruitmentBoardMembers(
       },
     },
   );
+}
+
+export async function syncAmisCurrentUserIdentity(
+  accessToken: string,
+  identity: AmisCurrentUserIdentity,
+  sourceUrl?: string | null,
+) {
+  return request<{
+    matched: boolean;
+    userId: string;
+    amisUserId: string;
+    matchMethod: 'EMAIL' | 'PHONE' | 'EMAIL_AND_PHONE';
+    verifiedAt: string;
+  }>('/extension/amis/identity/sync', {
+    method: 'POST',
+    accessToken,
+    body: {
+      amisUserId: identity.amisUserId,
+      fullName: identity.fullName ?? undefined,
+      email: identity.email ?? undefined,
+      phone: identity.phone ?? undefined,
+      tenantId: identity.tenantId ?? undefined,
+      userName: identity.userName ?? undefined,
+      employeeCode: identity.employeeCode ?? undefined,
+      sourceUrl: sourceUrl ?? undefined,
+    },
+  });
 }
 
 export async function updateAmisApplicationStage(
@@ -807,9 +841,11 @@ export async function getApplicationDetail(accessToken: string, applicationId: s
 export async function getInterviewEvaluationSummary(
   accessToken: string,
   applicationId: string,
+  context: { amisUserId?: string | null; amisRecruitmentId?: string | null } = {},
 ) {
+  const query = buildEvaluationAmisContextQuery(context);
   return request<InterviewEvaluationSummary>(
-    `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/summary`,
+    `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/summary${query}`,
     { method: 'GET', accessToken },
   );
 }
@@ -817,13 +853,18 @@ export async function getInterviewEvaluationSummary(
 export async function createInterviewEvaluationHandoff(
   accessToken: string,
   applicationId: string,
+  context: { amisUserId?: string | null; amisRecruitmentId?: string | null } = {},
 ) {
   return request<{ handoffToken: string; expiresAt: string }>(
     '/auth/evaluation-handoffs',
     {
       method: 'POST',
       accessToken,
-      body: { applicationId },
+      body: {
+        applicationId,
+        amisUserId: context.amisUserId ?? undefined,
+        amisRecruitmentId: context.amisRecruitmentId ?? undefined,
+      },
     },
   );
 }
@@ -862,11 +903,54 @@ export async function createInterviewEvaluationCase(
     committeeId?: string;
     committeeUserIds?: string[];
   },
+  context: { amisUserId?: string | null; amisRecruitmentId?: string | null } = {},
 ) {
+  const query = buildEvaluationAmisContextQuery(context);
   return request<unknown>(
-    `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds`,
+    `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds${query}`,
     { method: 'POST', accessToken, body: payload },
   );
+}
+
+export async function updateAmisApplicationAttractivePersonnel(
+  accessToken: string,
+  payload: AmisCandidateAttractivePersonnelChangedPayload,
+) {
+  return request<{
+    updated: boolean;
+    applicationId: string;
+    amisRecruitmentId: string;
+    amisCandidateId: string;
+    attractivePersonnelId: string;
+    attractivePersonnelName: string;
+    updatedAt: string;
+  }>(
+    `/extension/amis/recruitments/${encodeURIComponent(payload.amisRecruitmentId)}/applications/${encodeURIComponent(payload.amisCandidateId)}/attractive-personnel`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: {
+        attractivePersonnelId: payload.attractivePersonnelId,
+        attractivePersonnelName: payload.attractivePersonnelName,
+        sourceUrl: payload.sourceUrl,
+        pageUrl: payload.pageUrl,
+        changedAt: payload.changedAt,
+        candidateName: payload.candidateName,
+      },
+    },
+  );
+}
+
+function buildEvaluationAmisContextQuery(
+  context: { amisUserId?: string | null; amisRecruitmentId?: string | null },
+) {
+  const params = new URLSearchParams();
+  const amisUserId = context.amisUserId?.trim();
+  const amisRecruitmentId = context.amisRecruitmentId?.trim();
+  if (amisUserId) params.set('amisUserId', amisUserId);
+  if (amisRecruitmentId) params.set('amisRecruitmentId', amisRecruitmentId);
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : '';
 }
 
 export async function syncInterviewEvaluationContext(

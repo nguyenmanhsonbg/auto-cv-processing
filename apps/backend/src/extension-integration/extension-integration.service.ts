@@ -1,7 +1,8 @@
-import { InterviewEvaluationReviewerSection, UserRole } from '@interview-assistant/shared';
+import { UserRole } from '@interview-assistant/shared';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
+import { hasUserRole } from '../auth/role-utils';
 import { JobDescriptionEntity } from '../job-descriptions/entities/job-description.entity';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
@@ -34,6 +35,7 @@ import {
   SyncAmisJobStatusDto,
   SyncAmisJobStatusResponseDto,
   UpdateAmisApplicationStageDto,
+  UpdateAmisApplicationAttractivePersonnelDto,
   UpdateAmisCareerQuestionCategoriesDto,
   UpdateJobDescriptionQuestionSetItemDto,
 } from './dto';
@@ -66,9 +68,6 @@ import { QuestionType } from '@interview-assistant/shared';
 import { ApplicationsService } from '../applications/applications.service';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { ApplicationSourceEntity } from '../applications/entities/application-source.entity';
-import { InterviewEvaluationCaseEntity } from '../candidate-evaluations/entities/interview-evaluation-case.entity';
-import { InterviewEvaluationReviewerEntity } from '../candidate-evaluations/entities/interview-evaluation-reviewer.entity';
-import { InterviewEvaluationRoundEntity } from '../candidate-evaluations/entities/interview-evaluation-round.entity';
 import { FreelancersService } from '../freelancers/freelancers.service';
 import { FreelancerStatusFilter } from '../freelancers/dto/list-freelancers-query.dto';
 import { InternalsService } from '../internals/internals.service';
@@ -86,6 +85,7 @@ import {
 import { CvStageReminderService } from '../notification/cv-stage-reminder.service';
 import { CandidateStageNotificationService } from '../notification/candidate-stage-notification.service';
 import { buildJobDescriptionSnapshot } from '../job-descriptions/job-description-snapshot';
+import { AmisRecruitmentBoardMembersService } from './amis-recruitment-board-members.service';
 
 const JOB_POSTING_SNAPSHOT_SOURCE_SYSTEM = 'JOB_POSTING_SNAPSHOT';
 const AMIS_INTERVIEW_ROUND_TYPE = 3;
@@ -119,6 +119,7 @@ function escapeHtml(value: string) {
 export interface ExtensionSyncContext {
   actorUserId: string;
   actorRole: UserRole;
+  actorRoles?: readonly UserRole[];
   idempotencyKey: string;
   requestId?: string;
   extensionVersion?: string;
@@ -128,6 +129,8 @@ export interface ExtensionSyncContext {
 export interface ExtensionCatalogSyncContext {
   actorUserId: string;
   actorRole: UserRole;
+  actorRoles?: readonly UserRole[];
+  currentAmisUserId?: string | null;
   requestId?: string;
   extensionVersion?: string;
   extensionInstanceId?: string | null;
@@ -164,6 +167,7 @@ export class ExtensionIntegrationService {
     private readonly mailService: MailService,
     private readonly cvStageReminderService: CvStageReminderService,
     private readonly candidateStageNotificationService: CandidateStageNotificationService,
+    private readonly amisRecruitmentBoardMembersService: AmisRecruitmentBoardMembersService,
   ) {}
 
   async syncAndPublishFromAmis(
@@ -1848,6 +1852,11 @@ export class ExtensionIntegrationService {
   ): Promise<SyncAmisApplicationsResponseDto> {
     const normalizedItems = this.normalizeApplicationItems(dto.items);
     const amisRecruitmentId = this.requireSingleRecruitmentId(normalizedItems);
+    await this.amisRecruitmentBoardMembersService.assertCurrentAmisAccountAccess(
+      amisRecruitmentId,
+      { id: context.actorUserId, role: context.actorRole, roles: context.actorRoles },
+      context.currentAmisUserId ?? dto.amisUserId,
+    );
     const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(amisRecruitmentId);
     const lastSyncedAt = new Date();
     const recruitmentRounds = await this.dataSource.getRepository(AmisRecruitmentRoundEntity).find({
@@ -1925,11 +1934,13 @@ export class ExtensionIntegrationService {
         await this.dataSource.getRepository(ApplicationSourceEntity).save(result.applicationSource);
       }
 
-      await this.cvStageReminderService.upsertAmisHrMapping({
-        amisAccountId: item.attractivePersonnelId,
-        amisAccountName: item.attractivePersonnelName,
-        hrUserId: context.actorUserId,
-      });
+      if (context.actorRole === UserRole.ADMIN || context.actorRole === UserRole.HR) {
+        await this.cvStageReminderService.upsertAmisHrMapping({
+          amisAccountId: item.attractivePersonnelId,
+          amisAccountName: item.attractivePersonnelName,
+          hrUserId: context.actorUserId,
+        });
+      }
     }
 
     return {
@@ -1945,9 +1956,21 @@ export class ExtensionIntegrationService {
 
   async listAmisApplicationsForRecruitment(
     amisRecruitmentId: string,
-    actor?: { id: string; role: UserRole },
+    actor?: {
+      id: string;
+      role: UserRole;
+      roles?: readonly UserRole[];
+      amisUserId?: string | null;
+      amisRecruitmentId?: string | null;
+    },
+    currentAmisUserId?: string | null,
   ) {
     const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
+    await this.amisRecruitmentBoardMembersService.assertCurrentAmisAccountAccess(
+      normalizedRecruitmentId,
+      actor ?? { id: '', role: UserRole.HR },
+      currentAmisUserId,
+    );
     const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(normalizedRecruitmentId);
     const applications = await this.dataSource.getRepository(ApplicationEntity).find({
       where: { jobPostingId },
@@ -1962,8 +1985,8 @@ export class ExtensionIntegrationService {
       ],
       order: { createdAt: 'DESC' },
     });
-    const visibleApplications = actor?.role === UserRole.COMMITTEE
-      ? await this.filterApplicationsForCommittee(applications, actor.id)
+    const visibleApplications = actor && hasUserRole(actor, UserRole.COMMITTEE)
+      ? await this.filterApplicationsForCommittee(applications, normalizedRecruitmentId)
       : applications;
     const applicationRows = this.buildAmisApplicationListRows(
       visibleApplications,
@@ -2058,33 +2081,31 @@ export class ExtensionIntegrationService {
 
   private async filterApplicationsForCommittee(
     applications: ApplicationEntity[],
-    userId: string,
+    amisRecruitmentId: string,
   ) {
-    const reviewerRepository = this.dataSource.getRepository(InterviewEvaluationReviewerEntity);
-    const reviewers = await reviewerRepository.find({
-      where: { userId, section: InterviewEvaluationReviewerSection.COMMITTEE },
+    const rounds = await this.dataSource.getRepository(AmisRecruitmentRoundEntity).find({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        amisRecruitmentId,
+        isActive: true,
+      },
+      order: { sortOrder: 'ASC' },
     });
-    if (reviewers.length === 0) return [];
+    const firstInterviewRound = rounds.find((round) => round.roundType === AMIS_INTERVIEW_ROUND_TYPE);
+    if (!firstInterviewRound) return [];
 
-    const roundIds = [...new Set(reviewers.map((reviewer) => reviewer.roundId))];
-    const rounds = await this.dataSource.getRepository(InterviewEvaluationRoundEntity).find({
-      where: { id: In(roundIds) },
+    const roundsById = new Map(rounds.map((round) => [round.amisRoundId, round]));
+    return applications.filter((application) => {
+      const source = this.findAmisApplicationSource(application.sources, amisRecruitmentId);
+      const rawPayload = this.isRecord(source?.rawPayload) ? source.rawPayload : {};
+      const currentRoundId = this.optionalText(rawPayload.recruitmentRoundId);
+      const currentRoundName = this.optionalText(rawPayload.recruitmentRoundName);
+      const currentRound = (currentRoundId ? roundsById.get(currentRoundId) : undefined)
+        ?? rounds.find((round) => round.roundName === currentRoundName);
+      if (currentRound) return currentRound.sortOrder >= firstInterviewRound.sortOrder;
+
+      return Boolean(this.readInterviewEvaluationStart(rawPayload));
     });
-    const caseIds = [...new Set(rounds.map((round) => round.caseId))];
-    const evaluationCases = caseIds.length > 0
-      ? await this.dataSource.getRepository(InterviewEvaluationCaseEntity).find({
-        where: { id: In(caseIds) },
-      })
-      : [];
-    const assignedRoundIds = new Set(rounds.map((round) => round.id));
-    const allowedApplicationIds = new Set(
-      evaluationCases
-        .filter((evaluationCase) => evaluationCase.currentRoundId !== null
-          && assignedRoundIds.has(evaluationCase.currentRoundId))
-        .map((evaluationCase) => evaluationCase.applicationId),
-    );
-
-    return applications.filter((application) => allowedApplicationIds.has(application.id));
   }
 
   async updateAmisApplicationStage(
@@ -2217,6 +2238,68 @@ export class ExtensionIntegrationService {
       interviewEvaluationRoundSortOrder: shouldStartInterviewEvaluation
         ? evaluationStartSortOrder
         : existingInterviewEvaluationStart?.sortOrder ?? null,
+      updatedAt,
+    };
+  }
+
+  async updateAmisApplicationAttractivePersonnel(
+    amisRecruitmentId: string,
+    amisCandidateId: string,
+    dto: UpdateAmisApplicationAttractivePersonnelDto,
+    context: { actorUserId?: string | null } = {},
+  ) {
+    const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
+    const normalizedCandidateId = this.requireText(amisCandidateId, 'amisCandidateId');
+    const attractivePersonnelId = this.requireText(
+      dto.attractivePersonnelId,
+      'attractivePersonnelId',
+    );
+    const attractivePersonnelName = this.requireText(
+      dto.attractivePersonnelName,
+      'attractivePersonnelName',
+    );
+    const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(normalizedRecruitmentId);
+    const applications = await this.dataSource.getRepository(ApplicationEntity).find({
+      where: { jobPostingId },
+      relations: ['sources'],
+    });
+    const applicationRow = this.buildAmisApplicationListRows(
+      applications,
+      normalizedRecruitmentId,
+    ).find(({ source }) => source?.amisCandidateId === normalizedCandidateId);
+
+    if (!applicationRow?.source) {
+      throw new BadRequestException({
+        code: 'AMIS_APPLICATION_NOT_FOUND',
+        message: 'The AMIS application was not found for this recruitment and candidate.',
+      });
+    }
+
+    const source = applicationRow.source;
+    const rawPayload = this.isRecord(source.rawPayload) ? source.rawPayload : {};
+    const updatedAt = new Date().toISOString();
+    source.rawPayload = {
+      ...rawPayload,
+      attractivePersonnelId,
+      attractivePersonnelName,
+      attractivePersonnelSourceUrl: this.optionalText(dto.sourceUrl),
+      attractivePersonnelPageUrl: this.optionalText(dto.pageUrl),
+      attractivePersonnelChangedAt: this.optionalText(dto.changedAt) ?? updatedAt,
+      attractivePersonnelUpdatedAt: updatedAt,
+      attractivePersonnelUpdatedById: context.actorUserId ?? null,
+      ...(this.optionalText(dto.candidateName)
+        ? { candidateNameAtCapture: this.optionalText(dto.candidateName) }
+        : {}),
+    };
+    await this.dataSource.getRepository(ApplicationSourceEntity).save(source);
+
+    return {
+      updated: true,
+      applicationId: applicationRow.application.id,
+      amisRecruitmentId: normalizedRecruitmentId,
+      amisCandidateId: normalizedCandidateId,
+      attractivePersonnelId,
+      attractivePersonnelName,
       updatedAt,
     };
   }

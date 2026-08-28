@@ -12,6 +12,7 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
+  roles: UserRole[];
   createdAt: string;
   updatedAt: string;
 }

@@ -97,7 +97,10 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a one-time session handoff for an evaluation page' })
   async createEvaluationHandoff(@Request() req: any, @Body() dto: CreateEvaluationHandoffDto) {
-    return this.authService.createEvaluationHandoff(req.user.id, dto.applicationId);
+    return this.authService.createEvaluationHandoff(req.user.id, dto.applicationId, {
+      amisUserId: dto.amisUserId,
+      amisRecruitmentId: dto.amisRecruitmentId,
+    });
   }
 
   @Post('evaluation-handoffs/exchange')

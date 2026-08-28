@@ -42,10 +42,11 @@ export function InterviewEvaluationRouteGuard() {
     return <Navigate to="/login" replace />;
   }
 
-  const canAccess = user.role === UserRole.ADMIN
-    || user.role === UserRole.HR
-    || user.role === UserRole.INTERVIEWER
-    || user.role === UserRole.COMMITTEE;
+  const userRoles = new Set([user.role, ...(user.roles ?? [])]);
+  const canAccess = userRoles.has(UserRole.ADMIN)
+    || userRoles.has(UserRole.HR)
+    || userRoles.has(UserRole.INTERVIEWER)
+    || userRoles.has(UserRole.COMMITTEE);
   if (!canAccess) {
     return (
       <div className="space-y-2">

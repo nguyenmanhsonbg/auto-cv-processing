@@ -1,4 +1,5 @@
 import type { AmisCandidateStageChangedPayload, AmisRecruitmentRound } from '@/types/types';
+import { mapAmisCandidateAttractivePersonnelResponse } from '@/integrations/amis/amis-api-mapper';
 import { extractAmisJobStatusUpdate } from '@/integrations/amis/amis-job-status';
 import { removeHorizontalWhitespaceBeforeNewlines } from '@/text-normalization';
 
@@ -7,6 +8,7 @@ const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
 const AMIS_SAVE_RECRUITMENT_PATH = '/RecruitmentAPI/api/recruitment/SaveRecruitment';
 const AMIS_UPDATE_RECRUITMENT_FIELD_PATH = '/recruitmentapi/api/recruitment/update-field';
 const AMIS_CANDIDATE_ADDITIONAL_INFO_PATH = '/RecruitmentAPI/api/Candidate/candidate-additional-infor/';
+const AMIS_CANDIDATE_SAVE_PATH = '/RecruitmentAPI/api/Candidate/save';
 const AMIS_CANDIDATE_UPDATE_ROUND_PATH = '/RecruitmentAPI/api/RecruitmentDetail/updateRound';
 const AMIS_CANDIDATE_ROUND_TIME_PAGING_PATH = '/RecruitmentAPI/api/RecruitmentRoundTime/paging';
 const AMIS_RECRUITMENT_ROUNDS_PATHS = [
@@ -20,7 +22,7 @@ const HOOK_INSTALLED_KEY = '__VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__';
 const FETCH_HOOK_INSTALLED_KEY = '__VCS_AMIS_FETCH_HOOK_INSTALLED__';
 const XHR_HOOK_VERSION_KEY = '__VCS_AMIS_XHR_HOOK_VERSION__';
 const FETCH_HOOK_VERSION_KEY = '__VCS_AMIS_FETCH_HOOK_VERSION__';
-const AMIS_PAGE_HOOK_VERSION = '2026-08-25-round-change-v2';
+const AMIS_PAGE_HOOK_VERSION = '2026-08-27-attractive-personnel-v1';
 
 const hookWindow = window as Window & {
   __VCS_AMIS_SAVE_RECRUITMENT_HOOK_INSTALLED__?: boolean;
@@ -81,7 +83,10 @@ function installXhrHook() {
 
   xhrPrototype.send = function sendWithAmisCapture(this: HookedXMLHttpRequest, ...args: unknown[]) {
     const requestUrl = this.__vcsAmisRequestUrl;
-    const requestBody = requestUrl && isAmisCandidateUpdateRoundUrl(requestUrl)
+    const requestBody = requestUrl && (
+      isAmisCandidateUpdateRoundUrl(requestUrl)
+      || isAmisCandidateSaveUrl(requestUrl)
+    )
       ? parseRequestJson(args[0])
       : null;
 
@@ -147,6 +152,22 @@ function installXhrHook() {
       }, { once: true });
     }
 
+    if (requestUrl && isAmisCandidateSaveUrl(requestUrl)) {
+      this.addEventListener('loadend', () => {
+        if (this.status < 200 || this.status >= 300) return;
+
+        try {
+          publishCandidateAttractivePersonnel(
+            readXhrJson(this),
+            requestBody,
+            requestUrl,
+          );
+        } catch {
+          // AMIS may return a non-JSON response while the session is renewing.
+        }
+      }, { once: true });
+    }
+
     if (requestUrl && isAmisCandidateUpdateRoundUrl(requestUrl)) {
       this.addEventListener('loadend', () => {
         if (this.status < 200 || this.status >= 300) return;
@@ -193,7 +214,10 @@ function installFetchHook() {
     ...args: Parameters<typeof fetch>
   ) {
     const requestUrl = getRequestUrl(args[0] instanceof Request ? args[0].url : args[0]);
-    const requestBodyPromise = requestUrl && isAmisCandidateUpdateRoundUrl(requestUrl)
+    const requestBodyPromise = requestUrl && (
+      isAmisCandidateUpdateRoundUrl(requestUrl)
+      || isAmisCandidateSaveUrl(requestUrl)
+    )
       ? readFetchRequestBody(args)
       : null;
 
@@ -216,6 +240,23 @@ function inspectTrackedFetchResponse(
   requestUrl: string,
   requestBodyPromise: Promise<unknown> | null,
 ) {
+  if (isAmisCandidateSaveUrl(requestUrl)) {
+    void response.clone().text()
+      .then((text) => {
+        const responseJson = parseJsonText(text);
+        if (!requestBodyPromise) {
+          publishCandidateAttractivePersonnel(responseJson, null, requestUrl);
+          return;
+        }
+
+        void requestBodyPromise.then((requestBody) => {
+          publishCandidateAttractivePersonnel(responseJson, requestBody, requestUrl);
+        });
+      })
+      .catch(() => undefined);
+    return;
+  }
+
   if (isAmisCandidateAdditionalInfoUrl(requestUrl)) {
     void response.clone().text()
       .then((text) => publishCandidateStage(parseJsonText(text), requestUrl))
@@ -250,11 +291,51 @@ function inspectTrackedFetchResponse(
 }
 
 function isTrackedFetchUrl(url: string) {
-  return isAmisCandidateAdditionalInfoUrl(url)
+  return isAmisCandidateSaveUrl(url)
+    || isAmisCandidateAdditionalInfoUrl(url)
     || isAmisCandidateUpdateRoundUrl(url)
     || isAmisCandidateRoundTimePagingUrl(url)
     || isAmisRecruitmentRoundsUrl(url)
     || isAmisUpdateRecruitmentFieldUrl(url);
+}
+
+function publishCandidateAttractivePersonnel(
+  responseJson: unknown,
+  requestPayload: unknown,
+  requestUrl: string,
+) {
+  const sourceUrl = new URL(requestUrl, window.location.origin).toString();
+  const capture = mapAmisCandidateAttractivePersonnelResponse(
+    responseJson,
+    requestPayload,
+    sourceUrl,
+    window.location.href,
+  );
+  if (!capture) {
+    publishDiagnostic('ATTRACTIVE_PERSONNEL_RESPONSE_UNMAPPED', {
+      requestUrl: sourceUrl,
+      details: {
+        responseSuccess: isSuccessfulAmisResponse(responseJson),
+        hasRequestPayload: isObject(requestPayload),
+      },
+    });
+    return;
+  }
+
+  window.postMessage({
+    source: 'vcs-recruitment-extension',
+    type: 'VCS_AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED',
+    payload: capture,
+  }, window.location.origin);
+
+  publishDiagnostic('ATTRACTIVE_PERSONNEL_CAPTURE_PUBLISHED', {
+    requestUrl: sourceUrl,
+    details: {
+      amisRecruitmentId: capture.amisRecruitmentId,
+      amisCandidateId: capture.amisCandidateId,
+      attractivePersonnelId: capture.attractivePersonnelId,
+    },
+  });
 }
 
 function isAmisUpdateRecruitmentFieldUrl(url: string) {
@@ -263,6 +344,12 @@ function isAmisUpdateRecruitmentFieldUrl(url: string) {
   } catch {
     return url.toLowerCase().includes(AMIS_UPDATE_RECRUITMENT_FIELD_PATH);
   }
+}
+
+function isSuccessfulAmisResponse(value: unknown) {
+  if (!isObject(value)) return false;
+  const success = value.Success ?? value.success;
+  return success === true || success === 1 || success === 'true' || success === '1';
 }
 
 function publishJobStatusUpdate(responseJson: unknown, requestUrl: string) {
@@ -384,7 +471,9 @@ function publishDiagnostic(
     | 'SAVE_RESPONSE_READ_FAILED'
     | 'SAVE_RESPONSE_HTTP_ERROR'
     | 'SAVE_RESPONSE_UNMAPPED'
-    | 'CAPTURE_PUBLISHED',
+    | 'CAPTURE_PUBLISHED'
+    | 'ATTRACTIVE_PERSONNEL_RESPONSE_UNMAPPED'
+    | 'ATTRACTIVE_PERSONNEL_CAPTURE_PUBLISHED',
   event: {
     requestUrl?: string;
     details?: Record<string, unknown>;
@@ -433,6 +522,10 @@ function parseJsonText(text: string) {
 
 function isAmisSaveRecruitmentUrl(url: string) {
   return url.toLowerCase().includes(AMIS_SAVE_RECRUITMENT_PATH.toLowerCase());
+}
+
+function isAmisCandidateSaveUrl(url: string) {
+  return url.toLowerCase().includes(AMIS_CANDIDATE_SAVE_PATH.toLowerCase());
 }
 
 function isAmisCandidateAdditionalInfoUrl(url: string) {

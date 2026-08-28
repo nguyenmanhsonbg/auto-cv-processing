@@ -6,11 +6,14 @@ import {
 } from '@/integrations/chrome-debugger-utils';
 import {
   AMIS_CAREER_DATA_PAGING_PATH,
+  AMIS_CANDIDATE_SAVE_PATH,
   isAmisCandidateAdditionalInfoUrl,
+  isAmisCandidateSaveUrl,
   isAmisCandidateUpdateRoundUrl,
   AMIS_SAVE_RECRUITMENT_PATH,
   isAmisCareerDataPagingUrl,
   mapAmisCandidateStageResponse,
+  mapAmisCandidateAttractivePersonnelResponse,
   isLikelyAmisApplicationListUrl,
   isAmisSaveRecruitmentUrl,
   mapAmisApplicationsResponse,
@@ -19,6 +22,7 @@ import {
 } from '@/integrations/amis/amis-api-mapper';
 import type {
   AmisApplicationItem,
+  AmisCandidateAttractivePersonnelChangedPayload,
   AmisCandidateStageChangedPayload,
   AmisCareerItem,
   AmisExtractionResult,
@@ -32,6 +36,10 @@ type CareerCaptureHandler = (capture: AmisCareerCapture, sender: ChromeMessageSe
 type ApplicationsCaptureHandler = (capture: AmisApplicationsCapture, sender: ChromeMessageSender) => void | Promise<void>;
 type CandidateStageCaptureHandler = (
   capture: AmisCandidateStageChangedPayload,
+  sender: ChromeMessageSender,
+) => void | Promise<void>;
+type AttractivePersonnelCaptureHandler = (
+  capture: AmisCandidateAttractivePersonnelChangedPayload,
   sender: ChromeMessageSender,
 ) => void | Promise<void>;
 
@@ -54,6 +62,12 @@ interface PendingApplicationsRequest {
 }
 
 interface PendingCandidateStageRequest {
+  tabId: number;
+  requestUrl: string;
+  pageUrl: string;
+}
+
+interface PendingAttractivePersonnelRequest {
   tabId: number;
   requestUrl: string;
   pageUrl: string;
@@ -97,12 +111,14 @@ const pendingSaveRequests = new Map<string, PendingSaveRequest>();
 const pendingCareerRequests = new Map<string, PendingCareerRequest>();
 const pendingApplicationsRequests = new Map<string, PendingApplicationsRequest>();
 const pendingCandidateStageRequests = new Map<string, PendingCandidateStageRequest>();
+const pendingAttractivePersonnelRequests = new Map<string, PendingAttractivePersonnelRequest>();
 const tabPageUrls = new Map<number, string>();
 const lastCandidateRoundMutationAtByTab = new Map<number, number>();
 let captureHandler: CaptureHandler | null = null;
 let careerCaptureHandler: CareerCaptureHandler | null = null;
 let applicationsCaptureHandler: ApplicationsCaptureHandler | null = null;
 let candidateStageCaptureHandler: CandidateStageCaptureHandler | null = null;
+let attractivePersonnelCaptureHandler: AttractivePersonnelCaptureHandler | null = null;
 let listenersInstalled = false;
 
 export function installAmisDebuggerCapture(
@@ -110,11 +126,13 @@ export function installAmisDebuggerCapture(
   careerHandler?: CareerCaptureHandler,
   applicationsHandler?: ApplicationsCaptureHandler,
   candidateStageHandler?: CandidateStageCaptureHandler,
+  attractivePersonnelHandler?: AttractivePersonnelCaptureHandler,
 ) {
   captureHandler = handler;
   careerCaptureHandler = careerHandler ?? null;
   applicationsCaptureHandler = applicationsHandler ?? null;
   candidateStageCaptureHandler = candidateStageHandler ?? null;
+  attractivePersonnelCaptureHandler = attractivePersonnelHandler ?? null;
   if (listenersInstalled) return;
   listenersInstalled = true;
 
@@ -168,7 +186,7 @@ export async function ensureAmisDebuggerAttached(tab: ChromeMessageSender['tab']
       timestamp: new Date().toISOString(),
       details: {
         protocolVersion: DEBUGGER_PROTOCOL_VERSION,
-        watchedPaths: [AMIS_SAVE_RECRUITMENT_PATH, AMIS_CAREER_DATA_PAGING_PATH, 'AMIS candidate/application list responses'],
+        watchedPaths: [AMIS_SAVE_RECRUITMENT_PATH, AMIS_CAREER_DATA_PAGING_PATH, AMIS_CANDIDATE_SAVE_PATH, 'AMIS candidate/application list responses'],
       },
     });
   } catch (error) {
@@ -222,6 +240,26 @@ function handleResponseReceived(tabId: number, params?: NetworkResponseReceivedP
 
     void appendAmisDiagnostic({
       type: 'DEBUGGER_CANDIDATE_STAGE_RESPONSE_SEEN',
+      pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl,
+      details: {
+        status: params.response?.status,
+        mimeType: params.response?.mimeType,
+      },
+    });
+    return;
+  }
+
+  if (isAmisCandidateSaveUrl(requestUrl)) {
+    pendingAttractivePersonnelRequests.set(requestId, {
+      tabId,
+      requestUrl,
+      pageUrl,
+    });
+
+    void appendAmisDiagnostic({
+      type: 'DEBUGGER_ATTRACTIVE_PERSONNEL_RESPONSE_SEEN',
       pageUrl,
       timestamp: new Date().toISOString(),
       requestUrl,
@@ -319,9 +357,77 @@ async function handleLoadingFinished(tabId: number, params?: NetworkLoadingFinis
   }
 
   const pendingCandidateStage = pendingCandidateStageRequests.get(requestId);
-  if (!pendingCandidateStage || pendingCandidateStage.tabId !== tabId) return;
-  pendingCandidateStageRequests.delete(requestId);
-  await handleCandidateStageLoadingFinished(tabId, requestId, pendingCandidateStage);
+  if (pendingCandidateStage && pendingCandidateStage.tabId === tabId) {
+    pendingCandidateStageRequests.delete(requestId);
+    await handleCandidateStageLoadingFinished(tabId, requestId, pendingCandidateStage);
+    return;
+  }
+
+  const pendingAttractivePersonnel = pendingAttractivePersonnelRequests.get(requestId);
+  if (!pendingAttractivePersonnel || pendingAttractivePersonnel.tabId !== tabId) return;
+  pendingAttractivePersonnelRequests.delete(requestId);
+  await handleAttractivePersonnelLoadingFinished(tabId, requestId, pendingAttractivePersonnel);
+}
+
+async function handleAttractivePersonnelLoadingFinished(
+  tabId: number,
+  requestId: string,
+  pending: PendingAttractivePersonnelRequest,
+) {
+  try {
+    const responseBody = await sendChromeDebuggerCommand<NetworkGetResponseBodyResult>(
+      { tabId },
+      'Network.getResponseBody',
+      { requestId },
+    );
+    const bodyText = decodeChromeDebuggerResponseBody(responseBody);
+    const responseJson = parseJsonText(bodyText);
+    const capture = mapAmisCandidateAttractivePersonnelResponse(
+      responseJson,
+      null,
+      pending.requestUrl,
+      pending.pageUrl,
+    );
+
+    if (!capture) {
+      await appendAmisDiagnostic({
+        type: 'ATTRACTIVE_PERSONNEL_RESPONSE_UNMAPPED',
+        pageUrl: pending.pageUrl,
+        timestamp: new Date().toISOString(),
+        requestUrl: pending.requestUrl,
+        details: describePayloadShape(responseJson),
+      });
+      return;
+    }
+
+    await appendAmisDiagnostic({
+      type: 'ATTRACTIVE_PERSONNEL_CAPTURE_PUBLISHED',
+      pageUrl: pending.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: pending.requestUrl,
+      details: {
+        source: 'debugger',
+        amisRecruitmentId: capture.amisRecruitmentId,
+        amisCandidateId: capture.amisCandidateId,
+        attractivePersonnelId: capture.attractivePersonnelId,
+      },
+    });
+
+    await attractivePersonnelCaptureHandler?.(capture, {
+      tab: {
+        id: tabId,
+        url: pending.pageUrl,
+      },
+    });
+  } catch (error) {
+    await appendAmisDiagnostic({
+      type: 'DEBUGGER_GET_BODY_FAILED',
+      pageUrl: pending.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: pending.requestUrl,
+      details: { message: toErrorMessage(error), captureType: 'attractive-personnel' },
+    });
+  }
 }
 
 async function handleCandidateStageLoadingFinished(
@@ -604,6 +710,10 @@ function removePendingRequestsForTab(tabId: number) {
 
   for (const [requestId, request] of pendingCandidateStageRequests.entries()) {
     if (request.tabId === tabId) pendingCandidateStageRequests.delete(requestId);
+  }
+
+  for (const [requestId, request] of pendingAttractivePersonnelRequests.entries()) {
+    if (request.tabId === tabId) pendingAttractivePersonnelRequests.delete(requestId);
   }
 
   lastCandidateRoundMutationAtByTab.delete(tabId);

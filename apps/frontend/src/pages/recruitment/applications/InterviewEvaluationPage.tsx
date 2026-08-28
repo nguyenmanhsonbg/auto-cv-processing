@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays } from 'lucide-react';
 import {
   UserRole,
+  InterviewEvaluationReviewerSection,
   type InterviewEvaluationCriterionData,
   type InterviewEvaluationFormData,
 } from '@interview-assistant/shared';
@@ -269,25 +270,37 @@ export function InterviewEvaluationPage() {
 
   const currentReviewer = useMemo(() => findCurrentReviewer(detail, user?.id), [detail, user?.id]);
   const reviewerSection = currentReviewer?.section;
-  const isManager = user?.role === UserRole.ADMIN || user?.role === UserRole.HR;
-  const isCommitteeUser = user?.role === UserRole.COMMITTEE;
-  const isCommitteeReviewer = reviewerSection === 'COMMITTEE' && isCommitteeUser;
-  const canReview = Boolean(
-    currentReviewer
-      && detail?.permissions.canReview
-      && ((reviewerSection === 'HRBP' && isManager)
-        || (reviewerSection === 'COMMITTEE' && isCommitteeUser)),
+  const userRoles = useMemo(
+    () => new Set(user ? [user.role, ...(user.roles ?? [])] : []),
+    [user],
   );
-  const canViewCommittee = isCommitteeReviewer || isManager;
+  const isManager = userRoles.has(UserRole.ADMIN) || userRoles.has(UserRole.HR);
+  const isCommitteeUser = userRoles.has(UserRole.COMMITTEE);
+  // AMIS board membership grants the committee access. Reviewer rows are
+  // materialized for progress/audit, but they must not be required before a
+  // committee member can edit the shared committee section.
+  const effectiveReviewerSection: InterviewEvaluationReviewerSection | undefined = reviewerSection
+    ?? (isCommitteeUser && detail?.permissions.canReview ? InterviewEvaluationReviewerSection.COMMITTEE : undefined)
+    ?? (isManager && detail?.permissions.canReview ? InterviewEvaluationReviewerSection.HRBP : undefined);
+  const isCommitteeReviewer = effectiveReviewerSection === 'COMMITTEE' && isCommitteeUser;
+  const canReview = Boolean(
+    detail?.permissions.canReview
+      && ((effectiveReviewerSection === 'HRBP' && isManager)
+        || (effectiveReviewerSection === 'COMMITTEE' && isCommitteeUser)),
+  );
+  const canViewCommittee = isCommitteeUser || isManager;
   const canEditCommittee = isCommitteeReviewer && canReview;
 
   const applyDetail = useCallback((nextDetail: InterviewEvaluationDetail) => {
     setDetail(nextDetail);
     const reviewer = findCurrentReviewer(nextDetail, user?.id);
+    const resolvedSection: InterviewEvaluationReviewerSection | undefined = reviewer?.section
+      ?? (isCommitteeUser && nextDetail.permissions.canReview ? InterviewEvaluationReviewerSection.COMMITTEE : undefined)
+      ?? (isManager && nextDetail.permissions.canReview ? InterviewEvaluationReviewerSection.HRBP : undefined);
     const reviewerFormData = cloneFormData(reviewer?.formData);
-    if (reviewer?.section === 'COMMITTEE') {
+    if (resolvedSection === 'COMMITTEE') {
       const sharedCommitteeData = cloneFormData(nextDetail.currentRound.committeeData);
-      setFormData({ ...reviewerFormData, committee: { ...sharedCommitteeData.committee, ...(reviewer.formData?.committee ?? {}), technicalCompetencies: { ...sharedCommitteeData.committee?.technicalCompetencies, ...reviewer.formData?.committee?.technicalCompetencies }, personalGrowth: { ...sharedCommitteeData.committee?.personalGrowth, ...reviewer.formData?.committee?.personalGrowth } } });
+      setFormData({ ...reviewerFormData, committee: { ...sharedCommitteeData.committee, ...(reviewer?.formData?.committee ?? {}), technicalCompetencies: { ...sharedCommitteeData.committee?.technicalCompetencies, ...reviewer?.formData?.committee?.technicalCompetencies }, personalGrowth: { ...sharedCommitteeData.committee?.personalGrowth, ...reviewer?.formData?.committee?.personalGrowth } } });
     } else {
       const hrbpFormData = cloneFormData(reviewer?.formData ?? nextDetail.currentRound.hrbpData);
       const savedCvSource = hrbpFormData.hrbp?.cvSource?.trim();
@@ -296,7 +309,7 @@ export function InterviewEvaluationPage() {
     }
     setAggregateData(cloneFormData(nextDetail.currentRound.aggregateData));
     setDirty(false);
-  }, [user?.id]);
+  }, [isCommitteeUser, isManager, user?.id]);
 
   const loadDetail = useCallback(async () => {
     if (!applicationId) { setError('Application id is missing.'); setLoading(false); return; }
@@ -308,7 +321,7 @@ export function InterviewEvaluationPage() {
 
   function updateFormData(next: InterviewEvaluationFormData) { editRevision.current += 1; setFormData(next); setDirty(true); }
   function updateHrbp(field: string, value: string) {
-    if (!isManager || reviewerSection !== 'HRBP' || !canReview) return;
+    if (!isManager || effectiveReviewerSection !== 'HRBP' || !canReview) return;
     updateFormData({ ...formData, hrbp: { ...formData.hrbp, [field]: value } });
   }
   function updateCommitteeMatrix(matrix: CriterionMatrix, key: string, rowIndex: number, patch: Partial<CriterionRow>) {
@@ -319,7 +332,7 @@ export function InterviewEvaluationPage() {
   }
 
   function updateOverviewField(field: 'level' | 'cvSource', value: string) {
-    if (!isManager || reviewerSection !== 'HRBP' || !canReview) return;
+    if (!isManager || effectiveReviewerSection !== 'HRBP' || !canReview) return;
     updateFormData({ ...formData, hrbp: { ...formData.hrbp, [field]: value } });
   }
 
@@ -348,7 +361,7 @@ export function InterviewEvaluationPage() {
 
   const saveDraft = useCallback(async (showToast = false) => {
     if (!applicationId || !detail) return false;
-    const shouldSaveReviewer = Boolean(reviewerSection && canReview);
+    const shouldSaveReviewer = Boolean(effectiveReviewerSection && canReview);
     const shouldSaveAggregate = !shouldSaveReviewer && isManager;
     if (!shouldSaveReviewer && !shouldSaveAggregate) return false;
 
@@ -364,8 +377,8 @@ export function InterviewEvaluationPage() {
       setSaving(true);
       try {
         let nextDetail: InterviewEvaluationDetail;
-        if (shouldSaveReviewer && reviewerSection) {
-          nextDetail = await saveInterviewEvaluationReview(applicationId, detail.currentRound.id, reviewerSection, { formData: requestFormData, expectedVersion: detail.currentRound.version });
+        if (shouldSaveReviewer && effectiveReviewerSection) {
+          nextDetail = await saveInterviewEvaluationReview(applicationId, detail.currentRound.id, effectiveReviewerSection, { formData: requestFormData, expectedVersion: detail.currentRound.version });
         } else {
           nextDetail = await saveInterviewEvaluationAggregateDraft(applicationId, detail.currentRound.id, { formData: requestFormData, expectedVersion: detail.currentRound.version });
         }
@@ -384,7 +397,7 @@ export function InterviewEvaluationPage() {
     const saved = await request;
     if (showToast && saved) showExtensionToast('SUCCESS', 'Đã lưu nháp form đánh giá');
     return saved;
-  }, [aggregateData, applicationId, applyDetail, canReview, detail, formData, isManager, reviewerSection]);
+  }, [aggregateData, applicationId, applyDetail, canReview, detail, effectiveReviewerSection, formData, isManager]);
 
   useEffect(() => {
     if (!dirty || (!canReview && !isManager)) return undefined;
@@ -398,9 +411,9 @@ export function InterviewEvaluationPage() {
   }
 
   async function submitReview() {
-    if (!applicationId || !detail || !reviewerSection || !canReview) return;
+    if (!applicationId || !detail || !effectiveReviewerSection || !canReview) return;
     setSaving(true);
-    try { applyDetail(await submitInterviewEvaluationReview(applicationId, detail.currentRound.id, reviewerSection, { formData, expectedVersion: detail.currentRound.version })); showExtensionToast('SUCCESS', 'Đã hoàn thành form đánh giá'); } catch (submitError) { setError(getInternalSafeErrorMessage(submitError)); } finally { setSaving(false); }
+    try { applyDetail(await submitInterviewEvaluationReview(applicationId, detail.currentRound.id, effectiveReviewerSection, { formData, expectedVersion: detail.currentRound.version })); showExtensionToast('SUCCESS', 'Đã hoàn thành form đánh giá'); } catch (submitError) { setError(getInternalSafeErrorMessage(submitError)); } finally { setSaving(false); }
   }
   async function completeRound() {
     if (!applicationId || !detail || !isManager) return;
@@ -441,7 +454,7 @@ export function InterviewEvaluationPage() {
   const reviewerNames = committeeReviewerNames || 'Chưa phân công';
   const hrbpData = round.hrbpData ?? {};
   const committeeData = round.committeeData ?? {};
-  const canEditOverview = isManager && canReview && reviewerSection === 'HRBP';
+  const canEditOverview = isManager && canReview && effectiveReviewerSection === 'HRBP';
   const overviewHrbpData = canEditOverview ? formData.hrbp : hrbpData.hrbp ?? formData.hrbp;
   const defaultCvSource = formatCandidateSource(detail.case.source, detail.case.sourceChannel);
   const overviewCvSource = overviewHrbpData?.cvSource || defaultCvSource;

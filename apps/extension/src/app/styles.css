@@ -1220,7 +1220,6 @@ h2 {
   text-decoration: none;
 }
 
-.career-question-list,
 .question-list {
   display: grid;
   gap: 12px;
@@ -6351,6 +6350,13 @@ dd {
   overflow: visible;
 }
 
+.extension-window .career-question-list.has-scroll {
+  max-height: 420px;
+  padding-right: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .post-question-card {
   display: block;
   min-height: auto;
@@ -8576,21 +8582,43 @@ dd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  background: #047857;
+  gap: 8px;
+  width: auto;
+  height: 35px;
+  min-height: 35px;
+  padding: 8px 16px;
+  border-radius: 4px;
+  color: #ffffff;
+  background: #16A34A;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
 }
 
 .freelancer-cv-card>footer {
   justify-content: flex-end;
 }
 
-.freelancer-cv-card>footer .secondary-button,
-.freelancer-cv-card>footer .primary-button {
-  font-weight: 500;
+.freelancer-cv-card>footer .secondary-button {
+  min-height: 36px;
+  padding: 10px 24px;
+  border: 1px solid #737373;
+  border-radius: 8px;
+  color: #737373;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
 }
 
-.freelancer-cv-card>footer .secondary-button {
-  background: #eef0f2;
+.freelancer-cv-card>footer .freelancer-cv-save-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 @media (max-width: 760px) {
@@ -12141,6 +12169,9 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 }
 
 .cv-candidate-recruiter {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
   font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
@@ -12148,6 +12179,8 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   line-height: 20px;
   color: #0B1C30;
   text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cv-candidate-recruiter strong {
@@ -15108,4 +15141,66 @@ textarea:focus {
   text-align: center;
   font-variant-numeric: tabular-nums;
   user-select: none;
+}
+
+/* The committee workspace follows the dedicated AMIS review layout. */
+.workspace-panel-cv.is-committee {
+  border-color: #e5e7eb;
+}
+
+.committee-cv-list-screen {
+  gap: 12px;
+}
+
+.committee-personnel-identity {
+  margin: 0;
+}
+
+.committee-cv-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 35px;
+  border: 1px solid #c4c6cf;
+  border-radius: 8px;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.committee-cv-search:focus-within {
+  border-color: #3f81ea;
+}
+
+.committee-cv-search svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-left: 12px;
+}
+
+.committee-cv-search input {
+  width: 100%;
+  min-width: 0;
+  height: 33px;
+  border: 0;
+  padding: 0 12px 0 10px;
+  color: rgba(47, 43, 61, 0.9);
+  background: transparent;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 24px;
+  outline: 0;
+  box-sizing: border-box;
+}
+
+.committee-cv-search input::placeholder {
+  color: rgba(67, 71, 78, 0.7);
+  opacity: 1;
+}
+
+.committee-cv-list-screen .cv-candidate-list > li {
+  grid-template-columns: minmax(0, 1fr);
 }

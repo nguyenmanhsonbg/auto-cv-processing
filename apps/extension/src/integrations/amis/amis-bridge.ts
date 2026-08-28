@@ -1,4 +1,4 @@
-import type { AmisApplicationItem, AmisCandidateStageChangedPayload, AmisCareerFetchResponse, AmisCareerItem, AmisDiagnosticEvent, AmisExtractionResult, AmisRecruitmentBoardMember, AmisRecruitmentRound, AmisSelectedCareerResult } from '@/types/types';
+import type { AmisApplicationItem, AmisCandidateAttractivePersonnelChangedPayload, AmisCandidateStageChangedPayload, AmisCareerFetchResponse, AmisCareerItem, AmisCurrentUserIdentity, AmisDiagnosticEvent, AmisExtractionResult, AmisRecruitmentBoardMember, AmisRecruitmentRound, AmisSelectedCareerResult } from '@/types/types';
 import {
   extractAmisCandidateRows,
   extractAmisRows,
@@ -10,6 +10,8 @@ const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
 const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_STAGE_CHANGED';
 const VCS_AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_CANDIDATE_STAGE_CHANGED';
+const AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED';
+const VCS_AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE = 'VCS_AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED';
 const BACKGROUND_MESSAGE_TYPE = 'AMIS_RECRUITMENT_SAVED';
 const BACKGROUND_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
 const BRIDGE_INSTALLED_KEY = '__VCS_AMIS_BRIDGE_INSTALLED__';
@@ -31,8 +33,12 @@ const AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE = 'VCS_AMIS_JOB_STATUS_UPDATED';
 const AMIS_CAREER_DATA_PAGING_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/Career/data_paging';
 const AMIS_RECRUITMENT_ROUNDS_DETAIL_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-round-info/';
 const AMIS_RECRUITMENT_BOARD_MEMBERS_DETAIL_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/recruitment/detail-board-info/';
+const AMIS_SESSION_INFO_URL = 'https://amisapp.misa.vn/APIS/ClientAPI/api/personal/sessioninfo';
+const AMIS_RECRUITMENT_USER_INFO_URL = 'https://amisapp.misa.vn/recruitment/APIS/g1/RecruitmentAPI/api/user/userInfo';
+const AMIS_PERSONAL_SDK_DATA_URL = 'https://amisapp.misa.vn/APIS/MiscAPI/api/personal/sdk/data?lang=vi&appCode=Recruitment';
 const AMIS_CAREER_SORT = 'W3sic2VsZWN0b3IiOiAiVXNhZ2VTdGF0dXMiLCAiZGVzYyI6ICJmYWxzZSJ9LHsic2VsZWN0b3IiOiAiQ2FyZWVyTmFtZSIsICJkZXNjIjogImZhbHNlIn1d';
 const RECRUITMENT_CONTEXT_CACHE_TTL_MS = 10 * 60 * 1000;
+const CURRENT_AMIS_IDENTITY_CACHE_TTL_MS = 60 * 1000;
 const BRIDGE_WINDOW_MESSAGE_LISTENER_KEY = '__VCS_AMIS_BRIDGE_WINDOW_MESSAGE_LISTENER__';
 const BRIDGE_RUNTIME_MESSAGE_LISTENER_KEY = '__VCS_AMIS_BRIDGE_RUNTIME_MESSAGE_LISTENER__';
 let lastRecruitmentContextCache: {
@@ -50,7 +56,12 @@ let lastRecruitmentRoundsCache: {
 let lastRecruitmentBoardMembersCache: {
   amisRecruitmentId: string;
   members: AmisRecruitmentBoardMember[];
+  currentUser: AmisCurrentUserIdentity | null;
   sourceUrl: string;
+  capturedAt: number;
+} | null = null;
+let lastCurrentAmisIdentityCache: {
+  identity: AmisCurrentUserIdentity;
   capturedAt: number;
 } | null = null;
 const CAREER_LABEL_TEXT = 'Ng\u00e0nh ngh\u1ec1';
@@ -215,6 +226,14 @@ const windowMessageListener = (event: MessageEvent) => {
       return;
     }
 
+    if (isAmisCandidateAttractivePersonnelChangedMessage(event.data)) {
+      void chrome.runtime?.sendMessage?.({
+        type: AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE,
+        payload: event.data.payload,
+      }).catch(() => undefined);
+      return;
+    }
+
     if (isAmisRecruitmentRoundsChangedMessage(event.data)) {
       lastRecruitmentRoundsCache = {
         amisRecruitmentId: event.data.payload.amisRecruitmentId,
@@ -285,11 +304,12 @@ const runtimeMessageListener = (
         message.payload?.force === true,
       )
         .then((response) => sendResponse(response))
-        .catch((error: unknown) => {
+        .catch(async (error: unknown) => {
           sendResponse({
             ok: false,
             amisRecruitmentId: message.payload?.amisRecruitmentId ?? null,
             members: [],
+            currentUser: await resolveCurrentAmisUserIdentity(),
             sourceUrl: window.location.href,
             error: error instanceof Error ? error.message : 'Could not read AMIS recruitment board members.',
           });
@@ -549,6 +569,7 @@ async function getRecruitmentBoardMembers(recruitmentId?: string, force = false)
       ok: false,
       amisRecruitmentId: null,
       members: [],
+      currentUser: await resolveCurrentAmisUserIdentity(),
       sourceUrl: window.location.href,
       error: 'No AMIS recruitment id was provided.',
     };
@@ -564,6 +585,7 @@ async function getRecruitmentBoardMembers(recruitmentId?: string, force = false)
       ok: true,
       amisRecruitmentId: normalizedRecruitmentId,
       members: lastRecruitmentBoardMembersCache.members,
+      currentUser: lastRecruitmentBoardMembersCache.currentUser,
       sourceUrl: lastRecruitmentBoardMembersCache.sourceUrl,
     };
   }
@@ -578,9 +600,11 @@ async function getRecruitmentBoardMembers(recruitmentId?: string, force = false)
   }
 
   const members = mapAmisRecruitmentBoardMembersResponse(await response.json() as unknown);
+  const currentUser = await resolveCurrentAmisUserIdentity();
   lastRecruitmentBoardMembersCache = {
     amisRecruitmentId: normalizedRecruitmentId,
     members,
+    currentUser,
     sourceUrl,
     capturedAt: Date.now(),
   };
@@ -589,8 +613,198 @@ async function getRecruitmentBoardMembers(recruitmentId?: string, force = false)
     ok: true,
     amisRecruitmentId: normalizedRecruitmentId,
     members,
+    currentUser,
     sourceUrl,
   };
+}
+
+const AMIS_IDENTITY_ID_KEYS = ['UserID', 'UserId', 'userId', 'userID', 'sub', 'id'] as const;
+const AMIS_IDENTITY_NAME_KEYS = ['FullName', 'fullName', 'UserName', 'userName', 'name'] as const;
+const AMIS_IDENTITY_EMAIL_KEYS = ['Email', 'email', 'UserEmail', 'userEmail'] as const;
+const AMIS_IDENTITY_PHONE_KEYS = ['MISAIDMobile', 'mobile', 'Mobile', 'phone', 'phoneNumber', 'mobilePhone'] as const;
+const AMIS_IDENTITY_TENANT_ID_KEYS = ['TenantID', 'TenantId', 'tenantId', 'tenantID'] as const;
+const AMIS_IDENTITY_USERNAME_KEYS = ['UserName', 'userName', 'username'] as const;
+const AMIS_IDENTITY_EMPLOYEE_CODE_KEYS = ['EmployeeCode', 'employeeCode'] as const;
+const AMIS_IDENTITY_WINDOW_KEYS = [
+  'currentUser',
+  'currentUserInfo',
+  'userInfo',
+  'userProfile',
+  'account',
+  'accountInfo',
+  'loggedInUser',
+] as const;
+const AMIS_IDENTITY_STORAGE_KEY_PATTERN = /auth|account|profile|session|current|login|token|user/i;
+const AMIS_USER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function getCurrentAmisUserFromPage(): AmisCurrentUserIdentity | null {
+  for (const key of AMIS_IDENTITY_WINDOW_KEYS) {
+    const identity = readAmisIdentityCandidate(readWindowValue(key), 0);
+    if (identity) return identity;
+  }
+
+  const storageIdentity = readAmisIdentityFromStorage(window.localStorage);
+  if (storageIdentity) return storageIdentity;
+  return readAmisIdentityFromStorage(window.sessionStorage);
+}
+
+async function resolveCurrentAmisUserIdentity(): Promise<AmisCurrentUserIdentity | null> {
+  if (
+    lastCurrentAmisIdentityCache
+    && Date.now() - lastCurrentAmisIdentityCache.capturedAt <= CURRENT_AMIS_IDENTITY_CACHE_TTL_MS
+  ) {
+    return lastCurrentAmisIdentityCache.identity;
+  }
+
+  const [sessionInfo, recruitmentUserInfo, sdkData] = await Promise.all([
+    fetchAmisJson(AMIS_SESSION_INFO_URL),
+    fetchAmisJson(AMIS_RECRUITMENT_USER_INFO_URL),
+    fetchAmisJson(AMIS_PERSONAL_SDK_DATA_URL),
+  ]);
+  const sessionIdentity = readAmisIdentityCandidate(sessionInfo, 0);
+  const recruitmentIdentity = readAmisIdentityCandidate(recruitmentUserInfo, 0);
+  const pageIdentity = getCurrentAmisUserFromPage();
+  const identity = mergeAmisIdentity(
+    sessionIdentity ?? recruitmentIdentity ?? pageIdentity,
+    recruitmentIdentity ?? sessionIdentity ?? pageIdentity,
+  );
+  const sdkContact = readAmisSdkContact(sdkData);
+  const enrichedIdentity = identity ? mergeAmisContact(identity, sdkContact) : null;
+
+  if (enrichedIdentity) {
+    lastCurrentAmisIdentityCache = {
+      identity: enrichedIdentity,
+      capturedAt: Date.now(),
+    };
+  }
+  return enrichedIdentity;
+}
+
+async function fetchAmisJson(url: string): Promise<unknown | null> {
+  try {
+    const response = await window.fetch(url, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) return null;
+    return await response.json() as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function readAmisIdentityFromStorage(storage: Storage) {
+  try {
+    const limit = Math.min(storage.length, 80);
+    for (let index = 0; index < limit; index += 1) {
+      const key = storage.key(index);
+      if (!key || !AMIS_IDENTITY_STORAGE_KEY_PATTERN.test(key)) continue;
+      const value = storage.getItem(key);
+      if (!value || value.length > 4096) continue;
+      const identity = readAmisIdentityCandidate(value, 0);
+      if (identity) return identity;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function readWindowValue(key: string) {
+  try {
+    return (window as unknown as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function readAmisIdentityCandidate(value: unknown, depth: number): AmisCurrentUserIdentity | null {
+  if (depth > 3) return null;
+  if (typeof value === 'string') {
+    const parsedValue = parseAmisIdentityString(value);
+    return parsedValue ? readAmisIdentityCandidate(parsedValue, depth + 1) : null;
+  }
+  if (!isObject(value)) return null;
+
+  const amisUserId = cleanText(readFirst(value, AMIS_IDENTITY_ID_KEYS));
+  if (AMIS_USER_ID_PATTERN.test(amisUserId)) {
+    return {
+      amisUserId,
+      fullName: cleanText(readFirst(value, AMIS_IDENTITY_NAME_KEYS)) || null,
+      email: cleanText(readFirst(value, AMIS_IDENTITY_EMAIL_KEYS)) || null,
+      phone: cleanText(readFirst(value, AMIS_IDENTITY_PHONE_KEYS)) || null,
+      tenantId: cleanText(readFirst(value, AMIS_IDENTITY_TENANT_ID_KEYS)) || null,
+      userName: cleanText(readFirst(value, AMIS_IDENTITY_USERNAME_KEYS)) || null,
+      employeeCode: cleanText(readFirst(value, AMIS_IDENTITY_EMPLOYEE_CODE_KEYS)) || null,
+    };
+  }
+
+  for (const nestedKey of ['user', 'currentUser', 'profile', 'account', 'data', 'Data'] as const) {
+    const nestedIdentity = readAmisIdentityCandidate(value[nestedKey], depth + 1);
+    if (nestedIdentity) return nestedIdentity;
+  }
+  return null;
+}
+
+function readAmisSdkContact(value: unknown): Partial<AmisCurrentUserIdentity> {
+  if (!isObject(value)) return {};
+  const data = isObject(value.Data) ? value.Data : value.data;
+  if (!isObject(data)) return {};
+
+  const firstName = cleanText(readFirst(data, ['firstName', 'FirstName']));
+  const lastName = cleanText(readFirst(data, ['lastName', 'LastName']));
+  const fullName = [firstName, lastName].filter(Boolean).join(' ') || null;
+  return {
+    fullName,
+    email: cleanText(readFirst(data, ['email', 'Email'])) || null,
+    phone: cleanText(readFirst(data, ['phoneNumber', 'PhoneNumber', 'mobile', 'Mobile'])) || null,
+  };
+}
+
+function mergeAmisIdentity(
+  primary: AmisCurrentUserIdentity | null,
+  secondary: AmisCurrentUserIdentity | null,
+): AmisCurrentUserIdentity | null {
+  if (!primary) return secondary;
+  if (!secondary || primary.amisUserId.toLowerCase() !== secondary.amisUserId.toLowerCase()) return primary;
+  return mergeAmisContact(primary, secondary);
+}
+
+function mergeAmisContact(
+  identity: AmisCurrentUserIdentity,
+  contact: Partial<AmisCurrentUserIdentity>,
+): AmisCurrentUserIdentity {
+  return {
+    ...identity,
+    fullName: identity.fullName || contact.fullName || null,
+    email: identity.email || contact.email || null,
+    phone: identity.phone || contact.phone || null,
+    tenantId: identity.tenantId || contact.tenantId || null,
+    userName: identity.userName || contact.userName || null,
+    employeeCode: identity.employeeCode || contact.employeeCode || null,
+  };
+}
+
+function parseAmisIdentityString(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) return JSON.parse(trimmed) as unknown;
+  } catch {
+    return null;
+  }
+
+  const tokenParts = trimmed.split('.');
+  if (tokenParts.length !== 3) return null;
+  try {
+    const payload = tokenParts[1].replaceAll('-', '+').replaceAll('_', '/');
+    const decodedPayload = atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, '='));
+    return JSON.parse(decodedPayload) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 function mapAmisRecruitmentBoardMembersResponse(response: unknown): AmisRecruitmentBoardMember[] {
@@ -2792,6 +3006,33 @@ function isAmisCandidateStageChangedMessage(value: unknown): value is {
     && (candidateStage.previousAmisRecruitmentRoundSortOrder === undefined
       || candidateStage.previousAmisRecruitmentRoundSortOrder === null
       || typeof candidateStage.previousAmisRecruitmentRoundSortOrder === 'number');
+}
+
+function isAmisCandidateAttractivePersonnelChangedMessage(value: unknown): value is {
+  source: 'vcs-recruitment-extension';
+  type: typeof VCS_AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE;
+  payload: AmisCandidateAttractivePersonnelChangedPayload;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as { source?: unknown }).source !== 'vcs-recruitment-extension') return false;
+  if ((value as { type?: unknown }).type !== VCS_AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE) return false;
+
+  const payload = (value as { payload?: unknown }).payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  const candidate = payload as Partial<AmisCandidateAttractivePersonnelChangedPayload>;
+  return typeof candidate.amisRecruitmentId === 'string'
+    && candidate.amisRecruitmentId.trim().length > 0
+    && typeof candidate.amisCandidateId === 'string'
+    && candidate.amisCandidateId.trim().length > 0
+    && typeof candidate.attractivePersonnelId === 'string'
+    && candidate.attractivePersonnelId.trim().length > 0
+    && typeof candidate.attractivePersonnelName === 'string'
+    && candidate.attractivePersonnelName.trim().length > 0
+    && typeof candidate.sourceUrl === 'string'
+    && typeof candidate.pageUrl === 'string'
+    && typeof candidate.changedAt === 'string'
+    && (candidate.candidateName === undefined || typeof candidate.candidateName === 'string');
 }
 
 function isAmisRecruitmentRoundsChangedMessage(value: unknown): value is {

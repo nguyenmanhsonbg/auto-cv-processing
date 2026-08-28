@@ -1,6 +1,8 @@
 import { appendAmisDiagnostic } from '@/stores/amis-diagnostics-store';
 import {
+  createAmisCandidateAttractivePersonnelRelayMessage,
   createAmisCandidateStageRelayMessage,
+  isAmisCandidateAttractivePersonnelRuntimeMessage,
   isAmisCandidateStageRuntimeMessage,
 } from '@/integrations/amis/background-message-relay';
 import {
@@ -58,8 +60,10 @@ import {
 import { saveLastFacebookPublishProgress } from '@/stores/facebook-publish-store';
 import { getSelectedJobQuestionContextForTab, getSelectedJobQuestionIdsForTab } from '@/stores/selected-job-question-store';
 import { resolveSelectedVcsJobDescriptionId } from '@/integrations/amis/amis-auto-sync-payload';
+import { AMIS_TAB_REFRESHED_MESSAGE_TYPE } from '@/integrations/amis/amis-helpers';
 import type {
   AmisDiagnosticEvent,
+  AmisCandidateAttractivePersonnelChangedPayload,
   AmisCandidateStageChangedPayload,
   AmisExtractionResult,
   AmisJobSnapshot,
@@ -110,6 +114,7 @@ installAmisDebuggerCapture(
   (capture, sender) => handleAmisCareersCaptured(capture, sender),
   (capture, sender) => handleAmisApplicationsCaptured(capture, sender),
   (capture, sender) => handleAmisCandidateStageCaptured(capture, sender),
+  (capture, sender) => handleAmisCandidateAttractivePersonnelCaptured(capture, sender),
 );
 
 chrome.runtime?.onInstalled.addListener(() => {
@@ -131,6 +136,10 @@ scheduleExtensionTaskPolling();
 chrome.tabs?.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !isAmisPageUrl(tab.url)) return;
   void ensureAmisDebuggerAttached({ id: tabId, url: tab.url }, tab.url);
+  void chrome.runtime?.sendMessage?.({
+    type: AMIS_TAB_REFRESHED_MESSAGE_TYPE,
+    payload: { tabId, url: tab.url },
+  }).catch(() => undefined);
 });
 
 chrome.tabs?.onActivated.addListener(({ tabId }) => {
@@ -163,6 +172,13 @@ chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
   if (isAmisCandidateStageRuntimeMessage(message) && !message.relayed) {
     void chrome.runtime?.sendMessage?.(
       createAmisCandidateStageRelayMessage(message.payload, sender.tab?.id),
+    ).catch(() => undefined);
+    return;
+  }
+
+  if (isAmisCandidateAttractivePersonnelRuntimeMessage(message) && !message.relayed) {
+    void chrome.runtime?.sendMessage?.(
+      createAmisCandidateAttractivePersonnelRelayMessage(message.payload, sender.tab?.id),
     ).catch(() => undefined);
     return;
   }
@@ -1120,6 +1136,15 @@ async function handleAmisCandidateStageCaptured(
   // Relay the same contract so the side panel keeps one update pipeline.
   await chrome.runtime?.sendMessage?.(
     createAmisCandidateStageRelayMessage(capture, sender.tab?.id),
+  ).catch(() => undefined);
+}
+
+async function handleAmisCandidateAttractivePersonnelCaptured(
+  capture: AmisCandidateAttractivePersonnelChangedPayload,
+  sender: ChromeMessageSender,
+) {
+  await chrome.runtime?.sendMessage?.(
+    createAmisCandidateAttractivePersonnelRelayMessage(capture, sender.tab?.id),
   ).catch(() => undefined);
 }
 

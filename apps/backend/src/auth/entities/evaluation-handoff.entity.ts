@@ -19,6 +19,12 @@ export class EvaluationHandoffEntity {
   @Column({ name: 'application_id', type: 'uuid' })
   applicationId: string;
 
+  @Column({ name: 'amis_user_id', type: 'varchar', length: 100, nullable: true })
+  amisUserId: string | null;
+
+  @Column({ name: 'amis_recruitment_id', type: 'varchar', length: 100, nullable: true })
+  amisRecruitmentId: string | null;
+
   @Column({ name: 'token_hash', type: 'varchar', length: 128 })
   tokenHash: string;
 

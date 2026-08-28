@@ -488,7 +488,9 @@ export function JobPostingPanel({
         ) : null}
 
         {jobDescriptionStatus === 'LOADING' ? (
-          <p className="muted-text">Đang tải danh sách JD...</p>
+          <span className="visually-hidden" role="status" aria-live="polite">
+            Đang tải danh sách JD...
+          </span>
         ) : null}
 
         {jobDescriptionError ? <p className="error-text">Có lỗi kết nối mạng, vui lòng kiểm tra lại</p> : null}
@@ -602,6 +604,10 @@ export function JobPostingPanel({
   }
 
   function renderCareerQuestionPanel() {
+    const isQuestionListScrollable = Boolean(
+      jobDescriptionQuestionContext && jobDescriptionQuestionContext.questions.length > 5,
+    );
+
     return (
       <section className="question-panel career-question-panel compact-workspace-section post-card-section">
         <div className="question-section-header">
@@ -626,7 +632,7 @@ export function JobPostingPanel({
           {jobDescriptionQuestionContext ? (
             <>
               {jobDescriptionQuestionContext.questions.length > 0 ? (
-                <ul className="career-question-list">
+                <ul className={isQuestionListScrollable ? 'career-question-list has-scroll' : 'career-question-list'}>
                   {jobDescriptionQuestionContext.questions.map((question, index) => (
                     <li key={question.id}>
                       <article className="career-question-card post-question-card">

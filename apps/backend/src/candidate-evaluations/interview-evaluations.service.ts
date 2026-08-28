@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { UserRole } from '@interview-assistant/shared';
 import {
   InterviewEvaluationAuditAction,
@@ -13,6 +13,7 @@ import {
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
+import { hasUserRole } from '../auth/role-utils';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { CreateInterviewEvaluationDto } from './dto/create-interview-evaluation.dto';
 import { AggregateInterviewEvaluationDto } from './dto/aggregate-interview-evaluation.dto';
@@ -23,6 +24,7 @@ import { InterviewEvaluationCaseEntity } from './entities/interview-evaluation-c
 import { InterviewEvaluationReviewerEntity } from './entities/interview-evaluation-reviewer.entity';
 import { InterviewEvaluationRoundEntity } from './entities/interview-evaluation-round.entity';
 import { AmisRecruitmentBoardMemberEntity } from '../extension-integration/entities/amis-recruitment-board-member.entity';
+import { AmisRecruitmentRoundEntity } from '../extension-integration/entities/amis-recruitment-round.entity';
 import { RecruitmentExternalReferenceEntity } from '../extension-integration/entities/recruitment-external-reference.entity';
 import {
   ExtensionExternalEntityType,
@@ -33,6 +35,9 @@ import {
 export interface InterviewEvaluationActor {
   id: string;
   role: UserRole;
+  roles?: readonly UserRole[];
+  amisUserId?: string | null;
+  amisRecruitmentId?: string | null;
 }
 
 const ROUND_ORDER: readonly InterviewEvaluationRoundKey[] = [
@@ -76,6 +81,7 @@ export class InterviewEvaluationsService {
     const evaluationCase = await this.casesRepo.findOne({ where: { applicationId } });
 
     if (!evaluationCase) {
+      await this.assertAmisContext(application, actor, hasUserRole(actor, UserRole.COMMITTEE));
       return {
         hasCase: false,
         applicationId,
@@ -89,12 +95,14 @@ export class InterviewEvaluationsService {
         },
         reviewerProgress: { total: 0, submitted: 0 },
         canManage: this.canManage(actor),
-        canView: this.canManage(actor),
+        canView: this.canManage(actor) || hasUserRole(actor, UserRole.COMMITTEE),
+        canReview: this.canManage(actor) || hasUserRole(actor, UserRole.COMMITTEE),
       };
     }
 
-    await this.assertCaseAccess(evaluationCase, actor);
     const round = await this.findCurrentRound(evaluationCase);
+    await this.ensureCommitteeReviewers(application, actor, round);
+    await this.assertCaseAccess(evaluationCase, actor, round, application);
     const reviewers = await this.reviewersRepo.find({ where: { roundId: round.id } });
     return {
       hasCase: true,
@@ -107,6 +115,7 @@ export class InterviewEvaluationsService {
       reviewerProgress: this.progress(reviewers),
       canManage: this.canManage(actor),
       canView: true,
+      canReview: this.canManage(actor) || hasUserRole(actor, UserRole.COMMITTEE),
     };
   }
 
@@ -122,7 +131,8 @@ export class InterviewEvaluationsService {
       order: { sortOrder: 'ASC' },
     });
     const currentRound = this.selectCurrentRound(rounds, evaluationCase.currentRoundId, requestedRoundId);
-    await this.assertCaseAccess(evaluationCase, actor, currentRound);
+    await this.ensureCommitteeReviewers(application, actor, currentRound);
+    await this.assertCaseAccess(evaluationCase, actor, currentRound, application);
     const reviewers = await this.reviewersRepo.find({
       where: { roundId: currentRound.id },
       order: { createdAt: 'ASC' },
@@ -136,7 +146,7 @@ export class InterviewEvaluationsService {
     );
     if (!canManage) {
       visibleRound.aggregateData = {};
-      if (actor.role === UserRole.COMMITTEE) {
+      if (hasUserRole(actor, UserRole.COMMITTEE)) {
         visibleRound.hrbpData = hrbpReviewer?.formData ?? visibleRound.hrbpData;
         const ownCommitteeReviewer = reviewers.find(
           (reviewer) => reviewer.userId === actor.id
@@ -177,7 +187,8 @@ export class InterviewEvaluationsService {
       audits: this.visibleAudits(audits, canManage),
       permissions: {
         canManage,
-        canReview: reviewers.some((reviewer) => reviewer.userId === actor.id),
+        canReview: hasUserRole(actor, UserRole.COMMITTEE)
+          || reviewers.some((reviewer) => reviewer.userId === actor.id),
         canAggregate: canManage,
         canComplete: canManage,
       },
@@ -185,7 +196,7 @@ export class InterviewEvaluationsService {
   }
 
   async listAssignedEvaluations(actor: InterviewEvaluationActor) {
-    if (actor.role !== UserRole.COMMITTEE) {
+    if (!hasUserRole(actor, UserRole.COMMITTEE)) {
       throw new BadRequestException('Only committee members can access assigned evaluations');
     }
 
@@ -342,8 +353,12 @@ export class InterviewEvaluationsService {
     dto: CreateInterviewEvaluationDto,
     actor: InterviewEvaluationActor,
   ) {
-    this.assertManager(actor);
     const application = await this.findApplication(applicationId);
+    if (hasUserRole(actor, UserRole.COMMITTEE)) {
+      await this.assertAmisContext(application, actor, true);
+    } else {
+      this.assertManager(actor);
+    }
     const template = dto.template ?? InterviewEvaluationTemplate.KNL;
     const legacyRoundKey = dto.roundKey ?? InterviewEvaluationRoundKey.ECC;
     const roundKey = dto.amisRoundId ? `AMIS_${dto.amisRoundId}` : legacyRoundKey;
@@ -592,13 +607,27 @@ export class InterviewEvaluationsService {
     actor: InterviewEvaluationActor,
     submit: boolean,
   ) {
+    const application = await this.findApplication(applicationId);
     const evaluationCase = await this.findCaseForRound(applicationId, roundId);
     const round = await this.roundsRepo.findOne({ where: { id: roundId, caseId: evaluationCase.id } });
     if (!round) throw new BadRequestException('Interview evaluation round not found');
+    await this.ensureCommitteeReviewers(application, actor, round);
+    await this.assertCaseAccess(evaluationCase, actor, round, application);
     this.assertVersion(round, dto.expectedVersion);
-    const reviewer = await this.reviewersRepo.findOne({ where: { roundId, userId: actor.id, section } });
-    if (!reviewer) throw new BadRequestException('You are not assigned to this evaluation section');
     this.assertSectionRole(section, actor);
+    let reviewer = await this.reviewersRepo.findOne({ where: { roundId, userId: actor.id, section } });
+    if (!reviewer && section === InterviewEvaluationReviewerSection.COMMITTEE
+      && hasUserRole(actor, UserRole.COMMITTEE)) {
+      reviewer = await this.reviewersRepo.save(this.reviewersRepo.create({
+        roundId,
+        userId: actor.id,
+        section,
+        status: InterviewEvaluationReviewerStatus.PENDING,
+        formData: {},
+        submittedAt: null,
+      }));
+    }
+    if (!reviewer) throw new BadRequestException('You are not assigned to this evaluation section');
     const previousStatus = round.status;
     reviewer.formData = this.scopeReviewFormData(reviewer.formData, dto.formData, section);
     reviewer.status = submit
@@ -694,10 +723,128 @@ export class InterviewEvaluationsService {
   private async findApplication(applicationId: string) {
     const application = await this.applicationsRepo.findOne({
       where: { id: applicationId },
-      relations: ['candidate', 'jobPosting', 'jobDescriptionVersion'],
+      relations: ['candidate', 'jobPosting', 'jobDescriptionVersion', 'sources'],
     });
     if (!application) throw new BadRequestException('Application not found');
     return application;
+  }
+
+  private async assertAmisContext(
+    application: ApplicationEntity,
+    actor: InterviewEvaluationActor,
+    requireInterviewStage: boolean,
+  ) {
+    const isCommittee = hasUserRole(actor, UserRole.COMMITTEE);
+    const hasAmisContext = Boolean(actor.amisUserId || actor.amisRecruitmentId);
+    if (!isCommittee && !hasAmisContext) return;
+
+    const amisUserId = actor.amisUserId?.trim().toLowerCase();
+    const amisRecruitmentId = actor.amisRecruitmentId?.trim();
+    if (!amisRecruitmentId || (isCommittee && !amisUserId)) {
+      throw new ForbiddenException({
+        code: 'AMIS_SESSION_CONTEXT_REQUIRED',
+        message: 'Phiên AMIS chưa được xác thực cho tài khoản Extension này.',
+      });
+    }
+
+    const reference = await this.externalReferencesRepo.findOne({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+        internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
+        internalEntityId: application.jobPostingId,
+      },
+    });
+    if (!reference || reference.externalId !== amisRecruitmentId) {
+      throw new ForbiddenException({
+        code: 'AMIS_RECRUITMENT_CONTEXT_MISMATCH',
+        message: 'JD AMIS hiện tại không khớp với ứng viên đang mở.',
+      });
+    }
+
+    if (isCommittee) {
+      const localUser = await this.usersRepo.findOne({
+        where: { id: actor.id },
+        relations: ['roleMemberships'],
+      });
+      if (!localUser || !localUser.amisUserId || localUser.amisUserId.trim().toLowerCase() !== amisUserId) {
+        throw new ForbiddenException({
+          code: 'AMIS_EXTENSION_ACCOUNT_MISMATCH',
+          message: 'Tài khoản AMIS hiện tại không khớp với tài khoản Extension.',
+        });
+      }
+      if (!hasUserRole({
+        role: localUser.role,
+        roles: localUser.roleMemberships?.map((membership) => membership.role),
+      }, UserRole.COMMITTEE)) {
+        throw new ForbiddenException({
+          code: 'EXTENSION_COMMITTEE_ACCOUNT_INVALID',
+          message: 'Tài khoản Extension không có quyền HĐCM hợp lệ.',
+        });
+      }
+      const membership = await this.amisBoardMembersRepo.findOne({
+        where: {
+          sourceSystem: ExtensionSourceSystem.AMIS,
+          amisRecruitmentId,
+          amisUserId,
+          isActive: true,
+        },
+      });
+      if (!membership) {
+        throw new ForbiddenException({
+          code: 'AMIS_COMMITTEE_MEMBERSHIP_REQUIRED',
+          message: 'Tài khoản HĐCM chưa được thêm vào Hội đồng tuyển dụng của JD.',
+        });
+      }
+    }
+
+    if (requireInterviewStage && !(await this.isInterviewOrLater(application, amisRecruitmentId))) {
+      throw new ForbiddenException({
+        code: 'AMIS_INTERVIEW_STAGE_REQUIRED',
+        message: 'Ứng viên chưa tới vòng phỏng vấn hoặc chưa có dữ liệu vòng AMIS hợp lệ.',
+      });
+    }
+  }
+
+  private async isInterviewOrLater(application: ApplicationEntity, amisRecruitmentId: string) {
+    const rounds = await this.dataSource.getRepository(AmisRecruitmentRoundEntity).find({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        amisRecruitmentId,
+        isActive: true,
+      },
+      order: { sortOrder: 'ASC' },
+    });
+    const firstInterviewRound = rounds.find((round) => round.roundType === AMIS_INTERVIEW_ROUND_TYPE);
+    if (!firstInterviewRound) return false;
+
+    const source = application.sources?.find((item) => {
+      const payload = item.rawPayload;
+      return this.isRecord(payload)
+        && payload.sourceSystem === ExtensionSourceSystem.AMIS
+        && payload.recruitmentId === amisRecruitmentId;
+    });
+    const payload = this.isRecord(source?.rawPayload) ? source.rawPayload : {};
+    const currentRoundId = this.optionalText(payload.recruitmentRoundId);
+    const currentRoundName = this.optionalText(payload.recruitmentRoundName);
+    const currentRound = (currentRoundId
+      ? rounds.find((round) => round.amisRoundId === currentRoundId)
+      : undefined)
+      ?? rounds.find((round) => round.roundName === currentRoundName);
+    if (currentRound) return currentRound.sortOrder >= firstInterviewRound.sortOrder;
+    return Boolean(this.optionalText(payload.interviewEvaluationStartedAt));
+  }
+
+  private async ensureCommitteeReviewers(
+    application: ApplicationEntity,
+    actor: InterviewEvaluationActor,
+    round: InterviewEvaluationRoundEntity,
+  ) {
+    if (!hasUserRole(actor, UserRole.COMMITTEE)) return;
+    await this.assertAmisContext(application, actor, true);
+    const assignments = await this.resolveAmisReviewerAssignments(application, actor);
+    if (!assignments.committeeUserIds.includes(actor.id)) assignments.committeeUserIds.push(actor.id);
+    await this.appendReviewers(this.dataSource.manager, round.id, assignments);
   }
 
   private async findCaseForRound(applicationId: string, roundId: string) {
@@ -737,7 +884,16 @@ export class InterviewEvaluationsService {
     evaluationCase: InterviewEvaluationCaseEntity,
     actor: InterviewEvaluationActor,
     selectedRound?: InterviewEvaluationRoundEntity,
+    application?: ApplicationEntity,
   ) {
+    const isCommittee = hasUserRole(actor, UserRole.COMMITTEE);
+    if (application && (isCommittee || actor.amisUserId || actor.amisRecruitmentId)) {
+      await this.assertAmisContext(application, actor, isCommittee);
+    }
+    // AMIS board membership is the authorization boundary for HĐCM. Reviewer
+    // rows are retained for per-member progress/audit, but must not block a
+    // board member from opening the shared evaluation form.
+    if (isCommittee) return;
     if (this.canManage(actor)) return;
     const currentRound = selectedRound ?? await this.findCurrentRound(evaluationCase);
     const reviewer = await this.reviewersRepo.findOne({
@@ -779,10 +935,17 @@ export class InterviewEvaluationsService {
       return { hrbpUserIds: [...hrbpUserIds], committeeUserIds: [...committeeUserIds] };
     }
 
-    const users = await this.usersRepo.find({ where: { amisUserId: In(amisUserIds) } });
+    const users = await this.usersRepo.find({
+      where: { amisUserId: In(amisUserIds) },
+      relations: ['roleMemberships'],
+    });
     for (const user of users) {
-      if (user.role === UserRole.HR) hrbpUserIds.add(user.id);
-      if (user.role === UserRole.COMMITTEE) committeeUserIds.add(user.id);
+      const roles = {
+        role: user.role,
+        roles: user.roleMemberships?.map((membership) => membership.role),
+      };
+      if (hasUserRole(roles, UserRole.HR)) hrbpUserIds.add(user.id);
+      if (hasUserRole(roles, UserRole.COMMITTEE)) committeeUserIds.add(user.id);
     }
 
     return { hrbpUserIds: [...hrbpUserIds], committeeUserIds: [...committeeUserIds] };
@@ -822,7 +985,7 @@ export class InterviewEvaluationsService {
     section: InterviewEvaluationReviewerSection,
     actor: InterviewEvaluationActor,
   ) {
-    if (section === InterviewEvaluationReviewerSection.COMMITTEE && actor.role !== UserRole.COMMITTEE) {
+    if (section === InterviewEvaluationReviewerSection.COMMITTEE && !hasUserRole(actor, UserRole.COMMITTEE)) {
       throw new BadRequestException('Only HĐCM accounts can edit the HĐCM evaluation section');
     }
     if (section === InterviewEvaluationReviewerSection.HRBP && !this.canManage(actor)) {
@@ -835,7 +998,7 @@ export class InterviewEvaluationsService {
   }
 
   private canManage(actor: InterviewEvaluationActor) {
-    return actor.role === UserRole.ADMIN || actor.role === UserRole.HR;
+    return hasUserRole(actor, UserRole.ADMIN) || hasUserRole(actor, UserRole.HR);
   }
 
   private assertVersion(round: InterviewEvaluationRoundEntity, expectedVersion?: number) {
@@ -1056,7 +1219,7 @@ export class InterviewEvaluationsService {
     canManage: boolean,
   ) {
     if (canManage || reviewer.userId === actor.id) return true;
-    if (actor.role !== UserRole.COMMITTEE) return false;
+    if (!hasUserRole(actor, UserRole.COMMITTEE)) return false;
     if (reviewer.section === InterviewEvaluationReviewerSection.HRBP) return true;
     return reviewer.section === InterviewEvaluationReviewerSection.COMMITTEE
       && reviewer.status === InterviewEvaluationReviewerStatus.SUBMITTED;
@@ -1069,6 +1232,16 @@ export class InterviewEvaluationsService {
         && audit.action !== InterviewEvaluationAuditAction.AGGREGATION_DRAFT_SAVED
         && audit.action !== InterviewEvaluationAuditAction.ROUND_COMPLETED,
     );
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private optionalText(value: unknown) {
+    if (typeof value !== 'string' && typeof value !== 'number') return null;
+    const normalized = String(value).trim();
+    return normalized || null;
   }
 
   private async recordAudit(

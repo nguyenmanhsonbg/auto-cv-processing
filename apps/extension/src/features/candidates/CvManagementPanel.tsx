@@ -12,6 +12,7 @@ import {
   ChevronRightIcon,
   CloseIcon,
   RefreshIcon,
+  SearchIcon,
 } from '@/components/icons';
 import { FilterDropdown } from '@/components/filters';
 import {
@@ -74,7 +75,10 @@ export const CV_SOURCE_FILTER_OPTIONS: Array<{ value: CvSourceFilter; label: str
 export type CvManagementPanelProps = {
   token: string | null;
   isCommittee: boolean;
+  committeePersonnelName: string | null;
+  committeePersonnelEmail: string | null;
   amisRecruitmentId: string | null;
+  currentAmisUserId: string | null;
   applicationsContext: AmisApplicationsForRecruitment | null;
   applicationsState: ApplicationsState;
   applicationsMessage: string | null;
@@ -106,7 +110,10 @@ export type CvManagementPanelProps = {
 export function CvManagementPanel({
   token,
   isCommittee,
+  committeePersonnelName,
+  committeePersonnelEmail,
   amisRecruitmentId,
+  currentAmisUserId,
   applicationsContext,
   applicationsState,
   applicationsMessage,
@@ -136,6 +143,7 @@ export function CvManagementPanel({
   const [cvEvaluationFilter, setCvEvaluationFilter] = React.useState<CvEvaluationFilter>('ALL');
   const [cvSourceFilter, setCvSourceFilter] = React.useState<CvSourceFilter>('ALL');
   const [cvSortMode, setCvSortMode] = React.useState<CvSortMode>('APPLIED_DESC');
+  const [cvSearchTerm, setCvSearchTerm] = React.useState('');
   const [cvApplicationPage, setCvApplicationPage] = React.useState(1);
   const [openCvFilter, setOpenCvFilter] = React.useState<CvFilterType | null>(null);
   const [selectedCvApplicationIds, setSelectedCvApplicationIds] = React.useState<Set<string>>(new Set());
@@ -148,6 +156,7 @@ export function CvManagementPanel({
     setCvEvaluationFilter('ALL');
     setCvSourceFilter('ALL');
     setCvSortMode('APPLIED_DESC');
+    setCvSearchTerm('');
     setOpenCvFilter(null);
   }, [amisRecruitmentId, token]);
 
@@ -337,7 +346,7 @@ export function CvManagementPanel({
     const applicationsForCurrentAmisCandidate = activeAmisCandidateId
       ? applications.filter((application) => application.amisCandidateId === activeAmisCandidateId)
       : applications;
-    const filteredApplications = getVisibleCvApplications(
+    const applicationsMatchingFilters = getVisibleCvApplications(
       applicationsForCurrentAmisCandidate,
       cvQuestionFilter,
       cvSyncFilter,
@@ -345,6 +354,9 @@ export function CvManagementPanel({
       cvSourceFilter,
       cvSortMode,
       aiEvaluationUploadedApplicationIds,
+    );
+    const filteredApplications = applicationsMatchingFilters.filter((application) =>
+      !isCommittee || matchesCvSearchTerm(application, cvSearchTerm),
     );
     const totalPages = Math.max(1, Math.ceil(filteredApplications.length / CV_APPLICATION_PAGE_SIZE));
     const currentPage = Math.min(cvApplicationPage, totalPages);
@@ -364,8 +376,34 @@ export function CvManagementPanel({
     const toggleAllCvCandidateSelection = onToggleAllCvCandidateSelection;
 
     return (
-      <section className="cv-list-screen">
-        <div className="cv-filter-control-grid">
+      <section className={`cv-list-screen${isCommittee ? ' committee-cv-list-screen' : ''}`}>
+        {isCommittee ? (
+          <div className="freelancer-cv-identity is-internal committee-personnel-identity">
+            <div>
+              <span className="freelancer-cv-eyebrow">Nhân sự</span>
+              <h2>{committeePersonnelName || committeePersonnelEmail || 'Chưa xác định'}</h2>
+              <em>
+                Email nội bộ: {committeePersonnelEmail || 'Chưa cập nhật'}
+              </em>
+            </div>
+          </div>
+        ) : null}
+        {isCommittee ? (
+          <label className="committee-cv-search">
+            <SearchIcon />
+            <input
+              type="search"
+              aria-label="Tìm kiếm CV theo tên ứng viên"
+              placeholder="Tìm kiếm CV theo tên ứng viên"
+              value={cvSearchTerm}
+              onChange={(event) => {
+                setCvSearchTerm(event.currentTarget.value);
+                setCvApplicationPage(1);
+              }}
+            />
+          </label>
+        ) : null}
+        {!isCommittee ? <div className="cv-filter-control-grid">
           <FilterDropdown
             label="Trạng thái trả lời câu hỏi"
             value={cvQuestionFilter}
@@ -402,8 +440,8 @@ export function CvManagementPanel({
               setOpenCvFilter(null);
             }}
           />
-        </div>
-        <div className="cv-filter-control-grid cv-filter-control-grid-secondary">
+        </div> : null}
+        {!isCommittee ? <div className="cv-filter-control-grid cv-filter-control-grid-secondary">
           <FilterDropdown
             label="Nguồn"
             value={cvSourceFilter}
@@ -428,8 +466,8 @@ export function CvManagementPanel({
               setOpenCvFilter(null);
             }}
           />
-        </div>
-        <div className="cv-list-toolbar">
+        </div> : null}
+        {!isCommittee ? <div className="cv-list-toolbar">
           <div className="cv-list-toolbar-heading">
             <span>Danh sách ứng viên</span>
             {!isCommittee ? (
@@ -458,7 +496,7 @@ export function CvManagementPanel({
               <span>Chọn tất cả ứng viên</span>
             </label>
           ) : null}
-        </div>
+        </div> : null}
 
         {applicationsMessage ? (
           <p className={applicationsState === 'ERROR' ? 'error-text' : 'muted-text'}>{applicationsMessage}</p>
@@ -488,6 +526,8 @@ export function CvManagementPanel({
                 aiScreeningApplicationId={aiScreeningApplicationId}
                 aiEvaluationApplicationId={aiEvaluationApplicationId}
                 cvUploadApplicationId={cvUploadApplicationId}
+                amisRecruitmentId={amisRecruitmentId}
+                currentAmisUserId={currentAmisUserId}
                 amisRecruitmentRounds={amisRecruitmentRounds}
                 onUploadApplicationCvToAmisForm={onUploadApplicationCvToAmisForm}
                 onRunAiScreeningForApplication={onRunAiScreeningForApplication}
@@ -579,6 +619,15 @@ export function getCvOverviewStats(applications: ExtensionApplication[]) {
     failedCount,
     noAnswerCount: applications.filter((application) => getApplicationQuestionStatus(application).code !== 'ANSWERED').length,
   };
+}
+
+function matchesCvSearchTerm(application: ExtensionApplication, searchTerm: string) {
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  if (!normalizedSearchTerm) return true;
+
+  return [application.candidateName, application.email, application.mobile]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => value.toLowerCase().includes(normalizedSearchTerm));
 }
 
 export function getApplicationCvDisplayStatus(application: ExtensionApplication) {

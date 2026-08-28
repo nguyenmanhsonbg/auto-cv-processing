@@ -7,6 +7,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { UserEntity } from './entities/user.entity';
+import { UserRoleMembershipEntity } from './entities/user-role-membership.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { ChangePasswordDto, CompletePasswordResetDto, RegisterDto, CreateUserDto, UpdateUserDto } from './dto/login.dto';
 import { UserRole, PaginatedResponse } from '@interview-assistant/shared';
@@ -16,8 +17,16 @@ import { MailService } from '../notification/mail.service';
 import { PasswordResetRequestEntity } from './entities/password-reset-request.entity';
 import { generatePasswordResetOtp } from './otp.util';
 import { EvaluationHandoffEntity } from './entities/evaluation-handoff.entity';
+import { RoleAwareUser, getUserRoles, hasUserRole } from './role-utils';
 
 const EVALUATION_HANDOFF_TTL_MS = 60_000;
+
+type SafeUser = Omit<UserEntity, 'password' | 'roleMemberships'> & { roles: UserRole[] };
+
+export interface EvaluationAmisContext {
+  amisUserId?: string | null;
+  amisRecruitmentId?: string | null;
+}
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -38,6 +47,9 @@ export class AuthService implements OnModuleInit {
     @Optional()
     @InjectRepository(EvaluationHandoffEntity)
     private readonly evaluationHandoffRepo?: Repository<EvaluationHandoffEntity>,
+    @Optional()
+    @InjectRepository(UserRoleMembershipEntity)
+    private readonly roleMembershipRepo?: Repository<UserRoleMembershipEntity>,
   ) {}
 
   async onModuleInit() {
@@ -138,13 +150,17 @@ export class AuthService implements OnModuleInit {
     );
   }
 
-  async login(user: { id: string; email: string; role: UserRole; name: string; mustChangePassword?: boolean }) {
-    await this.assertUserCanAuthenticate(user);
-    const refreshToken = await this.createRefreshToken(user.id);
+  async login(
+    user: { id: string; email: string; role: UserRole; name: string; mustChangePassword?: boolean; roles?: readonly UserRole[] },
+    amisContext?: EvaluationAmisContext,
+  ) {
+    const roles = await this.getRolesForUser(user.id, user.role, user.roles);
+    await this.assertUserCanAuthenticate({ ...user, roles });
+    const refreshToken = await this.createRefreshToken(user.id, amisContext);
     return {
-      accessToken: this.signAccessToken(user),
+      accessToken: this.signAccessToken(user, roles, amisContext),
       refreshToken,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, role: user.role, roles },
       mustChangePassword: user.mustChangePassword ?? false,
     };
   }
@@ -168,7 +184,7 @@ export class AuthService implements OnModuleInit {
 
     await manager.transaction(async (transactionManager) => {
       let user = internal.user;
-      if (user && user.role !== UserRole.INTERNAL) {
+      if (user && !await this.userHasPersistedRole(user.id, UserRole.INTERNAL, user.role)) {
         throw new BadRequestException({
           code: 'INTERNAL_ACCOUNT_CONFLICT',
           message: 'Email này đã được liên kết với loại tài khoản khác.',
@@ -179,7 +195,7 @@ export class AuthService implements OnModuleInit {
         const existingUser = await transactionManager.findOne(UserEntity, {
           where: { email: normalizedEmail },
         });
-        if (existingUser && existingUser.role !== UserRole.INTERNAL) {
+        if (existingUser && !await this.userHasPersistedRole(existingUser.id, UserRole.INTERNAL, existingUser.role)) {
           throw new BadRequestException({
             code: 'INTERNAL_ACCOUNT_CONFLICT',
             message: 'Email này đã được liên kết với loại tài khoản khác.',
@@ -211,6 +227,7 @@ export class AuthService implements OnModuleInit {
       }
 
       user = await transactionManager.save(UserEntity, user);
+      await this.ensureRoleMembership(user.id, UserRole.INTERNAL, transactionManager.getRepository(UserRoleMembershipEntity));
       if (!internal.userId || internal.userId !== user.id) {
         internal.userId = user.id;
         await transactionManager.save(InternalEntity, internal);
@@ -383,7 +400,8 @@ export class AuthService implements OnModuleInit {
     existingToken.replacedByTokenHash = nextTokenHash;
 
     try {
-      await this.assertUserCanAuthenticate(existingToken.user);
+      const roles = await this.getRolesForUser(existingToken.user.id, existingToken.user.role);
+      await this.assertUserCanAuthenticate({ ...existingToken.user, roles });
     } catch (error) {
       await this.refreshTokenRepo.save(existingToken);
       throw error;
@@ -391,6 +409,8 @@ export class AuthService implements OnModuleInit {
 
     const nextTokenEntity = this.refreshTokenRepo.create({
       userId: existingToken.userId,
+      amisUserId: existingToken.amisUserId,
+      amisRecruitmentId: existingToken.amisRecruitmentId,
       tokenHash: nextTokenHash,
       expiresAt: this.getRefreshTokenExpiryDate(),
       revokedAt: null,
@@ -398,13 +418,19 @@ export class AuthService implements OnModuleInit {
     });
     await this.refreshTokenRepo.save([existingToken, nextTokenEntity]);
 
+    const roles = await this.getRolesForUser(existingToken.user.id, existingToken.user.role);
+
     return {
-      accessToken: this.signAccessToken(existingToken.user),
+      accessToken: this.signAccessToken(existingToken.user, roles, {
+        amisUserId: existingToken.amisUserId,
+        amisRecruitmentId: existingToken.amisRecruitmentId,
+      }),
       refreshToken: nextRefreshToken,
       user: {
         id: existingToken.user.id,
         email: existingToken.user.email,
         role: existingToken.user.role,
+        roles,
       },
       mustChangePassword: existingToken.user.mustChangePassword ?? false,
     };
@@ -424,7 +450,11 @@ export class AuthService implements OnModuleInit {
     return { message: 'Logged out' };
   }
 
-  async createEvaluationHandoff(userId: string, applicationId: string) {
+  async createEvaluationHandoff(
+    userId: string,
+    applicationId: string,
+    amisContext?: EvaluationAmisContext,
+  ) {
     const evaluationHandoffRepo = this.getEvaluationHandoffRepo();
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new BadRequestException('Không tìm thấy tài khoản.');
@@ -433,6 +463,8 @@ export class AuthService implements OnModuleInit {
     const handoff = evaluationHandoffRepo.create({
       userId,
       applicationId,
+      amisUserId: this.normalizeOptionalContextValue(amisContext?.amisUserId),
+      amisRecruitmentId: this.normalizeOptionalContextValue(amisContext?.amisRecruitmentId),
       tokenHash: this.hashToken(handoffToken),
       expiresAt: new Date(Date.now() + EVALUATION_HANDOFF_TTL_MS),
       usedAt: null,
@@ -469,7 +501,10 @@ export class AuthService implements OnModuleInit {
     const user = await this.userRepo.findOne({ where: { id: handoff.userId } });
     if (!user) throw new UnauthorizedException('Evaluation handoff user is unavailable.');
     await this.assertUserCanAuthenticate(user);
-    return this.login(user);
+    return this.login(user, {
+      amisUserId: handoff.amisUserId,
+      amisRecruitmentId: handoff.amisRecruitmentId,
+    });
   }
 
   private getEvaluationHandoffRepo() {
@@ -479,16 +514,38 @@ export class AuthService implements OnModuleInit {
     return this.evaluationHandoffRepo;
   }
 
-  private signAccessToken(user: { id: string; email: string; role: string }) {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+  private signAccessToken(
+    user: { id: string; email: string; role: string },
+    roles: UserRole[],
+    amisContext?: EvaluationAmisContext,
+  ) {
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      roles,
+      ...(this.normalizeOptionalContextValue(amisContext?.amisUserId)
+        ? { amisUserId: this.normalizeOptionalContextValue(amisContext?.amisUserId) }
+        : {}),
+      ...(this.normalizeOptionalContextValue(amisContext?.amisRecruitmentId)
+        ? { amisRecruitmentId: this.normalizeOptionalContextValue(amisContext?.amisRecruitmentId) }
+        : {}),
+    };
     return this.jwtService.sign(payload);
   }
 
-  private async createRefreshToken(userId: string) {
+  private normalizeOptionalContextValue(value: string | null | undefined) {
+    const normalized = value?.trim();
+    return normalized || null;
+  }
+
+  private async createRefreshToken(userId: string, amisContext?: EvaluationAmisContext) {
     const refreshToken = this.generateRefreshToken();
     await this.refreshTokenRepo.save(
       this.refreshTokenRepo.create({
         userId,
+        amisUserId: this.normalizeOptionalContextValue(amisContext?.amisUserId),
+        amisRecruitmentId: this.normalizeOptionalContextValue(amisContext?.amisRecruitmentId),
         tokenHash: this.hashRefreshToken(refreshToken),
         expiresAt: this.getRefreshTokenExpiryDate(),
         revokedAt: null,
@@ -524,16 +581,16 @@ export class AuthService implements OnModuleInit {
       role: UserRole.INTERVIEWER,
     });
     const saved = await this.userRepo.save(user);
+    await this.syncRoleMemberships(saved.id, [saved.role]);
     const { password: _, ...result } = saved;
-    return result;
+    return { ...result, roles: [saved.role] };
   }
 
-  async findById(id: string): Promise<Omit<UserEntity, 'password'> | null> {
+  async findById(id: string): Promise<SafeUser | null> {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) return null;
 
-    const { password: _, ...result } = user;
-    return result;
+    return this.toSafeUser(user);
   }
 
   async changePassword(userId: string, input: ChangePasswordDto) {
@@ -559,23 +616,33 @@ export class AuthService implements OnModuleInit {
 
   // ── User assignment dropdown (all authenticated users) ──
 
-  async listAssignableUsers(): Promise<{ id: string; name: string; email: string; role: string }[]> {
-    return this.userRepo
+  async listAssignableUsers(): Promise<{ id: string; name: string; email: string; role: string; roles: UserRole[] }[]> {
+    const users = await this.userRepo
       .createQueryBuilder('user')
-      .select(['user.id', 'user.name', 'user.email', 'user.role'])
-      .where('user.role != :freelancerRole', { freelancerRole: UserRole.FREELANCER })
+      .leftJoinAndSelect('user.roleMemberships', 'roleMembership')
+      .select(['user.id', 'user.name', 'user.email', 'user.role', 'roleMembership.id', 'roleMembership.role'])
       .orderBy('user.name', 'ASC')
-      .getMany() as Promise<{ id: string; name: string; email: string; role: string }[]>;
+      .getMany();
+
+    return (await Promise.all(users.map((user) => this.toSafeUser(user))))
+      .filter((user) => !user.roles.includes(UserRole.FREELANCER))
+      .map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        roles: user.roles,
+      }));
   }
 
   // ── User management (admin) ──
 
-  async listUsers() {
+  async listUsers(): Promise<SafeUser[]> {
     const users = await this.userRepo.find({ order: { createdAt: 'DESC' } });
-    return users.map(({ password: _, ...u }) => u);
+    return Promise.all(users.map((user) => this.toSafeUser(user)));
   }
 
-  async listUsersPaginated(params: { page?: number; limit?: number; search?: string; role?: string; sortBy?: string; sortOrder?: 'ASC' | 'DESC' }): Promise<PaginatedResponse<Omit<UserEntity, 'password'>>> {
+  async listUsersPaginated(params: { page?: number; limit?: number; search?: string; role?: string; sortBy?: string; sortOrder?: 'ASC' | 'DESC' }): Promise<PaginatedResponse<SafeUser>> {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(100, Math.max(1, params.limit ?? 20));
     const skip = (page - 1) * limit;
@@ -590,16 +657,20 @@ export class AuthService implements OnModuleInit {
     }
     if (params.role) {
       const roles = params.role.split(',').filter(Boolean);
-      if (roles.length > 0) qb.andWhere('u.role IN (:...roles)', { roles });
+      if (roles.length > 0) {
+        qb.leftJoin('u.roleMemberships', 'filterRoleMembership');
+        qb.andWhere('filterRoleMembership.role IN (:...roles)', { roles });
+      }
     }
 
     const [users, total] = await qb.skip(skip).take(limit).getManyAndCount();
-    const data = users.map(({ password: _, ...u }) => u) as Omit<UserEntity, 'password'>[];
+    const data = await Promise.all(users.map((user) => this.toSafeUser(user)));
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async createUser(dto: CreateUserDto) {
-    this.assertRoleCanUseGenericUserManagement(dto.role);
+    const roles = this.resolveRequestedRoles(dto.roles, dto.role ?? UserRole.INTERVIEWER);
+    this.assertRoleCanUseGenericUserManagement(roles);
 
     const existing = await this.userRepo.findOne({ where: { email: dto.email } });
     if (existing) throw new BadRequestException('A user with this email already exists');
@@ -611,32 +682,34 @@ export class AuthService implements OnModuleInit {
         email: dto.email,
         name: dto.name,
         password,
-        role: dto.role ?? UserRole.INTERVIEWER,
+        role: roles[0],
         mustChangePassword: true,
       }),
     );
-    const { password: _, ...result } = user;
-    return result;
+    await this.syncRoleMemberships(user.id, roles);
+    return this.toSafeUser(user);
   }
 
   async updateUser(id: string, dto: UpdateUserDto) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new BadRequestException('User not found');
 
+    const currentRoles = await this.getRolesForUser(user.id, user.role);
+    const requestedRoles = this.resolveUpdateRoles(dto, currentRoles);
+
     const hasFreelancerProfile =
-      user.role === UserRole.FREELANCER
+      currentRoles.includes(UserRole.FREELANCER)
       || (await this.freelancerRepo.exist({ where: { userId: user.id } }));
     if (hasFreelancerProfile) {
       this.throwFreelancerManagedElsewhere();
     }
 
-    this.assertRoleCanUseGenericUserManagement(user.role);
-    this.assertRoleCanUseGenericUserManagement(dto.role);
+    this.assertRoleUpdateAllowed(currentRoles, requestedRoles, user.id);
     if (dto.name !== undefined) user.name = dto.name;
-    if (dto.role !== undefined) user.role = dto.role;
+    user.role = requestedRoles[0];
     const saved = await this.userRepo.save(user);
-    const { password: _, ...result } = saved;
-    return result;
+    await this.syncRoleMemberships(saved.id, requestedRoles);
+    return this.toSafeUser(saved);
   }
 
   async deleteUser(id: string) {
@@ -683,14 +756,53 @@ export class AuthService implements OnModuleInit {
     throw new UnauthorizedException('No access. Ask your admin to create an account for you.');
   }
 
-  private assertRoleCanUseGenericUserManagement(role?: UserRole) {
-    if (role === UserRole.FREELANCER || role === UserRole.INTERNAL) {
+  private assertRoleCanUseGenericUserManagement(roles: UserRole[]) {
+    if (roles.includes(UserRole.FREELANCER) || roles.includes(UserRole.INTERNAL)) {
       this.throwFreelancerManagedElsewhere();
     }
   }
 
-  private async assertUserCanAuthenticate(user: { id: string; role: UserRole }) {
-    if (user.role === UserRole.INTERNAL) {
+  private async assertRoleUpdateAllowed(currentRoles: UserRole[], requestedRoles: UserRole[], userId: string) {
+    if (currentRoles.includes(UserRole.FREELANCER) || requestedRoles.includes(UserRole.FREELANCER)) {
+      this.throwFreelancerManagedElsewhere();
+    }
+
+    if (currentRoles.includes(UserRole.INTERNAL) && !requestedRoles.includes(UserRole.INTERNAL)) {
+      throw new BadRequestException({
+        code: 'INTERNAL_ROLE_MANAGED_ELSEWHERE',
+        message: 'Internal role must be managed from the internal employee profile.',
+      });
+    }
+
+    if (
+      requestedRoles.includes(UserRole.INTERNAL)
+      && !currentRoles.includes(UserRole.INTERNAL)
+      && !(await this.internalRepo.exist({ where: { userId } }))
+    ) {
+      throw new BadRequestException({
+        code: 'INTERNAL_PROFILE_REQUIRED',
+        message: 'An active internal employee profile is required for the INTERNAL role.',
+      });
+    }
+  }
+
+  private resolveUpdateRoles(dto: UpdateUserDto, currentRoles: UserRole[]): UserRole[] {
+    if (dto.roles?.length) return this.resolveRequestedRoles(dto.roles, dto.roles[0]);
+    if (dto.role) return this.resolveRequestedRoles([dto.role], dto.role);
+    return currentRoles;
+  }
+
+  private resolveRequestedRoles(roles: readonly UserRole[] | undefined, fallback: UserRole): UserRole[] {
+    const requestedRoles = roles?.length ? roles : [fallback];
+    const validRoles = getUserRoles({ roles: requestedRoles });
+    if (validRoles.length !== requestedRoles.length) {
+      throw new BadRequestException('One or more requested roles are invalid.');
+    }
+    return validRoles;
+  }
+
+  private async assertUserCanAuthenticate(user: { id: string } & RoleAwareUser) {
+    if (hasUserRole(user, UserRole.INTERNAL)) {
       const internal = await this.internalRepo.findOne({
         where: { userId: user.id, isActive: true },
       });
@@ -703,7 +815,7 @@ export class AuthService implements OnModuleInit {
       return;
     }
 
-    if (user.role !== UserRole.FREELANCER) return;
+    if (!hasUserRole(user, UserRole.FREELANCER)) return;
 
     const freelancer = await this.freelancerRepo.findOne({
       where: {
@@ -725,6 +837,64 @@ export class AuthService implements OnModuleInit {
       code: 'FREELANCER_MANAGED_ELSEWHERE',
       message: 'Freelancer accounts must be created and managed via the freelancers service.',
     });
+  }
+
+  private async getRolesForUser(
+    userId: string,
+    legacyRole: UserRole | string,
+    knownRoles?: readonly UserRole[],
+  ): Promise<UserRole[]> {
+    let membershipRoles = knownRoles ? [...knownRoles] : [];
+    if (membershipRoles.length === 0) {
+      const memberships = await this.getRoleMembershipRepository().find({ where: { userId } });
+      membershipRoles = memberships.map((membership) => membership.role);
+    }
+
+    const roles = getUserRoles({ role: legacyRole, roles: membershipRoles });
+    if (roles.length === 0) {
+      throw new BadRequestException('User has no valid role.');
+    }
+
+    if (membershipRoles.length === 0) {
+      await this.ensureRoleMembership(userId, roles[0], this.getRoleMembershipRepository());
+    }
+    return roles;
+  }
+
+  private async userHasPersistedRole(userId: string, role: UserRole, legacyRole: UserRole | string) {
+    const roles = await this.getRolesForUser(userId, legacyRole);
+    return roles.includes(role);
+  }
+
+  private async ensureRoleMembership(
+    userId: string,
+    role: UserRole,
+    repository: Repository<UserRoleMembershipEntity>,
+  ) {
+    await repository
+      .createQueryBuilder()
+      .insert()
+      .into(UserRoleMembershipEntity)
+      .values({ userId, role })
+      .orIgnore()
+      .execute();
+  }
+
+  private async syncRoleMemberships(userId: string, roles: UserRole[]) {
+    const repository = this.getRoleMembershipRepository();
+    await repository.delete({ userId });
+    await repository.insert(roles.map((role) => ({ userId, role })));
+  }
+
+  private getRoleMembershipRepository(): Repository<UserRoleMembershipEntity> {
+    return this.roleMembershipRepo ?? this.userRepo.manager.getRepository(UserRoleMembershipEntity);
+  }
+
+  private async toSafeUser(user: UserEntity): Promise<SafeUser> {
+    const { password: _, roleMemberships: __, ...safeUser } = user;
+    const knownRoles = user.roleMemberships?.map((membership) => membership.role);
+    const roles = await this.getRolesForUser(user.id, user.role, knownRoles);
+    return { ...safeUser, roles };
   }
 
   private generateInternalPassword() {

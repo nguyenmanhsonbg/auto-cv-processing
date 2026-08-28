@@ -42,9 +42,14 @@ export class InterviewEvaluationsController {
   @ApiOperation({ summary: 'Get the interview evaluation card summary for an application' })
   async summary(
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
+    @Query('amisUserId') amisUserId: string | undefined,
+    @Query('amisRecruitmentId') amisRecruitmentId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.evaluationsService.getSummary(applicationId, request.user);
+    return this.evaluationsService.getSummary(
+      applicationId,
+      this.withAmisContext(request.user, amisUserId, amisRecruitmentId),
+    );
   }
 
   @Get()
@@ -52,9 +57,15 @@ export class InterviewEvaluationsController {
   async detail(
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
     @Query('roundId') roundId: string | undefined,
+    @Query('amisUserId') amisUserId: string | undefined,
+    @Query('amisRecruitmentId') amisRecruitmentId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.evaluationsService.getDetail(applicationId, request.user, roundId);
+    return this.evaluationsService.getDetail(
+      applicationId,
+      this.withAmisContext(request.user, amisUserId, amisRecruitmentId),
+      roundId,
+    );
   }
 
   @Patch('context')
@@ -69,14 +80,20 @@ export class InterviewEvaluationsController {
   }
 
   @Post('rounds')
-  @Roles(UserRole.ADMIN, UserRole.HR)
+  @Roles(UserRole.ADMIN, UserRole.HR, UserRole.COMMITTEE)
   @ApiOperation({ summary: 'Create an interview evaluation case and first round' })
   async createCase(
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
     @Body() dto: CreateInterviewEvaluationDto,
+    @Query('amisUserId') amisUserId: string | undefined,
+    @Query('amisRecruitmentId') amisRecruitmentId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.evaluationsService.createCase(applicationId, dto, request.user);
+    return this.evaluationsService.createCase(
+      applicationId,
+      dto,
+      this.withAmisContext(request.user, amisUserId, amisRecruitmentId),
+    );
   }
 
   @Patch('rounds/:roundId/reviews/:section')
@@ -147,5 +164,17 @@ export class InterviewEvaluationsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.evaluationsService.createNextRound(applicationId, roundId, request.user);
+  }
+
+  private withAmisContext(
+    actor: InterviewEvaluationActor,
+    amisUserId?: string,
+    amisRecruitmentId?: string,
+  ): InterviewEvaluationActor {
+    return {
+      ...actor,
+      amisUserId: amisUserId?.trim() || actor.amisUserId || null,
+      amisRecruitmentId: amisRecruitmentId?.trim() || actor.amisRecruitmentId || null,
+    };
   }
 }

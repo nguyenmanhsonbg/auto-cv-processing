@@ -5,7 +5,15 @@ export interface ExtensionUser {
   email: string;
   name?: string;
   role: UserRole;
+  roles: UserRole[];
   mustChangePassword?: boolean;
+}
+
+export function hasExtensionRole(
+  user: Pick<ExtensionUser, 'role' | 'roles'> | null | undefined,
+  role: UserRole,
+) {
+  return user?.role === role || user?.roles?.includes(role) === true;
 }
 
 export type ReferralManagementSource = 'FREELANCER' | 'INTERNAL';
@@ -809,6 +817,7 @@ export interface AmisApplicationItem {
 export interface SyncAmisApplicationsRequest {
   items: AmisApplicationItem[];
   sourceUrl?: string;
+  amisUserId?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -912,6 +921,17 @@ export interface AmisCandidateStageChangedPayload {
   previousAmisRecruitmentRoundSortOrder?: number | null;
 }
 
+export interface AmisCandidateAttractivePersonnelChangedPayload {
+  amisRecruitmentId: string;
+  amisCandidateId: string;
+  attractivePersonnelId: string;
+  attractivePersonnelName: string;
+  sourceUrl: string;
+  pageUrl: string;
+  changedAt: string;
+  candidateName?: string;
+}
+
 export interface AmisRecruitmentRound {
   id: string;
   name: string;
@@ -929,6 +949,16 @@ export interface AmisRecruitmentBoardMember {
   isAdmin: boolean;
   isViewOffer: boolean;
   isPushNotification: boolean;
+}
+
+export interface AmisCurrentUserIdentity {
+  amisUserId: string;
+  fullName: string | null;
+  email: string | null;
+  phone?: string | null;
+  tenantId?: string | null;
+  userName?: string | null;
+  employeeCode?: string | null;
 }
 
 export interface AmisApplicationsForRecruitment {
@@ -1074,6 +1104,7 @@ export interface InterviewEvaluationSummary {
   reviewerProgress: { total: number; submitted: number };
   canManage: boolean;
   canView: boolean;
+  canReview: boolean;
 }
 
 export interface InterviewEvaluationAssignment {
@@ -1164,6 +1195,7 @@ export type AmisDiagnosticEventType =
   | 'DEBUGGER_CAREER_RESPONSE_SEEN'
   | 'DEBUGGER_APPLICATIONS_RESPONSE_SEEN'
   | 'DEBUGGER_CANDIDATE_STAGE_RESPONSE_SEEN'
+  | 'DEBUGGER_ATTRACTIVE_PERSONNEL_RESPONSE_SEEN'
   | 'DEBUGGER_GET_BODY_FAILED'
   | 'AMIS_API_REQUEST_STARTED'
   | 'AMIS_API_RESPONSE_SEEN'
@@ -1184,6 +1216,8 @@ export type AmisDiagnosticEventType =
   | 'APPLICATIONS_CAPTURE_PUBLISHED'
   | 'CANDIDATE_STAGE_RESPONSE_UNMAPPED'
   | 'CANDIDATE_STAGE_CAPTURE_PUBLISHED'
+  | 'ATTRACTIVE_PERSONNEL_RESPONSE_UNMAPPED'
+  | 'ATTRACTIVE_PERSONNEL_CAPTURE_PUBLISHED'
   | 'APPLICATIONS_AUTO_SYNC_SUCCESS'
   | 'APPLICATIONS_AUTO_SYNC_SKIPPED'
   | 'APPLICATIONS_AUTO_SYNC_FAILED'
