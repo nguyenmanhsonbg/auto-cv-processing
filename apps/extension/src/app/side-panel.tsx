@@ -89,6 +89,7 @@ import { FacebookModals } from '@/components/facebook';
 import { useFacebookManager } from '@/features/facebook/use-facebook-manager';
 import { isFacebookPublishProgressUpdateMessage } from '@/features/facebook/facebook-group-utils';
 import { clearSelectedJobQuestionContextForTab, saveSelectedJobQuestionContext } from '@/stores/selected-job-question-store';
+import { AMIS_OVERLAY_CLOSE_REQUEST_MESSAGE_TYPE } from '@/integrations/amis/amis-overlay-contract';
 import {
   arrayBufferToBase64,
   normalizeOptionalText,
@@ -1155,21 +1156,26 @@ function SidePanel() {
   }
 
   async function logout() {
-    try {
-      const refreshToken = await getRefreshToken();
-      await logoutAuthSession(refreshToken);
-    } catch {
-      // Logout remains local even when the API is unavailable.
-    } finally {
-      await clearAccessToken();
-      setToken(null);
-      setUser(null);
-      setIsFreelancerPasswordFormOpen(false);
-      setJobDescriptions([]);
-      setJobDescriptionPagination(null);
-      setJobDescriptionStatus('IDLE');
-      setState('AUTH_REQUIRED');
-    }
+    // Clear the iframe UI immediately. A slow/hanging revoke request must not
+    // make the logout button look unresponsive to the user.
+    void getRefreshToken()
+      .catch(() => null)
+      .then((refreshToken) => logoutAuthSession(refreshToken).catch(() => undefined));
+    void clearAccessToken().catch(() => undefined);
+
+    setToken(null);
+    setUser(null);
+    setIsFreelancerPasswordFormOpen(false);
+    setJobDescriptions([]);
+    setJobDescriptionPagination(null);
+    setJobDescriptionStatus('IDLE');
+    setState('AUTH_REQUIRED');
+  }
+
+  function closeOverlay() {
+    if (window.parent === window) return;
+
+    window.parent.postMessage({ type: AMIS_OVERLAY_CLOSE_REQUEST_MESSAGE_TYPE }, '*');
   }
 
   async function loadJobDescriptions(
@@ -3245,6 +3251,7 @@ function SidePanel() {
           <CvManagementPanel
             token={token}
             isCommittee={hasExtensionRole(user, 'COMMITTEE')}
+            isInterviewEvaluationContext={interviewEvaluationTabContext !== null}
             committeePersonnelName={isCommitteeWorkspacePanel ? user?.name?.trim() || null : null}
             committeePersonnelEmail={isCommitteeWorkspacePanel ? user?.email ?? null : null}
             amisRecruitmentId={cvAmisRecruitmentId}
@@ -3336,12 +3343,21 @@ function SidePanel() {
               <>
                 {passwordAction}
                 {!isFreelancerPasswordFormOpen ? (
-                  <button type="button" className="text-button" onClick={logout}>
+                  <button type="button" className="text-button" onClick={() => void logout()}>
                     Đăng xuất
                   </button>
                 ) : null}
               </>
             ) : null}
+            <button
+              type="button"
+              className="overlay-close-button"
+              aria-label="Đóng extension"
+              title="Đóng extension"
+              onClick={closeOverlay}
+            >
+              ×
+            </button>
           </div>
         </header>
     );

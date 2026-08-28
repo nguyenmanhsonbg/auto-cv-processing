@@ -21,6 +21,7 @@ import {
   getApplicationMatchScore,
   getApplicationQuestionStatus,
   getCvSourceFilterBucket,
+  hasReachedAmisInterviewStage,
   type ExtensionApplication,
 } from '@/components/candidates';
 
@@ -75,6 +76,7 @@ export const CV_SOURCE_FILTER_OPTIONS: Array<{ value: CvSourceFilter; label: str
 export type CvManagementPanelProps = {
   token: string | null;
   isCommittee: boolean;
+  isInterviewEvaluationContext: boolean;
   committeePersonnelName: string | null;
   committeePersonnelEmail: string | null;
   amisRecruitmentId: string | null;
@@ -111,6 +113,7 @@ export type CvManagementPanelProps = {
 export function CvManagementPanel({
   token,
   isCommittee,
+  isInterviewEvaluationContext,
   committeePersonnelName,
   committeePersonnelEmail,
   amisRecruitmentId,
@@ -348,8 +351,13 @@ export function CvManagementPanel({
     const applicationsForCurrentAmisCandidate = activeAmisCandidateId
       ? applications.filter((application) => application.amisCandidateId === activeAmisCandidateId)
       : applications;
+    const applicationsVisibleToCommittee = isCommittee
+      ? applicationsForCurrentAmisCandidate.filter((application) =>
+        hasReachedAmisInterviewStage(application, amisRecruitmentRounds),
+      )
+      : applicationsForCurrentAmisCandidate;
     const applicationsMatchingFilters = getVisibleCvApplications(
-      applicationsForCurrentAmisCandidate,
+      applicationsVisibleToCommittee,
       cvQuestionFilter,
       cvSyncFilter,
       cvEvaluationFilter,
@@ -518,6 +526,7 @@ export function CvManagementPanel({
                 isSelected={selectedCvApplicationIds.has(application.applicationId)}
                 onToggleSelect={onToggleCvCandidateSelection}
                 isCommittee={isCommittee}
+                isInterviewEvaluationContext={isInterviewEvaluationContext}
                 isAmisUploadPending={pendingAmisUploadApplicationIds.has(application.applicationId)}
                 isAiEvaluationUploaded={aiEvaluationUploadedApplicationIds.has(application.applicationId)}
                 isCurrentAmisCandidate={Boolean(

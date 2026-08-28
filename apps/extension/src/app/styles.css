@@ -11267,6 +11267,31 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   padding: 0;
 }
 
+.overlay-close-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #374151;
+  background: transparent;
+  cursor: pointer;
+  font-family: Arial, sans-serif;
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.overlay-close-button:hover,
+.overlay-close-button:focus-visible {
+  background: #f3f4f6;
+  outline: none;
+}
+
 .extension-tabs {
   display: flex;
   align-items: stretch;
@@ -15249,4 +15274,104 @@ textarea:focus {
 
 .committee-cv-list-screen .cv-candidate-list > li {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* Approved committee candidate-card typography. Keep this scope isolated from
+ * the Freelancer, Internal, and shared CV card variants. */
+.committee-cv-list-screen .cv-candidate-card {
+  gap: 12px;
+  padding: 16px;
+}
+
+.committee-cv-list-screen .cv-candidate-main strong {
+  color: #0B1C30;
+  font-family: Inter, sans-serif;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.committee-cv-list-screen .cv-candidate-main .cv-candidate-contact,
+.committee-cv-list-screen .cv-candidate-main .cv-candidate-applied-date {
+  color: #404040;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 16.5px;
+}
+
+.committee-cv-list-screen .cv-candidate-score {
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.committee-cv-list-screen .cv-candidate-process-step,
+.committee-cv-list-screen .cv-candidate-process-step span:not(.cv-candidate-process-marker) {
+  color: rgba(47, 43, 61, 0.9);
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 19.6px;
+}
+
+.committee-cv-list-screen .cv-candidate-source {
+  color: #3E4943;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 16.5px;
+}
+
+.committee-cv-list-screen .cv-source-chip {
+  color: #ffffff;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 16.8px;
+}
+
+.committee-cv-list-screen .cv-candidate-recruiter,
+.committee-cv-list-screen .cv-candidate-recruiter strong {
+  color: #0B1C30;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.committee-cv-list-screen .cv-candidate-note-label {
+  color: #45464D;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.committee-cv-list-screen .cv-candidate-note > span:not(.cv-candidate-note-label) {
+  color: #000000;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.committee-cv-list-screen .cv-evaluation-button {
+  color: #3E4943;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 16.5px;
+  text-transform: uppercase;
 }

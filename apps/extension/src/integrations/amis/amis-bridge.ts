@@ -26,6 +26,7 @@ const GET_AMIS_SELECTED_CAREER_MESSAGE_TYPE = 'VCS_GET_AMIS_SELECTED_CAREER';
 const GET_AMIS_RECRUITMENT_CONTEXT_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_CONTEXT';
 const GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_ROUNDS';
 const GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_BOARD_MEMBERS';
+const GET_AMIS_SESSION_STATE_MESSAGE_TYPE = 'VCS_GET_AMIS_SESSION_STATE';
 const SELECTED_CAREER_CHANGED_MESSAGE_TYPE = 'AMIS_SELECTED_CAREER_CHANGED';
 const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 const AMIS_RECRUITMENT_ROUNDS_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_ROUNDS_CHANGED';
@@ -101,6 +102,13 @@ interface AmisApplicationsFetchResponse {
   sourceUrl: string;
   items: AmisApplicationItem[];
   rawCount: number;
+  error?: string;
+}
+
+interface AmisSessionStateResponse {
+  ok: boolean;
+  authenticated: boolean;
+  sourceUrl: string;
   error?: string;
 }
 
@@ -273,6 +281,20 @@ const runtimeMessageListener = (
   _sender: ChromeMessageSender,
   sendResponse: (response?: unknown) => void,
 ) => {
+    if (isGetAmisSessionStateMessage(message)) {
+      void resolveAmisSessionState()
+        .then((response) => sendResponse(response))
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            authenticated: false,
+            sourceUrl: window.location.href,
+            error: error instanceof Error ? error.message : 'Could not verify AMIS session.',
+          } satisfies AmisSessionStateResponse);
+        });
+      return true;
+    }
+
     if (isGetSelectedCareerMessage(message)) {
       sendResponse(getSelectedCareerFromPage());
       return;
@@ -401,6 +423,23 @@ const runtimeMessageListener = (
 
     return true;
 };
+
+async function resolveAmisSessionState(): Promise<AmisSessionStateResponse> {
+  const [sessionInfo, recruitmentUserInfo] = await Promise.all([
+    fetchAmisJson(AMIS_SESSION_INFO_URL),
+    fetchAmisJson(AMIS_RECRUITMENT_USER_INFO_URL),
+  ]);
+  const authenticated = Boolean(
+    readAmisIdentityCandidate(sessionInfo, 0)
+    || readAmisIdentityCandidate(recruitmentUserInfo, 0),
+  );
+
+  return {
+    ok: true,
+    authenticated,
+    sourceUrl: window.location.href,
+  };
+}
 
 window.addEventListener('message', windowMessageListener);
 chrome.runtime?.onMessage.addListener(runtimeMessageListener);
@@ -3182,6 +3221,14 @@ function isGetAmisCandidateFormStateMessage(value: unknown): value is {
   return typeof value === 'object'
     && value !== null
     && (value as { type?: unknown }).type === GET_AMIS_CANDIDATE_FORM_STATE_MESSAGE_TYPE;
+}
+
+function isGetAmisSessionStateMessage(value: unknown): value is {
+  type: typeof GET_AMIS_SESSION_STATE_MESSAGE_TYPE;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === GET_AMIS_SESSION_STATE_MESSAGE_TYPE;
 }
 
 function isAmisExtractionResult(value: unknown): value is AmisExtractionResult {

@@ -276,6 +276,7 @@ export function InterviewEvaluationPage() {
   const [error, setError] = useState<string | null>(null);
   const editRevision = useRef(0);
   const draftSaveRef = useRef<Promise<boolean> | null>(null);
+  const closeSaveStartedRef = useRef(false);
 
   const currentReviewer = useMemo(() => findCurrentReviewer(detail, user?.id), [detail, user?.id]);
   const reviewerSection = currentReviewer?.section;
@@ -328,6 +329,29 @@ export function InterviewEvaluationPage() {
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
 
+  useEffect(() => {
+    const navigation = document.querySelector<HTMLElement>('.evaluation-navigation');
+    if (!navigation) return undefined;
+
+    const handleNavigationClick = (event: MouseEvent) => {
+      const link = event.target instanceof Element
+        ? event.target.closest<HTMLAnchorElement>('.evaluation-navigation a[href^="#"]')
+        : null;
+      if (!link || !navigation.contains(link)) return;
+
+      const target = document.getElementById(link.hash.slice(1));
+      if (!target) return;
+
+      event.preventDefault();
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+      window.history.replaceState(null, '', link.hash);
+    };
+
+    navigation.addEventListener('click', handleNavigationClick);
+    return () => navigation.removeEventListener('click', handleNavigationClick);
+  }, [detail]);
+
   function updateFormData(next: InterviewEvaluationFormData) { editRevision.current += 1; setFormData(next); setDirty(true); }
   function updateHrbp(field: string, value: string) {
     if (!isManager || effectiveReviewerSection !== 'HRBP' || !canReview) return;
@@ -368,7 +392,7 @@ export function InterviewEvaluationPage() {
     setDirty(true);
   }
 
-  const saveDraft = useCallback(async (showToast = false) => {
+  const saveDraft = useCallback(async (showToast = false, options?: { keepalive?: boolean }) => {
     if (!applicationId || !detail) return false;
     const shouldSaveReviewer = Boolean(effectiveReviewerSection && canReview);
     const shouldSaveAggregate = !shouldSaveReviewer && isManager;
@@ -387,9 +411,9 @@ export function InterviewEvaluationPage() {
       try {
         let nextDetail: InterviewEvaluationDetail;
         if (shouldSaveReviewer && effectiveReviewerSection) {
-          nextDetail = await saveInterviewEvaluationReview(applicationId, detail.currentRound.id, effectiveReviewerSection, { formData: requestFormData, expectedVersion: detail.currentRound.version });
+          nextDetail = await saveInterviewEvaluationReview(applicationId, detail.currentRound.id, effectiveReviewerSection, { formData: requestFormData, expectedVersion: detail.currentRound.version }, options);
         } else {
-          nextDetail = await saveInterviewEvaluationAggregateDraft(applicationId, detail.currentRound.id, { formData: requestFormData, expectedVersion: detail.currentRound.version });
+          nextDetail = await saveInterviewEvaluationAggregateDraft(applicationId, detail.currentRound.id, { formData: requestFormData, expectedVersion: detail.currentRound.version }, options);
         }
         if (editRevision.current === requestRevision) applyDetail(nextDetail);
         else { setDetail(nextDetail); setDirty(true); }
@@ -413,6 +437,20 @@ export function InterviewEvaluationPage() {
     const timer = window.setTimeout(() => { saveDraft(); }, 1200);
     return () => window.clearTimeout(timer);
   }, [aggregateData, canReview, dirty, formData, isManager, saveDraft]);
+
+  useEffect(() => {
+    if (!detail || (!canReview && !isManager)) return undefined;
+
+    const handlePageHide = () => {
+      if (closeSaveStartedRef.current || !applicationId) return;
+      closeSaveStartedRef.current = true;
+      void saveDraft(false, { keepalive: true });
+      showExtensionToast('SUCCESS', 'Đã lưu nháp form đánh giá');
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    return () => window.removeEventListener('pagehide', handlePageHide);
+  }, [applicationId, canReview, detail, isManager, saveDraft]);
 
   async function saveAllDraft() {
     if (!applicationId || !detail || saving) return;
@@ -446,13 +484,14 @@ export function InterviewEvaluationPage() {
   async function cancelEditing() {
     if (saving) return;
     if (dirty && !await saveDraft()) return;
+    closeSaveStartedRef.current = true;
     closeExtensionTabWithToast({
       kind: 'SUCCESS',
       message: 'Đã hủy chỉnh sửa form. Và hệ thống đã lưu thay đổi vào Lưu nháp.',
     });
   }
 
-  if (loading) return <div className="evaluation-loading">Đang tải phiếu đánh giá...</div>;
+  if (loading && !detail) return <div className="evaluation-loading" aria-busy="true" />;
   if (error && !detail) return <div className="evaluation-error-page"><p>{error}</p><Button type="button" onClick={() => navigate(-1)}>Quay lại</Button></div>;
   if (!detail) return null;
 

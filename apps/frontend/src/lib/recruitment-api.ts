@@ -1027,11 +1027,13 @@ export function saveInterviewEvaluationReview(
   roundId: string,
   section: InterviewEvaluationReviewerSection,
   payload: { formData: InterviewEvaluationFormData; expectedVersion?: number },
+  options?: { keepalive?: boolean },
 ) {
   return apiClient
     .patch<InterviewEvaluationDetail>(
       `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/reviews/${encodeURIComponent(section)}`,
       payload,
+      options,
     )
     .then(unwrapEnvelope);
 }
@@ -1067,11 +1069,13 @@ export function saveInterviewEvaluationAggregateDraft(
   applicationId: string,
   roundId: string,
   payload: { formData: InterviewEvaluationFormData; expectedVersion?: number },
+  options?: { keepalive?: boolean },
 ) {
   return apiClient
     .patch<InterviewEvaluationDetail>(
       `/applications/${encodeURIComponent(applicationId)}/interview-evaluations/rounds/${encodeURIComponent(roundId)}/aggregate/draft`,
       payload,
+      options,
     )
     .then(unwrapEnvelope);
 }

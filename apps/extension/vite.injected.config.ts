@@ -2,6 +2,10 @@ import path from 'node:path';
 import { defineConfig } from 'vite';
 
 const injectedEntries = {
+  'amis-overlay': {
+    name: 'VcsAmisOverlay',
+    source: 'src/app/amis-overlay.ts',
+  },
   'amis-bridge': {
     name: 'VcsAmisBridge',
     source: 'src/integrations/amis/amis-bridge.ts',

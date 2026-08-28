@@ -31,6 +31,7 @@ export type CandidateCardProps = Readonly<{
   application: ExtensionApplication;
   token: string | null;
   isCommittee: boolean;
+  isInterviewEvaluationContext: boolean;
   isSelected: boolean;
   onToggleSelect: (applicationId: string) => void;
   isAmisUploadPending: boolean;
@@ -53,6 +54,7 @@ export function CandidateCard({
   application,
   token,
   isCommittee,
+  isInterviewEvaluationContext,
   isSelected,
   onToggleSelect,
   isAmisUploadPending,
@@ -82,9 +84,7 @@ export function CandidateCard({
   );
   const currentAmisRound = candidateStages[currentStageIndex];
   const isInterviewRound = isAmisInterviewRound(currentAmisRound);
-  const firstInterviewRoundIndex = candidateStages.findIndex(isAmisInterviewRound);
-  const hasReachedInterviewStage = Boolean(application.interviewEvaluationStartedAt)
-    || (firstInterviewRoundIndex >= 0 && currentStageIndex >= firstInterviewRoundIndex);
+  const hasReachedInterviewStage = hasReachedAmisInterviewStage(application, amisRecruitmentRounds);
   const evaluationStartRound = getEvaluationStartRound(
     application,
     candidateStages,
@@ -97,6 +97,7 @@ export function CandidateCard({
   const canAttemptEvaluation = Boolean(
     evaluationSummary && (evaluationSummary.canManage || canReviewEvaluation),
   );
+  const hideOperationalDetails = isCommittee || isInterviewEvaluationContext;
   const evaluationVisible = isCommittee
     ? Boolean(canReviewEvaluation && hasReachedInterviewStage)
     : isInterviewRound
@@ -315,20 +316,22 @@ export function CandidateCard({
               <strong>{recruiterName}</strong>
             </span>
           </div>
-          <div className="cv-candidate-details">
-            <div className={`cv-candidate-detail cv-candidate-detail-status cv-question-status ${questionStatus.tone}`}>
-              <small>CÂU HỎI</small>
-              <strong>{questionStatus.label}</strong>
+          {!hideOperationalDetails ? (
+            <div className="cv-candidate-details">
+              <div className={`cv-candidate-detail cv-candidate-detail-status cv-question-status ${questionStatus.tone}`}>
+                <small>CÂU HỎI</small>
+                <strong>{questionStatus.label}</strong>
+              </div>
+              <div className={`cv-candidate-detail cv-candidate-detail-status ${syncStatus.tone}`}>
+                <small>ĐỒNG BỘ AMIS</small>
+                <strong>{syncStatus.label}</strong>
+              </div>
+              <div className={`cv-candidate-detail cv-candidate-detail-status cv-ai-status ${aiEvaluationStatus.tone}`}>
+                <small>FILE ĐÁNH GIÁ BẰNG AI</small>
+                <strong>{aiEvaluationStatus.label}</strong>
+              </div>
             </div>
-            <div className={`cv-candidate-detail cv-candidate-detail-status ${syncStatus.tone}`}>
-              <small>ĐỒNG BỘ AMIS</small>
-              <strong>{syncStatus.label}</strong>
-            </div>
-            <div className={`cv-candidate-detail cv-candidate-detail-status cv-ai-status ${aiEvaluationStatus.tone}`}>
-              <small>FILE ĐÁNH GIÁ BẰNG AI</small>
-              <strong>{aiEvaluationStatus.label}</strong>
-            </div>
-          </div>
+          ) : null}
           <div className="cv-candidate-note">
             <span className="cv-candidate-note-label">Ghi chú của CV</span>
             <span>{application.cvNote?.trim() || 'CV này không có ghi chú nào.'}</span>
@@ -399,6 +402,22 @@ const AMIS_INTERVIEW_ROUND_TYPE = 3;
 
 function isAmisInterviewRound(round?: AmisRecruitmentRound) {
   return round?.roundType === AMIS_INTERVIEW_ROUND_TYPE;
+}
+
+export function hasReachedAmisInterviewStage(
+  application: ExtensionApplication,
+  rounds: AmisRecruitmentRound[],
+) {
+  if (application.interviewEvaluationStartedAt) return true;
+
+  const candidateStages = getAmisCandidateStageOptions(rounds, application);
+  const currentStageIndex = getAmisCandidateStageIndex(
+    candidateStages,
+    application.amisRecruitmentRoundId,
+    application.amisRecruitmentRoundName,
+  );
+  const firstInterviewRoundIndex = candidateStages.findIndex(isAmisInterviewRound);
+  return firstInterviewRoundIndex >= 0 && currentStageIndex >= firstInterviewRoundIndex;
 }
 
 function getEvaluationStartRound(

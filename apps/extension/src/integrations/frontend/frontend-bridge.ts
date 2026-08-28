@@ -5,7 +5,9 @@ const EXTENSION_SOURCE = 'vcs-recruitment-extension';
 const AUTH_CHECK_REQUEST = 'VCS_FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const PUBLISH_REQUEST = 'VCS_FRONTEND_FACEBOOK_PUBLISH_REQUEST';
 const GROUP_VERIFY_REQUEST = 'VCS_FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST';
+const AMIS_SESSION_CHECK_REQUEST = 'VCS_FRONTEND_AMIS_SESSION_CHECK_REQUEST';
 const BRIDGE_RESPONSE = 'VCS_FRONTEND_FACEBOOK_BRIDGE_RESPONSE';
+const AMIS_SESSION_CHECK_RESPONSE = 'VCS_FRONTEND_AMIS_SESSION_CHECK_RESPONSE';
 const IMAGE_ATTACH_DECISION = 'VCS_FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION';
 const BACKGROUND_AUTH_CHECK_REQUEST = 'FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST';
 const BACKGROUND_PUBLISH_REQUEST = 'FRONTEND_FACEBOOK_PUBLISH_REQUEST';
@@ -54,6 +56,11 @@ window.addEventListener('message', (event) => {
       requestId: event.data.requestId,
       target: event.data.payload.target,
     });
+    return;
+  }
+
+  if (isAmisSessionCheckRequest(event.data)) {
+    void sendAmisSessionCheckRequest(event.data.requestId);
     return;
   }
 
@@ -146,6 +153,30 @@ function sendBackgroundPortRequest(message: {
   }
 }
 
+async function sendAmisSessionCheckRequest(requestId: string) {
+  try {
+    const response = await chrome.runtime?.sendMessage?.({
+      type: 'FRONTEND_AMIS_SESSION_CHECK_REQUEST',
+      requestId,
+    });
+    window.postMessage({
+      source: EXTENSION_SOURCE,
+      type: AMIS_SESSION_CHECK_RESPONSE,
+      requestId,
+      payload: isAmisSessionCheckResponse(response)
+        ? response
+        : { ok: false, authenticated: false },
+    }, window.location.origin);
+  } catch {
+    window.postMessage({
+      source: EXTENSION_SOURCE,
+      type: AMIS_SESSION_CHECK_RESPONSE,
+      requestId,
+      payload: { ok: false, authenticated: false },
+    }, window.location.origin);
+  }
+}
+
 function postToPage(requestId: string, event: string, payload?: unknown) {
   window.postMessage({
     source: EXTENSION_SOURCE,
@@ -202,6 +233,27 @@ function isGroupVerifyRequest(value: unknown): value is {
     && (value as { type?: unknown }).type === GROUP_VERIFY_REQUEST
     && typeof (value as { requestId?: unknown }).requestId === 'string'
     && isFacebookPublishTarget(payload?.target);
+}
+
+function isAmisSessionCheckRequest(value: unknown): value is {
+  source: typeof FRONTEND_SOURCE;
+  type: typeof AMIS_SESSION_CHECK_REQUEST;
+  requestId: string;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { source?: unknown }).source === FRONTEND_SOURCE
+    && (value as { type?: unknown }).type === AMIS_SESSION_CHECK_REQUEST
+    && typeof (value as { requestId?: unknown }).requestId === 'string';
+}
+
+function isAmisSessionCheckResponse(value: unknown): value is {
+  ok: boolean;
+  authenticated: boolean;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { ok?: unknown; authenticated?: unknown };
+  return typeof candidate.ok === 'boolean' && typeof candidate.authenticated === 'boolean';
 }
 
 function isImageAttachDecisionMessage(value: unknown): value is {

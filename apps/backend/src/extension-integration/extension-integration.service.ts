@@ -1,8 +1,8 @@
 import { UserRole } from '@interview-assistant/shared';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
-import { hasUserRole } from '../auth/role-utils';
+import { getUserRoles, hasUserRole } from '../auth/role-utils';
 import { JobDescriptionEntity } from '../job-descriptions/entities/job-description.entity';
 import { JobDescriptionVersionEntity } from '../job-descriptions/entities/job-description-version.entity';
 import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
@@ -96,6 +96,14 @@ interface AmisInterviewEvaluationStart {
   roundName: string | null;
   roundType: number | null;
   sortOrder: number | null;
+}
+
+interface AmisApplicationListActor {
+  id: string;
+  role: UserRole;
+  roles?: readonly UserRole[];
+  amisUserId?: string | null;
+  amisRecruitmentId?: string | null;
 }
 
 interface PostingQuestionSnapshotItemInput {
@@ -1956,19 +1964,27 @@ export class ExtensionIntegrationService {
 
   async listAmisApplicationsForRecruitment(
     amisRecruitmentId: string,
-    actor?: {
-      id: string;
-      role: UserRole;
-      roles?: readonly UserRole[];
-      amisUserId?: string | null;
-      amisRecruitmentId?: string | null;
-    },
+    actor?: AmisApplicationListActor,
     currentAmisUserId?: string | null,
   ) {
     const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
+    const effectiveActor = actor
+      ? await this.resolveCurrentApplicationListActor(actor)
+      : undefined;
+    if (
+      effectiveActor
+      && !hasUserRole(effectiveActor, UserRole.ADMIN)
+      && !hasUserRole(effectiveActor, UserRole.HR)
+      && !hasUserRole(effectiveActor, UserRole.COMMITTEE)
+    ) {
+      throw new ForbiddenException({
+        code: 'EXTENSION_APPLICATION_LIST_ROLE_REQUIRED',
+        message: 'Tài khoản không có quyền xem danh sách ứng viên AMIS.',
+      });
+    }
     await this.amisRecruitmentBoardMembersService.assertCurrentAmisAccountAccess(
       normalizedRecruitmentId,
-      actor ?? { id: '', role: UserRole.HR },
+      effectiveActor ?? { id: '', role: UserRole.HR },
       currentAmisUserId,
     );
     const jobPostingId = await this.resolveJobPostingIdByAmisRecruitmentId(normalizedRecruitmentId);
@@ -1985,7 +2001,7 @@ export class ExtensionIntegrationService {
       ],
       order: { createdAt: 'DESC' },
     });
-    const visibleApplications = actor && hasUserRole(actor, UserRole.COMMITTEE)
+    const visibleApplications = effectiveActor && hasUserRole(effectiveActor, UserRole.COMMITTEE)
       ? await this.filterApplicationsForCommittee(applications, normalizedRecruitmentId)
       : applications;
     const applicationRows = this.buildAmisApplicationListRows(
@@ -2096,8 +2112,14 @@ export class ExtensionIntegrationService {
 
     const roundsById = new Map(rounds.map((round) => [round.amisRoundId, round]));
     return applications.filter((application) => {
+      // AMIS writes a new source snapshot after each round transition. The newest
+      // snapshot is the source of truth; an old interview snapshot must not keep a
+      // candidate visible after AMIS moves the candidate back to a pre-interview
+      // round.
       const source = this.findAmisApplicationSource(application.sources, amisRecruitmentId);
-      const rawPayload = this.isRecord(source?.rawPayload) ? source.rawPayload : {};
+      if (!source) return false;
+
+      const rawPayload = this.isRecord(source.rawPayload) ? source.rawPayload : {};
       const currentRoundId = this.optionalText(rawPayload.recruitmentRoundId);
       const currentRoundName = this.optionalText(rawPayload.recruitmentRoundName);
       const currentRound = (currentRoundId ? roundsById.get(currentRoundId) : undefined)
@@ -2106,6 +2128,23 @@ export class ExtensionIntegrationService {
 
       return Boolean(this.readInterviewEvaluationStart(rawPayload));
     });
+  }
+
+  private async resolveCurrentApplicationListActor(actor: AmisApplicationListActor) {
+    const localUser = await this.dataSource.getRepository(UserEntity).findOne({
+      where: { id: actor.id },
+      relations: ['roleMemberships'],
+    });
+    if (!localUser) return actor;
+
+    return {
+      ...actor,
+      role: localUser.role,
+      roles: getUserRoles({
+        role: localUser.role,
+        roles: localUser.roleMemberships?.map((membership) => membership.role),
+      }),
+    } satisfies AmisApplicationListActor;
   }
 
   async updateAmisApplicationStage(

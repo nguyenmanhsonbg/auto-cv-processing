@@ -909,12 +909,7 @@ export class InterviewEvaluationsService {
     const firstInterviewRound = rounds.find((round) => round.roundType === AMIS_INTERVIEW_ROUND_TYPE);
     if (!firstInterviewRound) return false;
 
-    const source = application.sources?.find((item) => {
-      const payload = item.rawPayload;
-      return this.isRecord(payload)
-        && payload.sourceSystem === ExtensionSourceSystem.AMIS
-        && payload.recruitmentId === amisRecruitmentId;
-    });
+    const source = this.findAmisApplicationSource(application, amisRecruitmentId);
     const payload = this.isRecord(source?.rawPayload) ? source.rawPayload : {};
     const currentRoundId = this.optionalText(payload.recruitmentRoundId);
     const currentRoundName = this.optionalText(payload.recruitmentRoundName);

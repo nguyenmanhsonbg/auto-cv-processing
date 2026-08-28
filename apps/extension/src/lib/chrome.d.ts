@@ -79,12 +79,13 @@ interface ChromeTab {
   openerTabId?: number;
   url?: string;
   status?: string;
+  active?: boolean;
 }
 
 interface ChromeTabs {
   query(queryInfo: { active?: boolean; currentWindow?: boolean; url?: string | string[]; windowId?: number }): Promise<ChromeTab[]>;
   onUpdated: {
-    addListener(callback: (tabId: number, changeInfo: { status?: string }, tab: ChromeTab) => void): void;
+    addListener(callback: (tabId: number, changeInfo: { status?: string; url?: string }, tab: ChromeTab) => void): void;
   };
   onActivated: {
     addListener(callback: (activeInfo: { tabId: number; windowId: number }) => void): void;
@@ -166,6 +167,8 @@ interface ChromeScripting {
 
 interface ChromeSidePanel {
   open(options: { tabId?: number; windowId?: number }): Promise<void>;
+  close?(options: { tabId?: number; windowId?: number }): Promise<void>;
+  setOptions?(options: { tabId?: number; enabled?: boolean; path?: string }): Promise<void>;
   setPanelBehavior(options: { openPanelOnActionClick: boolean }): Promise<void>;
 }
 

@@ -21,6 +21,7 @@ import {
   completeExtensionTask,
   failExtensionTask,
   getAmisApplicationsForRecruitment,
+  getCurrentUser,
   heartbeatExtensionInstance,
   reportExtensionTaskProgress,
   startExtensionTask,
@@ -28,6 +29,7 @@ import {
   syncAmisJobStatus,
   syncAmisCareers,
   syncAndPublishAmisJob,
+  refreshAccessToken,
   verifyFacebookGroup,
 } from '@/lib/api-client';
 import {
@@ -39,6 +41,13 @@ import { clearAccessToken, getAccessToken } from '@/features/auth/auth-store';
 import { getSelectedChannels } from '@/stores/channel-preferences';
 import { toVietnameseErrorMessage } from '@/lib/error-messages';
 import { EXTENSION_TASK_QUEUE_ENABLED, FACEBOOK_MAX_IMAGE_ATTACHMENTS } from '@/lib/config';
+import { isAllowedSidePanelUrl } from '@/lib/side-panel-scope';
+import {
+  AMIS_OVERLAY_HIDE_MESSAGE_TYPE,
+  AMIS_OVERLAY_SHOW_MESSAGE_TYPE,
+  isAmisOverlayOpenRequestMessage,
+  isAmisOverlayReadyMessage,
+} from '@/integrations/amis/amis-overlay-contract';
 import { summarizeFacebookPublishResults, updateFacebookChannelStatus } from '@/features/facebook/facebook-channel-status';
 import {
   clearFacebookContentDraft as clearStoredFacebookContentDraft,
@@ -60,7 +69,12 @@ import {
 import { saveLastFacebookPublishProgress } from '@/stores/facebook-publish-store';
 import { getSelectedJobQuestionContextForTab, getSelectedJobQuestionIdsForTab } from '@/stores/selected-job-question-store';
 import { resolveSelectedVcsJobDescriptionId } from '@/integrations/amis/amis-auto-sync-payload';
-import { AMIS_TAB_REFRESHED_MESSAGE_TYPE } from '@/integrations/amis/amis-helpers';
+import {
+  AMIS_TAB_REFRESHED_MESSAGE_TYPE,
+  GET_AMIS_SESSION_STATE_MESSAGE_TYPE,
+  sendMessageToAmisTab,
+} from '@/integrations/amis/amis-helpers';
+import { isAuthenticatedAmisSessionState } from '@/integrations/amis/amis-session-state';
 import type {
   AmisDiagnosticEvent,
   AmisCandidateAttractivePersonnelChangedPayload,
@@ -98,6 +112,7 @@ const FRONTEND_FACEBOOK_GROUP_VERIFY_REQUEST = 'FRONTEND_FACEBOOK_GROUP_VERIFY_R
 const FRONTEND_FACEBOOK_EVENT = 'FRONTEND_FACEBOOK_EVENT';
 const FRONTEND_FACEBOOK_PORT = 'frontend-facebook-publish';
 const FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION = 'VCS_FRONTEND_FACEBOOK_IMAGE_ATTACH_DECISION';
+const FRONTEND_AMIS_SESSION_CHECK_REQUEST = 'FRONTEND_AMIS_SESSION_CHECK_REQUEST';
 const EXTENSION_TASK_POLL_ALARM = 'vcs-extension-task-poll';
 const EXTENSION_TASK_POLL_INTERVAL_MINUTES = 1;
 const activeAutoSyncKeys = new Set<string>();
@@ -118,12 +133,13 @@ installAmisDebuggerCapture(
 );
 
 chrome.runtime?.onInstalled.addListener(() => {
-  void chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true });
   scheduleExtensionTaskPolling();
+  void syncAmisOverlayForActiveTabs();
 });
 
 chrome.runtime?.onStartup?.addListener(() => {
   scheduleExtensionTaskPolling();
+  void syncAmisOverlayForActiveTabs();
 });
 
 chrome.alarms?.onAlarm.addListener((alarm) => {
@@ -134,6 +150,12 @@ chrome.alarms?.onAlarm.addListener((alarm) => {
 scheduleExtensionTaskPolling();
 
 chrome.tabs?.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url !== undefined || changeInfo.status === 'complete') {
+    if (tab.active) {
+      void syncAmisOverlayForTab(tabId, tab.url);
+    }
+  }
+
   if (changeInfo.status !== 'complete' || !isAmisPageUrl(tab.url)) return;
   void ensureAmisDebuggerAttached({ id: tabId, url: tab.url }, tab.url);
   void chrome.runtime?.sendMessage?.({
@@ -144,9 +166,25 @@ chrome.tabs?.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs?.onActivated.addListener(({ tabId }) => {
   void attachAmisDebuggerToTab(tabId);
+  void syncAmisOverlayForTabId(tabId);
 });
 
 chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
+  if (isAmisOverlayReadyMessage(message)) {
+    void syncAmisOverlayForSenderTab(sender);
+    return;
+  }
+
+  if (isAmisOverlayOpenRequestMessage(message)) {
+    void openAmisOverlayForTab(message.tabId)
+      .then(sendResponse)
+      .catch(() => sendResponse({
+        ok: false,
+        error: 'Could not open the AMIS extension overlay.',
+      }));
+    return true;
+  }
+
   if (isAmisSourceColumnDataMessage(message)) {
     void handleAmisSourceColumnData(message)
       .then(sendResponse)
@@ -201,6 +239,11 @@ chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
   if (isFrontendFacebookGroupVerifyRequest(message)) {
     void handleFrontendFacebookGroupVerify(message, sender);
     return;
+  }
+
+  if (isFrontendAmisSessionCheckRequest(message)) {
+    void handleFrontendAmisSessionCheck(sendResponse);
+    return true;
   }
 
   if (isExtensionToastMessage(message)) {
@@ -266,6 +309,7 @@ chrome.runtime?.onConnect?.addListener((port) => {
 void Promise.all([
   runExtensionTaskPoll(),
   attachToOpenAmisTabs(),
+  syncAmisOverlayForActiveTabs(),
 ]);
 
 async function attachToOpenAmisTabs() {
@@ -279,6 +323,52 @@ async function attachAmisDebuggerToTab(tabId: number) {
   const tab = await chrome.tabs?.get(tabId);
   if (!tab || !isAmisPageUrl(tab.url)) return;
   await ensureAmisDebuggerAttached({ id: tabId, url: tab.url }, tab.url);
+}
+
+async function handleFrontendAmisSessionCheck(
+  sendResponse: (response?: unknown) => void,
+) {
+  const extensionAuthenticated = await resolveExtensionSession();
+  if (!extensionAuthenticated) {
+    sendResponse({ ok: true, authenticated: false });
+    return;
+  }
+
+  const tabs = (await chrome.tabs?.query({}) ?? [])
+    .filter((tab) => tab.id !== undefined && isAmisPageUrl(tab.url))
+    .sort((left, right) => Number(Boolean((right as ChromeTab & { active?: boolean }).active))
+      - Number(Boolean((left as ChromeTab & { active?: boolean }).active)));
+
+  for (const tab of tabs) {
+    if (tab.id === undefined) continue;
+
+    try {
+      const response = await sendMessageToAmisTab(tab.id, {
+        type: GET_AMIS_SESSION_STATE_MESSAGE_TYPE,
+      });
+      if (isAuthenticatedAmisSessionState(response)) {
+        sendResponse({ ok: true, authenticated: true });
+        return;
+      }
+    } catch {
+      // Try the next AMIS tab without interrupting the user's active tab.
+    }
+  }
+
+  sendResponse({ ok: true, authenticated: false });
+}
+
+async function resolveExtensionSession() {
+  let accessToken = await getAccessToken();
+  if (!accessToken) accessToken = await refreshAccessToken();
+  if (!accessToken) return false;
+
+  try {
+    await getCurrentUser(accessToken);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isAmisPageUrl(value: string | undefined) {
@@ -567,7 +657,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
       hasAmisRecruitmentId: Boolean(capture.amisRecruitmentId),
     },
   });
-  await openPanel(sender);
+  await openAmisOverlay(sender);
 
   const enrichedCapture = await enrichCaptureFromDom(capture, sender);
   await saveEnrichedAmisCapture(capture, enrichedCapture);
@@ -1139,6 +1229,46 @@ async function handleAmisCandidateStageCaptured(
   ).catch(() => undefined);
 }
 
+async function syncAmisOverlayForActiveTabs() {
+  const activeTabs = await chrome.tabs?.query({ active: true }) ?? [];
+  await Promise.all(activeTabs
+    .filter((tab): tab is ChromeTab & { id: number } => typeof tab.id === 'number')
+    .map((tab) => syncAmisOverlayForTab(tab.id, tab.url)));
+}
+
+async function syncAmisOverlayForTabId(tabId: number) {
+  let tab: ChromeTab | undefined;
+  try {
+    tab = await chrome.tabs?.get(tabId);
+  } catch {
+    // The tab may close between the activation event and the lookup.
+  }
+
+  await syncAmisOverlayForTab(tabId, tab?.url);
+}
+
+async function syncAmisOverlayForTab(
+  tabId: number,
+  url: string | undefined,
+) {
+  if (!isAllowedSidePanelUrl(url)) {
+    await sendAmisOverlayMessage(tabId, { type: AMIS_OVERLAY_HIDE_MESSAGE_TYPE });
+    return;
+  }
+
+  await ensureAmisOverlayForTab(tabId);
+}
+
+async function sendAmisOverlayMessage(tabId: number, message: { type: string }) {
+  if (!chrome.tabs?.sendMessage) return false;
+  try {
+    await chrome.tabs.sendMessage(tabId, message);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function handleAmisCandidateAttractivePersonnelCaptured(
   capture: AmisCandidateAttractivePersonnelChangedPayload,
   sender: ChromeMessageSender,
@@ -1190,20 +1320,56 @@ async function handleAmisSourceColumnData(
   }
 }
 
-async function openPanel(sender: ChromeMessageSender) {
-  try {
-    if (sender.tab?.id !== undefined) {
-      await chrome.sidePanel?.open({ tabId: sender.tab.id });
-      return;
-    }
+async function syncAmisOverlayForSenderTab(sender: ChromeMessageSender) {
+  const tabId = sender.tab?.id;
+  if (tabId === undefined) return;
+  await syncAmisOverlayForTab(tabId, sender.tab?.url);
+}
 
-    if (sender.tab?.windowId !== undefined) {
-      await chrome.sidePanel?.open({ windowId: sender.tab.windowId });
-    }
+async function openAmisOverlay(sender: ChromeMessageSender) {
+  const tabId = sender.tab?.id;
+  if (tabId === undefined || !isAllowedSidePanelUrl(sender.tab?.url)) return;
+  await openAmisOverlayForTab(tabId);
+}
+
+async function openAmisOverlayForTab(tabId: number) {
+  let tab: ChromeTab | undefined;
+  try {
+    tab = await chrome.tabs?.get(tabId);
   } catch {
-    // Browser may require a direct extension user gesture to open the side panel.
-    // Capture and backend sync must continue even when opening the panel is blocked.
+    return { ok: false, error: 'The AMIS tab is no longer available.' };
   }
+
+  if (!tab || !isAllowedSidePanelUrl(tab.url)) {
+    return {
+      ok: false,
+      error: 'Extension chỉ hoạt động trên tab AMIS hoặc form đánh giá sau phỏng vấn.',
+    };
+  }
+
+  const opened = await ensureAmisOverlayForTab(tabId);
+  return opened
+    ? { ok: true }
+    : { ok: false, error: 'AMIS overlay did not become ready.' };
+}
+
+async function ensureAmisOverlayForTab(tabId: number) {
+  if (await sendAmisOverlayMessage(tabId, { type: AMIS_OVERLAY_SHOW_MESSAGE_TYPE })) {
+    return true;
+  }
+
+  if (!chrome.scripting?.executeScript) return false;
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['assets/amis-overlay.js'],
+    });
+  } catch {
+    return false;
+  }
+
+  return sendAmisOverlayMessage(tabId, { type: AMIS_OVERLAY_SHOW_MESSAGE_TYPE });
 }
 
 async function resolveFacebookPublishPlanContent(
@@ -1523,6 +1689,16 @@ function isFrontendFacebookAuthCheckRequest(value: unknown): value is {
   return typeof value === 'object'
     && value !== null
     && (value as { type?: unknown }).type === FRONTEND_FACEBOOK_AUTH_CHECK_REQUEST
+    && typeof (value as { requestId?: unknown }).requestId === 'string';
+}
+
+function isFrontendAmisSessionCheckRequest(value: unknown): value is {
+  type: typeof FRONTEND_AMIS_SESSION_CHECK_REQUEST;
+  requestId: string;
+} {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === FRONTEND_AMIS_SESSION_CHECK_REQUEST
     && typeof (value as { requestId?: unknown }).requestId === 'string';
 }
 

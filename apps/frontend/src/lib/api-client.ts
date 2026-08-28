@@ -5,6 +5,7 @@ const REFRESH_TOKEN_STORAGE_KEY = 'refreshToken';
 export interface ApiRequestOptions {
   headers?: Record<string, string>;
   idempotencyKey?: string;
+  keepalive?: boolean;
 }
 
 export interface ApiUploadOptions extends ApiRequestOptions {
@@ -142,6 +143,7 @@ class ApiClient {
       method,
       headers,
       body: bodyPayload,
+      keepalive: options?.keepalive,
     });
 
     if (res.status === 401 && this.shouldAttemptRefresh(path) && await this.refreshAccessToken()) {
@@ -150,6 +152,7 @@ class ApiClient {
         method,
         headers,
         body: bodyPayload,
+        keepalive: options?.keepalive,
       });
     }
 
