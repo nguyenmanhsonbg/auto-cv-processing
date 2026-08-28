@@ -1089,6 +1089,13 @@ export interface InterviewEvaluationReviewerRecord {
   submittedAt?: string | null;
 }
 
+export interface InterviewEvaluationHrbpAccess {
+  required: boolean;
+  allowed: boolean;
+  expectedAmisUserId?: string | null;
+  expectedName?: string | null;
+}
+
 export interface InterviewEvaluationSummary {
   hasCase: boolean;
   applicationId: string;
@@ -1105,6 +1112,7 @@ export interface InterviewEvaluationSummary {
   canManage: boolean;
   canView: boolean;
   canReview: boolean;
+  hrbpAccess?: InterviewEvaluationHrbpAccess;
 }
 
 export interface InterviewEvaluationAssignment {

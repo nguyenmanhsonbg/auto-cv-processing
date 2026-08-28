@@ -2,6 +2,10 @@ import axios from 'axios';
 import { BE_API_BASE_URL, EXTENSION_CAPABILITIES, EXTENSION_VERSION } from '@/lib/config';
 import { clearAccessToken, getRefreshToken, setAuthTokens } from '@/features/auth/auth-store';
 import {
+  isNetworkUnavailableStatus,
+  notifyNetworkErrorToast,
+} from '@/lib/network-error-toast';
+import {
   clearExtensionInstanceId,
   getExtensionDisplayName,
   getExtensionInstanceId,
@@ -81,6 +85,15 @@ export class ApiClientError extends Error {
   ) {
     super(message);
   }
+}
+
+function createNetworkApiClientError(error: unknown) {
+  notifyNetworkErrorToast();
+  return new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+}
+
+function notifyNetworkErrorForStatus(status: number) {
+  if (isNetworkUnavailableStatus(status)) notifyNetworkErrorToast();
 }
 
 const SHOULD_BYPASS_NGROK_WARNING = getApiHost().includes('ngrok');
@@ -239,7 +252,7 @@ export async function getFreelancerApplicationCv(
     });
   } catch (error) {
     if (error instanceof ApiClientError) throw error;
-    throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+    throw createNetworkApiClientError(error);
   }
 
   if (response.status === 401) {
@@ -256,11 +269,12 @@ export async function getFreelancerApplicationCv(
         });
       } catch (error) {
         if (error instanceof ApiClientError) throw error;
-        throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+        throw createNetworkApiClientError(error);
       }
     }
   }
 
+  notifyNetworkErrorForStatus(response.status);
   if (response.status < 200 || response.status >= 300) {
     let json: unknown = null;
     if (response.data instanceof Blob) {
@@ -1026,9 +1040,10 @@ export async function downloadCleanCvFile(
     });
   } catch (error) {
     if (error instanceof ApiClientError) throw error;
-    throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+    throw createNetworkApiClientError(error);
   }
 
+  notifyNetworkErrorForStatus(response.status);
   if (response.status < 200 || response.status >= 300) {
     let json: unknown = null;
     if (response.data instanceof ArrayBuffer) {
@@ -1338,7 +1353,7 @@ async function request<T>(
     });
   } catch (error) {
     if (error instanceof ApiClientError) throw error;
-    throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+    throw createNetworkApiClientError(error);
   }
 
   if (response.status === 401 && shouldAttemptRefresh(path)) {
@@ -1355,13 +1370,14 @@ async function request<T>(
         });
       } catch (error) {
         if (error instanceof ApiClientError) throw error;
-        throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+        throw createNetworkApiClientError(error);
       }
     }
   }
 
   const json = response.data;
 
+  notifyNetworkErrorForStatus(response.status);
   if (response.status < 200 || response.status >= 300) {
     const envelope = isApiEnvelope(json) ? json : null;
     throw new ApiClientError(
@@ -1399,7 +1415,7 @@ async function requestWithPagination<T>(
     });
   } catch (error) {
     if (error instanceof ApiClientError) throw error;
-    throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+    throw createNetworkApiClientError(error);
   }
 
   if (response.status === 401 && shouldAttemptRefresh(path)) {
@@ -1415,13 +1431,14 @@ async function requestWithPagination<T>(
         });
       } catch (error) {
         if (error instanceof ApiClientError) throw error;
-        throw new ApiClientError('NETWORK_ERROR', (error as Error)?.message ?? 'Network error.', 0);
+        throw createNetworkApiClientError(error);
       }
     }
   }
 
   const json = response.data;
 
+  notifyNetworkErrorForStatus(response.status);
   if (response.status < 200 || response.status >= 300) {
     const envelope = isApiEnvelope(json) ? json : null;
     throw new ApiClientError(
@@ -1496,6 +1513,7 @@ export async function refreshAccessToken() {
     });
 
     if (response.status < 200 || response.status >= 300) {
+      notifyNetworkErrorForStatus(response.status);
       await clearAccessToken();
       return null;
     }
@@ -1512,6 +1530,7 @@ export async function refreshAccessToken() {
     });
     return auth.accessToken;
   } catch {
+    notifyNetworkErrorToast();
     await clearAccessToken();
     return null;
   }

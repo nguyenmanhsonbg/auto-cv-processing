@@ -105,6 +105,7 @@ export type CvManagementPanelProps = {
   onUploadApplicationCvsToAmisForm: (applications: ExtensionApplication[]) => void;
   onRunAiScreeningForApplication: (application: ExtensionApplication) => void;
   onUploadAiEvaluationToAmis: (application: ExtensionApplication) => void;
+  onEvaluationAccessDenied?: (message: string) => void;
 };
 
 export function CvManagementPanel({
@@ -136,6 +137,7 @@ export function CvManagementPanel({
   onUploadApplicationCvsToAmisForm,
   onRunAiScreeningForApplication,
   onUploadAiEvaluationToAmis,
+  onEvaluationAccessDenied,
 }: CvManagementPanelProps) {
   const [cvWorkspaceView, setCvWorkspaceView] = React.useState<CvWorkspaceView>('list');
   const [cvQuestionFilter, setCvQuestionFilter] = React.useState<CvQuestionFilter>('ALL');
@@ -532,6 +534,7 @@ export function CvManagementPanel({
                 onUploadApplicationCvToAmisForm={onUploadApplicationCvToAmisForm}
                 onRunAiScreeningForApplication={onRunAiScreeningForApplication}
                 onUploadAiEvaluationToAmis={onUploadAiEvaluationToAmis}
+                onEvaluationAccessDenied={onEvaluationAccessDenied}
               />
             ))}
           </ul>

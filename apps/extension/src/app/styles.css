@@ -1336,10 +1336,31 @@ h2 {
 }
 
 .career-question-empty {
+  display: flex;
+  align-self: flex-start;
+  width: auto;
+  height: auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   margin: 0;
-  color: #6e7a73;
-  font-size: 13px;
-  line-height: 1.45;
+}
+
+.career-question-empty span {
+  display: inline-flex;
+  min-width: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: #ff4c51;
+  background: rgba(255, 76, 81, 0.16);
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16.8px;
+  text-align: center;
 }
 
 .add-question-card-button {
@@ -3579,6 +3600,7 @@ dd {
 
 .facebook-group-settings-modal {
   width: min(100%, 520px);
+  height: min(676px, calc(100vh - 32px));
 }
 
 .facebook-group-settings-modal .facebook-group-list {
@@ -3940,6 +3962,7 @@ dd {
     width: 100%;
     min-width: 0;
     max-width: 100%;
+    height: min(676px, calc(100vh - 24px));
     max-height: calc(100vh - 24px);
   }
 
@@ -5881,7 +5904,7 @@ dd {
 }
 
 .extension-window .career-question-content {
-  gap: 16px;
+  gap: 20px;
 }
 
 .extension-window .career-industry-area p {
@@ -5940,6 +5963,7 @@ dd {
 .post-card-section>h2,
 .question-section-header h2 {
   color: #262626;
+  font-family: Inter, sans-serif;
   font-size: 18px;
   font-weight: 700;
   line-height: 28px;
@@ -6273,17 +6297,25 @@ dd {
 
 .question-section-header {
   display: flex;
-  align-items: center;
+  align-self: stretch;
+  width: 100%;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 
 .question-edit-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
   min-height: 36px;
   border-radius: 8px;
   padding: 8px 14px;
   background: #15803d;
   color: #ffffff;
+  font-family: Inter, sans-serif;
   font-size: 14px;
   font-style: normal;
   font-weight: 600;
@@ -6311,8 +6343,14 @@ dd {
 }
 
 .career-question-panel {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
   overflow: visible;
-  padding: 16px;
+  gap: 11px;
+  padding: 8px;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -6320,9 +6358,15 @@ dd {
 }
 
 .career-question-content {
-  gap: 12px;
+  display: flex;
+  align-self: stretch;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 20px;
   padding: 0;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .question-select-alert {
@@ -6341,6 +6385,8 @@ dd {
 
 .career-question-list {
   display: flex;
+  align-self: stretch;
+  width: 100%;
   flex-direction: column;
   gap: 12px;
   max-height: none;

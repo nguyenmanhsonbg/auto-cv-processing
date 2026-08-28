@@ -10,6 +10,7 @@
     "test:results-toggle": "node --test scripts/facebook-publish-results-toggle.test.mjs",
     "test:cv-list": "node --test scripts/cv-list-regression.test.mjs",
     "test:tab-labels": "node --test scripts/tab-label-visibility.test.mjs",
+    "test:network-error-toast": "tsx --test scripts/network-error-toast.test.mjs",
     "test:referral-utils": "tsx --test src/features/referrals/referral-management-utils.spec.ts",
     "test:freelancer-cv-filter-utils": "tsx --test src/features/freelancer/freelancer-cv-filter-utils.spec.ts",
     "typecheck": "tsc --noEmit",

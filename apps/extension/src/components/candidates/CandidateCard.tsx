@@ -10,11 +10,13 @@ import type {
 import { CandidateAvatar } from './CandidateAvatar';
 import { SourceIcon } from '@/components/icons';
 import {
+  ApiClientError,
   createInterviewEvaluationCase,
   createInterviewEvaluationHandoff,
   getInterviewEvaluationSummary,
 } from '@/lib/api-client';
 import { FRONTEND_BASE_URL } from '@/lib/config';
+import { saveInterviewEvaluationTabContext } from '@/stores/interview-evaluation-context-store';
 
 export type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
 
@@ -44,6 +46,7 @@ export type CandidateCardProps = Readonly<{
   onUploadApplicationCvToAmisForm: (application: ExtensionApplication) => void;
   onRunAiScreeningForApplication: (application: ExtensionApplication) => void;
   onUploadAiEvaluationToAmis: (application: ExtensionApplication) => void;
+  onEvaluationAccessDenied?: (message: string) => void;
 }>;
 
 export function CandidateCard({
@@ -65,6 +68,7 @@ export function CandidateCard({
   onUploadApplicationCvToAmisForm,
   onRunAiScreeningForApplication,
   onUploadAiEvaluationToAmis,
+  onEvaluationAccessDenied,
 }: CandidateCardProps) {
   const [evaluationSummary, setEvaluationSummary] = useState<InterviewEvaluationSummary | null>(null);
   const [evaluationLoading, setEvaluationLoading] = useState(false);
@@ -90,6 +94,9 @@ export function CandidateCard({
   );
   const canInitializeEvaluation = Boolean(evaluationStartRound);
   const canReviewEvaluation = evaluationSummary?.canReview ?? evaluationSummary?.canView;
+  const canAttemptEvaluation = Boolean(
+    evaluationSummary && (evaluationSummary.canManage || canReviewEvaluation),
+  );
   const evaluationVisible = isCommittee
     ? Boolean(canReviewEvaluation && hasReachedInterviewStage)
     : isInterviewRound
@@ -138,17 +145,44 @@ export function CandidateCard({
       amisUserId: currentAmisUserId,
       amisRecruitmentId,
     });
-    const evaluationUrl = `${FRONTEND_BASE_URL}/interview-evaluations/${encodeURIComponent(application.applicationId)}?handoff=${encodeURIComponent(handoff.handoffToken)}`;
+    if (amisRecruitmentId) {
+      try {
+        await saveInterviewEvaluationTabContext({
+          application,
+          amisRecruitmentId,
+          currentAmisUserId,
+          amisRecruitmentRounds,
+        });
+      } catch {
+        // The URL context remains sufficient to open the evaluation page.
+      }
+    }
+
+    const evaluationUrl = new URL(
+      `${FRONTEND_BASE_URL}/interview-evaluations/${encodeURIComponent(application.applicationId)}`,
+    );
+    evaluationUrl.searchParams.set('handoff', handoff.handoffToken);
+    if (amisRecruitmentId) evaluationUrl.searchParams.set('amisRecruitmentId', amisRecruitmentId);
+    if (currentAmisUserId) evaluationUrl.searchParams.set('amisUserId', currentAmisUserId);
     if (chrome.tabs?.create) {
-      await chrome.tabs.create({ url: evaluationUrl });
+      await chrome.tabs.create({ url: evaluationUrl.toString() });
       return;
     }
-    const openedWindow = window.open(evaluationUrl, '_blank', 'noopener,noreferrer');
+    const openedWindow = window.open(evaluationUrl.toString(), '_blank', 'noopener,noreferrer');
     if (!openedWindow) throw new Error('Evaluation page could not be opened.');
   }
 
   async function handleEvaluationAction() {
     if (!evaluationSummary || evaluationLoading || evaluationCreating || !token) return;
+    if (evaluationSummary.hrbpAccess?.required && !evaluationSummary.hrbpAccess.allowed) {
+      const expectedName = evaluationSummary.hrbpAccess.expectedName?.trim();
+      onEvaluationAccessDenied?.(
+        expectedName
+          ? `Chỉ có HRBP ${expectedName} có thể đánh giá form.`
+          : 'Không xác định được HRBP của hồ sơ. Vui lòng đồng bộ lại dữ liệu AMIS.',
+      );
+      return;
+    }
     if (!evaluationSummary.hasCase && (!canInitializeEvaluation || !evaluationStartRound)) return;
     setEvaluationCreating(true);
     setEvaluationError(null);
@@ -171,7 +205,11 @@ export function CandidateCard({
         setEvaluationSummary(summary);
       }
       await openEvaluationPage(token);
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiClientError && error.code === 'INTERVIEW_EVALUATION_HRBP_MISMATCH') {
+        onEvaluationAccessDenied?.(error.message);
+        return;
+      }
       setEvaluationError('Không thể mở phiếu đánh giá. Vui lòng thử lại.');
     } finally {
       setEvaluationCreating(false);
@@ -303,7 +341,7 @@ export function CandidateCard({
               className="cv-evaluation-button"
               aria-busy={evaluationLoading || evaluationCreating}
               aria-label="Đánh giá sau phỏng vấn"
-              disabled={evaluationLoading || evaluationCreating || !evaluationSummary || !canReviewEvaluation
+              disabled={evaluationLoading || evaluationCreating || !evaluationSummary || !canAttemptEvaluation
                 || (!evaluationSummary.hasCase && !canInitializeEvaluation)}
               onClick={() => void handleEvaluationAction()}
             >

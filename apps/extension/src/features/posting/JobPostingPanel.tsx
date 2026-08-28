@@ -79,6 +79,7 @@ function getFacebookGroupDisplayMessage(
 
 export { POSTING_CHANNELS };
 export const FACEBOOK_IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
+export const JOB_DESCRIPTION_SEARCH_MAX_LENGTH = 255;
 export const JOB_DESCRIPTION_STATUS_OPTIONS = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'ACTIVE', label: 'Công khai' },
@@ -391,24 +392,26 @@ export function JobPostingPanel({
             className="jd-search-field"
             value={jobDescriptionSearch}
             onChange={(value) => {
-              setJobDescriptionSearch(value);
+              const limitedValue = value.slice(0, JOB_DESCRIPTION_SEARCH_MAX_LENGTH);
+              setJobDescriptionSearch(limitedValue);
               if (jobDescriptionSearchDebounceRef.current !== null) {
                 window.clearTimeout(jobDescriptionSearchDebounceRef.current);
                 jobDescriptionSearchDebounceRef.current = null;
               }
 
-              if (!value.trim()) {
+              if (!limitedValue.trim()) {
                 void onLoadJobDescriptions(token, 1, { search: '' });
                 return;
               }
 
               jobDescriptionSearchDebounceRef.current = window.setTimeout(() => {
                 jobDescriptionSearchDebounceRef.current = null;
-                void onLoadJobDescriptions(token, 1, { search: value.trim() });
+                void onLoadJobDescriptions(token, 1, { search: limitedValue.trim() });
               }, 300);
             }}
             placeholder="Tìm kiếm JD"
             ariaLabel="Tìm kiếm JD"
+            maxLength={JOB_DESCRIPTION_SEARCH_MAX_LENGTH}
             clearButton={jobDescriptionSearch ? (
               <button
                 type="button"
@@ -647,7 +650,9 @@ export function JobPostingPanel({
                   ))}
                 </ul>
               ) : (
-                <p className="career-question-empty">Chưa có dữ liệu bộ câu hỏi</p>
+                <div className="career-question-empty" role="status">
+                  <span>Chưa có dữ liệu bộ câu hỏi</span>
+                </div>
               )}
             </>
           ) : null}

@@ -149,6 +149,7 @@ export function ForgotPasswordForm({
       setStep('RESET');
     } catch (err) {
       setOtp('');
+      otpInputRefs.current[0]?.focus();
       handleRequestError(err, 'OTP không đúng. Vui lòng kiểm tra lại.');
     } finally {
       setLoading(false);
@@ -164,6 +165,7 @@ export function ForgotPasswordForm({
       setChallengeId(response.challengeId);
       setTargetEmail(response.email);
       setOtp('');
+      otpInputRefs.current[0]?.focus();
       setResendRemaining((current) => current - 1);
     } catch (err) {
       handleRequestError(err, 'Không thể gửi lại mã xác nhận.');

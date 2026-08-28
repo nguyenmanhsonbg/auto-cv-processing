@@ -49,12 +49,20 @@ import {
   subscribeAuthTokenChanges,
 } from '@/features/auth/auth-store';
 import { getSelectedChannels, setSelectedChannels } from '@/stores/channel-preferences';
+import {
+  getInterviewEvaluationTabContext,
+  type InterviewEvaluationTabContext,
+} from '@/stores/interview-evaluation-context-store';
 import { Toast, type ExtensionToastKind, type ExtensionToastState } from '@/components/toast';
 import {
   DEFAULT_POSTING_CHANNELS,
   FRONTEND_BASE_URL,
   POSTING_CHANNELS,
 } from '@/lib/config';
+import {
+  NETWORK_ERROR_TOAST_EVENT,
+  NETWORK_ERROR_TOAST_MESSAGE,
+} from '@/lib/network-error-toast';
 import { createMockAmisSyncRequest } from '@/lib/mock-amis';
 import { ReferralManagementPanel } from '@/features/referrals/referral-management';
 import { FreelancerCvPanel } from '@/features/freelancer/freelancer-cv-panel';
@@ -127,6 +135,7 @@ import {
   normalizeAmisJobInitiationUrl,
   normalizeAmisSourceChannel,
   parseAmisRecruitmentContextFromUrl,
+  parseInterviewEvaluationContextFromUrl,
   sanitizeAmisJobSnapshotForApi,
   sendMessageToAmisTab,
 } from '@/integrations/amis/amis-helpers';
@@ -161,6 +170,7 @@ type JobDescriptionFillState = 'IDLE' | 'FILLING' | 'SUCCESS' | 'ERROR';
 type WorkspaceTab = 'overview' | 'posting' | 'cv' | 'freelancer' | 'internal';
 type ApplicationsState = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 type VcsPortalSyncState = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
+type InterviewEvaluationRouteContext = NonNullable<ReturnType<typeof parseInterviewEvaluationContextFromUrl>>;
 
 function isExtensionToastEvent(value: unknown): value is {
   type: typeof EXTENSION_TOAST_EVENT;
@@ -511,6 +521,7 @@ function SidePanel() {
   const [selectedJobQuestionIds, setSelectedJobQuestionIds] = useState<Set<string>>(new Set());
   const [applicationsState, setApplicationsState] = useState<ApplicationsState>('IDLE');
   const [applicationsContext, setApplicationsContext] = useState<AmisApplicationsForRecruitment | null>(null);
+  const [interviewEvaluationTabContext, setInterviewEvaluationTabContext] = useState<InterviewEvaluationTabContext | null>(null);
   const [amisRecruitmentRounds, setAmisRecruitmentRounds] = useState<AmisRecruitmentRound[]>([]);
   const [activeAmisCandidateId, setActiveAmisCandidateId] = useState<string | null>(null);
   const [applicationsMessage, setApplicationsMessage] = useState<string | null>(null);
@@ -545,6 +556,8 @@ function SidePanel() {
   >(async () => undefined);
   const pendingAmisUploadApplicationIdsRef = useRef(new Set<string>());
   const pendingAmisUploadTimeoutsRef = useRef(new Map<string, number>());
+  const interviewEvaluationContextKeyRef = useRef<string | null>(null);
+  const previousWorkspaceTabBeforeEvaluationRef = useRef<WorkspaceTab | null>(null);
   const postingSnapshotRefreshSeqRef = useRef(0);
   const amisJobSelectionSeqRef = useRef(0);
   const postingSnapshotRefreshAttemptsRef = useRef(new Map<string, number>());
@@ -808,6 +821,15 @@ function SidePanel() {
   }), []);
 
   useEffect(() => {
+    const handleNetworkErrorToast = () => {
+      showExtensionToast('ERROR', 'Lỗi', NETWORK_ERROR_TOAST_MESSAGE);
+    };
+
+    window.addEventListener(NETWORK_ERROR_TOAST_EVENT, handleNetworkErrorToast);
+    return () => window.removeEventListener(NETWORK_ERROR_TOAST_EVENT, handleNetworkErrorToast);
+  }, []);
+
+  useEffect(() => {
     void restoreAuth();
     void restoreSelectedChannels();
     void facebook.restoreSelectedFacebookGroups();
@@ -991,13 +1013,14 @@ function SidePanel() {
   }, [amisRecruitmentId, facebook.selectedFacebookGroupIds.length, selectedJobDescription?.id, selectedPostingChannels, snapshot]);
 
   const visibleWorkspaceTabs = useMemo<WorkspaceTab[]>(() => {
+    if (interviewEvaluationTabContext) return ['cv'];
     if (hasExtensionRole(user, 'COMMITTEE')) return ['cv'];
     if (pinnedWorkspaceTab && pinnedWorkspaceTab !== activeWorkspaceTab) {
       return [pinnedWorkspaceTab, activeWorkspaceTab];
     }
 
     return [activeWorkspaceTab];
-  }, [activeWorkspaceTab, pinnedWorkspaceTab, user?.role, user?.roles]);
+  }, [activeWorkspaceTab, interviewEvaluationTabContext, pinnedWorkspaceTab, user?.role, user?.roles]);
 
   const workspaceTabsForUser = useMemo(
     () => hasExtensionRole(user, 'COMMITTEE')
@@ -1511,6 +1534,91 @@ function SidePanel() {
     };
   }
 
+  function getInterviewEvaluationContextKey(route: InterviewEvaluationRouteContext) {
+    return [route.applicationId, route.amisRecruitmentId ?? '', route.amisUserId ?? ''].join(':');
+  }
+
+  function clearInterviewEvaluationTabContext() {
+    interviewEvaluationContextKeyRef.current = null;
+    setInterviewEvaluationTabContext(null);
+
+    const previousWorkspaceTab = previousWorkspaceTabBeforeEvaluationRef.current;
+    previousWorkspaceTabBeforeEvaluationRef.current = null;
+    if (previousWorkspaceTab) setActiveWorkspaceTab(previousWorkspaceTab);
+  }
+
+  async function loadInterviewEvaluationTabContext(route: InterviewEvaluationRouteContext) {
+    const contextKey = getInterviewEvaluationContextKey(route);
+    if (interviewEvaluationContextKeyRef.current === contextKey) return;
+    interviewEvaluationContextKeyRef.current = contextKey;
+
+    let resolvedContext: InterviewEvaluationTabContext | null = null;
+    try {
+      const storedContext = await getInterviewEvaluationTabContext(route.applicationId);
+      const storedContextMatchesRoute = storedContext
+        && (!route.amisRecruitmentId || storedContext.amisRecruitmentId === route.amisRecruitmentId)
+        && (!route.amisUserId
+          || !storedContext.currentAmisUserId
+          || storedContext.currentAmisUserId === route.amisUserId);
+
+      if (storedContextMatchesRoute) {
+        resolvedContext = storedContext;
+      }
+
+      if (!resolvedContext && tokenRef.current && route.amisRecruitmentId) {
+        const requestedAmisUserId = route.amisUserId ?? currentAmisUserIdRef.current;
+        const applicationsResponse = await getAmisApplicationsForRecruitment(
+          tokenRef.current,
+          route.amisRecruitmentId,
+          { currentAmisUserId: requestedAmisUserId },
+        );
+        const application = applicationsResponse.applications.find((item) =>
+          item.applicationId === route.applicationId,
+        );
+
+        if (application) {
+          let rounds = amisRecruitmentId === route.amisRecruitmentId
+            ? amisRecruitmentRounds
+            : [];
+          if (rounds.length === 0) {
+            try {
+              rounds = await getAmisRecruitmentRounds(tokenRef.current, route.amisRecruitmentId);
+            } catch {
+              rounds = [];
+            }
+          }
+
+          resolvedContext = {
+            application,
+            amisRecruitmentId: route.amisRecruitmentId,
+            currentAmisUserId: requestedAmisUserId,
+            amisRecruitmentRounds: rounds,
+            savedAt: new Date().toISOString(),
+          };
+        }
+      }
+
+      if (!resolvedContext) {
+        setInterviewEvaluationTabContext(null);
+        setApplicationsMessage('Không tải được hồ sơ đang đánh giá.');
+        return;
+      }
+
+      if (previousWorkspaceTabBeforeEvaluationRef.current === null) {
+        previousWorkspaceTabBeforeEvaluationRef.current = activeWorkspaceTab === 'cv'
+          ? null
+          : activeWorkspaceTab;
+      }
+      setInterviewEvaluationTabContext(resolvedContext);
+      setActiveWorkspaceTab('cv');
+    } catch (error) {
+      setInterviewEvaluationTabContext(null);
+      setApplicationsMessage(toErrorMessage(error));
+    } finally {
+      if (!resolvedContext) interviewEvaluationContextKeyRef.current = null;
+    }
+  }
+
   function clearAmisContextForNonRecruitmentPage() {
     lastAmisJobInitiationResetKeyRef.current = null;
     missedRecruitmentContextCountRef.current = 0;
@@ -1736,7 +1844,6 @@ function SidePanel() {
 
   async function syncAmisCurrentUserIdentityFromTab(tabId: number) {
     const committeeUser = await resolveCurrentCommitteeUser();
-    if (!committeeUser) return;
 
     const response = await sendMessageToAmisTab(tabId, {
       type: GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE,
@@ -1760,6 +1867,17 @@ function SidePanel() {
     try {
       const activeTab = await getActiveTab();
       if (options.sourceTabId !== undefined && activeTab.id !== options.sourceTabId) return;
+
+      const interviewEvaluationRoute = activeTab.url
+        ? parseInterviewEvaluationContextFromUrl(activeTab.url)
+        : null;
+      if (interviewEvaluationRoute) {
+        await loadInterviewEvaluationTabContext(interviewEvaluationRoute);
+        return;
+      }
+      if (interviewEvaluationContextKeyRef.current !== null || interviewEvaluationTabContext) {
+        clearInterviewEvaluationTabContext();
+      }
 
       if (activeTab.url?.startsWith('https://amisapp.misa.vn/')) {
         await syncAmisCurrentUserIdentityFromTab(activeTab.id);
@@ -3029,6 +3147,22 @@ function SidePanel() {
     const isFlatTab = tab !== 'overview';
     const isCommitteeWorkspacePanel = tab === 'cv'
       && hasExtensionRole(user, 'COMMITTEE');
+    const cvApplicationsContext: AmisApplicationsForRecruitment | null = interviewEvaluationTabContext
+      ? {
+        amisRecruitmentId: interviewEvaluationTabContext.amisRecruitmentId,
+        jobPostingId: '',
+        total: 1,
+        applications: [interviewEvaluationTabContext.application],
+      }
+      : applicationsContext;
+    const cvApplicationsState: ApplicationsState = interviewEvaluationTabContext
+      ? 'READY'
+      : applicationsState;
+    const cvApplicationsMessage = interviewEvaluationTabContext ? null : applicationsMessage;
+    const cvAmisRecruitmentId = interviewEvaluationTabContext?.amisRecruitmentId ?? amisRecruitmentId;
+    const cvCurrentAmisUserId = interviewEvaluationTabContext?.currentAmisUserId ?? currentAmisUserId;
+    const cvActiveAmisCandidateId = interviewEvaluationTabContext ? null : activeAmisCandidateId;
+    const cvAmisRecruitmentRounds = interviewEvaluationTabContext?.amisRecruitmentRounds ?? amisRecruitmentRounds;
     return (
       <section key={tab} className={`workspace-panel workspace-panel-${tab}${isPinned ? ' is-pinned' : ''}${isFlatTab ? ' is-flat' : ''}${isCommitteeWorkspacePanel ? ' is-committee' : ''}`}>
         {!isFlatTab ? (
@@ -3113,30 +3247,41 @@ function SidePanel() {
             isCommittee={hasExtensionRole(user, 'COMMITTEE')}
             committeePersonnelName={isCommitteeWorkspacePanel ? user?.name?.trim() || null : null}
             committeePersonnelEmail={isCommitteeWorkspacePanel ? user?.email ?? null : null}
-            amisRecruitmentId={amisRecruitmentId}
-            currentAmisUserId={currentAmisUserId}
-            applicationsContext={applicationsContext}
-            applicationsState={applicationsState}
-            applicationsMessage={applicationsMessage}
+            amisRecruitmentId={cvAmisRecruitmentId}
+            currentAmisUserId={cvCurrentAmisUserId}
+            applicationsContext={cvApplicationsContext}
+            applicationsState={cvApplicationsState}
+            applicationsMessage={cvApplicationsMessage}
             result={result}
             snapshot={snapshot}
             autoSyncState={autoSyncState}
             selectedJobDescription={selectedJobDescription}
-            activeAmisCandidateId={activeAmisCandidateId}
+            activeAmisCandidateId={cvActiveAmisCandidateId}
             isAmisCandidateFormOpen={isAmisCandidateFormOpen}
-            amisRecruitmentRounds={amisRecruitmentRounds}
+            amisRecruitmentRounds={cvAmisRecruitmentRounds}
             pendingAmisUploadApplicationIds={pendingAmisUploadApplicationIds}
             aiEvaluationUploadedApplicationIds={aiEvaluationUploadedApplicationIds}
             cvUploadApplicationId={cvUploadApplicationId}
             aiScreeningApplicationId={aiScreeningApplicationId}
             aiEvaluationApplicationId={aiEvaluationApplicationId}
             onSelectWorkspaceTab={selectWorkspaceTab}
-            onLoadAmisApplications={loadAmisApplications}
+            onLoadAmisApplications={interviewEvaluationTabContext
+              ? (accessToken) => loadAmisApplications(
+                accessToken,
+                interviewEvaluationTabContext.amisRecruitmentId,
+                {
+                  currentAmisUserId: interviewEvaluationTabContext.currentAmisUserId,
+                },
+              )
+              : loadAmisApplications}
             onLoadSelectedJobDescriptionQuestionSet={loadSelectedJobDescriptionQuestionSet}
             onUploadApplicationCvToAmisForm={uploadApplicationCvToAmisForm}
             onUploadApplicationCvsToAmisForm={uploadApplicationCvsToAmisForm}
             onRunAiScreeningForApplication={runAiScreeningForApplication}
             onUploadAiEvaluationToAmis={uploadAiEvaluationToAmis}
+            onEvaluationAccessDenied={(message) => {
+              showExtensionToast('WARNING', 'Cảnh báo', message);
+            }}
           />
         ) : null}
         {tab === 'freelancer' && token ? (
@@ -3214,10 +3359,11 @@ function SidePanel() {
     const showSelfServiceWorkspace = showAuthenticatedWorkspace
       && (hasExtensionRole(user, 'FREELANCER') || hasExtensionRole(user, 'INTERNAL'))
       && !isCommitteeUser;
-    const workspaceTabsForRender = isCommitteeAmisWorkspace
+    const isInterviewEvaluationWorkspace = interviewEvaluationTabContext !== null;
+    const workspaceTabsForRender = isInterviewEvaluationWorkspace || isCommitteeAmisWorkspace
       ? workspaceTabsForUser.filter((tab) => tab.id === 'cv')
       : workspaceTabsForUser;
-    const visibleWorkspaceTabsForRender: WorkspaceTab[] = isCommitteeAmisWorkspace
+    const visibleWorkspaceTabsForRender: WorkspaceTab[] = isInterviewEvaluationWorkspace || isCommitteeAmisWorkspace
       ? ['cv']
       : visibleWorkspaceTabs;
 

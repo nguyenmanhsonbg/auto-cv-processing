@@ -424,7 +424,7 @@ export interface InterviewEvaluationSummary {
   hasCase: boolean;
   applicationId: string;
   caseId?: string;
-  candidate: { id: string; name?: string | null; email?: string | null; phone?: string | null };
+  candidate: { id: string; name?: string | null; email?: string | null; phone?: string | null; birthYear?: number | null };
   job: { id: string; title?: string | null; jobDescriptionVersionId?: string | null };
   template: InterviewEvaluationTemplate | null;
   currentRound: InterviewEvaluationRoundSummary | {
@@ -446,6 +446,7 @@ export interface InterviewEvaluationDetail {
     template: InterviewEvaluationTemplate;
     source?: string | null;
     sourceChannel?: string | null;
+    attractivePersonnelName?: string | null;
   };
   currentRound: InterviewEvaluationRoundSummary & {
     hrbpData: InterviewEvaluationFormData;

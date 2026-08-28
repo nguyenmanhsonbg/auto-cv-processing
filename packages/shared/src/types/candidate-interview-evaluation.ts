@@ -59,6 +59,16 @@ export interface InterviewEvaluationFormData {
     notes?: string;
   };
   hrbp?: {
+    /** Optional HRBP-owned overrides for the overview identity fields. */
+    candidateName?: string;
+    birthYear?: string;
+    jobTitle?: string;
+    reviewerNames?: string;
+    organizationUnit?: string;
+    departmentProject?: string;
+    workstream?: string;
+    requirementProfile?: string;
+    hiringReason?: string;
     educationCertificates?: string;
     foreignLanguage?: string;
     experienceSummary?: string;

@@ -131,6 +131,22 @@ export function isLikelyAmisRecruitmentPage(url: string) {
   }
 }
 
+export function parseInterviewEvaluationContextFromUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    const applicationPathMatch = parsedUrl.pathname.match(/\/interview-evaluations\/([^/?#]+)/i);
+    if (!applicationPathMatch?.[1]) return null;
+
+    return {
+      applicationId: decodeURIComponent(applicationPathMatch[1]),
+      amisRecruitmentId: parsedUrl.searchParams.get('amisRecruitmentId')?.trim() || null,
+      amisUserId: parsedUrl.searchParams.get('amisUserId')?.trim() || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function isAmisJobInitiationPage(url: string) {
   try {
     const parsedUrl = new URL(url);

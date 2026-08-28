@@ -32,6 +32,8 @@ type CriterionDefinition = Readonly<{ key: string; label: string; requirement: s
 const EMPTY_FORM: InterviewEvaluationFormData = {
   overall: { result: 'PENDING', strengths: '', concerns: '', notes: '' },
   hrbp: {
+    candidateName: '', birthYear: '', jobTitle: '', reviewerNames: '', organizationUnit: '', departmentProject: '',
+    workstream: '', requirementProfile: '', hiringReason: '',
     educationCertificates: '', foreignLanguage: '', experienceSummary: '', projectsHighlights: '',
     developmentMotivation: '', onboardingTimeline: '', concerns: '', level: '', placement: '',
     cvSource: '', salaryExpectation: '', noticePeriod: '', motivation: '', notes: '',
@@ -208,6 +210,13 @@ function EditableInfoRow({ label, value, placeholder, disabled, onChange }: Read
   return <tr><th scope="row"><label htmlFor={controlId}>{label}</label></th><td><Input id={controlId} className="evaluation-design-field" value={value} placeholder={placeholder} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></td></tr>;
 }
 
+function OverviewInfoRow({ label, value, placeholder = 'Chưa nhập', editable, onChange }: Readonly<{ label: string; value?: string | null; placeholder?: string; editable: boolean; onChange?: (value: string) => void }>) {
+  if (editable && onChange) {
+    return <EditableInfoRow label={label} value={value ?? ''} placeholder={placeholder} disabled={false} onChange={onChange} />;
+  }
+  return <DesignInfoRow label={label} value={value} placeholder={placeholder} />;
+}
+
 function InfoGroupRow({ label, description }: Readonly<{ label: string; description: string }>) {
   return <tr className="evaluation-info-group"><th scope="row">{label}</th><td>{description}</td></tr>;
 }
@@ -331,7 +340,7 @@ export function InterviewEvaluationPage() {
     updateFormData({ ...formData, committee: { ...formData.committee, [matrix]: { ...currentMatrix, [key]: nextRows } } });
   }
 
-  function updateOverviewField(field: 'level' | 'cvSource', value: string) {
+  function updateOverviewField(field: 'candidateName' | 'birthYear' | 'jobTitle' | 'reviewerNames' | 'organizationUnit' | 'departmentProject' | 'workstream' | 'requirementProfile' | 'hiringReason' | 'level' | 'cvSource', value: string) {
     if (!isManager || effectiveReviewerSection !== 'HRBP' || !canReview) return;
     updateFormData({ ...formData, hrbp: { ...formData.hrbp, [field]: value } });
   }
@@ -449,13 +458,24 @@ export function InterviewEvaluationPage() {
 
   const round = detail.currentRound;
   const currentInterviewLabel = interviewLabel(round.name);
-  const hrbpReviewer = detail.reviewers.find((reviewer) => reviewer.section === 'HRBP');
-  const committeeReviewerNames = detail.reviewers.filter((reviewer) => reviewer.section === 'COMMITTEE').map((reviewer) => reviewer.name).join(', ');
-  const reviewerNames = committeeReviewerNames || 'Chưa phân công';
+  const reviewerNames = detail.reviewers
+    .filter((reviewer) => reviewer.section === 'HRBP' || reviewer.section === 'COMMITTEE')
+    .map((reviewer) => reviewer.name?.trim())
+    .filter((name): name is string => Boolean(name) && name.toLowerCase() !== 'unknown user')
+    .join(', ') || 'Chưa phân công';
   const hrbpData = round.hrbpData ?? {};
   const committeeData = round.committeeData ?? {};
   const canEditOverview = isManager && canReview && effectiveReviewerSection === 'HRBP';
   const overviewHrbpData = canEditOverview ? formData.hrbp : hrbpData.hrbp ?? formData.hrbp;
+  const overviewCandidateName = overviewHrbpData?.candidateName?.trim() || detail.case.candidate.name || '';
+  const overviewBirthYear = overviewHrbpData?.birthYear?.trim() || (detail.case.candidate.birthYear?.toString() ?? '');
+  const overviewJobTitle = overviewHrbpData?.jobTitle?.trim() || detail.case.job.title || '';
+  const overviewReviewerNames = overviewHrbpData?.reviewerNames?.trim() || reviewerNames;
+  const overviewOrganizationUnit = overviewHrbpData?.organizationUnit?.trim() || '';
+  const overviewDepartmentProject = overviewHrbpData?.departmentProject?.trim() || '';
+  const overviewWorkstream = overviewHrbpData?.workstream?.trim() || '';
+  const overviewRequirementProfile = overviewHrbpData?.requirementProfile?.trim() || '';
+  const overviewHiringReason = overviewHrbpData?.hiringReason?.trim() || '';
   const defaultCvSource = formatCandidateSource(detail.case.source, detail.case.sourceChannel);
   const overviewCvSource = overviewHrbpData?.cvSource || defaultCvSource;
   const technicalValues = (isCommitteeReviewer ? formData.committee?.technicalCompetencies : committeeData.committee?.technicalCompetencies) ?? {};
@@ -469,17 +489,63 @@ export function InterviewEvaluationPage() {
   else canComplete = isManager && round.status === 'WAITING_AGGREGATION';
   const canAccessCompletion = isCommitteeReviewer || isManager;
 
+  const hrbpResponsibleName = detail.case.attractivePersonnelName?.trim() || undefined;
+
   return <div className="evaluation-page"><div className="evaluation-shell">
     <header className="evaluation-titlebar"><h1>Form Đánh Giá Ứng Viên Sau Phỏng Vấn {currentInterviewLabel}</h1></header>
     <div className="evaluation-subbar"><div className="evaluation-subbar-label">Đánh giá sau {currentInterviewLabel}</div><div className="evaluation-interview-date"><span>Ngày phỏng vấn:</span><span className="evaluation-date-value"><CalendarDays aria-hidden="true" />{formatEvaluationDate(detail)}</span></div><div className="evaluation-template-note">{getTemplateDescription(detail.case.template)}</div></div>
     {error ? <div className="evaluation-error">{error}</div> : null}
     <div className="evaluation-layout">
-   <aside className="evaluation-sidebar" aria-label="Điều hướng phiếu đánh giá"><div className="evaluation-sidebar-card"><h2 className="evaluation-sidebar-title">Điều hướng phiếu</h2><nav className="evaluation-navigation"><a href="#overview">I. Thông tin ứng viên</a><a href="#hrbp">II. Đánh giá từ HRBP</a><a href="#committee">III. Đánh giá HĐCM</a><div className="evaluation-navigation-subitems"><a href="#technical">III.1 Năng lực chuyên môn</a><a href="#personal-growth">III.2 Nhận diện con người &amp; Tiềm năng phát triển</a></div></nav></div><div className="evaluation-sidebar-card evaluation-history-card"><h2 className="evaluation-sidebar-title">Lịch sử chỉnh sửa</h2><div className="evaluation-history-content"><div className="evaluation-history">{detail.audits.length === 0 ? <span className="evaluation-empty-value">Chưa có lịch sử.</span> : detail.audits.map((audit) => <div className="evaluation-history-item" key={audit.id}><time className="evaluation-history-timestamp" dateTime={audit.createdAt}>{formatRecruitmentDateTime(audit.createdAt)}</time><span className="evaluation-history-action">{getHistoryLabel(audit.action)}</span></div>)}</div><span className="evaluation-history-scroll-indicator" aria-hidden="true" /></div></div></aside>
+   <aside className="evaluation-sidebar" aria-label="Điều hướng phiếu đánh giá"><div className="evaluation-sidebar-card"><nav className="evaluation-navigation"><a href="#overview">I. Thông tin ứng viên</a><a href="#hrbp">II. Đánh giá từ HRBP phụ trách</a><a href="#committee">III. Đánh giá của hội đồng chuyên môn</a><div className="evaluation-navigation-subitems"><a href="#technical">III.1 Năng lực chuyên môn</a><a href="#personal-growth">III.2 Nhận diện con người &amp; Tiềm năng phát triển</a></div></nav></div><div className="evaluation-sidebar-card evaluation-history-card"><h2 className="evaluation-sidebar-title">Lịch sử chỉnh sửa</h2><div className="evaluation-history-content"><div className="evaluation-history">{detail.audits.length === 0 ? <span className="evaluation-empty-value">Chưa có lịch sử.</span> : detail.audits.map((audit) => <div className="evaluation-history-item" key={audit.id}><time className="evaluation-history-timestamp" dateTime={audit.createdAt}>{formatRecruitmentDateTime(audit.createdAt)}</time><span className="evaluation-history-action">{getHistoryLabel(audit.action)}</span></div>)}</div><span className="evaluation-history-scroll-indicator" aria-hidden="true" /></div></div></aside>
       <main className="evaluation-main">
-        <section id="overview" className="evaluation-design-block"><SectionHeader title="I. Thông tin ứng viên" tone="blue" /><table className="evaluation-info-table"><tbody><DesignInfoRow label="Họ tên ứng viên" value={detail.case.candidate.name} /><DesignInfoRow label="Năm sinh" placeholder="VD: 1995" /><DesignInfoRow label="Vị trí ứng tuyển" value={detail.case.job.title} placeholder="Tên vị trí..." /><InfoGroupRow label="Dự kiến sắp xếp công việc" description="Sau 1st interview, HRBP tóm tắt các thông tin chính về phương án sắp xếp công việc trong trường hợp offer ứng viên" /><DesignInfoRow label="- Đơn vị (N-1)" /><DesignInfoRow label="- Bộ phận/Dự án (N-2)" /><DesignInfoRow label="- Mảng việc chuyên hướng" /><DesignInfoRow label="- Chân dung yêu cầu" /><DesignInfoRow label="- Lý do tuyển dụng" /><InfoGroupRow label="Tổng quan đánh giá" description="Dựa trên đánh giá 1st interview, HRBP cập nhật thông tin về xếp loại Level/Vùng dự kiến và mức độ tài năng/tiềm năng của ứng viên so với chân dung vị trí" />{canEditOverview ? <EditableInfoRow label="Xếp loại Level – Vùng – Loại" value={overviewHrbpData?.level ?? ''} placeholder="VD: Level 3 – Vùng B – Loại 2" disabled={!canEditOverview} onChange={(value) => updateOverviewField('level', value)} /> : <DesignInfoRow label="Xếp loại Level – Vùng – Loại" value={overviewHrbpData?.level} placeholder="VD: Level 3 – Vùng B – Loại 2" />}{canEditOverview ? <EditableInfoRow label="Nguồn CV" value={overviewCvSource} placeholder="LinkedIn / Referral / JD..." disabled={!canEditOverview} onChange={(value) => updateOverviewField('cvSource', value)} /> : <DesignInfoRow label="Nguồn CV" value={overviewCvSource} placeholder="LinkedIn / Referral / JD..." />}<DesignInfoRow label="HRBP phụ trách" value={hrbpReviewer?.name} placeholder="Họ tên HRBP..." /><DesignInfoRow label="Người đánh giá (HM/HDCM)" value={reviewerNames} placeholder="Họ tên người đánh giá..." /></tbody></table></section>
+        <section id="overview" className="evaluation-design-block">
+          <SectionHeader title="I. Thông tin ứng viên" tone="blue" />
+          <table className="evaluation-info-table">
+            <tbody>
+              <OverviewInfoRow
+                label="Họ tên ứng viên"
+                value={overviewCandidateName}
+                placeholder="Họ tên ứng viên..."
+                editable={canEditOverview}
+                onChange={(value) => updateOverviewField('candidateName', value)}
+              />
+              <OverviewInfoRow
+                label="Năm sinh"
+                value={overviewBirthYear}
+                placeholder="VD: 1995"
+                editable={canEditOverview}
+                onChange={(value) => updateOverviewField('birthYear', value)}
+              />
+              <OverviewInfoRow
+                label="Vị trí ứng tuyển"
+                value={overviewJobTitle}
+                placeholder="Tên vị trí..."
+                editable={canEditOverview}
+                onChange={(value) => updateOverviewField('jobTitle', value)}
+              />
+              <InfoGroupRow label="Dự kiến sắp xếp công việc" description="Sau 1st interview, HRBP tóm tắt các thông tin chính về phương án sắp xếp công việc trong trường hợp offer ứng viên" />
+              <OverviewInfoRow label="- Đơn vị (N-1)" value={overviewOrganizationUnit} placeholder="Chưa nhập" editable={canEditOverview} onChange={(value) => updateOverviewField('organizationUnit', value)} />
+              <OverviewInfoRow label="- Bộ phận/Dự án (N-2)" value={overviewDepartmentProject} placeholder="Chưa nhập" editable={canEditOverview} onChange={(value) => updateOverviewField('departmentProject', value)} />
+              <OverviewInfoRow label="- Mảng việc chuyên hướng" value={overviewWorkstream} placeholder="Chưa nhập" editable={canEditOverview} onChange={(value) => updateOverviewField('workstream', value)} />
+              <OverviewInfoRow label="- Chân dung yêu cầu" value={overviewRequirementProfile} placeholder="Chưa nhập" editable={canEditOverview} onChange={(value) => updateOverviewField('requirementProfile', value)} />
+              <OverviewInfoRow label="- Lý do tuyển dụng" value={overviewHiringReason} placeholder="Chưa nhập" editable={canEditOverview} onChange={(value) => updateOverviewField('hiringReason', value)} />
+              <InfoGroupRow label="Tổng quan đánh giá" description="Dựa trên đánh giá 1st interview, HRBP cập nhật thông tin về xếp loại Level/Vùng dự kiến và mức độ tài năng/tiềm năng của ứng viên so với chân dung vị trí" />
+              {canEditOverview ? <EditableInfoRow label="Xếp loại Level – Vùng – Loại" value={overviewHrbpData?.level ?? ''} placeholder="VD: Level 3 – Vùng B – Loại 2" disabled={!canEditOverview} onChange={(value) => updateOverviewField('level', value)} /> : <DesignInfoRow label="Xếp loại Level – Vùng – Loại" value={overviewHrbpData?.level} placeholder="VD: Level 3 – Vùng B – Loại 2" />}
+              {canEditOverview ? <EditableInfoRow label="Nguồn CV" value={overviewCvSource} placeholder="LinkedIn / Referral / JD..." disabled={!canEditOverview} onChange={(value) => updateOverviewField('cvSource', value)} /> : <DesignInfoRow label="Nguồn CV" value={overviewCvSource} placeholder="LinkedIn / Referral / JD..." />}
+              <DesignInfoRow label="HRBP phụ trách" value={hrbpResponsibleName} placeholder="Chưa xác định" />
+              <OverviewInfoRow
+                label="Người đánh giá (HM/HDCM)"
+                value={overviewReviewerNames}
+                placeholder="Họ tên người đánh giá..."
+                editable={canEditOverview}
+                onChange={(value) => updateOverviewField('reviewerNames', value)}
+              />
+            </tbody>
+          </table>
+        </section>
         <SalaryProposalSection data={salaryData} disabled={!isManager} onChange={updateSalary} />
         <section id="hrbp" className="evaluation-design-block"><SectionHeader title="II. Đánh giá từ HRBP phụ trách" tone="green" /><div className="evaluation-section-description">Mục này do HRBP hoàn thiện trước buổi phỏng vấn chuyên môn, dựa trên hồ sơ CV, kết quả phone screening và quan sát trong quá trình tiếp xúc. Đây là sở cứ quan trọng để HM/HĐCM và BGĐ đánh giá toàn diện ứng viên.</div><table className="evaluation-edit-table"><tbody>{HRBP_FIELDS.map((field) => !isManager || isCommitteeReviewer ? <ReadOnlyHrbpRow key={field.key} label={field.label} value={`${getHrbpValue(hrbpData.hrbp, field.key) ?? ''}`} /> : <EditableHrbpRow key={field.key} label={field.label} value={`${getHrbpValue(formData.hrbp, field.key) ?? ''}`} disabled={!canReview} onChange={(value) => updateHrbp(field.key, value)} />)}</tbody></table></section>
-        {canViewCommittee ? <section id="committee" className="evaluation-design-block evaluation-committee-section"><SectionHeader title="III. Đánh giá của Hội Đồng Chuyên Môn" tone="committee" /><div className="evaluation-section-description committee-description">Mục này do Hội đồng chuyên môn hoàn thiện trong và sau buổi phỏng vấn. Đánh giá theo Khung năng lực (Competency Framework) đã ban hành cho từng vị trí. Với vị trí chưa có KNL, HDCM đánh giá theo thông tin của Careerpath đã được ban hành đối với từng level tương ứng.</div><div id="technical" className="evaluation-matrix-section"><div className="evaluation-matrix-title">III.1 Năng lực chuyên môn <span>(Functional Competencies – theo Khung Năng lực)</span></div><div className="evaluation-matrix-content"><CommitteeMatrix matrix="technicalCompetencies" criteria={TECHNICAL_CRITERIA} legend={TECHNICAL_LEGEND} disabled={!canEditCommittee} values={technicalValues} onChange={(key, rowIndex, patch) => updateCommitteeMatrix('technicalCompetencies', key, rowIndex, patch)} /></div></div><div id="personal-growth" className="evaluation-matrix-section"><div className="evaluation-matrix-title">III.2 Nhận diện con người &amp; Tiềm năng phát triển (Personal &amp; Growth Potential)</div><div className="evaluation-matrix-content"><CommitteeMatrix matrix="personalGrowth" criteria={PERSONAL_GROWTH_CRITERIA} legend={PERSONAL_LEGEND} disabled={!canEditCommittee} values={personalValues} onChange={(key, rowIndex, patch) => updateCommitteeMatrix('personalGrowth', key, rowIndex, patch)} /></div></div><div className="evaluation-committee-comment"><div className="evaluation-committee-comment-title">Nhận xét tổng quan của HĐCM</div><Textarea className="evaluation-comment-field" value={isCommitteeReviewer ? formData.committee?.notes ?? '' : committeeData.committee?.notes ?? ''} disabled={!canEditCommittee} placeholder="Nhập nhận xét..." onChange={(event) => updateFormData({ ...formData, committee: { ...formData.committee, notes: event.target.value } })} /></div></section> : null}
+        {canViewCommittee ? <section id="committee" className="evaluation-design-block evaluation-committee-section"><SectionHeader title="III. Đánh giá của Hội Đồng Chuyên Môn" tone="committee" /><div className="evaluation-section-description committee-description">Mục này do Hội đồng chuyên môn hoàn thiện trong và sau buổi phỏng vấn. Đánh giá theo Khung năng lực (Competency Framework) đã ban hành cho từng vị trí. Với vị trí chưa có KNL, HDCM đánh giá theo thông tin của Careerpath đã được ban hành đối với từng level tương ứng.</div><div id="technical" className="evaluation-matrix-section"><div className="evaluation-matrix-title">III.1 Năng lực chuyên môn <span>(Functional Competencies – theo Khung Năng lực)</span></div><div className="evaluation-matrix-content"><CommitteeMatrix matrix="technicalCompetencies" criteria={TECHNICAL_CRITERIA} legend={TECHNICAL_LEGEND} disabled={!canEditCommittee} values={technicalValues} onChange={(key, rowIndex, patch) => updateCommitteeMatrix('technicalCompetencies', key, rowIndex, patch)} /></div></div><div id="personal-growth" className="evaluation-matrix-section"><div className="evaluation-matrix-title">III.2 Nhận diện con người &amp; Tiềm năng phát triển (Personal &amp; Growth Potential)</div><div className="evaluation-matrix-content"><CommitteeMatrix matrix="personalGrowth" criteria={PERSONAL_GROWTH_CRITERIA} legend={PERSONAL_LEGEND} disabled={!canEditCommittee} values={personalValues} onChange={(key, rowIndex, patch) => updateCommitteeMatrix('personalGrowth', key, rowIndex, patch)} /></div></div><div className="evaluation-committee-comment"><div className="evaluation-committee-comment-title">Nhận xét tổng quan của HĐCM</div><Textarea className="evaluation-comment-field" value={isCommitteeReviewer ? formData.committee?.notes ?? '' : committeeData.committee?.notes ?? ''} disabled={!canEditCommittee} title="Đánh giá sơ bộ đáp ứng yêu cầu công việc, bối cảnh/ tính chất dự án hiện tại? Những yếu tố cần đánh giá thêm, đề xuất tới HM/BGĐ nếu có." placeholder={'Tổng quan:\n\n- Đánh giá ở Level, Vùng, Mức nào. Lý do đánh giá Level, Vùng, Mức đó\n- Điểm mạnh\n- Điểm cần cải thiện'} onChange={(event) => updateFormData({ ...formData, committee: { ...formData.committee, notes: event.target.value } })} /></div></section> : null}
       </main>
     </div>
     <footer className="evaluation-footer"><Button type="button" className="evaluation-footer-cancel" disabled={saving} onClick={cancelEditing}>Hủy</Button>{canReview || isManager ? <Button type="button" className="evaluation-footer-draft" disabled={saving} onClick={saveAllDraft}>Lưu nháp</Button> : null}{canAccessCompletion ? <Button type="button" className="evaluation-footer-complete" disabled={saving || !canComplete} onClick={completeCurrentReview}>Hoàn thành</Button> : null}{isManager && round.status === 'COMPLETED' && round.nextRoundKey ? <Button type="button" className="evaluation-footer-next" disabled={saving} onClick={moveToNextRound}>Chuyển vòng {round.nextRoundKey}</Button> : null}</footer>
