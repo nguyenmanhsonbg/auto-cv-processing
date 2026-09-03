@@ -8592,6 +8592,10 @@ dd {
   container-type: inline-size;
 }
 
+.referral-filter-row .shared-filter-placeholder {
+  color: #000000;
+}
+
 @container (max-width: 240px) {
   .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta {
     min-height: 56px;
@@ -9389,9 +9393,51 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   grid-column: 3;
 }
 
+.referral-filter-row .shared-filter-date-range>span {
+  margin-bottom: 4px;
+  color: #45464D;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 16px;
+}
+
 .referral-filter-row .shared-filter-date-range-control {
+  gap: 4px;
   min-height: 40px;
   border-radius: 8px;
+  box-shadow: none;
+}
+
+.referral-filter-row .shared-filter-date-range-value {
+  flex: 1 1 0;
+  color: #000000;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.referral-filter-row .shared-filter-date-range-control svg {
+  width: 24px;
+  height: 24px;
+  color: #000000;
+  opacity: 1;
+}
+
+.referral-filter-row .shared-filter-date-range-clear-btn {
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  color: #737373;
+  background: transparent;
+}
+
+.referral-filter-row .shared-filter-date-range-clear-btn:hover {
+  color: #737373;
+  background: transparent;
 }
 
 .referral-filter-trigger:focus,
@@ -9442,6 +9488,84 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
 .referral-filter-options button.is-selected {
   color: #15803D;
   background: #ECFDF5;
+}
+
+.referral-cv-status-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.referral-cv-status-filter .cv-filter-label {
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 19.6px;
+}
+
+.referral-cv-status-filter .referral-filter-trigger {
+  height: 36px;
+  min-height: 36px;
+  border: 1px solid #E5E5E5;
+  border-radius: 6px;
+  padding: 7px 14px;
+  gap: 10px;
+  color: #262626;
+  line-height: 19.6px;
+}
+
+.referral-cv-status-filter .referral-filter-trigger > span {
+  color: #262626;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 19.6px;
+}
+
+.referral-cv-status-filter .referral-filter-trigger svg {
+  width: 16px;
+  height: 16px;
+  color: #262626;
+}
+
+.referral-cv-status-filter .referral-filter-options {
+  top: calc(100% + 2px);
+  gap: 2px;
+  max-height: 230px;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px;
+  background: #FFFFFF;
+  box-shadow: 0 4px 18px rgba(47, 43, 61, 0.16);
+}
+
+.referral-cv-status-filter .referral-filter-options button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 0;
+  padding: 8px 20px;
+  color: #262626;
+  background: #FFFFFF;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 19.6px;
+  text-align: left;
+}
+
+.referral-cv-status-filter .referral-filter-options button:hover {
+  color: #262626;
+  background: #FFFFFF;
+}
+
+.referral-cv-status-filter .referral-filter-options button.is-selected {
+  color: #3B82F6;
+  background: #DBEAFE;
+  border-radius: 6px;
 }
 
 .referral-jd-options {

@@ -171,15 +171,23 @@ function ReferralFilterDropdown({
   value,
   options,
   onChange,
+  menuVariant = 'native',
   disabled = false,
+  className = '',
 }: {
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
+  menuVariant?: 'native' | 'custom';
   disabled?: boolean;
+  className?: string;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  useEffect(() => {
+    if (disabled) setIsOpen(false);
+  }, [disabled]);
+
   return (
     <FilterDropdown
       label={label}
@@ -193,10 +201,11 @@ function ReferralFilterDropdown({
         onChange(nextValue);
         setIsOpen(false);
       }}
-      className="referral-custom-filter referral-filter-dropdown"
+      className={`referral-custom-filter referral-filter-dropdown ${className}`.trim()}
       triggerClassName="referral-filter-trigger"
       menuClassName="referral-filter-options"
       optionClassName="referral-filter-option"
+      menuVariant={menuVariant}
     />
   );
 }
@@ -450,9 +459,15 @@ export function ReferralManagementPanel({
   const [cvRoundOptions, setCvRoundOptions] = useState<ReferralRoundOption[]>(() => (
     buildReferralRoundOptions([])
   ));
-  const [roundsLoading, setRoundsLoading] = useState(false);
+  const [roundsLoadedScopeKey, setRoundsLoadedScopeKey] = useState<string | null>(null);
   const [jdFilter, setJdFilter] = useState<JdFilter>([]);
   const isAllJdSelected = jdFilter.length === 0;
+  const roundsScopeKey = useMemo(() => {
+    const selectedJdIds = jdFilter.map(String).sort().join(',');
+    return `${source}:${selectedJdIds || 'ALL'}`;
+  }, [jdFilter, source]);
+  const roundsFilterLoading = usesDynamicReferralRounds(source)
+    && roundsLoadedScopeKey !== roundsScopeKey;
   const [isJdFilterOpen, setIsJdFilterOpen] = useState(false);
   const [dateRangeFilter, setDateRangeFilter] = useState({ from: '', to: '' });
   const [accountStatusFilter, setAccountStatusFilter] = useState<AccountStatusFilter>('ALL');
@@ -654,15 +669,12 @@ export function ReferralManagementPanel({
   useEffect(() => {
     if (!usesDynamicReferralRounds(source)) {
       setCvRoundOptions(buildReferralRoundOptions([]));
-      setRoundsLoading(false);
       return undefined;
     }
 
     let cancelled = false;
 
     async function loadRoundsForFilter() {
-      setRoundsLoading(true);
-
       const scopedPostings = isAllJdSelected
         ? jobPostings
         : jobPostings.filter((posting) => jdFilter.includes(posting.jobPostingId));
@@ -703,7 +715,7 @@ export function ReferralManagementPanel({
 
       if (!cancelled) {
         setCvRoundOptions(options);
-        setRoundsLoading(false);
+        setRoundsLoadedScopeKey(roundsScopeKey);
       }
     }
 
@@ -711,7 +723,7 @@ export function ReferralManagementPanel({
     return () => {
       cancelled = true;
     };
-  }, [allPeopleForJd, isAllJdSelected, jdFilter, jobPostings, loadRecruitmentRounds, source]);
+  }, [allPeopleForJd, isAllJdSelected, jdFilter, jobPostings, loadRecruitmentRounds, roundsScopeKey, source]);
 
   useEffect(() => {
     if (cvStatusFilter === 'ALL' || cvRoundOptions.some((option) => option.value === cvStatusFilter)) return;
@@ -955,7 +967,9 @@ export function ReferralManagementPanel({
         <ReferralFilterDropdown
           label="Tình trạng CV"
           value={cvStatusFilter}
-          disabled={source === 'FREELANCER' && roundsLoading}
+          disabled={roundsFilterLoading}
+          className="referral-cv-status-filter"
+          menuVariant="custom"
           options={cvRoundOptions.map((option) => ({ value: option.value, label: option.label }))}
           onChange={(value) => {
             setCvStatusFilter(value as CvStatusFilter);
@@ -965,6 +979,7 @@ export function ReferralManagementPanel({
         <MultiSelectFilter
           label="Lọc theo JD"
           allLabel="Tất cả JD"
+          placeholder="Tất cả JD"
           values={jdFilter}
           options={availableJds.map(([value, jd]) => ({ value, label: jd.title, meta: jd.createdAt ? (formatDate(jd.createdAt) ?? undefined) : undefined }))}
           isOpen={isJdFilterOpen}

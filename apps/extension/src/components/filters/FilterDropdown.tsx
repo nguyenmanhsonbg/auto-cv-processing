@@ -19,6 +19,7 @@ type FilterDropdownProps<Value extends string> = {
   triggerClassName?: string;
   menuClassName?: string;
   optionClassName?: string;
+  menuVariant?: 'native' | 'custom';
   disabled?: boolean;
 };
 
@@ -35,10 +36,21 @@ export function FilterDropdown<Value extends string>({
   triggerClassName = 'cv-filter-trigger',
   menuClassName = 'cv-filter-menu',
   optionClassName = 'cv-filter-option',
+  menuVariant = 'native',
   disabled = false,
 }: FilterDropdownProps<Value>) {
   const dropdownRef = useRef<HTMLDivElement | null>(null);
-  const selectedLabel = useMemo(() => options.find((option) => option.value === value)?.label ?? options[0]?.label ?? '', [options, value]);
+  const visibleOptions = useMemo(() => {
+    if (menuVariant !== 'custom') return options;
+
+    const seenValues = new Set<Value>();
+    return options.filter((option) => {
+      if (seenValues.has(option.value)) return false;
+      seenValues.add(option.value);
+      return true;
+    });
+  }, [menuVariant, options]);
+  const selectedLabel = useMemo(() => visibleOptions.find((option) => option.value === value)?.label ?? visibleOptions[0]?.label ?? '', [value, visibleOptions]);
 
   useEffect(() => {
     if (!isOpen || !onClose) return undefined;
@@ -56,16 +68,33 @@ export function FilterDropdown<Value extends string>({
         <span>{selectedLabel}</span>
         <ChevronDownIcon className={isOpen ? 'is-open' : ''} />
       </button>
-      {isOpen ? (
+      {isOpen && menuVariant === 'custom' ? (
+        <div className={menuClassName} aria-label={label} role="listbox">
+          {visibleOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className={`${optionClassName}${option.value === value ? ' is-selected' : ''}`}
+              disabled={disabled}
+              onClick={() => onSelect(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {isOpen && menuVariant === 'native' ? (
         <select
           className={menuClassName}
           aria-label={label}
           value={value}
-          size={Math.max(1, Math.min(options.length, 6))}
+          size={Math.max(1, Math.min(visibleOptions.length, 6))}
           disabled={disabled}
           onChange={(event) => onSelect(event.currentTarget.value as Value)}
         >
-          {options.map((option) => (
+          {visibleOptions.map((option) => (
             <option key={option.value} value={option.value} className={`${optionClassName}${option.value === value ? ' is-selected' : ''}`}>
               {option.label}
             </option>
