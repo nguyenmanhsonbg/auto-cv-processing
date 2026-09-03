@@ -44,7 +44,7 @@ import { EXTENSION_TASK_QUEUE_ENABLED, FACEBOOK_MAX_IMAGE_ATTACHMENTS } from '@/
 import { isAllowedSidePanelUrl } from '@/lib/side-panel-scope';
 import {
   AMIS_OVERLAY_HIDE_MESSAGE_TYPE,
-  AMIS_OVERLAY_SHOW_MESSAGE_TYPE,
+  isAmisSidePanelCloseRequestMessage,
   isAmisOverlayOpenRequestMessage,
   isAmisOverlayReadyMessage,
 } from '@/integrations/amis/amis-overlay-contract';
@@ -103,6 +103,7 @@ const AMIS_CAPTURE_UPDATED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CAPTURE_UPDATED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'AMIS_DIAGNOSTIC_EVENT';
 const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 const AMIS_JOB_STATUS_UPDATED_MESSAGE_TYPE = 'AMIS_JOB_STATUS_UPDATED';
+const NATIVE_SIDE_PANEL_PATH = 'side-panel.html';
 let lastCareerSyncSignature: string | null = null;
 let lastApplicationsSyncSignature: string | null = null;
 const activeJobStatusSyncKeys = new Set<string>();
@@ -134,12 +135,12 @@ installAmisDebuggerCapture(
 
 chrome.runtime?.onInstalled.addListener(() => {
   scheduleExtensionTaskPolling();
-  void syncAmisOverlayForActiveTabs();
+  void syncAmisPanelForActiveTabs();
 });
 
 chrome.runtime?.onStartup?.addListener(() => {
   scheduleExtensionTaskPolling();
-  void syncAmisOverlayForActiveTabs();
+  void syncAmisPanelForActiveTabs();
 });
 
 chrome.alarms?.onAlarm.addListener((alarm) => {
@@ -151,9 +152,7 @@ scheduleExtensionTaskPolling();
 
 chrome.tabs?.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url !== undefined || changeInfo.status === 'complete') {
-    if (tab.active) {
-      void syncAmisOverlayForTab(tabId, tab.url);
-    }
+    void syncAmisPanelForTab(tabId, tab.url, { ensureFallback: tab.active });
   }
 
   if (changeInfo.status !== 'complete' || !isAmisPageUrl(tab.url)) return;
@@ -166,13 +165,20 @@ chrome.tabs?.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs?.onActivated.addListener(({ tabId }) => {
   void attachAmisDebuggerToTab(tabId);
-  void syncAmisOverlayForTabId(tabId);
+  void syncAmisPanelForTabId(tabId);
 });
 
 chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
   if (isAmisOverlayReadyMessage(message)) {
-    void syncAmisOverlayForSenderTab(sender);
+    void syncAmisPanelForSenderTab(sender);
     return;
+  }
+
+  if (isAmisSidePanelCloseRequestMessage(message)) {
+    void closeNativeSidePanelForActiveTab()
+      .then((ok) => sendResponse({ ok }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
   }
 
   if (isAmisOverlayOpenRequestMessage(message)) {
@@ -309,7 +315,7 @@ chrome.runtime?.onConnect?.addListener((port) => {
 void Promise.all([
   runExtensionTaskPoll(),
   attachToOpenAmisTabs(),
-  syncAmisOverlayForActiveTabs(),
+  syncAmisPanelForActiveTabs(),
 ]);
 
 async function attachToOpenAmisTabs() {
@@ -1229,14 +1235,14 @@ async function handleAmisCandidateStageCaptured(
   ).catch(() => undefined);
 }
 
-async function syncAmisOverlayForActiveTabs() {
+async function syncAmisPanelForActiveTabs() {
   const activeTabs = await chrome.tabs?.query({ active: true }) ?? [];
   await Promise.all(activeTabs
     .filter((tab): tab is ChromeTab & { id: number } => typeof tab.id === 'number')
-    .map((tab) => syncAmisOverlayForTab(tab.id, tab.url)));
+    .map((tab) => syncAmisPanelForTab(tab.id, tab.url)));
 }
 
-async function syncAmisOverlayForTabId(tabId: number) {
+async function syncAmisPanelForTabId(tabId: number) {
   let tab: ChromeTab | undefined;
   try {
     tab = await chrome.tabs?.get(tabId);
@@ -1244,19 +1250,65 @@ async function syncAmisOverlayForTabId(tabId: number) {
     // The tab may close between the activation event and the lookup.
   }
 
-  await syncAmisOverlayForTab(tabId, tab?.url);
+  await syncAmisPanelForTab(tabId, tab?.url);
 }
 
-async function syncAmisOverlayForTab(
+async function syncAmisPanelForTab(
   tabId: number,
   url: string | undefined,
+  options: { ensureFallback?: boolean } = {},
 ) {
-  if (!isAllowedSidePanelUrl(url)) {
-    await sendAmisOverlayMessage(tabId, { type: AMIS_OVERLAY_HIDE_MESSAGE_TYPE });
+  const nativeSidePanelConfigured = await configureNativeSidePanelForTab(tabId, url);
+  if (nativeSidePanelConfigured) {
+    if (!isAllowedSidePanelUrl(url)) {
+      await closeNativeSidePanelForActiveTab(tabId);
+    }
+    await hideAmisOverlayForTab(tabId);
     return;
   }
 
-  await ensureAmisOverlayForTab(tabId);
+  if (!isAllowedSidePanelUrl(url)) {
+    await hideAmisOverlayForTab(tabId);
+    return;
+  }
+
+  if (options.ensureFallback !== false) {
+    console.error('[AMIS_NATIVE_SIDE_PANEL_REQUIRED]', {
+      tabId,
+      url,
+      reason: 'Native side panel is unavailable; overlay fallback is disabled.',
+    });
+  }
+}
+
+async function configureNativeSidePanelForTab(tabId: number, url: string | undefined) {
+  const sidePanel = chrome.sidePanel;
+  if (!sidePanel?.setOptions) {
+    console.warn('[NATIVE_SIDE_PANEL_UNAVAILABLE]', {
+      tabId,
+      url,
+      reason: 'chrome.sidePanel.setOptions is unavailable.',
+    });
+    return false;
+  }
+
+  try {
+    // Keep the manifest default panel disabled. Otherwise a global panel can
+    // remain visible on tabs that do not have a tab-specific configuration.
+    await sidePanel.setOptions({ enabled: false });
+    await sidePanel.setOptions({
+      tabId,
+      path: NATIVE_SIDE_PANEL_PATH,
+      enabled: isAllowedSidePanelUrl(url),
+    });
+    return true;
+  } catch (error) {
+    console.warn('[NATIVE_SIDE_PANEL_UNAVAILABLE]', {
+      tabId,
+      message: error instanceof Error ? error.message : 'Unknown side panel error.',
+    });
+    return false;
+  }
 }
 
 async function sendAmisOverlayMessage(tabId: number, message: { type: string }) {
@@ -1320,16 +1372,25 @@ async function handleAmisSourceColumnData(
   }
 }
 
-async function syncAmisOverlayForSenderTab(sender: ChromeMessageSender) {
+async function syncAmisPanelForSenderTab(sender: ChromeMessageSender) {
   const tabId = sender.tab?.id;
   if (tabId === undefined) return;
-  await syncAmisOverlayForTab(tabId, sender.tab?.url);
+  await syncAmisPanelForTab(tabId, sender.tab?.url);
 }
 
 async function openAmisOverlay(sender: ChromeMessageSender) {
   const tabId = sender.tab?.id;
   if (tabId === undefined || !isAllowedSidePanelUrl(sender.tab?.url)) return;
-  await openAmisOverlayForTab(tabId);
+
+  // sidePanel.open() requires a user gesture. Captures are background events,
+  // so only configure the native panel here and leave it closed if it was not
+  // already opened by the user. The popup calls sidePanel.open() directly.
+  if (await configureNativeSidePanelForTab(tabId, sender.tab?.url)) {
+    await hideAmisOverlayForTab(tabId);
+    return;
+  }
+
+  await hideAmisOverlayForTab(tabId);
 }
 
 async function openAmisOverlayForTab(tabId: number) {
@@ -1347,29 +1408,88 @@ async function openAmisOverlayForTab(tabId: number) {
     };
   }
 
-  const opened = await ensureAmisOverlayForTab(tabId);
-  return opened
-    ? { ok: true }
-    : { ok: false, error: 'AMIS overlay did not become ready.' };
-}
-
-async function ensureAmisOverlayForTab(tabId: number) {
-  if (await sendAmisOverlayMessage(tabId, { type: AMIS_OVERLAY_SHOW_MESSAGE_TYPE })) {
-    return true;
+  const nativeResult = await openNativeSidePanelForTab(tabId);
+  if (nativeResult.ok) {
+    await hideAmisOverlayForTab(tabId);
+    return { ok: true };
   }
 
-  if (!chrome.scripting?.executeScript) return false;
+  return nativeResult;
+}
+
+async function openNativeSidePanelForTab(tabId: number): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
+  const sidePanel = chrome.sidePanel;
+  if (!sidePanel?.open || !sidePanel.setOptions) {
+    return {
+      ok: false,
+      error: 'Native Side Panel không khả dụng. Vui lòng cập nhật Chrome/Edge lên phiên bản 116 trở lên.',
+    };
+  }
+
+  try {
+    await sidePanel.setOptions({
+      tabId,
+      path: NATIVE_SIDE_PANEL_PATH,
+      enabled: true,
+    });
+    await sidePanel.open({ tabId });
+    return { ok: true };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Unknown side panel error.';
+    console.warn('[NATIVE_SIDE_PANEL_OPEN_FAILED]', {
+      tabId,
+      message: detail,
+    });
+    return {
+      ok: false,
+      error: `Native Side Panel không mở được: ${detail}`,
+    };
+  }
+}
+
+async function hideAmisOverlayForTab(tabId: number) {
+  await sendAmisOverlayMessage(tabId, { type: AMIS_OVERLAY_HIDE_MESSAGE_TYPE });
+
+  // A content script from an older extension instance can leave its DOM host
+  // behind after the extension is reloaded. Directly remove that host so the
+  // stale iframe cannot continue covering the AMIS page.
+  if (!chrome.scripting?.executeScript) return;
 
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ['assets/amis-overlay.js'],
+      func: () => {
+        document.getElementById('__vcs_recruitment_extension_overlay__')?.remove();
+      },
     });
   } catch {
+    // The tab may be navigating or may no longer allow script injection.
+  }
+}
+
+async function closeNativeSidePanelForActiveTab(tabId?: number) {
+  const sidePanel = chrome.sidePanel;
+  if (!sidePanel?.close) return false;
+
+  let resolvedTabId = tabId;
+  if (typeof resolvedTabId !== 'number') {
+    const [activeTab] = await chrome.tabs?.query({ active: true, currentWindow: true }) ?? [];
+    resolvedTabId = activeTab?.id;
+  }
+  if (typeof resolvedTabId !== 'number') return false;
+
+  try {
+    await sidePanel.close({ tabId: resolvedTabId });
+    return true;
+  } catch (error) {
+    console.warn('[NATIVE_SIDE_PANEL_CLOSE_FAILED]', {
+      tabId: resolvedTabId,
+      message: error instanceof Error ? error.message : 'Unknown side panel error.',
+    });
     return false;
   }
-
-  return sendAmisOverlayMessage(tabId, { type: AMIS_OVERLAY_SHOW_MESSAGE_TYPE });
 }
 
 async function resolveFacebookPublishPlanContent(

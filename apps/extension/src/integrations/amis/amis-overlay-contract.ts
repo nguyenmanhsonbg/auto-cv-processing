@@ -3,6 +3,7 @@ export const AMIS_OVERLAY_OPEN_REQUEST_MESSAGE_TYPE = 'AMIS_OVERLAY_OPEN_REQUEST
 export const AMIS_OVERLAY_SHOW_MESSAGE_TYPE = 'AMIS_OVERLAY_SHOW' as const;
 export const AMIS_OVERLAY_HIDE_MESSAGE_TYPE = 'AMIS_OVERLAY_HIDE' as const;
 export const AMIS_OVERLAY_CLOSE_REQUEST_MESSAGE_TYPE = 'AMIS_OVERLAY_CLOSE_REQUEST' as const;
+export const AMIS_SIDE_PANEL_CLOSE_REQUEST_MESSAGE_TYPE = 'AMIS_SIDE_PANEL_CLOSE_REQUEST' as const;
 
 export type AmisOverlayVisibilityMessage = Readonly<{
   type: typeof AMIS_OVERLAY_SHOW_MESSAGE_TYPE | typeof AMIS_OVERLAY_HIDE_MESSAGE_TYPE;
@@ -24,6 +25,10 @@ export type AmisOverlayOpenResponse = Readonly<{
 
 export type AmisOverlayCloseRequestMessage = Readonly<{
   type: typeof AMIS_OVERLAY_CLOSE_REQUEST_MESSAGE_TYPE;
+}>;
+
+export type AmisSidePanelCloseRequestMessage = Readonly<{
+  type: typeof AMIS_SIDE_PANEL_CLOSE_REQUEST_MESSAGE_TYPE;
 }>;
 
 export function isAmisOverlayVisibilityMessage(value: unknown): value is AmisOverlayVisibilityMessage {
@@ -58,4 +63,10 @@ export function isAmisOverlayCloseRequestMessage(value: unknown): value is AmisO
   return typeof value === 'object'
     && value !== null
     && (value as { type?: unknown }).type === AMIS_OVERLAY_CLOSE_REQUEST_MESSAGE_TYPE;
+}
+
+export function isAmisSidePanelCloseRequestMessage(value: unknown): value is AmisSidePanelCloseRequestMessage {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { type?: unknown }).type === AMIS_SIDE_PANEL_CLOSE_REQUEST_MESSAGE_TYPE;
 }

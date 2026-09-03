@@ -91,7 +91,6 @@ import { FacebookModals } from '@/components/facebook';
 import { useFacebookManager } from '@/features/facebook/use-facebook-manager';
 import { isFacebookPublishProgressUpdateMessage } from '@/features/facebook/facebook-group-utils';
 import { clearSelectedJobQuestionContextForTab, saveSelectedJobQuestionContext } from '@/stores/selected-job-question-store';
-import { AMIS_OVERLAY_CLOSE_REQUEST_MESSAGE_TYPE } from '@/integrations/amis/amis-overlay-contract';
 import {
   arrayBufferToBase64,
   normalizeOptionalText,
@@ -1182,12 +1181,6 @@ function SidePanel() {
       setForeignLanguageOptions([]);
       setState('AUTH_REQUIRED');
     }
-  }
-
-  function closeOverlay() {
-    if (window.parent === window) return;
-
-    window.parent.postMessage({ type: AMIS_OVERLAY_CLOSE_REQUEST_MESSAGE_TYPE }, '*');
   }
 
   async function loadJobDescriptions(
@@ -3365,15 +3358,6 @@ function SidePanel() {
                 ) : null}
               </>
             ) : null}
-            <button
-              type="button"
-              className="overlay-close-button"
-              aria-label="Đóng extension"
-              title="Đóng extension"
-              onClick={closeOverlay}
-            >
-              ×
-            </button>
           </div>
         </header>
     );

@@ -44,7 +44,6 @@ import { formatDate, toErrorMessage } from '@/lib/utils';
 import { DateRangeFilter, FilterDropdown, MultiSelectFilter } from '@/components/filters';
 import { InputField } from '@/components/form/InputField';
 import {
-  LockIcon as ConfirmationLockIcon,
   ReferralWarningIcon,
   SearchClearIcon,
   PlusIcon,
@@ -1393,7 +1392,7 @@ export function ReferralManagementPanel({
               <div className="referral-account-confirmation-body">
                 <div className="referral-account-confirmation-content">
                   <div className="referral-account-icon-wrap">
-                    <ConfirmationLockIcon className="referral-confirm-lock-icon" />
+                    <ReferralWarningIcon />
                   </div>
                   <h3>
                     Bạn có chắc chắn muốn mở khóa<br />

@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { isAllowedSidePanelUrl } from '@/lib/side-panel-scope';
-import {
-  AMIS_OVERLAY_OPEN_REQUEST_MESSAGE_TYPE,
-  isAmisOverlayOpenResponse,
-} from '@/integrations/amis/amis-overlay-contract';
 import './styles.css';
+
+const NATIVE_SIDE_PANEL_PATH = 'side-panel.html';
 
 function Popup() {
   const [error, setError] = useState<string | null>(null);
@@ -18,17 +16,23 @@ function Popup() {
       if (!isAllowedSidePanelUrl(activeTab.url)) {
         throw new Error('Extension chỉ hoạt động trên tab AMIS hoặc form đánh giá sau phỏng vấn.');
       }
-      const response = await chrome.runtime?.sendMessage?.({
-        type: AMIS_OVERLAY_OPEN_REQUEST_MESSAGE_TYPE,
-        tabId: activeTab.id,
-      });
-      const openResponse = isAmisOverlayOpenResponse(response) ? response : null;
-      if (!openResponse?.ok) {
-        throw new Error(openResponse?.error ?? 'Unable to open the extension overlay.');
+
+      const sidePanel = chrome.sidePanel;
+      if (!sidePanel?.setOptions || !sidePanel.open) {
+        throw new Error('Native Side Panel không khả dụng. Vui lòng cập nhật Chrome/Edge lên phiên bản 116 trở lên.');
       }
+
+      await sidePanel.setOptions({
+        tabId: activeTab.id,
+        path: NATIVE_SIDE_PANEL_PATH,
+        enabled: true,
+      });
+      // Keep sidePanel.open() in this click handler. Forwarding the request to
+      // the service worker loses the transient user gesture required by Chrome.
+      await sidePanel.open({ tabId: activeTab.id });
       window.close();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to open the extension overlay.');
+      setError(err instanceof Error ? err.message : 'Unable to open the native side panel.');
     }
   }
 

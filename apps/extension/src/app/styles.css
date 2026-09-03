@@ -11057,12 +11057,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   margin: 0 auto;
 }
 
-.referral-confirm-lock-icon {
-  width: 36.67px;
-  height: 31.67px;
-  color: #262626;
-}
-
 .referral-account-confirmation-content h3 {
   margin: 0;
   color: #262626;
@@ -11871,31 +11865,6 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   border: 0;
   cursor: pointer;
   padding: 0;
-}
-
-.overlay-close-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  color: #374151;
-  background: transparent;
-  cursor: pointer;
-  font-family: Arial, sans-serif;
-  font-size: 26px;
-  font-weight: 400;
-  line-height: 1;
-}
-
-.overlay-close-button:hover,
-.overlay-close-button:focus-visible {
-  background: #f3f4f6;
-  outline: none;
 }
 
 .extension-tabs {
