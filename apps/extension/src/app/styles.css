@@ -8596,6 +8596,42 @@ dd {
   color: #000000;
 }
 
+/* Keep the JD filter aligned with the compact filter design in both referral views. */
+.referral-filter-row .shared-filter-multi-select-label,
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .shared-filter-multi-select-label {
+  color: #45464D;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.referral-filter-row .referral-jd-select-trigger,
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-select-trigger {
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid #C6C6CD;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #000000;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.referral-filter-row .shared-filter-placeholder,
+.freelancer-cv-toolbar .freelancer-cv-jd-filter .shared-filter-placeholder {
+  color: #000000;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+}
+
 @container (max-width: 240px) {
   .freelancer-cv-toolbar .freelancer-cv-jd-filter .referral-jd-option.has-meta {
     min-height: 56px;

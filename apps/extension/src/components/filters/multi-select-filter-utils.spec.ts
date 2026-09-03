@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { toggleMultiSelectValue } from './MultiSelectFilter';
+import { getMultiSelectPlaceholder, toggleMultiSelectValue } from './MultiSelectFilter';
+
+test('uses allLabel as the trigger text when no explicit placeholder is provided', () => {
+  assert.equal(getMultiSelectPlaceholder(undefined, 'Tất cả JD'), 'Tất cả JD');
+});
 
 test('keeps the first JD selected when a second JD is selected', () => {
   assert.deepEqual(

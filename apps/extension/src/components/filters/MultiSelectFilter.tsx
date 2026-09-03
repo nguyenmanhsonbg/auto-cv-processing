@@ -3,6 +3,10 @@ import { ChevronDownIcon, CloseIcon } from '@/components/icons';
 
 export type MultiSelectFilterOption = { value: string | number; label: string; meta?: string };
 
+export function getMultiSelectPlaceholder(placeholder?: string, allLabel?: string): string {
+  return placeholder?.trim() || allLabel?.trim() || '';
+}
+
 export function toggleMultiSelectValue(values: string[], value: string | null): string[] {
   if (value === null) return [];
   return values.includes(value)
@@ -31,6 +35,7 @@ export function MultiSelectFilter({
   label,
   values,
   options,
+  allLabel,
   placeholder,
   isOpen,
   onToggle,
@@ -43,7 +48,7 @@ export function MultiSelectFilter({
   maxValuesNotice,
 }: MultiSelectFilterProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const placeholderText = placeholder;
+  const placeholderText = getMultiSelectPlaceholder(placeholder, allLabel);
 
   useEffect(() => {
     if (!isOpen || !onClose) return undefined;
