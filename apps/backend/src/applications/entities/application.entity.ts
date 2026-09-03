@@ -217,9 +217,9 @@ export class ApplicationEntity {
   @Column({ name: 'hr_review_status', type: 'varchar', nullable: true })
   hrReviewStatus: HrReviewDecisionType | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }
