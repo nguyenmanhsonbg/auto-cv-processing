@@ -28,6 +28,7 @@ import {
   buildCurrentAmisStageMap,
   getReferralApplicationStatusCategory,
   normalizeFreelancerPhone,
+  resolveReferralAppliedAt,
   type ReferralApplicationStatusCategory,
   type ReferralCurrentAmisStage,
 } from '../extension-integration/referral-source-summary.util';
@@ -645,6 +646,7 @@ export class FreelancersService {
       .leftJoinAndSelect('candidate.assignees', 'assignee')
       .innerJoinAndSelect('application.jobPosting', 'jobPosting')
       .leftJoinAndSelect('jobPosting.jobDescription', 'jobDescription')
+      .leftJoinAndSelect('application.sources', 'applicationSource')
       .where(`referral.${ownerColumn} = :ownerId`, { ownerId })
       .andWhere('referral.sourceType = :sourceType', { sourceType })
       .orderBy('referral.createdAt', sortOrder)
@@ -811,6 +813,8 @@ export class FreelancersService {
       });
     }
 
+    const appliedAt = resolveReferralAppliedAt(application.createdAt, application.sources);
+
     return {
       referralId: referral.id,
       applicationId: referral.applicationId,
@@ -829,7 +833,7 @@ export class FreelancersService {
       processStatus: application.status,
       hrReceptionStatus: application.hrReviewStatus,
       evaluation: referral.evaluation,
-      appliedAt: referral.createdAt,
+      appliedAt,
       assignees: (application.candidate.assignees ?? []).map((assignee) => ({
         userId: assignee.id,
         name: assignee.name,

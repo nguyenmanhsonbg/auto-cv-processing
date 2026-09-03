@@ -10,6 +10,7 @@ export type FreelancerCvFilterValues = {
   search: string;
   status: FreelancerCvStatusFilter;
   jd: string[];
+  jdAllSelected: boolean;
   dateRange: DateRangeValue;
 };
 
@@ -56,12 +57,18 @@ export function FreelancerCvFilters({ value, statusOptions, jdOptions, statusDis
         className="freelancer-cv-jd-filter"
         label="Lọc theo JD"
         allLabel="Tất cả JD"
+        allSelected={value.jdAllSelected}
         values={value.jd}
         options={jdOptions.filter((option) => option.value !== 'ALL')}
         isOpen={isJdFilterOpen}
         onToggle={() => setIsJdFilterOpen((current) => !current)}
         onClose={() => setIsJdFilterOpen(false)}
-        onChange={(values) => onChange({ ...value, jd: values.filter((item): item is string => typeof item === 'string') })}
+        onChange={(values) => onChange({
+          ...value,
+          jd: values.filter((item): item is string => typeof item === 'string'),
+          jdAllSelected: values.length > 0 ? false : value.jdAllSelected,
+        })}
+        onAllSelectedChange={(selected) => onChange({ ...value, jd: [], jdAllSelected: selected })}
       />
       <DateRangeFilter value={value.dateRange} onChange={(dateRange) => onChange({ ...value, dateRange })} />
     </FilterBar>

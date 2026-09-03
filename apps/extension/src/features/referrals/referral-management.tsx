@@ -45,11 +45,15 @@ import { DateRangeFilter, FilterDropdown, MultiSelectFilter } from '@/components
 import { InputField } from '@/components/form/InputField';
 import {
   LockIcon as ConfirmationLockIcon,
+  ReferralWarningIcon,
   SearchClearIcon,
   PlusIcon,
 } from '@/components/svg';
 import { ReferralFilters } from './components/ReferralFilters';
-import { ReferralPersonCard } from './components/ReferralPersonCard';
+import {
+  ReferralPersonCard,
+  truncateReferralPersonName,
+} from './components/ReferralPersonCard';
 
 type CvStatusFilter = string;
 type JdFilter = (string | number)[];
@@ -239,7 +243,9 @@ function ReferralPeopleList({
             <div className="referral-person-heading">
               <div className="referral-person-identity">
                 <div className="referral-person-name-row">
-                  <h3>{person.name || null}</h3>
+                  <h3 title={person.name || undefined}>
+                    {person.name ? truncateReferralPersonName(person.name) : null}
+                  </h3>
                   {!person.isActive ? <span className="referral-active-badge is-inactive">Đã khóa</span> : null}
                 </div>
                 {person.identifier ? (
@@ -461,11 +467,11 @@ export function ReferralManagementPanel({
   ));
   const [roundsLoadedScopeKey, setRoundsLoadedScopeKey] = useState<string | null>(null);
   const [jdFilter, setJdFilter] = useState<JdFilter>([]);
-  const isAllJdSelected = jdFilter.length === 0;
+  const [isAllJdSelected, setIsAllJdSelected] = useState(true);
   const roundsScopeKey = useMemo(() => {
     const selectedJdIds = jdFilter.map(String).sort().join(',');
-    return `${source}:${selectedJdIds || 'ALL'}`;
-  }, [jdFilter, source]);
+    return `${source}:${isAllJdSelected ? (selectedJdIds || 'ALL') : (selectedJdIds || 'NONE')}`;
+  }, [isAllJdSelected, jdFilter, source]);
   const roundsFilterLoading = usesDynamicReferralRounds(source)
     && roundsLoadedScopeKey !== roundsScopeKey;
   const [isJdFilterOpen, setIsJdFilterOpen] = useState(false);
@@ -826,8 +832,12 @@ export function ReferralManagementPanel({
     if (source === 'FREELANCER') setName(normalizedName);
     const normalizedEmail = normalizeFreelancerEmail(email);
     setEmail(normalizedEmail);
+    const normalizedPhone = source === 'FREELANCER'
+      ? limitFreelancerPhoneInput(phone)
+      : phone.trim();
+    if (source === 'FREELANCER') setPhone(normalizedPhone);
 
-    const validationErrors = getCreateFormErrors(source, normalizedName, normalizedEmail, phone);
+    const validationErrors = getCreateFormErrors(source, normalizedName, normalizedEmail, normalizedPhone);
     if (validationErrors) {
       setNameFieldError(validationErrors.nameFieldError ?? null);
       setEmailFieldError(validationErrors.emailFieldError ?? null);
@@ -842,7 +852,7 @@ export function ReferralManagementPanel({
         await createFreelancer(accessToken, {
           name: normalizedName,
           email: normalizedEmail,
-          phone: phone.trim() || undefined,
+          phone: normalizedPhone || undefined,
         });
         setCreatedFreelancer(null);
         setModal(null);
@@ -851,7 +861,7 @@ export function ReferralManagementPanel({
         await createInternal(accessToken, {
           name: name.trim(),
           email: normalizedEmail,
-          phone: phone.trim(),
+          phone: normalizedPhone,
         });
         onNotify?.('SUCCESS', 'Đã thêm Nội bộ', 'Đã thêm nhân sự nội bộ thành công');
         setModal(null);
@@ -980,6 +990,7 @@ export function ReferralManagementPanel({
           label="Lọc theo JD"
           allLabel="Tất cả JD"
           placeholder="Tất cả JD"
+          allSelected={isAllJdSelected}
           values={jdFilter}
           options={availableJds.map(([value, jd]) => ({ value, label: jd.title, meta: jd.createdAt ? (formatDate(jd.createdAt) ?? undefined) : undefined }))}
           isOpen={isJdFilterOpen}
@@ -987,6 +998,12 @@ export function ReferralManagementPanel({
           onClose={() => setIsJdFilterOpen(false)}
           onChange={(values) => {
             setJdFilter(values);
+            if (values.length > 0) setIsAllJdSelected(false);
+            setPage(1);
+          }}
+          onAllSelectedChange={(selected) => {
+            setIsAllJdSelected(selected);
+            if (selected) setJdFilter([]);
             setPage(1);
           }}
         />
@@ -1302,7 +1319,7 @@ export function ReferralManagementPanel({
                 <button
                   type="submit"
                   className="referral-modal-submit-btn"
-                  disabled={saving || !email.trim() || !name.trim() || !phone.trim()}
+                  disabled={saving || !email.trim() || !name.trim() || (source === 'INTERNAL' && !phone.trim())}
                 >
                   {saving ? 'ĐANG LƯU...' : 'THÊM MỚI'}
                 </button>
@@ -1357,7 +1374,7 @@ export function ReferralManagementPanel({
               <div className="referral-account-confirmation-body">
                 <div className="referral-account-confirmation-content">
                   <div className="referral-account-icon-wrap">
-                    <ConfirmationLockIcon className="referral-confirm-lock-icon" />
+                    <ReferralWarningIcon />
                   </div>
                   <h3>Bạn có chắc chắn muốn khóa tài khoản Freelancer này không?</h3>
                   <p>

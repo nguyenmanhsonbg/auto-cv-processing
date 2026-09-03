@@ -16,6 +16,7 @@ import {
   getInterviewEvaluationSummary,
 } from '@/lib/api-client';
 import { FRONTEND_BASE_URL } from '@/lib/config';
+import { formatApplicationDateTime } from '@/lib/application-date-time';
 import { saveInterviewEvaluationTabContext } from '@/stores/interview-evaluation-context-store';
 
 export type ExtensionApplication = AmisApplicationsForRecruitment['applications'][number];
@@ -456,22 +457,7 @@ export function getCvScoreTone(score: number) {
 }
 
 export function formatDateTime(value: string | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-
-  const dateLabel = date.toLocaleDateString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-  const timeLabel = date.toLocaleTimeString('vi-VN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-
-  return `${dateLabel} ${timeLabel}`;
+  return formatApplicationDateTime(value);
 }
 
 export function getApplicationAmisSyncStatus(application: ExtensionApplication) {

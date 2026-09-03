@@ -15,6 +15,7 @@ import {
   SearchIcon,
 } from '@/components/icons';
 import { FilterDropdown } from '@/components/filters';
+import { parseApplicationDateTime } from '@/lib/application-date-time';
 import {
   CandidateCard,
   canUploadApplicationCv,
@@ -22,6 +23,7 @@ import {
   getApplicationQuestionStatus,
   getCvSourceFilterBucket,
   hasReachedAmisInterviewStage,
+  truncateCandidateName,
   type ExtensionApplication,
 } from '@/components/candidates';
 
@@ -384,6 +386,7 @@ export function CvManagementPanel({
     const visibleEnd = Math.min(pageStartIndex + pageApplications.length, filteredApplications.length);
     const paginationPages = getPaginationPages(currentPage, totalPages);
     const toggleAllCvCandidateSelection = onToggleAllCvCandidateSelection;
+    const committeePersonnelDisplayName = committeePersonnelName || committeePersonnelEmail || 'Chưa xác định';
 
     return (
       <section className={`cv-list-screen${isCommittee ? ' committee-cv-list-screen' : ''}`}>
@@ -391,7 +394,9 @@ export function CvManagementPanel({
           <div className="freelancer-cv-identity is-internal committee-personnel-identity">
             <div>
               <span className="freelancer-cv-eyebrow">Nhân sự</span>
-              <h2>{committeePersonnelName || committeePersonnelEmail || 'Chưa xác định'}</h2>
+              <h2 title={committeePersonnelDisplayName}>
+                {truncateCandidateName(committeePersonnelDisplayName)}
+              </h2>
               <em>
                 Email nội bộ: {committeePersonnelEmail || 'Chưa cập nhật'}
               </em>
@@ -763,9 +768,7 @@ export function getPaginationPages(currentPage: number, totalPages: number) {
 }
 
 function getTimeValue(value: string | null | undefined) {
-  if (!value) return 0;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  return parseApplicationDateTime(value)?.getTime() ?? 0;
 }
 
 function normalizeStatus(value?: string | null) {

@@ -5,6 +5,7 @@ import test from 'node:test';
 const sidePanelSource = await readFile(new URL('../src/app/side-panel.tsx', import.meta.url), 'utf8');
 const candidateCardSource = await readFile(new URL('../src/components/candidates/CandidateCard.tsx', import.meta.url), 'utf8');
 const cvManagementPanelSource = await readFile(new URL('../src/features/candidates/CvManagementPanel.tsx', import.meta.url), 'utf8');
+const stylesSource = await readFile(new URL('../src/app/styles.css', import.meta.url), 'utf8');
 const source = `${sidePanelSource}\n${candidateCardSource}\n${cvManagementPanelSource}`;
 
 test('CV list renders the select-all checkbox', () => {
@@ -56,4 +57,16 @@ test('candidate score uses success, warning, and danger color tones', () => {
   assert.match(source, /if \(score >= 80\) return 'is-success'/);
   assert.match(source, /if \(score >= 50\) return 'is-warning'/);
   assert.match(source, /className={`cv-candidate-score \$\{getCvScoreTone\(score\)\}`}/);
+});
+
+test('selecting a CV keeps the candidate card spacing unchanged', () => {
+  const selectedCardRules = Array.from(stylesSource.matchAll(
+    /\.cv-candidate-list>li\.is-selected \.cv-candidate-card \{([\s\S]*?)\n\}/g,
+  ), (match) => match[1]);
+
+  assert.ok(selectedCardRules.length > 0);
+  for (const selectedCardRule of selectedCardRules) {
+    assert.doesNotMatch(selectedCardRule, /gap:\s*12px/);
+  }
+  assert.match(stylesSource, /\.cv-candidate-card \{[\s\S]*?gap:\s*8px;/);
 });

@@ -14,6 +14,7 @@ import {
 } from './internals.types';
 import { normalizeInternalEmail } from './internal-email.util';
 import { normalizePagination, totalPages } from '../common/http/list-response';
+import { resolveReferralAppliedAt } from '../extension-integration/referral-source-summary.util';
 
 @Injectable()
 export class InternalsService {
@@ -119,6 +120,7 @@ export class InternalsService {
       .innerJoinAndSelect('application.candidate', 'candidate')
       .leftJoinAndSelect('candidate.assignees', 'assignee')
       .innerJoinAndSelect('application.jobPosting', 'jobPosting')
+      .leftJoinAndSelect('application.sources', 'applicationSource')
       .where('referral.internalId = :internalId', { internalId })
       .andWhere('referral.sourceType = :sourceType', {
         sourceType: ApplicationReferralSourceType.INTERNAL,
@@ -233,6 +235,8 @@ export class InternalsService {
       });
     }
 
+    const appliedAt = resolveReferralAppliedAt(application.createdAt, application.sources);
+
     return {
       referralId: referral.id,
       applicationId: referral.applicationId,
@@ -247,7 +251,7 @@ export class InternalsService {
       processStatus: application.status,
       hrReceptionStatus: application.hrReviewStatus,
       evaluation: referral.evaluation,
-      appliedAt: referral.createdAt,
+      appliedAt,
       assignees: (application.candidate.assignees ?? []).map((assignee) => ({
         userId: assignee.id,
         name: assignee.name,

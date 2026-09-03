@@ -20,6 +20,12 @@ export interface ReferralPersonCardProps {
   onRequestStatusChange: (person: ReferralManagementPerson) => void;
 }
 
+export function truncateReferralPersonName(value: string) {
+  const maxLength = 24;
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
 export function ReferralPersonCard({
   person,
   source,
@@ -44,7 +50,9 @@ export function ReferralPersonCard({
       <div className="referral-person-heading">
         <div className="referral-person-identity">
           <div className="referral-person-name-row">
-            <h3 title={person.name || undefined}>{person.name || null}</h3>
+            <h3 title={person.name || undefined}>
+              {person.name ? truncateReferralPersonName(person.name) : null}
+            </h3>
             {!person.isActive ? <span className="referral-active-badge is-inactive">Đã khóa</span> : null}
           </div>
           {person.identifier ? (

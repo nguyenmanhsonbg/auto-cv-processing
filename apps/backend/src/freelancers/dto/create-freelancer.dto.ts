@@ -13,9 +13,9 @@ export class CreateFreelancerDto {
   @MaxLength(255)
   email!: string;
 
-  @ApiProperty({ example: '0988123456', maxLength: 50 })
+  @ApiProperty({ example: '0988123456', maxLength: 64 })
   @IsString()
   @MinLength(1)
-  @MaxLength(50)
+  @MaxLength(64)
   phone!: string;
 }

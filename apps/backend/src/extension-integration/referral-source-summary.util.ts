@@ -4,7 +4,7 @@ import {
   HrReviewDecisionType,
 } from '../recruitment-common';
 
-export const FREELANCER_PHONE_MAX_LENGTH = 50;
+export const FREELANCER_PHONE_MAX_LENGTH = 64;
 
 export type ReferralApplicationStatusCategory = 'PROCESSING' | 'PASSED' | 'REJECTED';
 
@@ -19,6 +19,11 @@ export interface ReferralCurrentAmisStage {
 
 export interface ReferralAmisSourceRecord {
   applicationId: string;
+  rawPayload: Record<string, unknown> | null;
+  receivedAt: Date;
+}
+
+export interface ReferralApplicationSourceSnapshot {
   rawPayload: Record<string, unknown> | null;
   receivedAt: Date;
 }
@@ -42,6 +47,7 @@ export interface ReferralApplicationRowInput extends ReferralApplicationMetricIn
     jobPostingId: string;
     title: string;
   };
+  appliedAt?: Date | null;
   evaluation: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -169,7 +175,7 @@ export function mapReferralApplicationRow(
     processStatus: input.processStatus,
     hrReceptionStatus: input.hrReceptionStatus,
     evaluation: input.evaluation,
-    appliedAt: input.createdAt,
+    appliedAt: input.appliedAt ?? input.createdAt,
     createdAt: input.createdAt,
     updatedAt: input.updatedAt,
     assignees: input.candidate.assignees ?? [],
@@ -234,8 +240,86 @@ function optionalText(value: unknown) {
 function parseOptionalDate(value: unknown) {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
   if (typeof value !== 'string' || !value.trim()) return null;
-  const parsed = new Date(value);
+  const text = value.trim();
+  const localDateParts = text.match(
+    /^(\d{1,4})[\/-](\d{1,2})[\/-](\d{1,4})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/,
+  );
+  if (localDateParts) {
+    const [, first, second, third, hour = '0', minute = '0', secondOfMinute = '0', fraction = '0'] = localDateParts;
+    const isYearFirst = first.length === 4;
+    const year = Number(isYearFirst ? first : third);
+    const month = Number(second);
+    const day = Number(isYearFirst ? third : first);
+    const milliseconds = Number(fraction.padEnd(3, '0'));
+    return createVietnamLocalDate(
+      year,
+      month,
+      day,
+      Number(hour),
+      Number(minute),
+      Number(secondOfMinute),
+      milliseconds,
+    );
+  }
+
+  const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function resolveReferralAppliedAt(
+  applicationCreatedAt: Date,
+  sources?: readonly ReferralApplicationSourceSnapshot[] | null,
+) {
+  const amisSources = [...(sources ?? [])]
+    .filter((source) => source.rawPayload?.sourceSystem === 'AMIS')
+    .sort((left, right) => right.receivedAt.getTime() - left.receivedAt.getTime());
+
+  for (const source of amisSources) {
+    const rawPayload = source.rawPayload;
+    const applyDate = parseOptionalDate(
+      rawPayload?.applyDate
+        ?? rawPayload?.ApplyDate
+        ?? rawPayload?.applicationDate
+        ?? rawPayload?.ApplicationDate,
+    );
+    if (applyDate) return applyDate;
+  }
+
+  return applicationCreatedAt;
+}
+
+function createVietnamLocalDate(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  milliseconds: number,
+) {
+  if (
+    year < 1000
+    || month < 1 || month > 12
+    || day < 1 || day > 31
+    || hour < 0 || hour > 23
+    || minute < 0 || minute > 59
+    || second < 0 || second > 59
+    || milliseconds < 0 || milliseconds > 999
+  ) return null;
+
+  const utcDate = Date.UTC(year, month - 1, day, hour, minute, second, milliseconds);
+  const localDate = new Date(utcDate);
+  if (
+    localDate.getUTCFullYear() !== year
+    || localDate.getUTCMonth() !== month - 1
+    || localDate.getUTCDate() !== day
+    || localDate.getUTCHours() !== hour
+    || localDate.getUTCMinutes() !== minute
+    || localDate.getUTCSeconds() !== second
+    || localDate.getUTCMilliseconds() !== milliseconds
+  ) return null;
+
+  return new Date(utcDate - (7 * 60 * 60 * 1000));
 }
 
 function getDateTime(value: Date | null) {

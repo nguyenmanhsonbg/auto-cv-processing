@@ -12,6 +12,7 @@ import { truncateCandidateName } from '@/components/candidates/CandidateCard';
 import { AppliedDateIcon, JobDescriptionIcon, SaveNoteIcon } from '@/components/icons';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
 import { formatDate } from '@/lib/utils';
+import { formatApplicationDateTime } from '@/lib/application-date-time';
 import { FreelancerCvFilters } from './components/FreelancerCvFilters';
 import type { FreelancerCvFilterValues } from './components/FreelancerCvFilters';
 import {
@@ -97,7 +98,7 @@ export function FreelancerCvPanel({
   const [roundsLoading, setRoundsLoading] = useState(false);
   const [pagination, setPagination] = useState<ApiPagination | null>(null);
   const [applicationPage, setApplicationPage] = useState(1);
-  const [filters, setFilters] = useState<FreelancerCvFilterValues>({ search: '', status: 'ALL', jd: [], dateRange: { from: '', to: '' } });
+  const [filters, setFilters] = useState<FreelancerCvFilterValues>({ search: '', status: 'ALL', jd: [], jdAllSelected: true, dateRange: { from: '', to: '' } });
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [savingReferralId, setSavingReferralId] = useState<string | null>(null);
@@ -166,7 +167,7 @@ export function FreelancerCvPanel({
         catalogApplications
           .filter((application) => (
             Boolean((application.jobPosting.amisRecruitmentId ?? application.jobPosting.sourceJobId)?.trim())
-            && (filters.jd.length === 0 || filters.jd.includes(application.jobPosting.jobPostingId))
+            && (filters.jdAllSelected || filters.jd.includes(application.jobPosting.jobPostingId))
           ))
           .map((application) => [application.jobPosting.jobPostingId, {
             jobPostingId: application.jobPosting.jobPostingId,
@@ -196,13 +197,13 @@ export function FreelancerCvPanel({
     return () => {
       cancelled = true;
     };
-  }, [catalogApplications, filters.jd, loadRecruitmentRounds]);
+  }, [catalogApplications, filters.jd, filters.jdAllSelected, loadRecruitmentRounds]);
 
   const scopedApplications = useMemo(
-    () => filters.jd.length === 0
+    () => filters.jdAllSelected
       ? catalogApplications
       : catalogApplications.filter((application) => filters.jd.includes(application.jobPosting.jobPostingId)),
-    [catalogApplications, filters.jd],
+    [catalogApplications, filters.jd, filters.jdAllSelected],
   );
   const statusOptions = useMemo(() => {
     const configuredRounds = scopedApplications.flatMap((application) => (
@@ -226,7 +227,7 @@ export function FreelancerCvPanel({
 
   const visibleApplications = useMemo(() => catalogApplications.filter((application) => {
     if (!matchesFreelancerCvStatus(application, filters.status, statusOptions)) return false;
-    if (filters.jd.length > 0 && !filters.jd.includes(application.jobPosting.jobPostingId)) return false;
+    if (!filters.jdAllSelected && !filters.jd.includes(application.jobPosting.jobPostingId)) return false;
 
     const appliedAt = new Date(application.appliedAt).getTime();
     if (filters.dateRange.from && appliedAt < new Date(`${filters.dateRange.from}T00:00:00`).getTime()) return false;
@@ -308,7 +309,7 @@ export function FreelancerCvPanel({
         <div className={`freelancer-cv-identity${summary.user.role === 'INTERNAL' ? ' is-internal' : ''}`}>
           <div>
             <span className="freelancer-cv-eyebrow">Nhân sự</span>
-            <h2>{summary.user.name}</h2>
+            <h2 title={summary.user.name}>{truncateCandidateName(summary.user.name)}</h2>
             <em>
               {summary.user.role === 'INTERNAL'
                 ? `Email nội bộ: ${summary.user.email}`
@@ -373,7 +374,7 @@ export function FreelancerCvPanel({
                       {truncateCandidateName(application.candidate.fullName)}
                     </h3>
                     <p><JobDescriptionIcon />{application.jobPosting.title}</p>
-                    <span className="freelancer-cv-applied-at"><AppliedDateIcon />Ngày ứng tuyển: <strong>{formatDateTime(application.appliedAt)}</strong></span>
+                    <span className="freelancer-cv-applied-at"><AppliedDateIcon />Ngày ứng tuyển: <strong>{formatApplicationDateTime(application.appliedAt) ?? '-'}</strong></span>
                   </div>
                 </div>
                 <span className={`freelancer-cv-status is-${category.toLowerCase()}`}>{STATUS_LABELS[category]}</span>
@@ -507,10 +508,4 @@ function getStatusLabel(application: FreelancerSelfApplication) {
   const status = application.hrReceptionStatus || application.processStatus;
   if (!status) return 'Chưa cập nhật';
   return status.replaceAll('_', ' ').toLocaleLowerCase('vi-VN').replace(/^./, (value) => value.toUpperCase());
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  const pad = (part: number) => String(part).padStart(2, '0');
-  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

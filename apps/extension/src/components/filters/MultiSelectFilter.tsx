@@ -14,11 +14,28 @@ export function toggleMultiSelectValue(values: string[], value: string | null): 
     : [...values, value];
 }
 
+export function toggleMultiSelectOption(
+  values: (string | number)[],
+  value: string | number,
+  optionValues: (string | number)[],
+  allSelected = false,
+): (string | number)[] {
+  if (allSelected) {
+    return optionValues.filter((optionValue) => optionValue !== value);
+  }
+
+  return values.includes(value)
+    ? values.filter((item) => item !== value)
+    : [...values, value];
+}
+
 type MultiSelectFilterProps = {
   readonly label: string;
   readonly values: (string | number)[];
   readonly options: MultiSelectFilterOption[];
   readonly allLabel?: string;
+  readonly allSelected?: boolean;
+  readonly onAllSelectedChange?: (selected: boolean) => void;
   readonly placeholder?: string;
   readonly isOpen: boolean;
   readonly onToggle: () => void;
@@ -36,6 +53,8 @@ export function MultiSelectFilter({
   values,
   options,
   allLabel,
+  allSelected,
+  onAllSelectedChange,
   placeholder,
   isOpen,
   onToggle,
@@ -49,6 +68,8 @@ export function MultiSelectFilter({
 }: MultiSelectFilterProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const placeholderText = getMultiSelectPlaceholder(placeholder, allLabel);
+  const optionValues = useMemo(() => options.map((option) => option.value), [options]);
+  const isAllSelected = Boolean(allLabel) && (allSelected ?? values.length === 0);
 
   useEffect(() => {
     if (!isOpen || !onClose) return undefined;
@@ -60,12 +81,10 @@ export function MultiSelectFilter({
   }, [isOpen, onClose]);
 
   function toggleValue(value: string | number) {
-    if (values.includes(value)) {
-      onChange(values.filter((item) => item !== value));
-    } else {
-      if (maxValues != null && values.length >= maxValues) return;
-      onChange([...values, value]);
-    }
+    const selected = isAllSelected || values.includes(value);
+    if (!selected && maxValues != null && values.length >= maxValues) return;
+    if (isAllSelected) onAllSelectedChange?.(false);
+    onChange(toggleMultiSelectOption(values, value, optionValues, isAllSelected));
   }
 
   function removeValue(e: MouseEvent | KeyboardEvent, value: string | number) {
@@ -75,6 +94,10 @@ export function MultiSelectFilter({
 
   function clearAll(e: MouseEvent | KeyboardEvent) {
     e.stopPropagation();
+    if (allLabel && onAllSelectedChange) {
+      onAllSelectedChange(true);
+      return;
+    }
     onChange([]);
   }
 
@@ -87,7 +110,7 @@ export function MultiSelectFilter({
 
   const hasError = Boolean(error);
   return (
-    <div ref={rootRef} className={`shared-filter-multi-select ${className} ${hasError ? 'has-error' : ''}`.trim()}>
+    <div ref={rootRef} className={`shared-filter-multi-select${allLabel ? ' has-all-option' : ''} ${className} ${hasError ? 'has-error' : ''}`.trim()}>
       {label ? <span className="shared-filter-multi-select-label">{label}{required ? <span className="required-mark"> *</span> : null}</span> : null}
       <div
         role="combobox"
@@ -95,7 +118,7 @@ export function MultiSelectFilter({
         aria-haspopup="listbox"
         tabIndex={0}
         title={selectedOptions.map((option) => option.label).join(', ')}
-        className="shared-filter-multi-select-trigger referral-jd-select-trigger"
+        className={`shared-filter-multi-select-trigger referral-jd-select-trigger${isOpen ? ' is-open' : ''}`}
         onClick={onToggle}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -139,36 +162,67 @@ export function MultiSelectFilter({
         </div>
       </div>
       {isOpen ? (
-        <div className="referral-jd-options" role="group" aria-label={label}>
+        <div className={`referral-jd-options${allLabel ? ' has-all-option' : ''}`} role="group" aria-label={label}>
           {maxValues != null && values.length >= maxValues ? (
             <div className="shared-filter-max-notice">
               {maxValuesNotice || `Chọn tối đa ${maxValues} lựa chọn, xóa bớt và chọn lại lựa chọn bạn muốn`}
             </div>
           ) : null}
-          {options.map((option) => {
-            const selected = values.includes(option.value);
-            const isDisabled = !selected && maxValues != null && values.length >= maxValues;
-            return (
-              <label
-                key={option.value}
-                className={`referral-jd-option${selected ? ' is-selected' : ''}${option.meta ? ' has-meta' : ''}${isDisabled ? ' is-disabled' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  className="referral-jd-option-input"
-                  checked={selected}
-                  disabled={isDisabled}
-                  onChange={() => toggleValue(option.value)}
-                />
-                <span className="referral-jd-option-label">
-                  <span className="referral-jd-option-content">
-                    <span className="referral-jd-option-title">{option.label}</span>
-                    {option.meta ? <time className="referral-jd-option-meta">{option.meta}</time> : null}
-                  </span>
+          {allLabel ? (
+            <label className={`referral-jd-option shared-filter-all-option${isAllSelected ? ' is-selected' : ''}`}>
+              <input
+                type="checkbox"
+                className="referral-jd-option-input"
+                checked={isAllSelected}
+                onChange={() => {
+                  if (onAllSelectedChange) {
+                    onAllSelectedChange(!isAllSelected);
+                    return;
+                  }
+                  onChange([]);
+                }}
+              />
+              <span aria-hidden="true" className={`referral-jd-checkbox${isAllSelected ? ' is-checked' : ''}`}>
+                {isAllSelected ? '✓' : ''}
+              </span>
+              <span className="referral-jd-option-label">
+                <span className="referral-jd-option-content">
+                  <span className="referral-jd-option-title">{allLabel}</span>
                 </span>
-              </label>
-            );
-          })}
+              </span>
+            </label>
+          ) : null}
+          <div className={`referral-jd-option-list${allLabel ? ' is-scrollable' : ''}`}>
+            {options.map((option) => {
+              const selected = isAllSelected || values.includes(option.value);
+              const isDisabled = !selected && maxValues != null && values.length >= maxValues;
+              return (
+                <label
+                  key={option.value}
+                  className={`referral-jd-option${selected ? ' is-selected' : ''}${option.meta ? ' has-meta' : ''}${isDisabled ? ' is-disabled' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    className="referral-jd-option-input"
+                    checked={selected}
+                    disabled={isDisabled}
+                    onChange={() => toggleValue(option.value)}
+                  />
+                  {allLabel ? (
+                    <span aria-hidden="true" className={`referral-jd-checkbox${selected ? ' is-checked' : ''}`}>
+                      {selected ? '✓' : ''}
+                    </span>
+                  ) : null}
+                  <span className="referral-jd-option-label">
+                    <span className="referral-jd-option-content">
+                      <span className="referral-jd-option-title">{option.label}</span>
+                      {option.meta ? <time className="referral-jd-option-meta">{option.meta}</time> : null}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
         </div>
       ) : null}
       {hasError ? <span className="input-field-error">{error}</span> : null}
