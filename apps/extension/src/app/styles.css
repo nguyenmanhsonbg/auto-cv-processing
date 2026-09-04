@@ -9562,7 +9562,7 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   line-height: 19.6px;
 }
 
-.referral-cv-status-filter .referral-filter-trigger > span {
+.referral-cv-status-filter .referral-filter-trigger>span {
   color: #262626;
   font-family: Inter, sans-serif;
   font-size: 14px;
@@ -13577,19 +13577,12 @@ textarea:focus {
 }
 
 .topcv-checkbox-label input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  background-color: #ffffff;
   cursor: pointer;
   margin: 0;
-  display: inline-block;
-  vertical-align: middle;
-  position: relative;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
+  border: 1px solid #D4D4D4;
 }
 
 .topcv-checkbox-label input[type="checkbox"]:hover {
@@ -13941,15 +13934,15 @@ textarea:focus {
   align-items: center;
   justify-content: space-between;
   font-size: 13px;
-  font-weight: 600;
-  color: #374151;
+  font-weight: 400;
+  color: #262626;
 }
 
 .topcv-sub-card-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  align-items: center;
+  align-items: flex-start;
   width: 100%;
 }
 
@@ -13963,8 +13956,9 @@ textarea:focus {
   min-width: 0;
 }
 
-.topcv-sub-card-row>.shared-filter-field:first-child>span:first-child {
-  visibility: hidden;
+.topcv-sub-card-row .shared-filter-field {
+  flex: 1 1 140px;
+  min-width: 0;
 }
 
 .topcv-sub-card-footer {
@@ -16188,7 +16182,7 @@ textarea:focus {
   opacity: 1;
 }
 
-.committee-cv-list-screen .cv-candidate-list > li {
+.committee-cv-list-screen .cv-candidate-list>li {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -16273,7 +16267,7 @@ textarea:focus {
   line-height: 16px;
 }
 
-.committee-cv-list-screen .cv-candidate-note > span:not(.cv-candidate-note-label) {
+.committee-cv-list-screen .cv-candidate-note>span:not(.cv-candidate-note-label) {
   color: #000000;
   font-family: Inter, sans-serif;
   font-size: 14px;

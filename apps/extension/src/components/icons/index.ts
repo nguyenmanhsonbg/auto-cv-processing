@@ -44,3 +44,5 @@ export {
   BulletListIcon,
   NumberedListIcon,
 } from '../svg/EditorIcons';
+export { TopCvWarningIcon } from '../svg/TopCvWarningIcon';
+

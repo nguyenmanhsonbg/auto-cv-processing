@@ -4,6 +4,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   CloseIcon,
+  TopCvWarningIcon,
 } from '@/components/icons';
 import { InputField, RichTextEditor } from '@/components/form';
 import { MultiSelectFilter, SelectFilter } from '@/components/filters';
@@ -27,15 +28,6 @@ const DAY_OPTIONS = [
   { value: '7', label: 'Chủ Nhật' },
 ];
 
-function TopCvWarningIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M13 8.66669V12.7634" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M13 16.8337L13 16.8852" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5.41647 20.5833H20.5831C21.3009 20.5783 21.9696 20.2181 22.3687 19.6216C22.7678 19.025 22.8457 18.2695 22.5765 17.6041L14.8848 4.33331C14.5032 3.64363 13.7772 3.21558 12.989 3.21558C12.2008 3.21558 11.4747 3.64363 11.0931 4.33331L3.40147 17.6041C3.13757 18.2539 3.20444 18.9911 3.58093 19.5827C3.95742 20.1744 4.59697 20.5472 5.29731 20.5833" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 interface TopCvEditModalProps {
   formData: TopCvFormData;
@@ -193,13 +185,13 @@ export function TopCvEditModal({
     form.workingHours.schedules && form.workingHours.schedules.length > 0
       ? form.workingHours.schedules
       : [
-          {
-            fromDay: form.workingHours.fromDay || '1',
-            toDay: form.workingHours.toDay || '5',
-            fromTime: form.workingHours.fromTime || '08:30',
-            toTime: form.workingHours.toTime || '18:00',
-          },
-        ];
+        {
+          fromDay: form.workingHours.fromDay || '1',
+          toDay: form.workingHours.toDay || '5',
+          fromTime: form.workingHours.fromTime || '08:30',
+          toTime: form.workingHours.toTime || '18:00',
+        },
+      ];
 
   const updateWorktimeSchedules = (nextSchedules: WorkingHourSchedule[]) => {
     const first = nextSchedules[0] ?? {
@@ -295,7 +287,7 @@ export function TopCvEditModal({
                 onChange={(e) => update({ title: e.target.value })}
                 placeholder="Nhập tiêu đề bài đăng"
                 required
-                maxLength={255}
+                maxLength={50}
               />
 
               <div className="topcv-form-group">
@@ -597,7 +589,7 @@ export function TopCvEditModal({
                       workingHours: { ...form.workingHours, lunchBreak: e.target.value },
                     });
                   }}
-                  placeholder="Nghỉ trưa 12h-13h30"
+                  placeholder="Nhập ghi chú"
                 />
               </div>
             </div>
@@ -726,7 +718,6 @@ export function TopCvEditModal({
                   return (
                     <div key={idx} className="topcv-sub-card">
                       <div className="topcv-sub-card-header">
-                        <span>Ngoại ngữ {idx + 1}:</span>
                         <button
                           type="button"
                           className="topcv-remove-icon-btn"
@@ -739,7 +730,7 @@ export function TopCvEditModal({
                       </div>
                       <div className="topcv-sub-card-row">
                         <SelectFilter
-                          label=""
+                          label={`Ngoại ngữ ${idx + 1}:`}
                           value={lang.language}
                           options={[
                             { value: 0, label: 'Chọn ngoại ngữ' },
@@ -829,22 +820,22 @@ export function TopCvEditModal({
                     <button
                       type="button"
                       className="topcv-stepper-btn"
-                      onClick={() => update({ quantity: Math.max(1, (form.quantity || 1) - 1) })}
+                      onClick={() => update({ quantity: Math.max(0, (form.quantity || 0) - 1) })}
                     >
                       —
                     </button>
                     <input
                       type="number"
                       className="topcv-stepper-input"
-                      min={1}
+                      min={0}
                       value={form.quantity}
-                      onChange={(e) => update({ quantity: Math.max(1, Number(e.target.value) || 1) })}
+                      onChange={(e) => update({ quantity: Math.max(0, Number(e.target.value) || 0) })}
                       required
                     />
                     <button
                       type="button"
                       className="topcv-stepper-btn"
-                      onClick={() => update({ quantity: (form.quantity || 1) + 1 })}
+                      onClick={() => update({ quantity: (form.quantity || 0) + 1 })}
                     >
                       +
                     </button>

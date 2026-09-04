@@ -13,3 +13,5 @@ export * from './InternalPasswordSentIcon';
 export * from './ToastIcons';
 export * from './ReferralIcons';
 export * from './EditorIcons';
+export * from './TopCvWarningIcon';
+

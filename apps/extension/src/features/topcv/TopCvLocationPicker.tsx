@@ -59,6 +59,22 @@ export function TopCvLocationPicker({ value, onChange }: TopCvLocationPickerProp
     });
   }, [value, districts, loadDistrictsForProvince]);
 
+  const addArea = () => {
+    const newArea: LocationEntry = {
+      id: String(Date.now()),
+      province_id: 0,
+      province_name: '',
+      addresses: [
+        {
+          district_id: 0,
+          district_name: '',
+          working_address: '',
+        },
+      ],
+    };
+    onChange([...value, newArea]);
+  };
+
   const handleClearAll = () => {
     onChange([]);
   };
@@ -302,6 +318,7 @@ export function TopCvLocationPicker({ value, onChange }: TopCvLocationPickerProp
       <button
         type="button"
         className="topcv-location-add-area-btn"
+        onClick={addArea}
       >
         <span className="topcv-location-plus-icon"><PlusIcon /></span>
         <span>Thêm khu vực</span>
