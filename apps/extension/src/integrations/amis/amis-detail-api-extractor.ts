@@ -1,5 +1,5 @@
 import type { AmisExtractionResult, AmisJobSnapshot } from '@/types/types';
-import { removeHorizontalWhitespaceBeforeNewlines } from '@/text-normalization';
+import { removeHorizontalWhitespaceBeforeNewlines } from '@/lib/utils';
 
 function readValue(record: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {

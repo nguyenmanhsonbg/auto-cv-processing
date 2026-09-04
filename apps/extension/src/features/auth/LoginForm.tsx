@@ -3,7 +3,7 @@ import { ApiClientError, login as loginApi, requestInternalPassword } from '@/li
 import { clearSavedCredentials, getSavedCredentials, saveCredentials, setAuthTokens } from './auth-store';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
 import { AuthInput } from './AuthInput';
-import { UserIcon, LockIcon, EyeIcon, InternalPasswordSentIcon } from '@/components/svg';
+import { UserIcon, LockIcon, EyeIcon, InternalPasswordSentIcon } from '@/assets/icons';
 import { toErrorMessage } from '@/lib/utils';
 import type { ExtensionUser } from '@/types/types';
 

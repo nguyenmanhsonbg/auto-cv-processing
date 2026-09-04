@@ -9,7 +9,7 @@ import {
 import { StatsMetricGrid } from '@/components/metrics/StatsMetricGrid';
 import { CandidateAvatar } from '@/components/candidates/CandidateAvatar';
 import { truncateCandidateName } from '@/components/candidates/CandidateCard';
-import { AppliedDateIcon, JobDescriptionIcon, SaveNoteIcon } from '@/components/icons';
+import { AppliedDateIcon, JobDescriptionIcon, SaveNoteIcon } from '@/assets/icons';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
 import { formatDate } from '@/lib/utils';
 import { formatApplicationDateTime } from '@/lib/application-date-time';

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { EditIcon, ExternalLinkIcon } from '@/components/icons';
+import { EditIcon, ExternalLinkIcon } from '@/assets/icons';
 import { formatTopCvSalary, type TopCvFormData } from './topcv-form.types';
 import { checkTopCvAuth, type TopCvAuthState } from './services/topcv-auth.service';
 

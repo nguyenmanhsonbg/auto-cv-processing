@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BackIcon, CalendarIcon, ChevronRightIcon } from '@/components/icons';
+import { BackIcon, CalendarIcon, ChevronRightIcon } from '@/assets/icons';
 
 export type DateRangeValue = {
   from: string;

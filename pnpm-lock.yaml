@@ -227,6 +227,9 @@ importers:
       '@react-pdf/renderer':
         specifier: ^4.3.0
         version: 4.5.1(react@18.3.1)
+      '@tiptap/extension-character-count':
+        specifier: ^3.30.5
+        version: 3.31.2(@tiptap/extensions@3.30.5)
       '@tiptap/extension-placeholder':
         specifier: ^3.30.5
         version: 3.30.5(@tiptap/extensions@3.30.5)
@@ -3724,6 +3727,14 @@ packages:
       '@tiptap/extension-list': 3.30.5
     dependencies:
       '@tiptap/extension-list': 3.30.5(@tiptap/core@3.30.5)(@tiptap/pm@3.30.5)
+    dev: false
+
+  /@tiptap/extension-character-count@3.31.2(@tiptap/extensions@3.30.5):
+    resolution: {integrity: sha512-RcUgT/H3TBGmuUsiWgLzGz6lhEssgmR1u1ilq+x2Og5/NuoFPemkMysMOvjzDiUiTgMKdGG7uo4PWNXx4afFLg==}
+    peerDependencies:
+      '@tiptap/extensions': 3.31.2
+    dependencies:
+      '@tiptap/extensions': 3.30.5(@tiptap/core@3.30.5)(@tiptap/pm@3.30.5)
     dev: false
 
   /@tiptap/extension-code-block@3.30.5(@tiptap/core@3.30.5)(@tiptap/pm@3.30.5):

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { AuthInput } from './AuthInput';
-import { LockIcon, EyeIcon } from '@/components/svg';
+import { LockIcon, EyeIcon } from '@/assets/icons';
 
 type ChangePasswordFormProps = {
   error?: string | null;

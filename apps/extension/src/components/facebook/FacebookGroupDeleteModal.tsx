@@ -1,4 +1,4 @@
-import { CloseIcon, WarningIcon } from '@/components/icons';
+import { CloseIcon, WarningIcon } from '@/assets/icons';
 
 type FacebookGroupDeleteModalProps = {
   groupName: string;

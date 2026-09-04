@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { ChevronDownIcon } from '@/components/icons';
+import { ChevronDownIcon } from '@/assets/icons';
 
 export type FilterDropdownOption<Value extends string> = {
   value: Value;

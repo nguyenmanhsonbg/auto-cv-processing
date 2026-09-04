@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDownIcon, ChevronUpIcon, ClockIcon } from '@/components/icons';
+import { ChevronDownIcon, ChevronUpIcon, ClockIcon } from '@/assets/icons';
 
 interface TopCvTimePickerProps {
   value?: string; // Format: 'HH:mm' e.g. '08:30'

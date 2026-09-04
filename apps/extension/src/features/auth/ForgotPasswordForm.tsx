@@ -2,7 +2,7 @@ import { useRef, useState, type FocusEvent } from 'react';
 import { ApiClientError, checkPasswordResetLogin, completePasswordReset, requestPasswordReset, verifyPasswordReset } from '@/lib/api-client';
 import { ChangePasswordForm } from './ChangePasswordForm';
 import { AuthInput } from './AuthInput';
-import { UserIcon } from '@/components/svg';
+import { UserIcon } from '@/assets/icons';
 
 type Step = 'IDENTIFIER' | 'METHOD' | 'OTP' | 'RESET';
 

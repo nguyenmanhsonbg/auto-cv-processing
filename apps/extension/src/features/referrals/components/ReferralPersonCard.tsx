@@ -5,7 +5,7 @@ import {
   ActionLockIcon as LockIcon,
   CopyIcon,
   DetailChevronIcon,
-} from '@/components/svg';
+} from '@/assets/icons';
 import { ApplicationTable } from './ApplicationTable';
 
 export interface ReferralPersonCardProps {

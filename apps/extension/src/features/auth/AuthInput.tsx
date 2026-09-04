@@ -1,10 +1,7 @@
 import { forwardRef, type ChangeEvent, type InputHTMLAttributes, type ReactNode } from 'react';
-import { ClearIcon } from '@/components/svg/ClearIcon';
+import { ClearIcon } from '@/assets/icons';
 
-export { ClearIcon } from '@/components/svg/ClearIcon';
-export { UserIcon } from '@/components/svg/UserIcon';
-export { LockIcon } from '@/components/svg/LockIcon';
-export { EyeIcon } from '@/components/svg/EyeIcon';
+export { ClearIcon, UserIcon, LockIcon, EyeIcon } from '@/assets/icons';
 
 export type AuthInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange'> & {
   label?: string;

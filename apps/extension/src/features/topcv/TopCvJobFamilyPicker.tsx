@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { fetchJobFamilies, buildJobFamilyPath, type JobFamily, type JobFamilyPath } from './job-families.service';
-import { ChevronDownIcon } from '@/components/icons';
+import { ChevronDownIcon } from '@/assets/icons';
 
 interface TopCvJobFamilyPickerProps {
   initialLevel3Id?: number;

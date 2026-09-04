@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { DateRangeFilter, FilterBar, MultiSelectFilter, SearchField, SelectFilter } from '@/components/filters';
 import type { DateRangeValue, MultiSelectFilterOption, SelectFilterOption } from '@/components/filters';
-import { CloseIcon } from '@/components/icons';
+import { CloseIcon } from '@/assets/icons';
 import { limitFreelancerCvSearchInput, normalizeFreelancerCvSearch } from '../freelancer-cv-filter-utils';
 
 export type FreelancerCvStatusFilter = string;

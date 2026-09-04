@@ -1,4 +1,4 @@
-import { secureRandomUUID } from '@/secure-random';
+import { secureRandomUUID } from '@/lib/utils';
 
 const INSTALL_ID_KEY = 'vcs_extension_install_id';
 const INSTANCE_ID_KEY = 'vcs_extension_instance_id';

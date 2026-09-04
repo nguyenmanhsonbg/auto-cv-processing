@@ -4,7 +4,11 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   CloseIcon,
-} from '@/components/icons';
+  TopCvWarningIcon,
+  StepperMinusIcon,
+  StepperPlusIcon,
+  ChipCloseIcon,
+} from '@/assets/icons';
 import { InputField, RichTextEditor } from '@/components/form';
 import { MultiSelectFilter, SelectFilter } from '@/components/filters';
 import { ComboboxFilter } from '@/components/filters/ComboboxFilter';
@@ -16,6 +20,7 @@ import { TopCvTimePicker } from './TopCvTimePicker';
 import { fetchTopCvDomainKnowledge, fetchTopCvOptions, type TopCvDomainKnowledge, type TopCvOption } from './services/topcv-options.service';
 import type { TopCvOptionsResponse } from './services/topcv-options.service';
 import { fetchTopCvSkills, type TopCvSkill } from './services/topcv-api.service';
+import { limitPhoneInput, validatePhone } from '@/lib/utils';
 
 const DAY_OPTIONS = [
   { value: '1', label: 'Thứ 2' },
@@ -27,15 +32,7 @@ const DAY_OPTIONS = [
   { value: '7', label: 'Chủ Nhật' },
 ];
 
-function TopCvWarningIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M13 8.66669V12.7634" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M13 16.8337L13 16.8852" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5.41647 20.5833H20.5831C21.3009 20.5783 21.9696 20.2181 22.3687 19.6216C22.7678 19.025 22.8457 18.2695 22.5765 17.6041L14.8848 4.33331C14.5032 3.64363 13.7772 3.21558 12.989 3.21558C12.2008 3.21558 11.4747 3.64363 11.0931 4.33331L3.40147 17.6041C3.13757 18.2539 3.20444 18.9911 3.58093 19.5827C3.95742 20.1744 4.59697 20.5472 5.29731 20.5833" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
+
 
 interface TopCvEditModalProps {
   formData: TopCvFormData;
@@ -176,8 +173,10 @@ export function TopCvEditModal({
     || !hasTopCvRichTextContent(form.jobRequirement)
     || !hasTopCvRichTextContent(form.jobBenefit)
     || form.locations.length === 0;
+  const contactPhoneError = validatePhone(form.contactPhone);
+
   const isExpectationIncomplete = !String(form.education).trim() || !form.experience?.trim();
-  const isContactIncomplete = !form.deadline?.trim() || !form.quantity || !form.contactName?.trim() || !form.contactPhone?.trim() || form.contactEmails.length === 0;
+  const isContactIncomplete = !form.deadline?.trim() || !form.quantity || !form.contactName?.trim() || !form.contactPhone?.trim() || contactPhoneError !== null || form.contactEmails.length === 0;
 
   const addEmail = () => {
     if (!newEmail.trim() || form.contactEmails.length >= 5) return;
@@ -193,13 +192,13 @@ export function TopCvEditModal({
     form.workingHours.schedules && form.workingHours.schedules.length > 0
       ? form.workingHours.schedules
       : [
-          {
-            fromDay: form.workingHours.fromDay || '1',
-            toDay: form.workingHours.toDay || '5',
-            fromTime: form.workingHours.fromTime || '08:30',
-            toTime: form.workingHours.toTime || '18:00',
-          },
-        ];
+        {
+          fromDay: form.workingHours.fromDay || '1',
+          toDay: form.workingHours.toDay || '5',
+          fromTime: form.workingHours.fromTime || '08:30',
+          toTime: form.workingHours.toTime || '18:00',
+        },
+      ];
 
   const updateWorktimeSchedules = (nextSchedules: WorkingHourSchedule[]) => {
     const first = nextSchedules[0] ?? {
@@ -295,7 +294,7 @@ export function TopCvEditModal({
                 onChange={(e) => update({ title: e.target.value })}
                 placeholder="Nhập tiêu đề bài đăng"
                 required
-                maxLength={255}
+                maxLength={50}
               />
 
               <div className="topcv-form-group">
@@ -597,7 +596,7 @@ export function TopCvEditModal({
                       workingHours: { ...form.workingHours, lunchBreak: e.target.value },
                     });
                   }}
-                  placeholder="Nghỉ trưa 12h-13h30"
+                  placeholder="Nhập ghi chú"
                 />
               </div>
             </div>
@@ -726,7 +725,6 @@ export function TopCvEditModal({
                   return (
                     <div key={idx} className="topcv-sub-card">
                       <div className="topcv-sub-card-header">
-                        <span>Ngoại ngữ {idx + 1}:</span>
                         <button
                           type="button"
                           className="topcv-remove-icon-btn"
@@ -739,7 +737,7 @@ export function TopCvEditModal({
                       </div>
                       <div className="topcv-sub-card-row">
                         <SelectFilter
-                          label=""
+                          label={`Ngoại ngữ ${idx + 1}:`}
                           value={lang.language}
                           options={[
                             { value: 0, label: 'Chọn ngoại ngữ' },
@@ -807,11 +805,11 @@ export function TopCvEditModal({
           </div>
 
           {expandedSections.contact && (
-            <div className="topcv-accordion-content">
+            <div className="topcv-contact-content">
               {/* Row 1: Hạn nhận & Số lượng */}
-              <div className="topcv-grid-2">
+              <div className="topcv-contact-grid-2">
                 <div className="topcv-form-group">
-                  <label className="topcv-form-label">
+                  <label htmlFor="topcv-deadline-input" className="topcv-form-label">
                     Hạn nhận hồ sơ <span className="req">*</span>
                   </label>
                   <TopCvDatePicker
@@ -822,83 +820,85 @@ export function TopCvEditModal({
                 </div>
 
                 <div className="topcv-form-group">
-                  <label className="topcv-form-label">
+                  <label htmlFor="topcv-quantity-input" className="topcv-form-label">
                     Số lượng tuyển <span className="req">*</span>
                   </label>
-                  <div className="topcv-stepper-box">
+                  <div className="topcv-contact-stepper">
                     <button
                       type="button"
-                      className="topcv-stepper-btn"
-                      onClick={() => update({ quantity: Math.max(1, (form.quantity || 1) - 1) })}
+                      className="topcv-stepper-btn-square"
+                      onClick={() => update({ quantity: Math.max(0, (form.quantity || 0) - 1) })}
+                      aria-label="Giảm số lượng"
                     >
-                      —
+                      <StepperMinusIcon />
                     </button>
                     <input
+                      id="topcv-quantity-input"
                       type="number"
-                      className="topcv-stepper-input"
-                      min={1}
+                      className="topcv-stepper-input-center"
+                      min={0}
                       value={form.quantity}
-                      onChange={(e) => update({ quantity: Math.max(1, Number(e.target.value) || 1) })}
+                      onChange={(e) => update({ quantity: Math.max(0, Number(e.target.value) || 0) })}
                       required
+                      aria-label="Số lượng tuyển"
                     />
                     <button
                       type="button"
-                      className="topcv-stepper-btn"
-                      onClick={() => update({ quantity: (form.quantity || 1) + 1 })}
+                      className="topcv-stepper-btn-square"
+                      onClick={() => update({ quantity: (form.quantity || 0) + 1 })}
+                      aria-label="Tăng số lượng"
                     >
-                      +
+                      <StepperPlusIcon />
                     </button>
                   </div>
                 </div>
               </div>
 
               {/* Row 2: Họ tên & SĐT */}
-              <div className="topcv-grid-2">
-                <div className="topcv-form-group">
-                  <label className="topcv-form-label">
-                    Họ và tên người nhận <span className="req">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    className="topcv-input"
-                    value={form.contactName}
-                    onChange={(e) => update({ contactName: e.target.value })}
-                    placeholder="Nguyễn Văn A"
-                    required
-                  />
-                </div>
+              <div className="topcv-contact-grid-2">
+                <InputField
+                  label="Họ và tên người nhận"
+                  value={form.contactName}
+                  onChange={(e) => update({ contactName: e.target.value })}
+                  placeholder="Nguyễn Văn A"
+                  required
+                />
 
-                <div className="topcv-form-group">
-                  <label className="topcv-form-label">
-                    Số điện thoại <span className="req">*</span>
-                  </label>
-                  <input
-                    type="tel"
-                    className="topcv-input"
-                    value={form.contactPhone}
-                    onChange={(e) => update({ contactPhone: e.target.value })}
-                    placeholder="0987098098"
-                    required
-                  />
-                </div>
+                <InputField
+                  label="Số điện thoại"
+                  type="tel"
+                  value={form.contactPhone}
+                  onChange={(e) => update({ contactPhone: limitPhoneInput(e.target.value) })}
+                  placeholder="0987098098"
+                  required
+                  error={contactPhoneError || undefined}
+                />
               </div>
 
-              {/* Email nhận hồ sơ */}
+              {/* Row 3: Email nhận hồ sơ */}
               <div className="topcv-form-group">
-                <label className="topcv-form-label">
-                  Email nhận hồ sơ <span className="topcv-muted-note">(Tối đa 5 email)</span> <span className="req">*</span>
+                <label htmlFor="topcv-contact-email-input" className="topcv-form-label">
+                  Email nhận hồ sơ <span className="topcv-contact-note">(Tối đa 5 email)</span> <span className="req">*</span>
                 </label>
-                <div className="topcv-email-chips-container">
+                <div className="topcv-contact-emails-box">
                   {form.contactEmails.map((email, index) => (
-                    <span key={email + index} className="topcv-green-chip">
-                      <button type="button" className="topcv-chip-close-btn" onClick={() => removeEmail(index)}>×</button>
-                      {email}
+                    <span key={email} className="topcv-contact-chip">
+                      <span className="topcv-contact-chip-text">{email}</span>
+                      <button
+                        type="button"
+                        className="topcv-contact-chip-close"
+                        onClick={() => removeEmail(index)}
+                        aria-label={`Xóa email ${email}`}
+                      >
+                        <ChipCloseIcon />
+                      </button>
                     </span>
                   ))}
                   {form.contactEmails.length < 5 && (
                     <input
+                      id="topcv-contact-email-input"
                       type="email"
-                      className="topcv-tag-input-inline"
+                      className="topcv-contact-email-input"
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
                       placeholder={form.contactEmails.length === 0 ? "Nhập email rồi nhấn Enter..." : "+ Thêm email..."}
