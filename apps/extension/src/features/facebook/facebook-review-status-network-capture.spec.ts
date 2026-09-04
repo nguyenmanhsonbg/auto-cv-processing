@@ -3,7 +3,19 @@ import test from 'node:test';
 import {
   hasPostedRoute,
   hasRejectedPostPageEvidence,
+  resolveFacebookHistoryStatusAfterCollectionCheck,
 } from './facebook-review-status-network-capture.ts';
+
+function collectionEvidence(
+  overrides: Partial<Parameters<typeof resolveFacebookHistoryStatusAfterCollectionCheck>[0]['pending']> = {},
+) {
+  return {
+    matched: false,
+    dataObserved: true,
+    routeLoaded: true,
+    ...overrides,
+  };
+}
 
 function routeDefinitionResponse(
   groupId: string,
@@ -94,5 +106,49 @@ test('detects a rejected Facebook post from the error route returned for its exa
       },
     ], groupId, postId, postedUrl),
     true,
+  );
+});
+
+test('resolves a history item as pending when the pending collection contains it', () => {
+  assert.equal(
+    resolveFacebookHistoryStatusAfterCollectionCheck({
+      initialStatus: 'UNKNOWN',
+      pending: collectionEvidence({ matched: true }),
+      published: collectionEvidence(),
+    }),
+    'PENDING_REVIEW',
+  );
+});
+
+test('resolves a history item as posted when the published collection contains it', () => {
+  assert.equal(
+    resolveFacebookHistoryStatusAfterCollectionCheck({
+      initialStatus: 'UNKNOWN',
+      pending: collectionEvidence(),
+      published: collectionEvidence({ matched: true }),
+    }),
+    'POSTED',
+  );
+});
+
+test('resolves a history item as rejected when both collections loaded without the item', () => {
+  assert.equal(
+    resolveFacebookHistoryStatusAfterCollectionCheck({
+      initialStatus: 'UNKNOWN',
+      pending: collectionEvidence(),
+      published: collectionEvidence(),
+    }),
+    'REJECTED',
+  );
+});
+
+test('preserves the current status when Facebook did not return both collections', () => {
+  assert.equal(
+    resolveFacebookHistoryStatusAfterCollectionCheck({
+      initialStatus: 'PENDING_REVIEW',
+      pending: collectionEvidence(),
+      published: collectionEvidence({ dataObserved: false, routeLoaded: false }),
+    }),
+    'PENDING_REVIEW',
   );
 });

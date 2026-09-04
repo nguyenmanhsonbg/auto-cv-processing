@@ -34,6 +34,7 @@ type EvidenceKind =
   | 'REMOVED_COLLECTION'
   | 'REJECTED_POST_PAGE'
   | 'EMPTY_PENDING_COLLECTION'
+  | 'REJECTED_BY_ABSENCE'
   | 'INSUFFICIENT';
 
 export interface FacebookReviewNetworkInput {
@@ -103,7 +104,7 @@ const COLLECTIONS: Record<CollectionKind, CollectionConfig> = {
     suffixes: ['my_removed_content'],
     routeNames: ['comet.fbweb.GroupsCometViewerContentRemovedRoute'],
     sections: ['removed'],
-    status: 'DELETED',
+    status: 'REJECTED',
     evidence: 'REMOVED_COLLECTION',
   },
 };
@@ -168,6 +169,30 @@ interface CollectionEvidence {
 interface HistorySamples {
   title: string | null;
   content: string | null;
+}
+
+export interface FacebookCollectionCheckSummary {
+  matched: boolean;
+  dataObserved: boolean;
+  routeLoaded?: boolean;
+}
+
+export function resolveFacebookHistoryStatusAfterCollectionCheck(input: {
+  initialStatus: FacebookReviewStatus;
+  pending: FacebookCollectionCheckSummary;
+  published: FacebookCollectionCheckSummary;
+}) {
+  if (input.pending.matched) return 'PENDING_REVIEW' as const;
+  if (input.published.matched) return 'POSTED' as const;
+
+  // A missing post is only conclusive after both Facebook collections have
+  // returned usable data. Otherwise a blocked/partial navigation could make
+  // an existing post look deleted.
+  if (input.pending.dataObserved && input.published.dataObserved) {
+    return 'REJECTED' as const;
+  }
+
+  return input.initialStatus;
 }
 
 export async function probeFacebookReviewStatusByNetwork(
@@ -345,23 +370,12 @@ async function probeKnownPost(
     postedUrl,
   );
 
-  if (
-    hasRejectedPostPageEvidence(
-      postedResponses,
-      groupId,
-      postId,
-      postedUrl,
-    )
-  ) {
-    return {
-      facebookReviewStatus: 'REJECTED',
-      message:
-        'Facebook network response xác nhận bài viết bị từ chối hoặc không còn khả dụng.',
-      evidence: 'REJECTED_POST_PAGE',
-      externalPostId: postId,
-      externalPostUrl: input.externalPostUrl ?? postedUrl,
-    };
-  }
+  const rejectedPostPage = hasRejectedPostPageEvidence(
+    postedResponses,
+    groupId,
+    postId,
+    postedUrl,
+  );
 
   if (
     hasPostedRoute(
@@ -444,6 +458,39 @@ async function probeKnownPost(
     });
   }
 
+  const pendingEvidence = await probeCollection({
+    tabId,
+    capture,
+    groupId,
+    kind: 'pending',
+    postId,
+    samples,
+  });
+
+  if (pendingEvidence.matched) {
+    return collectionResult({
+      source: input,
+      groupId,
+      knownPostId: postId,
+      kind: 'pending',
+      evidence: pendingEvidence,
+    });
+  }
+
+  if (
+    resolveFacebookHistoryStatusAfterCollectionCheck({
+      initialStatus: input.initialStatus,
+      pending: pendingEvidence,
+      published: publishedEvidence,
+    }) === 'REJECTED'
+  ) {
+    return rejectedHistoryResult(
+      input,
+      postId,
+      'Facebook network response không tìm thấy bài viết trong cả pending và posted collection; cập nhật Bị từ chối.',
+    );
+  }
+
   const declinedEvidence = await probeCollection({
     tabId,
     capture,
@@ -483,49 +530,23 @@ async function probeKnownPost(
   }
 
   /*
-   * STEP 4:
-   * The post may simply still be pending.
-   */
-  const pendingEvidence = await probeCollection({
-    tabId,
-    capture,
-    groupId,
-    kind: 'pending',
-    postId,
-    samples,
-  });
-
-  if (pendingEvidence.matched) {
-    return collectionResult({
-      source: input,
-      groupId,
-      knownPostId: postId,
-      kind: 'pending',
-      evidence: pendingEvidence,
-    });
-  }
-
-  /*
-   * STEP 5:
-   * /posts/<id> did not resolve as POSTED,
-   * exact /pending_posts/<id> returned an explicit empty state,
-   * and the post is not in another known collection.
-   *
-   * This is the rejected case observed in Facebook.
+   * The exact post page and the exact pending page are both negative, while
+   * the collection responses were incomplete. Treat the direct negative
+   * evidence as a rejected post, but keep UNKNOWN when Facebook did not give
+   * enough evidence to decide.
    */
   if (
+    rejectedPostPage
+    || (
     directPendingEvidence.dataObserved
     && directPendingEvidence.explicitlyEmpty
+    )
   ) {
-    return {
-      facebookReviewStatus: 'REJECTED',
-      message:
-        'Facebook network response xác nhận bài viết không còn tồn tại trong trang pending cụ thể; cập nhật Bị từ chối.',
-      evidence: 'EMPTY_PENDING_COLLECTION',
-      externalPostId: postId,
-      externalPostUrl:
-        input.externalPostUrl ?? null,
-    };
+    return rejectedHistoryResult(
+      input,
+      postId,
+      'Facebook network response xác nhận bài viết không còn trong post/pending page; cập nhật Bị từ chối.',
+    );
   }
 
   return insufficient(
@@ -544,25 +565,36 @@ async function probeUnknownPost(
   const pending = await probeCollection({ tabId, capture, groupId, kind: 'pending', postId: null, samples });
   if (pending.matched) return collectionResult({ source: input, groupId, knownPostId: pending.postId, kind: 'pending', evidence: pending });
 
-  const order: CollectionKind[] = ['published', 'declined', 'removed'];
+  const published = await probeCollection({ tabId, capture, groupId, kind: 'published', postId: null, samples });
+  if (published.matched) return collectionResult({ source: input, groupId, knownPostId: published.postId, kind: 'published', evidence: published });
+
+  if (
+    resolveFacebookHistoryStatusAfterCollectionCheck({
+      initialStatus: input.initialStatus,
+      pending,
+      published,
+    }) === 'REJECTED'
+  ) {
+    return rejectedHistoryResult(
+      input,
+      null,
+      'Facebook network response không tìm thấy bài viết trong cả pending và posted collection; cập nhật Bị từ chối.',
+    );
+  }
+
+  const order: CollectionKind[] = ['declined', 'removed'];
   for (const kind of order) {
     const evidence = await probeCollection({ tabId, capture, groupId, kind, postId: null, samples });
     if (!evidence.matched) continue;
     return collectionResult({ source: input, groupId, knownPostId: evidence.postId, kind, evidence });
   }
 
-    if (hasStrongEmptyPendingEvidence(pending)) {
-    return {
-        facebookReviewStatus: 'REJECTED',
-        message:
-        'Facebook pending-content response trả về rỗng; cập nhật Bị từ chối.',
-        evidence: 'EMPTY_PENDING_COLLECTION',
-        externalPostId:
-        normalizeId(input.externalPostId),
-        externalPostUrl:
-        normalizeText(input.externalPostUrl),
-    };
-    }
+  if (hasStrongEmptyPendingEvidence(pending)) {
+    return insufficient(
+      input,
+      'Facebook pending-content response đã tải nhưng chưa đủ dữ liệu posted để kết luận bài viết đã xóa.',
+    );
+  }
 
   return insufficient(input, 'Không có network evidence đủ mạnh để xác định bài UNKNOWN.');
 }
@@ -754,15 +786,25 @@ function collectionResult(input: CollectionResultInput): FacebookReviewNetworkRe
   if (!postUrl) postUrl = normalizeText(input.source.externalPostUrl);
 
   return {
-    // The refresh workflow intentionally exposes only POSTED, PENDING_REVIEW,
-    // and REJECTED. Facebook's removed collection is the negative outcome of
-    // the pending review lifecycle, so normalize it at this boundary.
-    facebookReviewStatus:
-      input.kind === 'removed' ? 'REJECTED' : config.status,
+    facebookReviewStatus: config.status,
     message: `Facebook network response xác nhận bài nằm trong ${input.kind} collection.`,
     evidence: config.evidence,
     externalPostId: postId,
     externalPostUrl: postUrl,
+  };
+}
+
+function rejectedHistoryResult(
+  input: FacebookReviewNetworkInput,
+  postId: string | null,
+  message: string,
+): FacebookReviewNetworkResult {
+  return {
+    facebookReviewStatus: 'REJECTED',
+    message,
+    evidence: 'REJECTED_BY_ABSENCE',
+    externalPostId: postId ?? normalizeId(input.externalPostId),
+    externalPostUrl: normalizeText(input.externalPostUrl),
   };
 }
 
