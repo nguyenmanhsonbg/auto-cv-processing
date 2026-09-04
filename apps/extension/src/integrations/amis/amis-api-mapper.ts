@@ -9,7 +9,7 @@ import type {
 import {
   removeHorizontalWhitespaceBeforeNewlines,
   stripHtmlTags,
-} from '@/text-normalization';
+} from '@/lib/utils';
 import {
   extractAmisCandidateRows,
   extractAmisRows,

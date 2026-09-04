@@ -14,7 +14,7 @@ import {
 import { saveLastAutoSyncState } from '@/stores/amis-auto-sync-store';
 import { saveLastAmisCapture } from '@/stores/amis-capture-store';
 import { extractAmisJobFromPage } from '@/integrations/amis/amis-page-extractor';
-import { hashText } from '@/hash-text';
+import { hashText } from '@/lib/utils';
 import {
   ApiClientError,
   claimNextExtensionTask,

@@ -8396,9 +8396,11 @@ dd {
   opacity: 0.7;
 }
 
-.shared-filter-chip-remove svg {
+.shared-filter-chip-remove svg,
+.shared-filter-chip .shared-filter-chip-remove svg {
   width: 10px;
   height: 10px;
+  color: #15803D;
   stroke-width: 2.2;
 }
 
@@ -9383,18 +9385,18 @@ nav.extension-tabs[aria-label="VCS Recruitment sections"] {
   white-space: nowrap;
 }
 
-.referral-jd-select-trigger svg,
-.referral-filter-trigger svg {
+.referral-jd-select-trigger>svg,
+.referral-jd-select-trigger .shared-filter-trigger-actions>svg,
+.referral-filter-trigger>svg {
   width: 14px;
   height: 14px;
   flex: 0 0 auto;
   color: #374151;
-  opacity: 1;
-  transition: transform 0.15s ease;
 }
 
-.referral-jd-select-trigger svg.is-open,
-.referral-filter-dropdown.is-open .referral-filter-trigger svg {
+.referral-jd-select-trigger>svg.is-open,
+.referral-jd-select-trigger .shared-filter-trigger-actions>svg.is-open,
+.referral-filter-dropdown.is-open .referral-filter-trigger>svg {
   transform: rotate(180deg);
 }
 

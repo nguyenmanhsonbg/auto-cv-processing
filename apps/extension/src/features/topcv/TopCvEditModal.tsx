@@ -20,6 +20,7 @@ import { TopCvTimePicker } from './TopCvTimePicker';
 import { fetchTopCvDomainKnowledge, fetchTopCvOptions, type TopCvDomainKnowledge, type TopCvOption } from './services/topcv-options.service';
 import type { TopCvOptionsResponse } from './services/topcv-options.service';
 import { fetchTopCvSkills, type TopCvSkill } from './services/topcv-api.service';
+import { limitPhoneInput, validatePhone } from '@/lib/utils';
 
 const DAY_OPTIONS = [
   { value: '1', label: 'Thứ 2' },
@@ -172,8 +173,10 @@ export function TopCvEditModal({
     || !hasTopCvRichTextContent(form.jobRequirement)
     || !hasTopCvRichTextContent(form.jobBenefit)
     || form.locations.length === 0;
+  const contactPhoneError = validatePhone(form.contactPhone);
+
   const isExpectationIncomplete = !String(form.education).trim() || !form.experience?.trim();
-  const isContactIncomplete = !form.deadline?.trim() || !form.quantity || !form.contactName?.trim() || !form.contactPhone?.trim() || form.contactEmails.length === 0;
+  const isContactIncomplete = !form.deadline?.trim() || !form.quantity || !form.contactName?.trim() || !form.contactPhone?.trim() || contactPhoneError !== null || form.contactEmails.length === 0;
 
   const addEmail = () => {
     if (!newEmail.trim() || form.contactEmails.length >= 5) return;
@@ -853,35 +856,23 @@ export function TopCvEditModal({
 
               {/* Row 2: Họ tên & SĐT */}
               <div className="topcv-contact-grid-2">
-                <div className="topcv-form-group">
-                  <label htmlFor="topcv-contact-name-input" className="topcv-form-label">
-                    Họ và tên người nhận <span className="req">*</span>
-                  </label>
-                  <input
-                    id="topcv-contact-name-input"
-                    type="text"
-                    className="topcv-contact-input"
-                    value={form.contactName}
-                    onChange={(e) => update({ contactName: e.target.value })}
-                    placeholder="Nguyễn Văn A"
-                    required
-                  />
-                </div>
+                <InputField
+                  label="Họ và tên người nhận"
+                  value={form.contactName}
+                  onChange={(e) => update({ contactName: e.target.value })}
+                  placeholder="Nguyễn Văn A"
+                  required
+                />
 
-                <div className="topcv-form-group">
-                  <label htmlFor="topcv-contact-phone-input" className="topcv-form-label">
-                    Số điện thoại <span className="req">*</span>
-                  </label>
-                  <input
-                    id="topcv-contact-phone-input"
-                    type="tel"
-                    className="topcv-contact-input"
-                    value={form.contactPhone}
-                    onChange={(e) => update({ contactPhone: e.target.value })}
-                    placeholder="0987098098"
-                    required
-                  />
-                </div>
+                <InputField
+                  label="Số điện thoại"
+                  type="tel"
+                  value={form.contactPhone}
+                  onChange={(e) => update({ contactPhone: limitPhoneInput(e.target.value) })}
+                  placeholder="0987098098"
+                  required
+                  error={contactPhoneError || undefined}
+                />
               </div>
 
               {/* Row 3: Email nhận hồ sơ */}

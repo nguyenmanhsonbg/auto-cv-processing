@@ -3,8 +3,7 @@ import { getAccessToken } from '@/features/auth/auth-store';
 import { summarizeFacebookPublishResults } from '@/features/facebook/facebook-channel-status';
 import { toVietnameseErrorMessage } from '@/lib/error-messages';
 import { FACEBOOK_MAX_IMAGE_ATTACHMENTS } from '@/lib/config';
-import { secureRandomFraction } from '@/secure-random';
-import { trimTrailingSlashes } from '@/text-normalization';
+import { secureRandomFraction, trimTrailingSlashes } from '@/lib/utils';
 import {
   attachChromeDebugger,
   decodeChromeDebuggerResponseBody,
