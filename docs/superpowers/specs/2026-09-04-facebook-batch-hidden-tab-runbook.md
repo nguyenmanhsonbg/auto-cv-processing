@@ -111,10 +111,9 @@ Required verification after code changes:
    - `[FB_BATCH_GROUP_SELECTION_COORDINATE_RESULT]`;
    - `[FB15_TARGET_RESULT]` and the backend `publish-results` payload.
 
-## Next requested optimization: finish after the anchor submission
+## Implemented batch completion policy: finish after the anchor submission
 
-The next change requested by the product flow is intentionally separate from
-the picker fix:
+The batch flow now uses the following completion boundary:
 
 - after Facebook accepts the `Đăng` action and the anchor submission endpoint
   or trusted submission evidence is available, stop the batch operation;
@@ -130,18 +129,17 @@ the availability of a URL for every selected group. The later history flow can
 reconcile individual group URLs asynchronously without slowing the initial
 posting action.
 
-### Current slow path to remove
+### Synchronous child-group lookup is disabled
 
-The current implementation continues after the anchor submit and calls
-`collectFacebookCrosspostResults`. That path waits for cross-post
-notifications, then navigates the hidden tab to each missing target group and
-waits again before checking notifications. The result builder then creates a
-separate payload for every target and may leave child URLs empty when Facebook
-does not expose a per-group notification.
+The old implementation called `collectFacebookCrosspostResults` after the
+anchor submit. That path waited for cross-post notifications, then navigated
+the hidden tab to each missing target group and waited again before checking
+notifications. The batch publish path now skips that function by policy via
+`shouldSkipFacebookCrosspostResolution`.
 
-This behavior is the source of the long delay. It is not required to decide
-whether the initial batch submission was accepted and must not remain on the
-synchronous posting path after the optimization is implemented.
+This behavior was the source of the long delay. It is not required to decide
+whether the initial batch submission was accepted and is no longer part of the
+synchronous batch posting path.
 
 ### Desired result contract
 

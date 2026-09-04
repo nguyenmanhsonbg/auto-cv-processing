@@ -27,6 +27,7 @@ import {
   parseFacebookCrosspostNotifications,
   parseFacebookCrosspostSearchGroups,
   shouldRetryFacebookGroupPickerDoneClick,
+  shouldSkipFacebookCrosspostResolution,
   type FacebookCrosspostSearchGroup,
   type FacebookCrosspostNotificationResult,
 } from './facebook-publish-batch-utils';
@@ -606,7 +607,7 @@ function buildFacebookBatchPublishResultPayloads(
         status: anchorResult.status === 'FAILED' ? 'FAILED' : 'SUCCESS',
         message: anchorResult.status === 'FAILED'
           ? `Batch Facebook submission failed for the anchor group. ${anchorResult.message}`
-          : `${anchorResult.message} Facebook did not return a per-group cross-post notification.`,
+          : `${anchorResult.message} Link group phụ sẽ được cập nhật khi kiểm tra lịch sử bài đăng.`,
         facebookReviewStatus: 'UNKNOWN',
         submitClickDispatched: anchorResult.submitClickDispatched,
         postClickEvidence: anchorResult.postClickEvidence,
@@ -2879,13 +2880,15 @@ async function clickAndWaitForSubmission(
       });
       graphqlResult = await graphqlCapture?.waitForResult(FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS) ?? null;
     }
-    const crosspostResults = await collectFacebookCrosspostResults(
-      tabId,
-      graphqlCapture,
-      batchCrosspostTargets,
-      submittedAtMs,
-      execution,
-    );
+    const crosspostResults = shouldSkipFacebookCrosspostResolution(batchCrosspostTargets.length)
+      ? []
+      : await collectFacebookCrosspostResults(
+        tabId,
+        graphqlCapture,
+        batchCrosspostTargets,
+        submittedAtMs,
+        execution,
+      );
     console.warn('[FB12_PRE_ENRICH_RESULT]', {
       tabId,
       status: submissionResult.status,
@@ -2928,13 +2931,15 @@ async function clickAndWaitForSubmission(
     return finalResult;
   } catch (error) {
     const graphqlResult = await graphqlCapture?.waitForResult(FACEBOOK_PUBLISH_GRAPHQL_CAPTURE_SETTLE_MS) ?? null;
-    const crosspostResults = await collectFacebookCrosspostResults(
-      tabId,
-      graphqlCapture,
-      batchCrosspostTargets,
-      submittedAtMs,
-      execution,
-    );
+    const crosspostResults = shouldSkipFacebookCrosspostResolution(batchCrosspostTargets.length)
+      ? []
+      : await collectFacebookCrosspostResults(
+        tabId,
+        graphqlCapture,
+        batchCrosspostTargets,
+        submittedAtMs,
+        execution,
+      );
     const resultWithGraphql = applyFacebookPublishGraphqlResult({
       status: 'FAILED',
       message: `Facebook post submission could not be observed after submit click. ${toAutomationErrorMessage(error)}`,

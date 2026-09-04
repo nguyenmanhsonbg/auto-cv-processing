@@ -12,6 +12,7 @@ import {
   parseFacebookCrosspostSearchGroups,
   getFacebookBackgroundTabInteractionCommands,
   selectFacebookGroupPickerDialog,
+  shouldSkipFacebookCrosspostResolution,
   shouldRetryFacebookGroupPickerDoneClick,
 } from './facebook-publish-batch-utils.ts';
 
@@ -309,6 +310,12 @@ test('uses the coordinate fallback only when the picker remains open after DOM c
     }),
     false,
   );
+});
+
+test('skips synchronous child-group resolution after a batch submit', () => {
+  assert.equal(shouldSkipFacebookCrosspostResolution(1), true);
+  assert.equal(shouldSkipFacebookCrosspostResolution(8), true);
+  assert.equal(shouldSkipFacebookCrosspostResolution(0), false);
 });
 
 test('distinguishes a Facebook execution document from the extension or AMIS document', () => {

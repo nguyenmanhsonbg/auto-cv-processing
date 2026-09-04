@@ -66,7 +66,7 @@ export class UpdateAmisApplicationStageDto {
   @ApiPropertyOptional({ description: 'The previous AMIS recruitment round type, when known.' })
   @IsOptional()
   @IsInt()
-  @Min(1)
+  @Min(0)
   previousRecruitmentRoundType?: number;
 
   @ApiPropertyOptional({ description: 'The previous AMIS recruitment round sort order, when known.' })

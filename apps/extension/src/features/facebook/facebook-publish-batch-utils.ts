@@ -138,6 +138,10 @@ export function shouldRetryFacebookGroupPickerDoneClick(result: {
     && Number.isFinite(point?.clientY);
 }
 
+export function shouldSkipFacebookCrosspostResolution(batchCrosspostTargetCount: number) {
+  return batchCrosspostTargetCount > 0;
+}
+
 export function findFirstFacebookSelectableCandidate<T>(
   candidates: readonly T[],
   isSelectable: (candidate: T) => boolean,
