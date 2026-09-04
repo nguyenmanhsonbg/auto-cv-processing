@@ -26,6 +26,7 @@ import {
   getFacebookBackgroundTabInteractionCommands,
   parseFacebookCrosspostNotifications,
   parseFacebookCrosspostSearchGroups,
+  shouldRetryFacebookGroupPickerDoneClick,
   type FacebookCrosspostSearchGroup,
   type FacebookCrosspostNotificationResult,
 } from './facebook-publish-batch-utils';
@@ -265,6 +266,8 @@ interface FacebookBatchGroupSelectionResult {
   ok: boolean;
   message: string;
   selectedGroupIds: string[];
+  retryWithCoordinateClick?: boolean;
+  doneButton?: FacebookSubmitButtonPoint;
 }
 
 interface FacebookSubmitButtonPointProbe {
@@ -1374,7 +1377,7 @@ async function runFreshTabPublishAttempt({
     let submitButtonForSubmission = preparedPost.submitButton;
     if (batchCrosspostTargets.length > 0) {
       const knownSearchGroups = await preSubmitGraphqlCapture?.waitForSearchResults(500) ?? [];
-      const selection = await runScript<
+      let selection = await runScript<
         [
           Array<{ targetName: string; targetExternalId: string }>,
           FacebookCrosspostSearchGroup[],
@@ -1396,8 +1399,51 @@ async function runFreshTabPublishAttempt({
         ok: selection.ok,
         message: selection.message,
         selectedGroupIds: selection.selectedGroupIds,
+        retryWithCoordinateClick: selection.retryWithCoordinateClick ?? false,
+        doneButton: selection.doneButton ?? null,
         targetGroupIds: batchCrosspostTargets.map((batchTarget) => batchTarget.targetExternalId),
       });
+      if (shouldRetryFacebookGroupPickerDoneClick(selection) && selection.doneButton) {
+        console.warn('[FB_BATCH_GROUP_SELECTION_COORDINATE_FALLBACK]', {
+          tabId,
+          point: selection.doneButton,
+        });
+        try {
+          if (preSubmitGraphqlCapture) {
+            await clickTabCoordinatePointOnAttachedDebugger(
+              tabId,
+              selection.doneButton,
+              execution,
+            );
+          } else {
+            await clickTabCoordinatePoint(tabId, selection.doneButton, execution);
+          }
+          const pickerClosed = await runScript<[number], boolean>(
+            tabId,
+            waitForFacebookGroupPickerClosedInPage,
+            [3_000],
+          ).catch(() => false);
+          console.warn('[FB_BATCH_GROUP_SELECTION_COORDINATE_RESULT]', {
+            tabId,
+            pickerClosed,
+          });
+          if (pickerClosed) {
+            selection = {
+              ...selection,
+              ok: true,
+              message: `Đã chọn ${batchCrosspostTargets.length} group Facebook để đăng cùng một bài viết.`,
+              selectedGroupIds: batchCrosspostTargets
+                .map((batchTarget) => batchTarget.targetExternalId)
+                .filter((value): value is string => Boolean(value?.trim())),
+            };
+          }
+        } catch (error) {
+          console.warn('[FB_BATCH_GROUP_SELECTION_COORDINATE_FAILED]', {
+            tabId,
+            message: toAutomationErrorMessage(error),
+          });
+        }
+      }
       if (!selection.ok) {
         return {
           kind: 'PUBLISHED',
@@ -4890,24 +4936,38 @@ function selectFacebookCrosspostGroupsInPage(
     '[role="combobox"][placeholder*="search group" i]',
   ].join(', ');
   const findGroupPickerSearchInput = (dialog: HTMLElement) => (
-    dialog.querySelector<HTMLInputElement | HTMLElement>(groupPickerSearchSelector)
+    Array.from(dialog.querySelectorAll<HTMLInputElement | HTMLElement>(groupPickerSearchSelector))
+      .find((input) => rendered(input)) ?? null
   );
-  const isGroupPickerDialog = (dialog: HTMLElement) => {
-    const hasSearch = Boolean(findGroupPickerSearchInput(dialog));
+  const getGroupPickerDialogState = (dialog: HTMLElement) => {
     const dialogLabel = normalize([
       dialog.getAttribute('aria-label'),
       dialog.getAttribute('title'),
-      dialog.textContent,
+      dialog.innerText,
     ].filter(Boolean).join(' '));
-    const hasTitle = dialogLabel.includes('them nhom') || dialogLabel.includes('chon nhom');
-    return hasSearch && hasTitle;
+    return {
+      dialog,
+      hasVisibleSearchInput: Boolean(findGroupPickerSearchInput(dialog)),
+      hasPickerTitle: dialogLabel.includes('them nhom') || dialogLabel.includes('chon nhom'),
+      isRendered: rendered(dialog),
+      isAriaHidden: !isNotAriaHidden(dialog),
+    };
   };
   const findDialog = () => {
     const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
-    const pickerDialogs = dialogs.filter(isGroupPickerDialog);
-    return pickerDialogs.find((dialog) => rendered(dialog))
-      ?? pickerDialogs.find(isNotAriaHidden)
-      ?? pickerDialogs[0]
+    const renderedPickers = dialogs
+      .map(getGroupPickerDialogState)
+      .filter((dialog) => (
+        dialog.hasVisibleSearchInput
+          && dialog.hasPickerTitle
+          && dialog.isRendered
+      ));
+    // This function is serialized and executed inside the Facebook tab, so it
+    // must not depend on an imported extension-module helper. Facebook may
+    // leave aria-hidden on the visible picker wrapper; use it only as a
+    // secondary preference after rendered-state filtering.
+    return renderedPickers.find((dialog) => !dialog.isAriaHidden)?.dialog
+      ?? renderedPickers[0]?.dialog
       ?? null;
   };
 
@@ -4934,6 +4994,26 @@ function selectFacebookCrosspostGroupsInPage(
   const getClickableElement = (element: Element) => (
     element.closest('button, [role="button"], [tabindex="0"], a') ?? element
   );
+  const resolvePickerButtonPoint = (element: Element): FacebookSubmitButtonPoint | null => {
+    const clickableButton = getClickableElement(element);
+    if (!(clickableButton instanceof HTMLElement) || !rendered(clickableButton)) return null;
+    clickableButton.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+    const rect = clickableButton.getBoundingClientRect();
+    const clientX = rect.left + rect.width / 2;
+    const clientY = rect.top + rect.height / 2;
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+    return {
+      clientX,
+      clientY,
+      label: readLabel(clickableButton),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      },
+    };
+  };
   const matchesGroupPickerTriggerLabel = (value: string) => {
     const normalized = normalize(value);
     return normalized.includes('them nhom') || /^\+?\s*\d+\s*nhom$/.test(normalized);
@@ -5140,6 +5220,7 @@ function selectFacebookCrosspostGroupsInPage(
     const doneButton = Array.from(activeDialog.querySelectorAll<HTMLElement>(
       '[role="button"], button',
     )).find((element) => rendered(element) && matchesUiLabel(element, 'xong'));
+    const doneButtonPoint = doneButton ? resolvePickerButtonPoint(doneButton) : null;
     if (!clickElement(doneButton ?? null)) {
       return {
         ok: false,
@@ -5147,12 +5228,14 @@ function selectFacebookCrosspostGroupsInPage(
         selectedGroupIds: [],
       };
     }
-    const dialogClosed = await waitFor(() => (findDialog() ? null : true), 5_000);
+    const dialogClosed = await waitFor(() => (findDialog() ? null : true), 1_500);
     if (!dialogClosed) {
       return {
         ok: false,
         message: 'Không thể đóng popup chọn nhóm Facebook sau khi click nút “Xong”.',
         selectedGroupIds: [],
+        retryWithCoordinateClick: Boolean(doneButtonPoint),
+        doneButton: doneButtonPoint ?? undefined,
       };
     }
     return {
@@ -5161,6 +5244,70 @@ function selectFacebookCrosspostGroupsInPage(
       selectedGroupIds: targets.map((target) => target.targetExternalId),
     };
   })();
+}
+
+async function waitForFacebookGroupPickerClosedInPage(timeoutMs = 3_000): Promise<boolean> {
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  const rendered = (element: Element | null) => {
+    if (!(element instanceof HTMLElement)) return false;
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none'
+      && style.visibility !== 'hidden'
+      && rect.width > 0
+      && rect.height > 0
+      && rect.right > 0
+      && rect.bottom > 0
+      && rect.left < window.innerWidth
+      && rect.top < window.innerHeight;
+  };
+  const groupPickerSearchSelector = [
+    'input[aria-label*="Tìm kiếm nhóm" i]',
+    'input[placeholder*="Tìm kiếm nhóm" i]',
+    '[role="combobox"][aria-label*="Tìm kiếm nhóm" i]',
+    '[role="combobox"][placeholder*="Tìm kiếm nhóm" i]',
+    'input[aria-label*="search group" i]',
+    'input[placeholder*="search group" i]',
+    '[role="combobox"][aria-label*="search group" i]',
+    '[role="combobox"][placeholder*="search group" i]',
+  ].join(', ');
+  const isPickerOpen = () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).some((dialog) => {
+    const dialogLabel = normalize([
+      dialog.getAttribute('aria-label'),
+      dialog.getAttribute('title'),
+      dialog.innerText,
+    ].filter(Boolean).join(' '));
+    const hasPickerTitle = dialogLabel.includes('them nhom') || dialogLabel.includes('chon nhom');
+    const hasVisibleSearchInput = Array.from(dialog.querySelectorAll<HTMLInputElement | HTMLElement>(
+      groupPickerSearchSelector,
+    )).some((input) => rendered(input));
+    // Facebook can keep aria-hidden on a modal wrapper while the visible
+    // picker is mounted in another React layer. A rendered dialog with the
+    // picker signature is the reliable open/closed signal here.
+    return hasPickerTitle && hasVisibleSearchInput && rendered(dialog);
+  });
+
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  return new Promise((resolve) => {
+    const check = () => {
+      if (!isPickerOpen()) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() >= deadline) {
+        resolve(false);
+        return;
+      }
+      window.setTimeout(check, 150);
+    };
+    check();
+  });
 }
 
 async function prepareFacebookPostInPage(

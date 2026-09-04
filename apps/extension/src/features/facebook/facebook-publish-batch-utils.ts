@@ -96,6 +96,48 @@ export function matchesFacebookGroupPickerTriggerLabel(value: string) {
   return normalized.includes('them nhom') || /^\+?\s*\d+\s*nhom$/.test(normalized);
 }
 
+export interface FacebookGroupPickerDialogState {
+  hasVisibleSearchInput: boolean;
+  hasPickerTitle: boolean;
+  isRendered: boolean;
+  isAriaHidden: boolean;
+}
+
+export function selectFacebookGroupPickerDialog<T extends FacebookGroupPickerDialogState>(
+  dialogs: readonly T[],
+): T | null {
+  const renderedPickers = dialogs.filter((dialog) => (
+    dialog.hasVisibleSearchInput
+      && dialog.hasPickerTitle
+      && dialog.isRendered
+  ));
+
+  // Facebook may leave aria-hidden="true" on a modal wrapper while the
+  // picker is visibly rendered in another React layer. Geometry/render state
+  // is therefore authoritative; aria-hidden only chooses between rendered
+  // picker candidates.
+  return renderedPickers.find((dialog) => !dialog.isAriaHidden)
+    ?? renderedPickers[0]
+    ?? null;
+}
+
+export interface FacebookGroupPickerDoneButtonPoint {
+  clientX: number;
+  clientY: number;
+}
+
+export function shouldRetryFacebookGroupPickerDoneClick(result: {
+  ok: boolean;
+  retryWithCoordinateClick?: boolean;
+  doneButton?: FacebookGroupPickerDoneButtonPoint | null;
+}) {
+  const point = result.doneButton;
+  return !result.ok
+    && result.retryWithCoordinateClick === true
+    && Number.isFinite(point?.clientX)
+    && Number.isFinite(point?.clientY);
+}
+
 export function findFirstFacebookSelectableCandidate<T>(
   candidates: readonly T[],
   isSelectable: (candidate: T) => boolean,

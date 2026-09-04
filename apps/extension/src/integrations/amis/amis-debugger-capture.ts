@@ -7,6 +7,7 @@ import {
 import {
   AMIS_CAREER_DATA_PAGING_PATH,
   AMIS_CANDIDATE_SAVE_PATH,
+  AMIS_CANDIDATE_UPDATE_ROUND_PATH,
   isAmisCandidateAdditionalInfoUrl,
   isAmisCandidateSaveUrl,
   isAmisCandidateUpdateRoundUrl,
@@ -20,6 +21,7 @@ import {
   mapAmisCareerDataPagingResponse,
   mapAmisSaveRecruitmentResponse,
 } from '@/integrations/amis/amis-api-mapper';
+import { mapAmisCandidateStageRequest } from '@/integrations/amis/amis-stage-transition-mapper';
 import type {
   AmisApplicationItem,
   AmisCandidateAttractivePersonnelChangedPayload,
@@ -67,6 +69,13 @@ interface PendingCandidateStageRequest {
   pageUrl: string;
 }
 
+interface PendingCandidateStageMutation {
+  tabId: number;
+  requestUrl: string;
+  pageUrl: string;
+  requestBody: unknown;
+}
+
 interface PendingAttractivePersonnelRequest {
   tabId: number;
   requestUrl: string;
@@ -97,6 +106,15 @@ interface NetworkResponseReceivedParams {
   };
 }
 
+interface NetworkRequestWillBeSentParams {
+  requestId?: string;
+  request?: {
+    url?: string;
+    method?: string;
+    postData?: string;
+  };
+}
+
 interface NetworkLoadingFinishedParams {
   requestId?: string;
 }
@@ -111,6 +129,7 @@ const pendingSaveRequests = new Map<string, PendingSaveRequest>();
 const pendingCareerRequests = new Map<string, PendingCareerRequest>();
 const pendingApplicationsRequests = new Map<string, PendingApplicationsRequest>();
 const pendingCandidateStageRequests = new Map<string, PendingCandidateStageRequest>();
+const pendingCandidateStageMutations = new Map<string, PendingCandidateStageMutation>();
 const pendingAttractivePersonnelRequests = new Map<string, PendingAttractivePersonnelRequest>();
 const tabPageUrls = new Map<number, string>();
 const lastCandidateRoundMutationAtByTab = new Map<number, number>();
@@ -186,7 +205,13 @@ export async function ensureAmisDebuggerAttached(tab: ChromeMessageSender['tab']
       timestamp: new Date().toISOString(),
       details: {
         protocolVersion: DEBUGGER_PROTOCOL_VERSION,
-        watchedPaths: [AMIS_SAVE_RECRUITMENT_PATH, AMIS_CAREER_DATA_PAGING_PATH, AMIS_CANDIDATE_SAVE_PATH, 'AMIS candidate/application list responses'],
+        watchedPaths: [
+          AMIS_SAVE_RECRUITMENT_PATH,
+          AMIS_CAREER_DATA_PAGING_PATH,
+          AMIS_CANDIDATE_SAVE_PATH,
+          AMIS_CANDIDATE_UPDATE_ROUND_PATH,
+          'AMIS candidate/application list responses',
+        ],
       },
     });
   } catch (error) {
@@ -208,6 +233,11 @@ async function handleDebuggerEvent(
   const tabId = source.tabId;
   if (tabId === undefined) return;
 
+  if (method === 'Network.requestWillBeSent') {
+    handleRequestWillBeSent(tabId, params as NetworkRequestWillBeSentParams | undefined);
+    return;
+  }
+
   if (method === 'Network.responseReceived') {
     handleResponseReceived(tabId, params as NetworkResponseReceivedParams | undefined);
     return;
@@ -218,6 +248,41 @@ async function handleDebuggerEvent(
   }
 }
 
+function handleRequestWillBeSent(tabId: number, params?: NetworkRequestWillBeSentParams) {
+  const requestId = params?.requestId;
+  const requestUrl = params?.request?.url;
+  const postData = params?.request?.postData;
+  if (!requestId || !requestUrl || !isAmisCandidateUpdateRoundUrl(requestUrl)) return;
+
+  let requestBody: unknown = null;
+  try {
+    requestBody = parseJsonText(postData ?? '');
+  } catch {
+    requestBody = null;
+  }
+  if (!requestBody) {
+    void appendAmisDiagnostic({
+      type: 'DEBUGGER_CANDIDATE_STAGE_REQUEST_SEEN',
+      pageUrl: tabPageUrls.get(tabId) ?? requestUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl,
+      details: {
+        method: params.request?.method,
+        hasPostData: Boolean(postData),
+        requestBodyMapped: false,
+      },
+    });
+    return;
+  }
+
+  pendingCandidateStageMutations.set(requestId, {
+    tabId,
+    requestUrl,
+    pageUrl: tabPageUrls.get(tabId) ?? requestUrl,
+    requestBody,
+  });
+}
+
 function handleResponseReceived(tabId: number, params?: NetworkResponseReceivedParams) {
   const requestId = params?.requestId;
   const requestUrl = params?.response?.url;
@@ -225,8 +290,14 @@ function handleResponseReceived(tabId: number, params?: NetworkResponseReceivedP
 
   const pageUrl = tabPageUrls.get(tabId) ?? requestUrl;
   if (isAmisCandidateUpdateRoundUrl(requestUrl)) {
-    if ((params.response?.status ?? 0) >= 200 && (params.response?.status ?? 0) < 300) {
+    const status = params.response?.status ?? 0;
+    const pendingMutation = pendingCandidateStageMutations.get(requestId);
+    pendingCandidateStageMutations.delete(requestId);
+    if (status >= 200 && status < 300) {
       lastCandidateRoundMutationAtByTab.set(tabId, Date.now());
+      if (pendingMutation) {
+        void publishCandidateStagesFromNetworkRequest(pendingMutation);
+      }
     }
     return;
   }
@@ -329,6 +400,54 @@ function handleResponseReceived(tabId: number, params?: NetworkResponseReceivedP
       mimeType: params.response?.mimeType,
     },
   });
+}
+
+async function publishCandidateStagesFromNetworkRequest(
+  pending: PendingCandidateStageMutation,
+) {
+  const captures = mapAmisCandidateStageRequest(
+    pending.requestBody,
+    pending.requestUrl,
+    pending.pageUrl,
+  );
+
+  if (captures.length === 0) {
+    await appendAmisDiagnostic({
+      type: 'CANDIDATE_STAGE_RESPONSE_UNMAPPED',
+      pageUrl: pending.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: pending.requestUrl,
+      details: {
+        source: 'debugger-request',
+        reason: 'updateRound request body did not contain a recruitment, candidate, and round.',
+      },
+    });
+    return;
+  }
+
+  for (const capture of captures) {
+    await appendAmisDiagnostic({
+      type: 'CANDIDATE_STAGE_CAPTURE_PUBLISHED',
+      pageUrl: pending.pageUrl,
+      timestamp: new Date().toISOString(),
+      requestUrl: pending.requestUrl,
+      details: {
+        source: 'debugger-request',
+        amisRecruitmentId: capture.amisRecruitmentId,
+        amisCandidateId: capture.amisCandidateId,
+        amisRecruitmentRoundId: capture.amisRecruitmentRoundId,
+        amisRecruitmentRoundName: capture.amisRecruitmentRoundName,
+        isTransitionEvent: capture.isTransitionEvent === true,
+      },
+    });
+
+    await candidateStageCaptureHandler?.(capture, {
+      tab: {
+        id: pending.tabId,
+        url: pending.pageUrl,
+      },
+    });
+  }
 }
 
 async function handleLoadingFinished(tabId: number, params?: NetworkLoadingFinishedParams) {
@@ -710,6 +829,10 @@ function removePendingRequestsForTab(tabId: number) {
 
   for (const [requestId, request] of pendingCandidateStageRequests.entries()) {
     if (request.tabId === tabId) pendingCandidateStageRequests.delete(requestId);
+  }
+
+  for (const [requestId, request] of pendingCandidateStageMutations.entries()) {
+    if (request.tabId === tabId) pendingCandidateStageMutations.delete(requestId);
   }
 
   for (const [requestId, request] of pendingAttractivePersonnelRequests.entries()) {

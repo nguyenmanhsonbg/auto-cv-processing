@@ -11,6 +11,8 @@ import {
   parseFacebookCrosspostNotifications,
   parseFacebookCrosspostSearchGroups,
   getFacebookBackgroundTabInteractionCommands,
+  selectFacebookGroupPickerDialog,
+  shouldRetryFacebookGroupPickerDoneClick,
 } from './facebook-publish-batch-utils.ts';
 
 const submittedAtMs = 1_787_223_933_614;
@@ -223,6 +225,90 @@ test('recognizes the selected-count label as the same Facebook group-picker trig
   assert.equal(matchesFacebookGroupPickerTriggerLabel('+5 nhóm'), true);
   assert.equal(matchesFacebookGroupPickerTriggerLabel('2 nhóm'), true);
   assert.equal(matchesFacebookGroupPickerTriggerLabel('Nhóm công khai'), false);
+});
+
+test('ignores a stale hidden picker and keeps the active picker as the selected dialog', () => {
+  const staleHiddenPicker = {
+    id: 'stale-hidden-picker',
+    hasVisibleSearchInput: false,
+    hasPickerTitle: true,
+    isRendered: false,
+    isAriaHidden: false,
+  };
+  const composerDialog = {
+    id: 'composer',
+    hasVisibleSearchInput: false,
+    hasPickerTitle: true,
+    isRendered: true,
+    isAriaHidden: false,
+  };
+  const activePicker = {
+    id: 'active-picker',
+    hasVisibleSearchInput: true,
+    hasPickerTitle: true,
+    isRendered: true,
+    isAriaHidden: false,
+  };
+
+  assert.equal(
+    selectFacebookGroupPickerDialog([staleHiddenPicker, composerDialog]),
+    null,
+  );
+  assert.equal(
+    selectFacebookGroupPickerDialog([staleHiddenPicker, composerDialog, activePicker]),
+    activePicker,
+  );
+});
+
+test('keeps a visibly rendered picker even when Facebook marks its wrapper aria-hidden', () => {
+  const renderedAriaHiddenPicker = {
+    id: 'rendered-aria-hidden-picker',
+    hasVisibleSearchInput: true,
+    hasPickerTitle: true,
+    isRendered: true,
+    isAriaHidden: true,
+  };
+
+  assert.equal(
+    selectFacebookGroupPickerDialog([renderedAriaHiddenPicker]),
+    renderedAriaHiddenPicker,
+  );
+});
+
+test('uses the coordinate fallback only when the picker remains open after DOM click', () => {
+  const validPoint = { clientX: 953, clientY: 759 };
+  assert.equal(
+    shouldRetryFacebookGroupPickerDoneClick({
+      ok: false,
+      retryWithCoordinateClick: true,
+      doneButton: validPoint,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRetryFacebookGroupPickerDoneClick({
+      ok: true,
+      retryWithCoordinateClick: true,
+      doneButton: validPoint,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRetryFacebookGroupPickerDoneClick({
+      ok: false,
+      retryWithCoordinateClick: false,
+      doneButton: validPoint,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRetryFacebookGroupPickerDoneClick({
+      ok: false,
+      retryWithCoordinateClick: true,
+      doneButton: null,
+    }),
+    false,
+  );
 });
 
 test('distinguishes a Facebook execution document from the extension or AMIS document', () => {

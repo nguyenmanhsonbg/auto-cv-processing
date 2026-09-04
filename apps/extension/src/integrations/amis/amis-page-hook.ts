@@ -1,5 +1,8 @@
 import type { AmisCandidateStageChangedPayload, AmisRecruitmentRound } from '@/types/types';
-import { mapAmisCandidateAttractivePersonnelResponse } from '@/integrations/amis/amis-api-mapper';
+import {
+  mapAmisCandidateAttractivePersonnelResponse,
+} from '@/integrations/amis/amis-api-mapper';
+import { mapAmisCandidateStageRequest } from '@/integrations/amis/amis-stage-transition-mapper';
 import { extractAmisJobStatusUpdate } from '@/integrations/amis/amis-job-status';
 import { removeHorizontalWhitespaceBeforeNewlines } from '@/lib/utils';
 
@@ -672,63 +675,6 @@ function mapAmisCandidateStageResponse(
   };
 }
 
-function mapAmisCandidateStageRequest(
-  request: unknown,
-  sourceUrl: string,
-  pageUrl: string,
-) {
-  if (!isObject(request)) return [];
-
-  const amisRecruitmentId = cleanText(readFirst(request, [
-    'RecruitmentID',
-    'RecruitmentId',
-    'recruitmentId',
-    'recruitmentID',
-  ]));
-  const defaultRoundId = cleanText(readFirst(request, [
-    'RecruitmentRoundID',
-    'RecruitmentRoundId',
-    'recruitmentRoundId',
-  ]));
-  const candidateIds = readAmisCandidateStageIds(readFirstValue(request, [
-    'CandidateIDs',
-    'CandidateIds',
-    'candidateIds',
-  ]));
-  const roundTimeByCandidateId = readAmisCandidateStageRoundTimes(
-    readFirstValue(request, ['RecruitmentRoundTimes', 'recruitmentRoundTimes']),
-    candidateIds,
-  );
-
-  if (!amisRecruitmentId || candidateIds.size === 0) return [];
-
-  return [...candidateIds].map((amisCandidateId) => {
-    const roundTime = roundTimeByCandidateId.get(amisCandidateId);
-    const amisRecruitmentRoundId = cleanText(readFirst(roundTime ?? {}, [
-      'RecruitmentRoundID',
-      'RecruitmentRoundId',
-      'recruitmentRoundId',
-    ])) || defaultRoundId;
-    const amisRecruitmentRoundName = cleanText(readFirst(roundTime ?? {}, [
-      'RecruitmentRoundName',
-      'recruitmentRoundName',
-    ]));
-
-    return {
-      amisRecruitmentId,
-      amisCandidateId,
-      amisRecruitmentRoundId: amisRecruitmentRoundId || null,
-      amisRecruitmentRoundName: amisRecruitmentRoundName || null,
-      reasonRemoved: null,
-      amisStatus: null,
-      sourceUrl,
-      pageUrl,
-      changedAt: new Date().toISOString(),
-      isTransitionEvent: true,
-    };
-  });
-}
-
 function mapAmisCandidateStageRoundTimeResponse(
   response: unknown,
   sourceUrl: string,
@@ -828,44 +774,6 @@ function compareAmisRoundTimeRows(left: Record<string, unknown>, right: Record<s
 
   return (readNumber(left, ['RecruitmentRoundTimeID', 'recruitmentRoundTimeId']) ?? 0)
     - (readNumber(right, ['RecruitmentRoundTimeID', 'recruitmentRoundTimeId']) ?? 0);
-}
-
-function readAmisCandidateStageIds(value: unknown) {
-  const candidateIds = new Set<string>();
-  const values = normalizeCandidateIdValues(value);
-
-  for (const candidateId of values) {
-    const normalizedCandidateId = cleanText(candidateId);
-    if (normalizedCandidateId) candidateIds.add(normalizedCandidateId);
-  }
-
-  return candidateIds;
-}
-
-function normalizeCandidateIdValues(value: unknown): unknown[] {
-  if (typeof value === 'string' || typeof value === 'number') {
-    return String(value).split(/[;,]/);
-  }
-  if (Array.isArray(value)) return value;
-  return [];
-}
-
-function readAmisCandidateStageRoundTimes(
-  value: unknown,
-  candidateIds: Set<string>,
-) {
-  const roundTimeByCandidateId = new Map<string, Record<string, unknown>>();
-  if (!Array.isArray(value)) return roundTimeByCandidateId;
-
-  for (const item of value) {
-    if (!isObject(item)) continue;
-    const candidateId = cleanText(readFirst(item, ['CandidateID', 'CandidateId', 'candidateId']));
-    if (!candidateId) continue;
-    candidateIds.add(candidateId);
-    roundTimeByCandidateId.set(candidateId, item);
-  }
-
-  return roundTimeByCandidateId;
 }
 
 function parseRequestJson(value: unknown) {
