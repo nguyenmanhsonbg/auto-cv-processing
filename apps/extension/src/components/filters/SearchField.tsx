@@ -1,5 +1,5 @@
 import type { KeyboardEventHandler, ReactNode, Ref } from 'react';
-import { SearchIcon } from '@/components/icons/SearchIcon';
+import { SearchIcon } from '@/assets/icons';
 
 type SearchFieldProps = {
   value: string;

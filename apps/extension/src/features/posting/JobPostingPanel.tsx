@@ -27,7 +27,7 @@ import {
   FacebookGenerateIcon,
   GearIcon,
   HistoryIcon,
-} from '@/components/icons';
+} from '@/assets/icons';
 import { SearchField, SelectFilter } from '@/components/filters';
 import { TopCvEditModal } from '@/features/topcv/TopCvEditModal';
 import { TopCvPreviewModal } from '@/features/topcv/TopCvPreviewModal';

@@ -68,6 +68,8 @@ Each restart overwrites the log file (fresh log per session). Both files are cov
 
 10. ❌ **NEVER run git commands** — NEVER run `git` commands of any kind (status, add, commit, push, log, diff, etc.).
 
+11. 📁 **Extension Icons Convention** — Trong `apps/extension`, tất cả các icon PHẢI được định nghĩa đồng nhất 100% dưới dạng React icon component (`.tsx`), lưu trữ đúng vị trí bên trong `auto-cv-processing/apps/extension/src/assets/icons` (import dùng `@/assets/icons`). Tuyệt đối KHÔNG để lẫn các file `.svg` thô trong thư mục này và KHÔNG định nghĩa inline SVG component bên trong các file feature/component/modal.
+
 ## Environment Variables
 
 Copy `apps/backend/.env.example` to `apps/backend/.env`:

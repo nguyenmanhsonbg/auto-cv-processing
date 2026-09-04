@@ -1,4 +1,4 @@
-import { ChevronDownIcon } from '@/components/icons';
+import { ChevronDownIcon } from '@/assets/icons';
 
 export type SelectFilterOption = {
   value: string | number;

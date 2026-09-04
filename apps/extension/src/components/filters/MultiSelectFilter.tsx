@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, type MouseEvent, type KeyboardEvent } from 'react';
-import { ChevronDownIcon, CloseIcon } from '@/components/icons';
+import { ChevronDownIcon, CloseIcon } from '@/assets/icons';
 
 export type MultiSelectFilterOption = { value: string | number; label: string; meta?: string };
 

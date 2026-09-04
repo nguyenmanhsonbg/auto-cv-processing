@@ -1,5 +1,5 @@
 import type { ExtensionChannel } from '@/types/types';
-import { trimTrailingSlashes } from '@/text-normalization';
+import { trimTrailingSlashes } from './utils';
 
 export const BE_API_BASE_URL =
   import.meta.env.VITE_BE_API_BASE_URL === undefined

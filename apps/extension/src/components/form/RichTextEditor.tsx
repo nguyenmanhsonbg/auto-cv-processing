@@ -3,12 +3,13 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Placeholder from '@tiptap/extension-placeholder';
+import CharacterCount from '@tiptap/extension-character-count';
 import {
   BulletListIcon,
   NumberedListIcon,
   RedoIcon,
   UndoIcon,
-} from '@/components/svg';
+} from '@/assets/icons';
 
 interface RichTextEditorProps {
   label: string;
@@ -16,6 +17,7 @@ interface RichTextEditorProps {
   onChange: (value: string) => void;
   placeholder?: string;
   required?: boolean;
+  maxLength?: number;
 }
 
 function ToolbarButton({
@@ -53,6 +55,7 @@ export function RichTextEditor({
   onChange,
   placeholder = '',
   required = false,
+  maxLength,
 }: RichTextEditorProps) {
   const generatedId = useId();
   const editorId = `rich-text-editor-${generatedId.replace(/:/g, '')}`;
@@ -61,6 +64,7 @@ export function RichTextEditor({
       StarterKit,
       Underline,
       Placeholder.configure({ placeholder }),
+      ...(maxLength !== undefined ? [CharacterCount.configure({ limit: maxLength })] : []),
     ],
     content: value,
     editorProps: {
@@ -80,6 +84,8 @@ export function RichTextEditor({
     if (!editor || value === editor.getHTML()) return;
     editor.commands.setContent(value, { emitUpdate: false });
   }, [editor, value]);
+
+  const characterCount = editor?.storage.characterCount?.characters() ?? 0;
 
   return (
     <div className="rich-text-editor">
@@ -139,23 +145,15 @@ export function RichTextEditor({
           >
             <NumberedListIcon />
           </ToolbarButton>
-          <span className="rich-text-editor-divider" aria-hidden="true" />
-          <ToolbarButton
-            label="Giảm lề"
-            disabled={!editor?.can().liftListItem('listItem')}
-            onClick={() => editor?.chain().focus().liftListItem('listItem').run()}
-          >
-            ⇤
-          </ToolbarButton>
-          <ToolbarButton
-            label="Tăng lề"
-            disabled={!editor?.can().sinkListItem('listItem')}
-            onClick={() => editor?.chain().focus().sinkListItem('listItem').run()}
-          >
-            ⇥
-          </ToolbarButton>
         </div>
         <EditorContent editor={editor} />
+        {maxLength !== undefined ? (
+          <div className="rich-text-editor-footer">
+            <span className={`rich-text-editor-counter${characterCount >= maxLength ? ' is-limit' : ''}`}>
+              {characterCount}/{maxLength} ký tự
+            </span>
+          </div>
+        ) : null}
       </div>
     </div>
   );

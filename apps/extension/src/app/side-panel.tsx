@@ -82,7 +82,7 @@ import {
   PeopleIcon,
   PinIcon,
   PostingIcon,
-} from '@/components/icons';
+} from '@/assets/icons';
 import { getApplicationQuestionStatus } from '@/components/candidates';
 import { OverviewPanel } from '@/features/overview/OverviewPanel';
 import { CvManagementPanel } from '@/features/candidates/CvManagementPanel';

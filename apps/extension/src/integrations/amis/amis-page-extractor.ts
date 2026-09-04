@@ -1,5 +1,5 @@
 import type { AmisExtractionResult } from '@/types/types';
-import { removeHorizontalWhitespaceBeforeNewlines } from '@/text-normalization';
+import { removeHorizontalWhitespaceBeforeNewlines } from '@/lib/utils';
 
 function readControlValue(control: Element) {
   if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {

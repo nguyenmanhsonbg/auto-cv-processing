@@ -8,7 +8,7 @@ import {
   ExternalLinkIcon,
   RefreshIcon,
   TrashIcon,
-} from '@/components/icons';
+} from '@/assets/icons';
 import { SearchField } from '@/components/filters';
 import { FacebookGroupFormModal } from '@/components/facebook/FacebookGroupFormModal';
 import { FacebookGroupDeleteModal } from '@/components/facebook/FacebookGroupDeleteModal';

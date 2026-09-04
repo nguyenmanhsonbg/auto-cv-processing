@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type KeyboardEvent, type MouseEvent } from 'react';
-import { ChevronDownIcon, CloseIcon } from '@/components/icons';
+import { ChevronDownIcon, CloseIcon } from '@/assets/icons';
 
 export type ComboboxOption = {
   value: string | number;

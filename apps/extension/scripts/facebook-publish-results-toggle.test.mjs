@@ -5,7 +5,7 @@ import { test } from 'node:test';
 const sidePanelSource = await readFile(new URL('../src/features/posting/JobPostingPanel.tsx', import.meta.url), 'utf8');
 const appSidePanelSource = await readFile(new URL('../src/app/side-panel.tsx', import.meta.url), 'utf8');
 const facebookManagerSource = await readFile(new URL('../src/features/facebook/use-facebook-manager.ts', import.meta.url), 'utf8');
-const iconsSource = await readFile(new URL('../src/components/svg/side-panel-icons.tsx', import.meta.url), 'utf8');
+const iconsSource = await readFile(new URL('../src/assets/icons/side-panel-icons.tsx', import.meta.url), 'utf8');
 const stylesSource = await readFile(new URL('../src/app/styles.css', import.meta.url), 'utf8');
 
 test('result toggle icons use the same 16px SVG coordinate system', () => {

@@ -11,7 +11,7 @@ import {
   ExternalLinkIcon,
   HistoryIcon,
   RefreshIcon,
-} from '@/components/icons';
+} from '@/assets/icons';
 import { SelectFilter } from '@/components/filters';
 import { getValidFacebookGroupPostUrl } from '@/features/facebook/facebook-post-url';
 import { formatDate } from '@/lib/utils';

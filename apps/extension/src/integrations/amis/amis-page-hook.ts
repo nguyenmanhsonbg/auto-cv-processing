@@ -1,7 +1,7 @@
 import type { AmisCandidateStageChangedPayload, AmisRecruitmentRound } from '@/types/types';
 import { mapAmisCandidateAttractivePersonnelResponse } from '@/integrations/amis/amis-api-mapper';
 import { extractAmisJobStatusUpdate } from '@/integrations/amis/amis-job-status';
-import { removeHorizontalWhitespaceBeforeNewlines } from '@/text-normalization';
+import { removeHorizontalWhitespaceBeforeNewlines } from '@/lib/utils';
 
 const AMIS_CAPTURE_MESSAGE_TYPE = 'VCS_AMIS_SAVE_RECRUITMENT_CAPTURED';
 const AMIS_DIAGNOSTIC_MESSAGE_TYPE = 'VCS_AMIS_DIAGNOSTIC';
