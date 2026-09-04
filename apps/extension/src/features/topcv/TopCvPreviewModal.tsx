@@ -1,6 +1,19 @@
-import { BackIcon, EditIcon } from '@/assets/icons';
+import { useEffect, useMemo, useState } from 'react';
+import { BackIcon } from '@/assets/icons';
 import { formatTopCvSalary, type TopCvFormData } from './topcv-form.types';
-import { getLanguageDisplay, type TopCvOptionsResponse } from './services/topcv-options.service';
+import {
+  fetchTopCvDomainKnowledge,
+  fetchTopCvOptions,
+  getLanguageDisplay,
+  type TopCvDomainKnowledge,
+  type TopCvOption,
+  type TopCvOptionsResponse,
+} from './services/topcv-options.service';
+import {
+  formatTopCvDate,
+  formatTopCvDay,
+  renderSafeRichText,
+} from './utils/topcv-preview.utils';
 
 interface TopCvPreviewModalProps {
   formData: TopCvFormData;
@@ -14,27 +27,109 @@ export function TopCvPreviewModal({
   foreignLanguageOptions,
   onEdit,
   onClose,
-}: TopCvPreviewModalProps) {
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return 'Chưa xác định';
-    const parts = dateStr.split('-');
-    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    return dateStr;
-  };
+}: Readonly<TopCvPreviewModalProps>) {
+  const [educationOptions, setEducationOptions] = useState<TopCvOption[]>([]);
+  const [domainKnowledgeOptions, setDomainKnowledgeOptions] = useState<TopCvDomainKnowledge[]>([]);
+
+  useEffect(() => {
+    fetchTopCvOptions()
+      .then((options) => {
+        setEducationOptions(options.education);
+      })
+      .catch(() => {
+        // Fallback gracefully if options not available
+      });
+
+    fetchTopCvDomainKnowledge()
+      .then((dk) => {
+        setDomainKnowledgeOptions(dk);
+      })
+      .catch(() => {
+        // Fallback gracefully
+      });
+  }, []);
+
+  const educationDisplay = useMemo(() => {
+    if (!formData.education) return '';
+    const num = Number(formData.education);
+    if (!Number.isNaN(num)) {
+      const found = educationOptions.find((opt) => opt.value === num);
+      if (found) return found.name;
+    }
+    return String(formData.education);
+  }, [formData.education, educationOptions]);
+
+  const experienceDisplay = useMemo(() => {
+    if (!formData.experience) return '';
+    const exp = formData.experience.trim();
+    if (exp.toLowerCase().includes('chuyên môn') || exp.toLowerCase().includes('kinh nghiệm')) {
+      return exp;
+    }
+    return `${exp} chuyên môn`;
+  }, [formData.experience]);
+
+  const domainKnowledgeLabels = useMemo(() => {
+    if (!formData.industryKnowledge || formData.industryKnowledge.length === 0) return [];
+    return formData.industryKnowledge
+      .map((id) => domainKnowledgeOptions.find((opt) => opt.id === id)?.name)
+      .filter((name): name is string => Boolean(name));
+  }, [formData.industryKnowledge, domainKnowledgeOptions]);
+
+  const specialtyItems = useMemo(() => {
+    const items: string[] = [];
+    const positionName = formData.position?.trim() || formData.jobFamily?.level3Name || formData.jobFamily?.level2Name;
+    if (positionName) {
+      items.push(positionName);
+    }
+    domainKnowledgeLabels.forEach((name) => {
+      if (!items.includes(name)) items.push(name);
+    });
+    formData.requiredSkills.forEach((s) => {
+      if (s.label && !items.includes(s.label)) items.push(s.label);
+    });
+    formData.preferredSkills.forEach((s) => {
+      if (s.label && !items.includes(s.label)) items.push(s.label);
+    });
+    return items;
+  }, [formData.position, formData.jobFamily, domainKnowledgeLabels, formData.requiredSkills, formData.preferredSkills]);
+
+  const schedules = useMemo(() => {
+    if (formData.workingHours.schedules && formData.workingHours.schedules.length > 0) {
+      return formData.workingHours.schedules;
+    }
+    if (formData.workingHours.fromDay && formData.workingHours.toDay) {
+      return [
+        {
+          fromDay: formData.workingHours.fromDay,
+          toDay: formData.workingHours.toDay,
+          fromTime: formData.workingHours.fromTime,
+          toTime: formData.workingHours.toTime,
+        },
+      ];
+    }
+    return [];
+  }, [formData.workingHours]);
 
   return (
-    <div className="topcv-screen-container">
-      <header className="topcv-screen-header">
-        <button type="button" className="icon-button" onClick={onClose} title="Quay lại" aria-label="Quay lại">
+    <div className="topcv-screen-container is-preview">
+      {/* Header */}
+      <header className="topcv-preview-header">
+        <button
+          type="button"
+          className="topcv-back-btn"
+          onClick={onClose}
+          title="Quay lại"
+          aria-label="Quay lại"
+        >
           <BackIcon />
         </button>
-        <div className="topcv-screen-title-wrap">
-          <span className="topcv-badge">TopCV</span>
-          <h2 id="topcv-preview-title">Xem trước bài đăng TopCV</h2>
-        </div>
+        <h2 id="topcv-preview-title" className="topcv-preview-title">
+          Xem trước bài đăng TopCV
+        </h2>
       </header>
 
-      <div className="topcv-screen-body">
+      {/* Main Content */}
+      <div className="topcv-preview-body">
         {/* HERO CARD */}
         <div className="topcv-hero-card">
           <div className="topcv-hero-header">
@@ -44,7 +139,9 @@ export function TopCvPreviewModal({
           <div className="topcv-hero-meta-grid">
             <div className="topcv-meta-box">
               <span className="topcv-meta-label">ĐỊA ĐIỂM</span>
-              <strong className="topcv-meta-val">{formData.locations[0]?.province_name || 'Chưa cập nhật'}</strong>
+              <strong className="topcv-meta-val">
+                {formData.locations[0]?.province_name || 'Chưa cập nhật'}
+              </strong>
             </div>
             <div className="topcv-meta-box">
               <span className="topcv-meta-label">KINH NGHIỆM</span>
@@ -52,134 +149,151 @@ export function TopCvPreviewModal({
             </div>
             <div className="topcv-meta-box">
               <span className="topcv-meta-label">HẠN ỨNG TUYỂN</span>
-              <strong className="topcv-meta-val">{formatDate(formData.deadline)}</strong>
+              <strong className="topcv-meta-val">{formatTopCvDate(formData.deadline)}</strong>
             </div>
           </div>
         </div>
 
-        {/* OVERVIEW SECTION */}
-        <div className="topcv-preview-section">
-          <h4 className="topcv-preview-section-title">Tổng quan</h4>
-          <div className="topcv-overview-grid">
-            <div className="topcv-overview-row">
-              <span className="topcv-overview-label">Yêu cầu:</span>
+        {/* DETAILED SECTIONS CONTAINER */}
+        <div className="topcv-preview-sections-container">
+          {/* SECTION 1: TỔNG QUAN */}
+          <section className="topcv-preview-section" aria-labelledby="topcv-section-overview">
+            <div className="topcv-section-title-wrap">
+              <h4 id="topcv-section-overview" className="topcv-section-title">
+                Tổng quan
+              </h4>
+            </div>
+            <div className="topcv-overview-group">
+              <div className="topcv-overview-label">Yêu cầu:</div>
               <div className="topcv-overview-chips">
-                <span className="topcv-tag">{formData.experience}</span>
-                <span className="topcv-tag">{formData.education}</span>
+                {experienceDisplay && <span className="topcv-pill-gray">{experienceDisplay}</span>}
+                {educationDisplay && <span className="topcv-pill-gray">{educationDisplay}</span>}
                 {formData.languages.map((l, i) => (
-                  <span key={i} className="topcv-tag">
+                  <span key={`lang-${i}`} className="topcv-pill-gray">
                     {getLanguageDisplay(l.language, l.certificate, foreignLanguageOptions)}
                   </span>
                 ))}
+                {!experienceDisplay && !educationDisplay && formData.languages.length === 0 && (
+                  <span className="topcv-pill-gray">Chưa cập nhật</span>
+                )}
               </div>
             </div>
-            <div className="topcv-overview-row">
-              <span className="topcv-overview-label">Chuyên môn:</span>
+
+            <div className="topcv-overview-group">
+              <div className="topcv-overview-label">Chuyên môn:</div>
               <div className="topcv-overview-chips">
-                {formData.requiredSkills.map((s) => (
-                  <span key={s.value} className="topcv-tag is-primary">{s.label}</span>
-                ))}
-                {formData.preferredSkills.map((s) => (
-                  <span key={s.value} className="topcv-tag">{s.label}</span>
-                ))}
+                {specialtyItems.length > 0 ? (
+                  specialtyItems.map((item) => (
+                    <span key={`specialty-${item}`} className="topcv-pill-green">
+                      {item}
+                    </span>
+                  ))
+                ) : (
+                  <span className="topcv-pill-green">Chưa cập nhật</span>
+                )}
               </div>
             </div>
-          </div>
-        </div>
+          </section>
 
-        {/* JOB DESCRIPTION */}
-        <div className="topcv-preview-section">
-          <h4 className="topcv-preview-section-title">Mô tả công việc</h4>
-          <div className="topcv-preview-text">
-            {formData.jobDescription || 'Chưa có nội dung mô tả công việc.'}
-          </div>
-        </div>
+          {/* SECTION 2: MÔ TẢ CÔNG VIỆC */}
+          <section className="topcv-preview-section" aria-labelledby="topcv-section-description">
+            <div className="topcv-section-title-wrap">
+              <h4 id="topcv-section-description" className="topcv-section-title">
+                Mô tả công việc
+              </h4>
+            </div>
+            <div className="topcv-preview-content">
+              {renderSafeRichText(formData.jobDescription, 'Chưa có nội dung mô tả công việc.')}
+            </div>
+          </section>
 
-        {/* JOB REQUIREMENTS */}
-        <div className="topcv-preview-section">
-          <h4 className="topcv-preview-section-title">Yêu cầu ứng viên</h4>
-          <div className="topcv-preview-text">
-            {formData.jobRequirement || 'Chưa có nội dung yêu cầu ứng viên.'}
-          </div>
-        </div>
+          {/* SECTION 3: YÊU CẦU ỨNG VIÊN */}
+          <section className="topcv-preview-section" aria-labelledby="topcv-section-requirements">
+            <div className="topcv-section-title-wrap">
+              <h4 id="topcv-section-requirements" className="topcv-section-title">
+                Yêu cầu ứng viên
+              </h4>
+            </div>
+            <div className="topcv-preview-content">
+              {renderSafeRichText(formData.jobRequirement, 'Chưa có nội dung yêu cầu ứng viên.')}
+            </div>
+          </section>
 
-        {/* BENEFITS */}
-        <div className="topcv-preview-section">
-          <h4 className="topcv-preview-section-title">Quyền lợi ứng viên</h4>
-          <div className="topcv-preview-text">
-            {formData.jobBenefit || 'Chưa có nội dung quyền lợi ứng viên.'}
-          </div>
-        </div>
+          {/* SECTION 4: QUYỀN LỢI ỨNG VIÊN */}
+          <section className="topcv-preview-section" aria-labelledby="topcv-section-benefits">
+            <div className="topcv-section-title-wrap">
+              <h4 id="topcv-section-benefits" className="topcv-section-title">
+                Quyền lợi ứng viên
+              </h4>
+            </div>
+            <div className="topcv-preview-content">
+              {renderSafeRichText(formData.jobBenefit, 'Chưa có nội dung quyền lợi ứng viên.')}
+            </div>
+          </section>
 
-        {/* LOCATION & TIME */}
-        <div className="topcv-preview-section">
-          <h4 className="topcv-preview-section-title">Địa điểm và thời gian</h4>
-          <div className="topcv-preview-text">
-            <p><strong>Địa điểm làm việc:</strong></p>
-            {formData.locations.length > 0 ? (
-              formData.locations.map((loc, idx) => (
-                <div key={idx} style={{ marginBottom: 8 }}>
-                  <p><strong>{loc.province_name}</strong></p>
-                  {loc.addresses.map((addr, aIdx) => (
-                    <p key={aIdx} style={{ paddingLeft: 12 }}>
-                      • {addr.district_name}
-                      {addr.working_address && <span> - {addr.working_address}</span>}
-                    </p>
-                  ))}
-                </div>
-              ))
-            ) : (
-              <p>Chưa cập nhật</p>
-            )}
-            <p style={{ marginTop: 8 }}><strong>Thời gian làm việc:</strong></p>
-            {(() => {
-              const DAY_MAP: Record<string | number, string> = {
-                1: 'Thứ 2',
-                2: 'Thứ 3',
-                3: 'Thứ 4',
-                4: 'Thứ 5',
-                5: 'Thứ 6',
-                6: 'Thứ 7',
-                7: 'Chủ Nhật',
-              };
-              const formatDay = (val: string | number) => DAY_MAP[val] || val;
-              const schedules = (formData.workingHours.schedules && formData.workingHours.schedules.length > 0)
-                ? formData.workingHours.schedules
-                : (formData.workingHours.fromDay && formData.workingHours.toDay)
-                  ? [{
-                      fromDay: formData.workingHours.fromDay,
-                      toDay: formData.workingHours.toDay,
-                      fromTime: formData.workingHours.fromTime,
-                      toTime: formData.workingHours.toTime,
-                    }]
-                  : [];
+          {/* SECTION 5: ĐỊA ĐIỂM VÀ THỜI GIAN */}
+          <section className="topcv-preview-section topcv-preview-section-location" aria-labelledby="topcv-section-location">
+            <div className="topcv-section-title-wrap">
+              <h4 id="topcv-section-location" className="topcv-section-title">
+                Địa điểm và thời gian
+              </h4>
+            </div>
+            <div className="topcv-preview-content">
+              <div className="topcv-preview-subtitle">Địa điểm làm việc</div>
+              {formData.locations.length > 0 ? (
+                formData.locations.map((loc, idx) => {
+                  const districtAddresses = loc.addresses
+                    .map((addr) => [addr.district_name, addr.working_address].filter(Boolean).join(', '))
+                    .filter(Boolean)
+                    .join('; ');
+                  return (
+                    <div key={`loc-${idx}`} className="topcv-preview-list-item">
+                      - {loc.province_name}{districtAddresses ? `: ${districtAddresses}` : ''}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="topcv-preview-list-item">- Chưa cập nhật</div>
+              )}
 
-              if (schedules.length === 0) {
-                return <p>Chưa cập nhật</p>;
-              }
-
-              return schedules.map((item, idx) => (
-                <p key={idx}>
-                  {item.fromDay && item.toDay
-                    ? `${formatDay(item.fromDay)} - ${formatDay(item.toDay)} (${item.fromTime || '08:30'} đến ${item.toTime || '18:00'})`
-                    : 'Chưa cập nhật'}
-                </p>
-              ));
-            })()}
-            {formData.workingHours.lunchBreak && <p>{formData.workingHours.lunchBreak}</p>}
-          </div>
+              <div className="topcv-preview-subtitle" style={{ marginTop: 12 }}>
+                Thời gian làm việc
+              </div>
+              {schedules.length > 0 ? (
+                schedules.map((item, idx) => (
+                  <div key={`schedule-${idx}`} className="topcv-preview-list-item">
+                    - {item.fromDay && item.toDay
+                      ? `${formatTopCvDay(item.fromDay)} - ${formatTopCvDay(item.toDay)} (từ ${item.fromTime || '08:00'} đến ${item.toTime || '17:30'})`
+                      : 'Chưa cập nhật'}
+                  </div>
+                ))
+              ) : (
+                <div className="topcv-preview-list-item">- Chưa cập nhật</div>
+              )}
+              {formData.workingHours.lunchBreak ? (
+                <div className="topcv-preview-list-item">- Nghỉ trưa: {formData.workingHours.lunchBreak}</div>
+              ) : null}
+            </div>
+          </section>
         </div>
       </div>
 
-      <footer className="topcv-screen-footer">
-        <button type="button" className="secondary-button" onClick={onClose}>
-          Đóng
+      {/* Footer */}
+      <footer className="topcv-preview-footer">
+        <button
+          type="button"
+          className="topcv-btn-back-preview"
+          onClick={onClose}
+        >
+          Quay lại
         </button>
-        <div className="topcv-modal-footer-actions">
-          <button type="button" className="primary-button" onClick={onEdit}>
-            <EditIcon /> Chỉnh sửa
-          </button>
-        </div>
+        <button
+          type="button"
+          className="topcv-btn-edit-preview"
+          onClick={onEdit}
+        >
+          Chỉnh sửa
+        </button>
       </footer>
     </div>
   );
