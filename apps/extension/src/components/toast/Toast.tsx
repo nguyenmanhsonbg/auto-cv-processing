@@ -23,7 +23,7 @@ import {
   ToastWarningIcon,
   ToastInfoIcon,
   ToastCloseIcon,
-} from '@/components/svg';
+} from '@/assets/icons';
 
 export {
   ToastSuccessIcon,
@@ -31,7 +31,7 @@ export {
   ToastWarningIcon,
   ToastInfoIcon,
   ToastCloseIcon,
-} from '@/components/svg';
+} from '@/assets/icons';
 
 function getToastIcon(kind: ExtensionToastKind): ReactNode {
   switch (kind) {

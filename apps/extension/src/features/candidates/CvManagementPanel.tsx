@@ -13,7 +13,7 @@ import {
   CloseIcon,
   RefreshIcon,
   SearchIcon,
-} from '@/components/icons';
+} from '@/assets/icons';
 import { FilterDropdown } from '@/components/filters';
 import { parseApplicationDateTime } from '@/lib/application-date-time';
 import {

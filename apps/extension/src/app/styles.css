@@ -14325,6 +14325,240 @@ textarea:focus {
   padding: 2px 4px;
 }
 
+/* ================= SECTION 4: THÔNG TIN NHẬN HỒ SƠ (FIGMA NODE 2494:8417) ================= */
+.topcv-contact-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.topcv-contact-content .topcv-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.topcv-contact-content .topcv-form-label {
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4em;
+  color: #262626;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 0;
+}
+
+.topcv-contact-content .topcv-form-label .req {
+  color: #ef4444;
+  margin-left: 2px;
+}
+
+.topcv-contact-note {
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4em;
+  color: #a3a3a3;
+  margin-left: 4px;
+}
+
+.topcv-contact-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.topcv-contact-input {
+  width: 100%;
+  height: 35px;
+  padding: 7px 14px;
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  background: #ffffff;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  line-height: 1.4em;
+  color: #262626;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.topcv-contact-input:hover {
+  border-color: #a3a3a3;
+}
+
+.topcv-contact-input:focus {
+  border-color: #00b14f;
+  box-shadow: 0 0 0 2px rgba(0, 177, 79, 0.15);
+}
+
+.topcv-contact-input::placeholder {
+  color: #737373;
+}
+
+/* Stepper 3-block separate controls */
+.topcv-contact-stepper {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.topcv-stepper-btn-square {
+  width: 44px;
+  height: 35px;
+  padding: 0;
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #262626;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.topcv-stepper-btn-square:hover {
+  background-color: #f9fafb;
+  border-color: #a3a3a3;
+}
+
+.topcv-stepper-btn-square:active {
+  background-color: #f3f4f6;
+}
+
+.topcv-stepper-input-center {
+  flex: 1;
+  min-width: 0;
+  height: 35px;
+  padding: 7px 10px;
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  background: #ffffff;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  line-height: 1.4em;
+  color: #262626;
+  text-align: center;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.topcv-stepper-input-center:hover {
+  border-color: #a3a3a3;
+}
+
+.topcv-stepper-input-center:focus {
+  border-color: #00b14f;
+  box-shadow: 0 0 0 2px rgba(0, 177, 79, 0.15);
+}
+
+.topcv-stepper-input-center::-webkit-outer-spin-button,
+.topcv-stepper-input-center::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.topcv-stepper-input-center {
+  -moz-appearance: textfield;
+}
+
+/* Email chip input container */
+.topcv-contact-emails-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 35px;
+  padding: 3px 8px;
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  background: #ffffff;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.topcv-contact-emails-box:hover {
+  border-color: #a3a3a3;
+}
+
+.topcv-contact-emails-box:focus-within {
+  border-color: #00b14f;
+  box-shadow: 0 0 0 2px rgba(0, 177, 79, 0.15);
+}
+
+.topcv-contact-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #dcfce7;
+  border-radius: 999px;
+  max-width: 100%;
+  user-select: none;
+}
+
+.topcv-contact-chip-text {
+  font-family: Inter, sans-serif;
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.4em;
+  color: #15803d;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topcv-contact-chip-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #15803d;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  transition: opacity 0.15s ease;
+}
+
+.topcv-contact-chip-close:hover {
+  opacity: 0.7;
+}
+
+.topcv-contact-email-input {
+  flex: 1 1 120px;
+  min-width: 100px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  line-height: 1.4em;
+  color: #262626;
+  padding: 2px 4px;
+}
+
+.topcv-contact-email-input::placeholder {
+  color: #737373;
+}
+
 .topcv-add-input-row {
   display: flex;
   gap: 8px;
@@ -15675,9 +15909,9 @@ textarea:focus {
   align-items: center;
   gap: 10px;
   width: 100%;
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid #d1d5db;
+  height: 35px;
+  padding: 0 14px;
+  border: 1px solid #d4d4d4;
   border-radius: 6px;
   background-color: #ffffff;
   cursor: pointer;
@@ -15687,7 +15921,7 @@ textarea:focus {
 }
 
 .topcv-datepicker-trigger:hover {
-  border-color: #9ca3af;
+  border-color: #a3a3a3;
 }
 
 .topcv-datepicker-trigger.is-focused {
@@ -15706,21 +15940,23 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #2f2b3d;
+  color: #262626;
   flex-shrink: 0;
 }
 
 .topcv-datepicker-text {
   flex: 1;
-  font-size: 13px;
-  color: #1f2937;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  line-height: 1.4em;
+  color: #262626;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .topcv-datepicker-text.is-placeholder {
-  color: #9ca3af;
+  color: #737373;
 }
 
 .topcv-datepicker-hidden-input {

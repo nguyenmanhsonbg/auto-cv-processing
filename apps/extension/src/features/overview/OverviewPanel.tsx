@@ -8,7 +8,7 @@ import {
   DownloadIcon,
   InfoExportIcon,
   MoreVerticalIcon,
-} from '@/components/icons';
+} from '@/assets/icons';
 import type { WorkspaceTab } from '../candidates/CvManagementPanel';
 
 export type OverviewPanelProps = {

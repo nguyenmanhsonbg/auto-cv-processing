@@ -48,7 +48,7 @@ import {
   ReferralWarningIcon,
   SearchClearIcon,
   PlusIcon,
-} from '@/components/svg';
+} from '@/assets/icons';
 import { ReferralFilters } from './components/ReferralFilters';
 import {
   ReferralPersonCard,

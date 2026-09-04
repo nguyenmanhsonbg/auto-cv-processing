@@ -8,7 +8,7 @@ import type {
   InterviewEvaluationSummary,
 } from '@/types/types';
 import { CandidateAvatar } from './CandidateAvatar';
-import { SourceIcon } from '@/components/icons';
+import { SourceIcon } from '@/assets/icons';
 import {
   ApiClientError,
   createInterviewEvaluationCase,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchProvinces, fetchDistricts, type Province, type District } from './location.service';
-import { TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, PlusIcon } from '@/components/icons';
+import { TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, PlusIcon } from '@/assets/icons';
 
 export interface LocationEntry {
   id: string;

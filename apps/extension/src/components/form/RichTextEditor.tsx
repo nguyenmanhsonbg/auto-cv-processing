@@ -8,7 +8,7 @@ import {
   NumberedListIcon,
   RedoIcon,
   UndoIcon,
-} from '@/components/svg';
+} from '@/assets/icons';
 
 interface RichTextEditorProps {
   label: string;

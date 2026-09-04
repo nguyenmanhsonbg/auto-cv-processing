@@ -14,4 +14,9 @@ export * from './ToastIcons';
 export * from './ReferralIcons';
 export * from './EditorIcons';
 export * from './TopCvWarningIcon';
-
+export * from './AppliedDateIcon';
+export * from './CalendarIcon';
+export * from './JobDescriptionIcon';
+export * from './SaveNoteIcon';
+export * from './SearchIcon';
+export * from './TopCvIcons';

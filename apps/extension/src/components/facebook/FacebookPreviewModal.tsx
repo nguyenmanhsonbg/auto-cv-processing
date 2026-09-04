@@ -11,7 +11,7 @@ import {
   ImageFrameIcon,
   MenuLinesIcon,
   SparklesIcon,
-} from '@/components/icons';
+} from '@/assets/icons';
 import { FACEBOOK_MAX_IMAGE_ATTACHMENTS } from '@/lib/config';
 
 export type FacebookPreviewModalMode = 'PREVIEW' | 'EDIT' | null;

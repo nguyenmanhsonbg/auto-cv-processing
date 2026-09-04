@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FacebookGroupSyncDetailItem, FacebookGroupSyncDetails } from '@/types/types';
-import { BackIcon, ChevronRightIcon, CloseIcon } from '@/components/icons';
+import { BackIcon, ChevronRightIcon, CloseIcon } from '@/assets/icons';
 import { getFacebookGroupDetailKey } from '@/features/facebook/facebook-group-utils';
 
 export const FACEBOOK_INELIGIBLE_PAGE_SIZE = 5;

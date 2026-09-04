@@ -1,6 +1,6 @@
 import type { KeyboardEventHandler, PropsWithChildren, ReactNode } from 'react';
 import { SearchField } from '@/components/filters';
-import { SearchIcon } from '@/components/icons';
+import { SearchIcon } from '@/assets/icons';
 
 type ReferralFiltersProps = PropsWithChildren<{
   source: 'INTERNAL' | 'FREELANCER';

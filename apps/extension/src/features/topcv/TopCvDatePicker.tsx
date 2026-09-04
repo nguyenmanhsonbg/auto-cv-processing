@@ -1,4 +1,11 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import {
+  CalendarIcon,
+  SmallChevronDown,
+  SmallChevronUp,
+  NavArrowLeft,
+  NavArrowRight,
+} from '@/assets/icons';
 
 interface TopCvDatePickerProps {
   value?: string; // Format: 'YYYY-MM-DD'
@@ -26,48 +33,6 @@ const MONTH_NAMES = [
   'Tháng 12',
 ];
 
-function CalendarIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="18" rx="3" stroke="#2F2B3D" strokeWidth="1.5" strokeOpacity="0.85" />
-      <path d="M16 2V6M8 2V6M3 10H21" stroke="#2F2B3D" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.85" />
-      <circle cx="16" cy="15" r="2.2" stroke="#2F2B3D" strokeWidth="1.5" strokeOpacity="0.85" />
-      <path d="M16 15V13" stroke="#2F2B3D" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.85" />
-    </svg>
-  );
-}
-
-function SmallChevronDown() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function SmallChevronUp() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M4 10L8 6L12 10" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function NavArrowLeft() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function NavArrowRight() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M6 12L10 8L6 4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 // Parse YYYY-MM-DD
 function parseDate(dateStr?: string): { year: number; month: number; day: number } | null {

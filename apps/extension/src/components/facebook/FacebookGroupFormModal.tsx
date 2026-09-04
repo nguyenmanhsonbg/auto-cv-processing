@@ -1,5 +1,5 @@
 import type { ChangeEventHandler, FormEventHandler, FocusEventHandler } from 'react';
-import { CloseIcon, SaveIcon } from '@/components/icons';
+import { CloseIcon, SaveIcon } from '@/assets/icons';
 import { InputField } from '@/components/form';
 
 type FacebookGroupFormModalProps = {

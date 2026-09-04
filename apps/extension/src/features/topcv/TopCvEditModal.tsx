@@ -5,7 +5,10 @@ import {
   ChevronUpIcon,
   CloseIcon,
   TopCvWarningIcon,
-} from '@/components/icons';
+  StepperMinusIcon,
+  StepperPlusIcon,
+  ChipCloseIcon,
+} from '@/assets/icons';
 import { InputField, RichTextEditor } from '@/components/form';
 import { MultiSelectFilter, SelectFilter } from '@/components/filters';
 import { ComboboxFilter } from '@/components/filters/ComboboxFilter';
@@ -27,6 +30,7 @@ const DAY_OPTIONS = [
   { value: '6', label: 'Thứ 7' },
   { value: '7', label: 'Chủ Nhật' },
 ];
+
 
 
 interface TopCvEditModalProps {
@@ -798,11 +802,11 @@ export function TopCvEditModal({
           </div>
 
           {expandedSections.contact && (
-            <div className="topcv-accordion-content">
+            <div className="topcv-contact-content">
               {/* Row 1: Hạn nhận & Số lượng */}
-              <div className="topcv-grid-2">
+              <div className="topcv-contact-grid-2">
                 <div className="topcv-form-group">
-                  <label className="topcv-form-label">
+                  <label htmlFor="topcv-deadline-input" className="topcv-form-label">
                     Hạn nhận hồ sơ <span className="req">*</span>
                   </label>
                   <TopCvDatePicker
@@ -813,45 +817,50 @@ export function TopCvEditModal({
                 </div>
 
                 <div className="topcv-form-group">
-                  <label className="topcv-form-label">
+                  <label htmlFor="topcv-quantity-input" className="topcv-form-label">
                     Số lượng tuyển <span className="req">*</span>
                   </label>
-                  <div className="topcv-stepper-box">
+                  <div className="topcv-contact-stepper">
                     <button
                       type="button"
-                      className="topcv-stepper-btn"
+                      className="topcv-stepper-btn-square"
                       onClick={() => update({ quantity: Math.max(0, (form.quantity || 0) - 1) })}
+                      aria-label="Giảm số lượng"
                     >
-                      —
+                      <StepperMinusIcon />
                     </button>
                     <input
+                      id="topcv-quantity-input"
                       type="number"
-                      className="topcv-stepper-input"
+                      className="topcv-stepper-input-center"
                       min={0}
                       value={form.quantity}
                       onChange={(e) => update({ quantity: Math.max(0, Number(e.target.value) || 0) })}
                       required
+                      aria-label="Số lượng tuyển"
                     />
                     <button
                       type="button"
-                      className="topcv-stepper-btn"
+                      className="topcv-stepper-btn-square"
                       onClick={() => update({ quantity: (form.quantity || 0) + 1 })}
+                      aria-label="Tăng số lượng"
                     >
-                      +
+                      <StepperPlusIcon />
                     </button>
                   </div>
                 </div>
               </div>
 
               {/* Row 2: Họ tên & SĐT */}
-              <div className="topcv-grid-2">
+              <div className="topcv-contact-grid-2">
                 <div className="topcv-form-group">
-                  <label className="topcv-form-label">
+                  <label htmlFor="topcv-contact-name-input" className="topcv-form-label">
                     Họ và tên người nhận <span className="req">*</span>
                   </label>
                   <input
+                    id="topcv-contact-name-input"
                     type="text"
-                    className="topcv-input"
+                    className="topcv-contact-input"
                     value={form.contactName}
                     onChange={(e) => update({ contactName: e.target.value })}
                     placeholder="Nguyễn Văn A"
@@ -860,12 +869,13 @@ export function TopCvEditModal({
                 </div>
 
                 <div className="topcv-form-group">
-                  <label className="topcv-form-label">
+                  <label htmlFor="topcv-contact-phone-input" className="topcv-form-label">
                     Số điện thoại <span className="req">*</span>
                   </label>
                   <input
+                    id="topcv-contact-phone-input"
                     type="tel"
-                    className="topcv-input"
+                    className="topcv-contact-input"
                     value={form.contactPhone}
                     onChange={(e) => update({ contactPhone: e.target.value })}
                     placeholder="0987098098"
@@ -874,22 +884,30 @@ export function TopCvEditModal({
                 </div>
               </div>
 
-              {/* Email nhận hồ sơ */}
+              {/* Row 3: Email nhận hồ sơ */}
               <div className="topcv-form-group">
-                <label className="topcv-form-label">
-                  Email nhận hồ sơ <span className="topcv-muted-note">(Tối đa 5 email)</span> <span className="req">*</span>
+                <label htmlFor="topcv-contact-email-input" className="topcv-form-label">
+                  Email nhận hồ sơ <span className="topcv-contact-note">(Tối đa 5 email)</span> <span className="req">*</span>
                 </label>
-                <div className="topcv-email-chips-container">
+                <div className="topcv-contact-emails-box">
                   {form.contactEmails.map((email, index) => (
-                    <span key={email + index} className="topcv-green-chip">
-                      <button type="button" className="topcv-chip-close-btn" onClick={() => removeEmail(index)}>×</button>
-                      {email}
+                    <span key={email} className="topcv-contact-chip">
+                      <span className="topcv-contact-chip-text">{email}</span>
+                      <button
+                        type="button"
+                        className="topcv-contact-chip-close"
+                        onClick={() => removeEmail(index)}
+                        aria-label={`Xóa email ${email}`}
+                      >
+                        <ChipCloseIcon />
+                      </button>
                     </span>
                   ))}
                   {form.contactEmails.length < 5 && (
                     <input
+                      id="topcv-contact-email-input"
                       type="email"
-                      className="topcv-tag-input-inline"
+                      className="topcv-contact-email-input"
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
                       placeholder={form.contactEmails.length === 0 ? "Nhập email rồi nhấn Enter..." : "+ Thêm email..."}
