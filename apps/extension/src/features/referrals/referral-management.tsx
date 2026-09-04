@@ -1553,7 +1553,7 @@ function ApplicationTable({ applications, source }: { applications: ReferralMana
             {applications.map((application, index) => (
               <tr key={application.applicationId}>
                 <td>{String(index + 1).padStart(2, '0')}</td>
-                <td>{application.candidate.fullName}</td>
+                <td title={application.candidate.fullName}>{truncateReferralPersonName(application.candidate.fullName)}</td>
                 <td>{application.jobPosting.title}</td>
                 <td><StatusPill application={application} /></td>
                 <td>{formatDate(application.appliedAt)}</td>

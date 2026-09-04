@@ -17,6 +17,7 @@ import {
   AmisCandidateStageNotificationEntity,
   CandidateStageNotificationStatus,
 } from './entities';
+import { type InterviewSchedule, InterviewScheduleService } from './interview-schedule.service';
 import { MailService } from './mail.service';
 
 export interface CandidateStageTransitionNotificationInput {
@@ -29,6 +30,8 @@ export interface CandidateStageTransitionNotificationInput {
 }
 
 const RETRYABLE_STATUSES: CandidateStageNotificationStatus[] = ['PENDING', 'FAILED'];
+const EMAIL_BRAND_NAME = 'VCS';
+const EMAIL_COMPANY_NAME = 'VCS Recruitment';
 
 @Injectable()
 export class CandidateStageNotificationService {
@@ -41,9 +44,24 @@ export class CandidateStageNotificationService {
     private readonly applicationRepository: Repository<ApplicationEntity>,
     private readonly mailService: MailService,
     private readonly configService: ConfigService,
+    private readonly interviewScheduleService: InterviewScheduleService,
   ) {}
 
   async enqueueForStageTransition(input: CandidateStageTransitionNotificationInput) {
+    return this.enqueueNotification(input, null, this.parseTransitionDate(input.changedAt));
+  }
+
+  async enqueueForInterviewTransition(input: CandidateStageTransitionNotificationInput) {
+    const transitionedAt = this.parseTransitionDate(input.changedAt);
+    const schedule = this.interviewScheduleService.buildSchedule(transitionedAt);
+    return this.enqueueNotification(input, schedule, transitionedAt);
+  }
+
+  private async enqueueNotification(
+    input: CandidateStageTransitionNotificationInput,
+    interviewSchedule: InterviewSchedule | null,
+    transitionedAt: Date,
+  ) {
     try {
       const existing = await this.notificationRepository.findOne({
         where: {
@@ -75,7 +93,11 @@ export class CandidateStageNotificationService {
         candidateEmail: candidateEmail ?? '',
         candidateName: this.optionalText(application.candidate?.name),
         jobTitle: this.optionalText(application.jobPosting?.title),
-        transitionedAt: this.parseTransitionDate(input.changedAt),
+        transitionedAt,
+        interviewScheduledAt: interviewSchedule?.startsAt ?? null,
+        interviewEndsAt: interviewSchedule?.endsAt ?? null,
+        interviewTimezone: interviewSchedule?.timezone ?? null,
+        interviewDurationMinutes: interviewSchedule?.durationMinutes ?? null,
         status: candidateEmail ? 'PENDING' : 'SKIPPED_NO_EMAIL',
         attemptCount: 0,
         lastAttemptAt: null,
@@ -101,15 +123,19 @@ export class CandidateStageNotificationService {
       if (saved.status === 'PENDING') {
         void this.processNotification(saved.id).catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
-          this.logger.error(`Candidate stage email processing failed: ${message}`);
+          this.logger.error(`Candidate notification processing failed: ${message}`);
         });
+      } else if (saved.status === 'SKIPPED_NO_EMAIL') {
+        this.logger.warn(
+          `Skipped ${this.notificationKind(saved)} email for application ${saved.applicationId}, candidate ${saved.amisCandidateId}, round ${saved.amisRecruitmentRoundId}: no valid candidate email.`,
+        );
       }
 
       return saved;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Candidate stage email was not queued for application ${input.applicationId}: ${message}`,
+        `Candidate notification was not queued for application ${input.applicationId}: ${message}`,
       );
       return null;
     }
@@ -177,15 +203,10 @@ export class CandidateStageNotificationService {
 
     try {
       const html = await ejs.renderFile(
-        join(__dirname, 'templates', 'candidate-stage-email.ejs'),
-        {
-          candidateName: notification.candidateName ?? 'Ứng viên',
-          jobTitle: notification.jobTitle ?? 'Vị trí ứng tuyển',
-          roundName: notification.amisRecruitmentRoundName ?? 'Vòng tuyển dụng hiện tại',
-          transitionedAt: this.formatTransitionDate(notification.transitionedAt),
-        },
+        join(__dirname, 'templates', this.templateName(notification)),
+        this.templateData(notification),
       );
-      const subject = `[VCS Recruitment] Cập nhật trạng thái hồ sơ - ${notification.jobTitle ?? 'Vị trí ứng tuyển'}`;
+      const subject = this.subjectFor(notification);
       const sent = await this.mailService.sendMail(
         notification.candidateEmail,
         subject,
@@ -202,7 +223,7 @@ export class CandidateStageNotificationService {
         lastError: null,
       });
       this.logger.log(
-        `Sent candidate stage email for application ${notification.applicationId}, round ${notification.amisRecruitmentRoundId}.`,
+        `Sent ${this.notificationKind(notification)} email for application ${notification.applicationId}, candidate ${notification.amisCandidateId}, email ${notification.candidateEmail}, round ${notification.amisRecruitmentRoundId}.`,
       );
       return true;
     } catch (error) {
@@ -219,13 +240,17 @@ export class CandidateStageNotificationService {
         lastError: message,
       });
       this.logger.warn(
-        `Candidate stage email ${id} failed on attempt ${notification.attemptCount}/${maxAttempts}: ${message}`,
+        `${this.notificationKind(notification)} email ${id} failed for application ${notification.applicationId}, candidate ${notification.amisCandidateId}, round ${notification.amisRecruitmentRoundId} on attempt ${notification.attemptCount}/${maxAttempts}: ${message}`,
       );
       return false;
     }
   }
 
   private buildPlainText(notification: AmisCandidateStageNotificationEntity) {
+    if (this.hasInterviewSchedule(notification)) {
+      return this.buildInterviewPlainText(notification);
+    }
+
     return [
       `Kính chào ${notification.candidateName ?? 'Ứng viên'},`,
       '',
@@ -239,6 +264,79 @@ export class CandidateStageNotificationService {
       'Trân trọng,',
       'VCS Recruitment',
     ].join('\n');
+  }
+
+  private buildInterviewPlainText(notification: AmisCandidateStageNotificationEntity) {
+    const timezone = notification.interviewTimezone as string;
+    const startsAt = notification.interviewScheduledAt as Date;
+    const endsAt = notification.interviewEndsAt as Date;
+    const durationMinutes = notification.interviewDurationMinutes as number;
+    const jobTitle = notification.jobTitle ?? 'Vị trí ứng tuyển';
+    const roundName = notification.amisRecruitmentRoundName ?? 'Vòng phỏng vấn';
+
+    return [
+      `Kính chào ${notification.candidateName ?? 'Ứng viên'},`,
+      '',
+      `VCS Recruitment trân trọng mời bạn tham gia phỏng vấn cho vị trí ${jobTitle}.`,
+      '',
+      `Vòng phỏng vấn: ${roundName}`,
+      `Thời gian: ${this.formatInterviewDate(startsAt, timezone)} từ ${this.formatInterviewTime(startsAt, timezone)} đến ${this.formatInterviewTime(endsAt, timezone)} (${timezone})`,
+      `Thời lượng dự kiến: ${durationMinutes} phút`,
+      '',
+      'Thông tin địa điểm hoặc hình thức phỏng vấn sẽ được bộ phận tuyển dụng thông báo nếu có.',
+      '',
+      'Trân trọng,',
+      EMAIL_COMPANY_NAME,
+    ].join('\n');
+  }
+
+  private templateName(notification: AmisCandidateStageNotificationEntity) {
+    return this.hasInterviewSchedule(notification)
+      ? 'interview-invitation-email.ejs'
+      : 'candidate-stage-email.ejs';
+  }
+
+  private templateData(notification: AmisCandidateStageNotificationEntity) {
+    const baseData = {
+      candidateName: notification.candidateName ?? 'Ứng viên',
+      jobTitle: notification.jobTitle ?? 'Vị trí ứng tuyển',
+      roundName: notification.amisRecruitmentRoundName ?? 'Vòng tuyển dụng hiện tại',
+      transitionedAt: this.formatTransitionDate(notification.transitionedAt),
+    };
+    if (!this.hasInterviewSchedule(notification)) return baseData;
+
+    const timezone = notification.interviewTimezone as string;
+    const startsAt = notification.interviewScheduledAt as Date;
+    const endsAt = notification.interviewEndsAt as Date;
+    const durationMinutes = notification.interviewDurationMinutes as number;
+    return {
+      ...baseData,
+      interviewDate: this.formatInterviewDate(startsAt, timezone),
+      interviewStart: this.formatInterviewTime(startsAt, timezone),
+      interviewEnd: this.formatInterviewTime(endsAt, timezone),
+      interviewTimezone: timezone,
+      interviewDurationMinutes: durationMinutes,
+    };
+  }
+
+  private subjectFor(notification: AmisCandidateStageNotificationEntity) {
+    const jobTitle = notification.jobTitle ?? 'Vị trí ứng tuyển';
+    if (this.hasInterviewSchedule(notification)) {
+      return `[${EMAIL_BRAND_NAME}] Thư mời phỏng vấn – ${jobTitle}`;
+    }
+
+    return `[${EMAIL_COMPANY_NAME}] Cập nhật trạng thái hồ sơ - ${jobTitle}`;
+  }
+
+  private notificationKind(notification: AmisCandidateStageNotificationEntity) {
+    return this.hasInterviewSchedule(notification) ? 'Interview invitation' : 'Candidate stage';
+  }
+
+  private hasInterviewSchedule(notification: AmisCandidateStageNotificationEntity) {
+    return notification.interviewScheduledAt !== null
+      && notification.interviewEndsAt !== null
+      && Boolean(notification.interviewTimezone)
+      && notification.interviewDurationMinutes !== null;
   }
 
   private configuredAttempts(key: string, fallback: number) {
@@ -266,6 +364,25 @@ export class CandidateStageNotificationService {
       month: '2-digit',
       year: 'numeric',
     });
+  }
+
+  private formatInterviewDate(value: Date, timezone: string) {
+    return new Intl.DateTimeFormat('vi-VN', {
+      timeZone: timezone,
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(value);
+  }
+
+  private formatInterviewTime(value: Date, timezone: string) {
+    return new Intl.DateTimeFormat('vi-VN', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(value);
   }
 
   private normalizeEmail(value: string | null | undefined) {

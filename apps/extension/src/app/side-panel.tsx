@@ -112,6 +112,7 @@ import {
   buildAmisJobSnapshotFromJobDescription,
   buildAmisUploadCvFileName,
   canUploadApplicationCv,
+  createAmisRefreshCaptureMessage,
   formatAmisCandidateSourceSelectionFailure,
   getActiveTab,
   getAnyAmisTab,
@@ -542,6 +543,7 @@ function SidePanel() {
   const activeAmisRecruitmentIdRef = useRef<string | null>(null);
   const currentAmisUserIdRef = useRef<string | null>(null);
   const activeSnapshotRecruitmentIdRef = useRef<string | null>(null);
+  const lastRequestedAmisRefreshSyncKeyRef = useRef<string | null>(null);
   const applicationsRequestSeqRef = useRef(0);
   const amisCandidateStageOverridesRef = useRef(new Map<string, {
     amisRecruitmentRoundId: string;
@@ -1667,6 +1669,7 @@ function SidePanel() {
     activeTab: { id: number; url?: string },
     context: ReturnType<typeof parseAmisRecruitmentContextFromUrl>,
     pageKind: string | null,
+    forceSnapshotRefresh = false,
   ) {
     setActiveAmisCandidateId(context.amisCandidateId);
 
@@ -1717,7 +1720,7 @@ function SidePanel() {
     }
 
     await refreshPostingSnapshotForActiveContext(context.amisRecruitmentId, activeTab, {
-      force: contextChanged,
+      force: contextChanged || forceSnapshotRefresh,
       silent: true,
       sourceUrl: context.sourceUrl ?? activeTab.url,
     });
@@ -1871,10 +1874,16 @@ function SidePanel() {
     // the first applications request after a hard browser refresh.
     setCurrentAmisUserIdentity(null);
     await syncAmisCurrentUserIdentityFromTab(tabId);
-    await refreshAmisRecruitmentContextFromActiveTab({ silent: true, sourceTabId: tabId });
+    await refreshAmisRecruitmentContextFromActiveTab({
+      silent: true,
+      sourceTabId: tabId,
+      forceSnapshotRefresh: true,
+    });
   }
 
-  async function refreshAmisRecruitmentContextFromActiveTab(options: { silent?: boolean; sourceTabId?: number } = {}) {
+  async function refreshAmisRecruitmentContextFromActiveTab(
+    options: { silent?: boolean; sourceTabId?: number; forceSnapshotRefresh?: boolean } = {},
+  ) {
     try {
       const activeTab = await getActiveTab();
       if (options.sourceTabId !== undefined && activeTab.id !== options.sourceTabId) return;
@@ -1905,7 +1914,12 @@ function SidePanel() {
       }
 
       lastAmisJobInitiationResetKeyRef.current = null;
-      await refreshResolvedAmisRecruitmentContext(activeTab, resolution.context, resolution.pageKind);
+      await refreshResolvedAmisRecruitmentContext(
+        activeTab,
+        resolution.context,
+        resolution.pageKind,
+        options.forceSnapshotRefresh === true,
+      );
     } catch (err) {
       if (!options.silent) setApplicationsMessage(toErrorMessage(err));
     }
@@ -2092,6 +2106,14 @@ function SidePanel() {
       ) {
         return;
       }
+    }
+
+    if (
+      latestState.status === 'ERROR'
+      || latestState.status === 'SKIPPED'
+      || latestState.status === 'AUTH_REQUIRED'
+    ) {
+      lastRequestedAmisRefreshSyncKeyRef.current = null;
     }
 
     applyAutoSyncState(latestState, { force: true });
@@ -2326,7 +2348,7 @@ function SidePanel() {
     if (!options.force && activeSnapshotRecruitmentIdRef.current === normalizedRecruitmentId) return;
 
     const refreshSeq = ++postingSnapshotRefreshSeqRef.current;
-    if (await applyStoredPostingSnapshotForRecruitment(normalizedRecruitmentId, refreshSeq)) return;
+    if (!options.force && await applyStoredPostingSnapshotForRecruitment(normalizedRecruitmentId, refreshSeq)) return;
 
     if (!chrome.scripting || !activeTab.id || !activeTab.url?.startsWith('https://amisapp.misa.vn/')) return;
 
@@ -2358,6 +2380,7 @@ function SidePanel() {
         postingSnapshotRefreshAttemptsRef.current.delete(attemptKey);
         applyExtractionResult(extraction);
         await selectExistingJobDescriptionForAmisCapture(extraction, tokenRef.current, activeTab.id);
+        await requestAmisRefreshAutoSync(activeTab.id, extraction);
         setState('READY');
         return;
       }
@@ -2368,6 +2391,23 @@ function SidePanel() {
       }
     } catch (err) {
       if (!options.silent) setError(toErrorMessage(err));
+    }
+  }
+
+  async function requestAmisRefreshAutoSync(tabId: number, capture: AmisExtractionResult) {
+    if (!tokenRef.current || !capture.detected || !capture.snapshot || !capture.amisRecruitmentId) return;
+
+    const syncKey = `${capture.amisRecruitmentId}:${capture.amisStatus ?? ''}:${JSON.stringify(capture.snapshot)}`;
+    if (lastRequestedAmisRefreshSyncKeyRef.current === syncKey) return;
+
+    lastRequestedAmisRefreshSyncKeyRef.current = syncKey;
+    try {
+      await chrome.runtime?.sendMessage?.(createAmisRefreshCaptureMessage(capture, tabId));
+    } catch (error) {
+      if (lastRequestedAmisRefreshSyncKeyRef.current === syncKey) {
+        lastRequestedAmisRefreshSyncKeyRef.current = null;
+      }
+      throw error;
     }
   }
 

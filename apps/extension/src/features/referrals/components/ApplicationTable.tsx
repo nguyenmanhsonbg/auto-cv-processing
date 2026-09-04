@@ -187,9 +187,7 @@ export function ApplicationTable({ applications, source }: ApplicationTableProps
               <tr key={application.applicationId}>
                 <td>{String(index + 1).padStart(2, '0')}</td>
                 <td title={application.candidate.fullName}>
-                  {source === 'FREELANCER'
-                    ? truncateCandidateName(application.candidate.fullName)
-                    : application.candidate.fullName}
+                  {truncateCandidateName(application.candidate.fullName)}
                 </td>
                 <td>{application.jobPosting.title}</td>
                 <td><StatusPill application={application} /></td>

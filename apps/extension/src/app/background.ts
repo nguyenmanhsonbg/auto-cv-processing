@@ -68,10 +68,10 @@ import {
 } from '@/features/facebook/facebook-publish-orchestrator';
 import { saveLastFacebookPublishProgress } from '@/stores/facebook-publish-store';
 import { getSelectedJobQuestionContextForTab, getSelectedJobQuestionIdsForTab } from '@/stores/selected-job-question-store';
-import { resolveSelectedVcsJobDescriptionId } from '@/integrations/amis/amis-auto-sync-payload';
 import {
   AMIS_TAB_REFRESHED_MESSAGE_TYPE,
   GET_AMIS_SESSION_STATE_MESSAGE_TYPE,
+  isAmisRefreshCaptureMessage,
   sendMessageToAmisTab,
 } from '@/integrations/amis/amis-helpers';
 import { isAuthenticatedAmisSessionState } from '@/integrations/amis/amis-session-state';
@@ -267,6 +267,15 @@ chrome.runtime?.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  if (isAmisRefreshCaptureMessage(message)) {
+    void handleAmisSaved(message.payload, {
+      tab: {
+        id: message.sourceTabId,
+        url: message.payload.url,
+      },
+    }, { openOverlay: false });
+    return;
+  }
 
   if (!isAmisSavedMessage(message)) return;
 
@@ -650,7 +659,11 @@ interface AmisAutoSyncContext {
   autoSyncKey: string;
 }
 
-async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMessageSender) {
+async function handleAmisSaved(
+  capture: AmisExtractionResult,
+  sender: ChromeMessageSender,
+  options: { openOverlay?: boolean } = {},
+) {
   await saveLastAmisCapture(capture);
   await appendAmisDiagnostic({
     type: 'BACKGROUND_RECEIVED_CAPTURE',
@@ -663,7 +676,7 @@ async function handleAmisSaved(capture: AmisExtractionResult, sender: ChromeMess
       hasAmisRecruitmentId: Boolean(capture.amisRecruitmentId),
     },
   });
-  await openAmisOverlay(sender);
+  if (options.openOverlay !== false) await openAmisOverlay(sender);
 
   const enrichedCapture = await enrichCaptureFromDom(capture, sender);
   await saveEnrichedAmisCapture(capture, enrichedCapture);
@@ -836,9 +849,6 @@ async function syncAmisCaptureToBackend(
     }
   }
   await heartbeatExtensionInstance(accessToken);
-  if (!resolveSelectedVcsJobDescriptionId(context.selectedJobDescriptionId)) {
-    throw new Error('JOB_DESCRIPTION_REQUIRED: Select an existing VCS Job Description before saving an AMIS recruitment.');
-  }
   const selectedQuestionIds = await getSelectedJobQuestionIdsForTab(context.sender.tab?.id ?? 0);
   return syncAndPublishAmisJob(
     accessToken,

@@ -182,7 +182,7 @@ export class ExtensionIntegrationService {
     dto: SyncAmisJobPostingDto,
     context: ExtensionSyncContext,
   ): Promise<ExtensionSyncResponseDto> {
-    if (!Array.isArray(dto.selectedQuestionIds)) {
+    if (dto.selectedQuestionIds !== undefined && !Array.isArray(dto.selectedQuestionIds)) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'Request payload is invalid.',
@@ -722,6 +722,8 @@ export class ExtensionIntegrationService {
     const jobDescription = await this.resolvePostingJobDescription(
       manager,
       dto.jobDescriptionId,
+      dto,
+      createdBy.id,
     );
     const version = await this.findActiveVersionOrCreateFromJobDescription(
       manager,
@@ -796,10 +798,18 @@ export class ExtensionIntegrationService {
 
     const now = new Date();
     const closeAt = this.parseDeadline(dto.snapshot.deadline, now);
-    const jobDescription = await this.resolvePostingJobDescription(
-      manager,
-      dto.jobDescriptionId,
-    );
+    let jobDescription = posting.jobDescription;
+    if (dto.jobDescriptionId) {
+      jobDescription = await this.resolvePostingJobDescription(
+        manager,
+        dto.jobDescriptionId,
+        dto,
+        context.actorUserId,
+      );
+    }
+    if (!jobDescription) {
+      jobDescription = await this.resolvePostingJobDescription(manager, undefined, dto, context.actorUserId);
+    }
     const version = await this.findActiveVersionOrCreateFromJobDescription(
       manager,
       jobDescription.id,
@@ -993,8 +1003,21 @@ export class ExtensionIntegrationService {
   private async resolvePostingJobDescription(
     manager: EntityManager,
     jobDescriptionId: string | undefined,
+    dto?: SyncAmisJobPostingDto,
+    actorUserId?: string,
   ) {
-    const normalizedJobDescriptionId = this.requireText(jobDescriptionId, 'jobDescriptionId');
+    const normalizedJobDescriptionId = this.optionalText(jobDescriptionId);
+    if (!normalizedJobDescriptionId) {
+      if (!dto || dto.sourceSystem !== ExtensionSourceSystem.AMIS || !actorUserId) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'jobDescriptionId is required unless an AMIS posting snapshot is available.',
+        });
+      }
+
+      return this.resolveOrCreateAmisJobDescriptionForPosting(manager, dto, actorUserId);
+    }
+
     const jobDescription = await manager.getRepository(JobDescriptionEntity).findOne({
       where: { id: normalizedJobDescriptionId },
       relations: ['position', 'level', 'createdBy'],
@@ -1012,6 +1035,58 @@ export class ExtensionIntegrationService {
       });
     }
     return jobDescription;
+  }
+
+  private async resolveOrCreateAmisJobDescriptionForPosting(
+    manager: EntityManager,
+    dto: SyncAmisJobPostingDto,
+    actorUserId: string,
+  ) {
+    await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      `amis-jd:${dto.amisRecruitmentId}`,
+    ]);
+
+    const snapshot = this.normalizeAmisJobDescriptionSnapshot(dto.snapshot);
+    const snapshotHash = createAmisSnapshotHash(snapshot);
+    const repo = manager.getRepository(JobDescriptionEntity);
+    const existing = await repo.findOne({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        sourceJobId: dto.amisRecruitmentId,
+      },
+    });
+    const now = new Date();
+    const contentChanged = !existing || existing.sourceContentHash !== snapshotHash;
+    const jobDescription = existing ?? repo.create({ createdById: actorUserId });
+
+    if (contentChanged || !existing) {
+      jobDescription.title = snapshot.title;
+      jobDescription.description = snapshot.description;
+      jobDescription.summary = snapshot.summary;
+      jobDescription.requirements = snapshot.requirements.rawText;
+      jobDescription.benefits = this.normalizeBenefits(snapshot.benefits);
+      jobDescription.applicationDeadline = snapshot.deadline ?? null;
+      jobDescription.status = JobDescriptionStatus.ACTIVE;
+      jobDescription.sourceSystem = ExtensionSourceSystem.AMIS;
+      jobDescription.sourceJobId = dto.amisRecruitmentId;
+      jobDescription.sourceUrl = this.optionalText(dto.amisUrl) ?? null;
+      jobDescription.sourceModifiedAt = now;
+      jobDescription.sourceContentHash = snapshotHash;
+      jobDescription.sourceSnapshotHash = snapshotHash;
+      jobDescription.sourceSnapshot = snapshot as unknown as Record<string, unknown>;
+      jobDescription.sourcePayload = {
+        amisRecruitmentId: dto.amisRecruitmentId,
+        snapshot,
+      };
+    } else {
+      jobDescription.status = JobDescriptionStatus.ACTIVE;
+      jobDescription.sourceUrl = this.optionalText(dto.amisUrl) ?? jobDescription.sourceUrl;
+    }
+
+    jobDescription.sourceLastSyncedAt = now;
+    jobDescription.lastSyncedAt = now;
+
+    return repo.save(jobDescription);
   }
 
   private async findActiveVersionOrCreateFromJobDescription(
@@ -1505,23 +1580,55 @@ export class ExtensionIntegrationService {
   }
 
   private async resolveJobPostingIdByAmisRecruitmentId(amisRecruitmentId: string) {
+    const normalizedRecruitmentId = this.requireText(amisRecruitmentId, 'amisRecruitmentId');
+    const externalReferenceRepository = this.dataSource.getRepository(RecruitmentExternalReferenceEntity);
     const reference = await this.dataSource.getRepository(RecruitmentExternalReferenceEntity).findOne({
       where: {
         sourceSystem: ExtensionSourceSystem.AMIS,
         externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
-        externalId: this.requireText(amisRecruitmentId, 'amisRecruitmentId'),
+        externalId: normalizedRecruitmentId,
         internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
       },
     });
 
-    if (!reference) {
-      throw new BadRequestException({
-        code: 'AMIS_RECRUITMENT_NOT_SYNCED',
-        message: 'AMIS recruitment is not mapped to an internal job posting yet.',
+    if (reference) return reference.internalEntityId;
+
+    const jobDescription = await this.dataSource.getRepository(JobDescriptionEntity).findOne({
+      where: {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        sourceJobId: normalizedRecruitmentId,
+        status: JobDescriptionStatus.ACTIVE,
+      },
+    });
+    if (jobDescription) {
+      const postings = await this.dataSource.getRepository(JobPostingEntity).find({
+        where: { jobDescriptionId: jobDescription.id },
+        order: { createdAt: 'DESC' },
       });
+      const posting = postings[0];
+      if (posting) {
+        await externalReferenceRepository.save(
+          externalReferenceRepository.create({
+            sourceSystem: ExtensionSourceSystem.AMIS,
+            externalEntityType: ExtensionExternalEntityType.JOB_POSTING,
+            externalId: normalizedRecruitmentId,
+            externalUrl: jobDescription.sourceUrl ?? null,
+            internalEntityType: ExtensionInternalEntityType.JOB_POSTING,
+            internalEntityId: posting.id,
+            lastSyncedAt: new Date(),
+            metadata: {
+              repairedFrom: 'job_descriptions.source_job_id',
+            },
+          }),
+        );
+        return posting.id;
+      }
     }
 
-    return reference.internalEntityId;
+    throw new BadRequestException({
+      code: 'AMIS_RECRUITMENT_NOT_SYNCED',
+      message: 'AMIS recruitment is not mapped to an internal job posting yet.',
+    });
   }
 
   private buildAmisExternalApplicationId(item: {
@@ -2186,11 +2293,30 @@ export class ExtensionIntegrationService {
         },
       })
       : null;
+    const previousRoundId = this.optionalText(rawPayload.recruitmentRoundId)
+      ?? this.optionalText(dto.previousRecruitmentRoundId);
+    const previousRecruitmentRound = dto.isTransitionEvent === true && previousRoundId
+      ? await this.dataSource.getRepository(AmisRecruitmentRoundEntity).findOne({
+        where: {
+          sourceSystem: ExtensionSourceSystem.AMIS,
+          amisRecruitmentId: normalizedRecruitmentId,
+          amisRoundId: previousRoundId,
+          isActive: true,
+        },
+      })
+      : null;
     const recruitmentRoundType = dto.recruitmentRoundType ?? recruitmentRound?.roundType ?? null;
     const recruitmentRoundSortOrder = dto.recruitmentRoundSortOrder ?? recruitmentRound?.sortOrder ?? null;
-    const previousRoundType = dto.previousRecruitmentRoundType ?? null;
+    const previousRoundType = dto.previousRecruitmentRoundType
+      ?? previousRecruitmentRound?.roundType
+      ?? null;
     const startsAtCurrentInterviewRound = recruitmentRoundType === AMIS_INTERVIEW_ROUND_TYPE;
     const startsFromPreviousInterviewRound = previousRoundType === AMIS_INTERVIEW_ROUND_TYPE;
+    const isSameRecruitmentRound = previousRoundId === normalizedRoundId;
+    const shouldSendInterviewInvitation = dto.isTransitionEvent === true
+      && startsAtCurrentInterviewRound
+      && !isSameRecruitmentRound
+      && (previousRoundType !== AMIS_INTERVIEW_ROUND_TYPE || Boolean(previousRoundId));
     const evaluationStartsFromPreviousRound = startsFromPreviousInterviewRound;
     const existingInterviewEvaluationStart = this.readInterviewEvaluationStart(rawPayload);
     const shouldStartInterviewEvaluation = dto.isTransitionEvent === true
@@ -2245,14 +2371,19 @@ export class ExtensionIntegrationService {
         attractivePersonnelName: this.optionalText(rawPayload.attractivePersonnelName),
         actorUserId: context.actorUserId,
       });
-      await this.candidateStageNotificationService.enqueueForStageTransition({
+      const notificationInput = {
         applicationId: applicationRow.application.id,
         amisRecruitmentId: normalizedRecruitmentId,
         amisCandidateId: normalizedCandidateId,
         amisRecruitmentRoundId: normalizedRoundId,
         amisRecruitmentRoundName: this.optionalText(dto.recruitmentRoundName),
         changedAt: this.optionalText(dto.changedAt),
-      });
+      };
+      if (shouldSendInterviewInvitation) {
+        await this.candidateStageNotificationService.enqueueForInterviewTransition(notificationInput);
+      } else if (!startsAtCurrentInterviewRound) {
+        await this.candidateStageNotificationService.enqueueForStageTransition(notificationInput);
+      }
     }
 
     return {
@@ -3061,10 +3192,11 @@ export class ExtensionIntegrationService {
     const metadataJobDescriptionId = this.isRecord(dto.metadata)
       ? this.optionalText(dto.metadata.selectedJobDescriptionId)
       : null;
-    const jobDescriptionId = this.requireText(
+    const jobDescriptionId = this.optionalText(
       dto.jobDescriptionId ?? metadataJobDescriptionId ?? undefined,
-      'jobDescriptionId',
     );
+
+    if (!jobDescriptionId) return undefined;
 
     if (!this.isUuid(jobDescriptionId)) {
       throw new BadRequestException({

@@ -6,6 +6,7 @@ import { SchedulerService } from './scheduler.service';
 import { MailService } from './mail.service';
 import { CvStageReminderService } from './cv-stage-reminder.service';
 import { CandidateStageNotificationService } from './candidate-stage-notification.service';
+import { InterviewScheduleService } from './interview-schedule.service';
 import { ApplicationEntity } from '../applications/entities/application.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import {
@@ -29,12 +30,14 @@ import { AmisCandidateStageNotificationEntity } from './entities';
     MailService,
     CvStageReminderService,
     CandidateStageNotificationService,
+    InterviewScheduleService,
   ],
   exports: [
     NotificationService,
     MailService,
     CvStageReminderService,
     CandidateStageNotificationService,
+    InterviewScheduleService,
   ],
 })
 export class NotificationModule {}

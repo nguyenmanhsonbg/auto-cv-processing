@@ -63,6 +63,18 @@ export class AmisCandidateStageNotificationEntity {
   @Column({ name: 'transitioned_at', type: 'timestamp' })
   transitionedAt: Date;
 
+  @Column({ name: 'interview_scheduled_at', type: 'timestamptz', nullable: true })
+  interviewScheduledAt: Date | null;
+
+  @Column({ name: 'interview_ends_at', type: 'timestamptz', nullable: true })
+  interviewEndsAt: Date | null;
+
+  @Column({ name: 'interview_timezone', type: 'varchar', nullable: true })
+  interviewTimezone: string | null;
+
+  @Column({ name: 'interview_duration_minutes', type: 'integer', nullable: true })
+  interviewDurationMinutes: number | null;
+
   @Column({ type: 'varchar', default: 'PENDING' })
   status: CandidateStageNotificationStatus;
 

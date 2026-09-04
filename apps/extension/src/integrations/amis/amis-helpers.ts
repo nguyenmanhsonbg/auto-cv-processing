@@ -23,6 +23,7 @@ export const GET_AMIS_RECRUITMENT_ROUNDS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMEN
 export const GET_AMIS_RECRUITMENT_BOARD_MEMBERS_MESSAGE_TYPE = 'VCS_GET_AMIS_RECRUITMENT_BOARD_MEMBERS';
 export const RECRUITMENT_CONTEXT_CHANGED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_CONTEXT_CHANGED';
 export const AMIS_TAB_REFRESHED_MESSAGE_TYPE = 'AMIS_TAB_REFRESHED';
+export const AMIS_RECRUITMENT_REFRESH_CAPTURED_MESSAGE_TYPE = 'AMIS_RECRUITMENT_REFRESH_CAPTURED';
 export const AMIS_APPLICATIONS_SYNCED_MESSAGE_TYPE = 'AMIS_APPLICATIONS_SYNCED';
 export const AMIS_CANDIDATE_STAGE_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_STAGE_CHANGED';
 export const AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED_MESSAGE_TYPE = 'AMIS_CANDIDATE_ATTRACTIVE_PERSONNEL_CHANGED';
@@ -433,6 +434,53 @@ export function isAmisCaptureUpdatedMessage(value: unknown): value is {
     && ((value as { sourceTabId?: unknown }).sourceTabId === undefined
       || typeof (value as { sourceTabId?: unknown }).sourceTabId === 'number')
   );
+}
+
+export function createAmisRefreshCaptureMessage(
+  payload: AmisExtractionResult,
+  sourceTabId: number,
+) {
+  return {
+    type: AMIS_RECRUITMENT_REFRESH_CAPTURED_MESSAGE_TYPE,
+    sourceTabId,
+    payload,
+  } as const;
+}
+
+export function isAmisRefreshCaptureMessage(value: unknown): value is {
+  type: typeof AMIS_RECRUITMENT_REFRESH_CAPTURED_MESSAGE_TYPE;
+  sourceTabId: number;
+  payload: AmisExtractionResult;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+
+  const candidate = value as {
+    type?: unknown;
+    sourceTabId?: unknown;
+    payload?: unknown;
+  };
+  if (
+    candidate.type !== AMIS_RECRUITMENT_REFRESH_CAPTURED_MESSAGE_TYPE
+    || typeof candidate.sourceTabId !== 'number'
+    || !Number.isInteger(candidate.sourceTabId)
+    || candidate.sourceTabId < 0
+  ) {
+    return false;
+  }
+
+  const payload = candidate.payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  const extraction = payload as Partial<AmisExtractionResult>;
+  return typeof extraction.status === 'string'
+    && typeof extraction.detected === 'boolean'
+    && (
+      extraction.source === 'DOM_HEURISTIC'
+      || extraction.source === 'AMIS_SAVE_RECRUITMENT_API'
+      || extraction.source === 'AMIS_DETAIL_API'
+    )
+    && typeof extraction.url === 'string'
+    && Array.isArray(extraction.missingFields);
 }
 
 export function isRecruitmentContextChangedMessage(value: unknown): value is {

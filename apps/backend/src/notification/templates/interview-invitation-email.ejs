@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Thư mời phỏng vấn</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#1e293b">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
+      VCS Recruitment trân trọng mời bạn tham gia phỏng vấn cho vị trí <%= jobTitle %>.
+    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f1f5f9">
+      <tr>
+        <td align="center" style="padding:28px 12px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:640px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden">
+            <tr>
+              <td style="padding:22px 28px;background:#047857;color:#ffffff">
+                <div style="font-size:13px;letter-spacing:.4px;font-weight:700;text-transform:uppercase">VCS Recruitment</div>
+                <div style="margin-top:8px;font-size:24px;line-height:32px;font-weight:700">Thư mời phỏng vấn</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px">
+                <p style="margin:0 0 16px;font-size:16px;line-height:24px">Kính chào <strong><%= candidateName %></strong>,</p>
+                <p style="margin:0 0 18px;font-size:15px;line-height:24px;color:#334155">
+                  VCS Recruitment trân trọng mời bạn tham gia phỏng vấn cho vị trí <strong><%= jobTitle %></strong>.
+                </p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:20px 0;background:#f0fdf4;border:1px solid #bbf7d0;border-left:5px solid #047857;border-radius:8px">
+                  <tr>
+                    <td style="padding:16px 18px">
+                      <div style="font-size:12px;color:#166534;text-transform:uppercase;font-weight:700">Thông tin phỏng vấn</div>
+                      <div style="margin-top:8px;font-size:16px;line-height:24px;color:#065f46;font-weight:700"><%= roundName %></div>
+                      <div style="margin-top:12px;font-size:14px;line-height:22px;color:#334155"><strong>Vị trí:</strong> <%= jobTitle %></div>
+                      <div style="margin-top:4px;font-size:14px;line-height:22px;color:#334155"><strong>Ngày:</strong> <%= interviewDate %></div>
+                      <div style="margin-top:4px;font-size:14px;line-height:22px;color:#334155"><strong>Thời gian:</strong> <%= interviewStart %> – <%= interviewEnd %></div>
+                      <div style="margin-top:4px;font-size:14px;line-height:22px;color:#334155"><strong>Thời lượng:</strong> <%= interviewDurationMinutes %> phút</div>
+                      <div style="margin-top:4px;font-size:13px;line-height:20px;color:#475569">Múi giờ: <%= interviewTimezone %></div>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:20px 0 0;font-size:14px;line-height:22px;color:#334155">
+                  Bộ phận tuyển dụng sẽ gửi thêm thông tin về hình thức hoặc địa điểm phỏng vấn nếu có.
+                </p>
+                <p style="margin:24px 0 0;font-size:14px;line-height:22px;color:#334155">Trân trọng,<br><strong>VCS Recruitment</strong></p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:12px;line-height:20px;color:#64748b">
+                Email được gửi tự động. Vui lòng không trả lời trực tiếp email này.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

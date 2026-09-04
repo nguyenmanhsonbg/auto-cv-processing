@@ -2,6 +2,12 @@ import { ExtensionSourceSystem } from './enums';
 import { ExtensionIntegrationService } from './extension-integration.service';
 import { AmisRecruitmentRoundEntity } from './entities';
 import { UserEntity } from '../auth/entities/user.entity';
+import { JobDescriptionEntity } from '../job-descriptions/entities/job-description.entity';
+import { JobDescriptionStatus } from '../recruitment-common';
+import { JobPostingEntity } from '../job-postings/entities/job-posting.entity';
+import { RecruitmentExternalReferenceEntity } from './entities/recruitment-external-reference.entity';
+import { ExtensionIdempotencyDecision } from './extension-idempotency.service';
+import { UserRole } from '@interview-assistant/shared';
 
 declare const describe: any;
 declare const expect: any;
@@ -101,5 +107,165 @@ describe('ExtensionIntegrationService committee application visibility', () => {
       relations: ['roleMemberships'],
     });
     expect(actor.roles).toEqual(expect.arrayContaining(['INTERNAL', 'COMMITTEE']));
+  });
+});
+
+describe('ExtensionIntegrationService AMIS job posting sync', () => {
+  it('accepts an automatic sync payload without selected questionnaire ids', async () => {
+    const { service } = createService([]);
+    service.idempotencyService = {
+      assertKeyCanBeUsed: jest.fn().mockResolvedValue({
+        decision: ExtensionIdempotencyDecision.REPLAY_SUCCEEDED,
+        record: {
+          responseData: {
+            resultCode: 'CREATED',
+            jobDescriptionId: 'job-description-1',
+            jobDescriptionVersionId: 'job-description-version-1',
+            jobPostingId: 'job-posting-1',
+            amisRecruitmentId: '46656',
+            snapshotHash: 'snapshot-hash',
+            snapshotChanged: true,
+            channelPostings: [],
+          },
+        },
+      }),
+    };
+
+    const response = await service.syncAndPublishFromAmis({
+      sourceSystem: ExtensionSourceSystem.AMIS,
+      amisRecruitmentId: '46656',
+      action: 'PUBLISH',
+      snapshot: {
+        title: 'Backend Engineer',
+        description: 'Build backend services.',
+        requirements: { rawText: 'Node.js' },
+      },
+      channels: [],
+    } as never, {
+      actorUserId: 'actor-1',
+      actorRole: UserRole.HR,
+      idempotencyKey: 'idempotency-key-1',
+    });
+
+    expect(response.resultCode).toBe('DUPLICATE_OR_IDEMPOTENT_REPLAY');
+  });
+
+  it('accepts an AMIS posting without a preselected internal job description', () => {
+    const { service } = createService([]);
+    const normalized = (service as any).normalizeRequest({
+      sourceSystem: ExtensionSourceSystem.AMIS,
+      amisRecruitmentId: '46656',
+      action: 'PUBLISH',
+      snapshot: {
+        title: 'Backend Engineer',
+        description: 'Build backend services.',
+        requirements: { rawText: 'Node.js' },
+      },
+      channels: [],
+      selectedQuestionIds: [],
+    });
+
+    expect(normalized.jobDescriptionId).toBeUndefined();
+  });
+
+  it('creates an AMIS-backed job description when no internal job description is selected', async () => {
+    const { service } = createService([]);
+    const jobDescriptionRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((value: Record<string, unknown>) => value),
+      save: jest.fn(async (value: Record<string, unknown>) => ({
+        ...value,
+        id: 'amis-job-description-1',
+      })),
+    };
+    const manager = {
+      query: jest.fn(),
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === JobDescriptionEntity) return jobDescriptionRepository;
+        throw new Error(`Unexpected repository: ${String(entity)}`);
+      }),
+    };
+
+    const jobDescription = await (service as any).resolvePostingJobDescription(
+      manager,
+      undefined,
+      {
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        amisRecruitmentId: '46656',
+        amisUrl: 'https://amis.example/recruitment/46656',
+        snapshot: {
+          title: 'Backend Engineer',
+          description: 'Build backend services.',
+          summary: 'Backend role',
+          requirements: { rawText: 'Node.js' },
+          benefits: 'Health insurance',
+          deadline: '2026-12-31',
+        },
+      },
+      'actor-1',
+    );
+
+    expect(jobDescription.id).toBe('amis-job-description-1');
+    expect(jobDescriptionRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      createdById: 'actor-1',
+      title: 'Backend Engineer',
+      description: 'Build backend services.',
+      requirements: 'Node.js',
+      applicationDeadline: '2026-12-31',
+      sourceSystem: ExtensionSourceSystem.AMIS,
+      sourceJobId: '46656',
+      sourceUrl: 'https://amis.example/recruitment/46656',
+      status: JobDescriptionStatus.ACTIVE,
+    }));
+    expect(jobDescriptionRepository.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('repairs a missing AMIS mapping from an existing AMIS job description posting', async () => {
+    const service = Object.create(ExtensionIntegrationService.prototype) as any;
+    const externalReferenceRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((value: Record<string, unknown>) => value),
+      save: jest.fn(async (value: Record<string, unknown>) => ({
+        ...value,
+        id: 'external-reference-1',
+      })),
+    };
+    const jobDescriptionRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'job-description-1',
+        sourceSystem: ExtensionSourceSystem.AMIS,
+        sourceJobId: '46657',
+        sourceUrl: 'https://amisapp.misa.vn/recruitment/46657',
+        status: JobDescriptionStatus.ACTIVE,
+      }),
+    };
+    const jobPostingRepository = {
+      find: jest.fn().mockResolvedValue([{
+        id: 'job-posting-1',
+        jobDescriptionId: 'job-description-1',
+        createdAt: new Date('2026-09-04T00:00:00.000Z'),
+      }]),
+    };
+    service.dataSource = {
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === RecruitmentExternalReferenceEntity) return externalReferenceRepository;
+        if (entity === JobDescriptionEntity) return jobDescriptionRepository;
+        if (entity === JobPostingEntity) return jobPostingRepository;
+        throw new Error(`Unexpected repository: ${String(entity)}`);
+      }),
+    };
+
+    await expect(
+      (service as any).resolveJobPostingIdByAmisRecruitmentId('46657'),
+    ).resolves.toBe('job-posting-1');
+
+    expect(externalReferenceRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      sourceSystem: ExtensionSourceSystem.AMIS,
+      externalEntityType: 'JOB_POSTING',
+      externalId: '46657',
+      internalEntityType: 'JOB_POSTING',
+      internalEntityId: 'job-posting-1',
+    }));
+    expect(externalReferenceRepository.save).toHaveBeenCalledTimes(1);
   });
 });
